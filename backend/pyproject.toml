@@ -31,6 +31,7 @@ markers = [
     "acceptance: ששת העובדים לדוגמה של שטראוס",
     "eval: הערכת מודל השפה (רץ מול מודל אמיתי)",
 ]
+filterwarnings = ["ignore:Using `httpx` with `starlette.testclient`"]
 
 # כל מודול חושף רק את public.py; מנוע החישוב לא תלוי באף מודול אחר.
 [tool.importlinter]
@@ -50,6 +51,7 @@ forbidden_modules = [
     "fastapi",
 ]
 
+# allow_indirect_imports: public.py עצמו מייבא את הפנימיים של המודול שלו; נאסר רק ייבוא ישיר.
 [[tool.importlinter.contracts]]
 name = "modules talk only through public.py"
 type = "forbidden"
@@ -59,4 +61,33 @@ forbidden_modules = [
     "app.modules.calculation.tax",
     "app.modules.rules.loader",
     "app.modules.vehicles.repository",
+    "app.modules.vehicles.models",
 ]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "the API uses modules only through public.py"
+type = "forbidden"
+source_modules = ["app.api"]
+forbidden_modules = [
+    "app.modules.calculation.engine",
+    "app.modules.calculation.tax",
+    "app.modules.calculation.models",
+    "app.modules.rules.loader",
+    "app.modules.rules.models",
+    "app.modules.vehicles.repository",
+    "app.modules.vehicles.models",
+    "app.modules.conversation.agent",
+    "app.modules.conversation.tools",
+    "app.modules.conversation.stage",
+    "app.modules.conversation.repository",
+    "app.modules.conversation.models",
+    "app.modules.conversation.llm",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "the conversation module does not know about HTTP"
+type = "forbidden"
+source_modules = ["app.modules.conversation"]
+forbidden_modules = ["fastapi", "starlette", "app.api"]

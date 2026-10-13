@@ -9,11 +9,15 @@ Full specification: https://claude.ai/code/artifact/59517376-30d7-4cf7-ad98-ed5c
 
 ```bash
 pip install -e ".[dev]"
+alembic upgrade head                        # create/upgrade the schema (alembic owns all tables)
 python -m app.modules.vehicles.import_csv   # load the tax-authority CSV into SQLite
 python -m app.verify                        # must report 12/12
 pytest                                      # all tests must pass
 lint-imports                                # module boundaries must hold
+uvicorn app.api.main:create_app --factory   # run the API (no LLM key → template mode)
 ```
+
+Schema changes: edit the models, then `alembic revision --autogenerate -m "..."`; `tests/test_migrations.py` fails on drift. Keep `alembic.ini` ASCII (alembic reads it in the locale encoding).
 
 ## Architecture
 
@@ -25,10 +29,12 @@ Modular monolith (ports & adapters). Every module can later be extracted into a 
 | `rules` | Loads `config/strauss-rules.json` (as delivered), `config/extensions.yaml` and `config/strauss-data.xlsx`. |
 | `vehicles` | Tax-authority vehicle data and current-car matching. |
 | `cases` | Questions to the transport representative. |
-| `conversation` | State machine and LLM agent. |
+| `conversation` | State machine and LLM agent: tools, number guard, template fallback, LLM adapters. Must not import FastAPI. |
 | `shared` | Money, database, settings. |
 
-A module imports another module **only** through that module's `public.py`.
+`app/api` is the HTTP layer (cookie, rate limits, serialization) and the composition root (`deps.py`, `main.py`).
+
+A module, and `app/api`, imports another module **only** through that module's `public.py`.
 
 ## Rules that must not be broken
 

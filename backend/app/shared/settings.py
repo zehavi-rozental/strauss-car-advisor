@@ -24,6 +24,14 @@ class Settings(BaseSettings):
     llm_fallback_provider: str = ""
     llm_fallback_model: str = ""
     llm_fallback_api_key: str = ""
+    llm_base_url: str = ""            # ספק תואם OpenAI: ריק = ברירת המחדל של הספק
+    llm_fallback_base_url: str = ""
+    llm_timeout_s: float = 20.0
+
+    max_message_chars: int = 1000
+    rate_limit_per_minute: int = 10
+    create_rate_limit_per_minute: int = 20
+    max_messages_per_conversation: int = 80
 
     rep_access_token: str = "demo-rep"
     session_cookie_secure: bool = False

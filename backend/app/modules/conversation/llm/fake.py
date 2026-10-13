@@ -1,0 +1,61 @@
+"""מודל שפה מזויף לבדיקות: תסריט לפי תורות, ורישום של מה שנשלח אליו.
+
+כל תור בתסריט: סבבי קריאות לכלים (קריאה עם כלים) ותשובה מנוסחת (קריאה בלי כלים).
+קריאת הניסוח סוגרת את התור. כשהסבבים נגמרו — תשובה ריקה בלי כלים (סוף החילוץ).
+"""
+from __future__ import annotations
+
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Optional, Sequence
+
+from .port import ChatMessage, LLMError, LLMResponse, ToolCall, ToolSpec
+
+
+@dataclass
+class _Turn:
+    rounds: deque[tuple[ToolCall, ...]] = field(default_factory=deque)
+    reply: Optional[str] = None
+
+
+class FakeLLM:
+    name = "fake"
+
+    def __init__(self) -> None:
+        self.script: deque[_Turn] = deque()
+        self.calls: list[tuple[list[ChatMessage], list[str]]] = []
+
+    def turn(self, *tool_calls: ToolCall, reply: Optional[str] = None,
+             rounds: Sequence[Sequence[ToolCall]] = ()) -> "FakeLLM":
+        """reply=None → הניסוח נכשל (LLMError) והשיחה משתמשת בתבנית."""
+        all_rounds = deque(tuple(r) for r in rounds)
+        if tool_calls:
+            all_rounds.appendleft(tuple(tool_calls))
+        self.script.append(_Turn(rounds=all_rounds, reply=reply))
+        return self
+
+    def complete(self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = ()) -> LLMResponse:
+        self.calls.append((list(messages), [t.name for t in tools]))
+        if tools:
+            if self.script and self.script[0].rounds:
+                return LLMResponse(tool_calls=self.script[0].rounds.popleft())
+            return LLMResponse()
+        if not self.script:
+            raise LLMError("FakeLLM: התסריט נגמר")
+        reply = self.script.popleft().reply
+        if reply is None:
+            raise LLMError("FakeLLM: ניסוח נכשל")
+        return LLMResponse(text=reply)
+
+
+class FailingLLM:
+    """ספק שתמיד נכשל — לבדיקת מעבר לגיבוי."""
+
+    name = "failing"
+
+    def complete(self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = ()) -> LLMResponse:
+        raise LLMError("down")
+
+
+def call(name: str, **args) -> ToolCall:
+    return ToolCall(name=name, args=args, id=f"call_{name}")
