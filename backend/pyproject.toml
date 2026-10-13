@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[project]
+name = "car-advisor"
+version = "0.1.0"
+description = "יועץ הרכב של שטראוס — בוט שמחשב איך שינוי ברכב הצמוד משפיע על הנטו"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "pyyaml>=6.0",
+    "openpyxl>=3.1",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "hypothesis>=6", "import-linter>=2"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "acceptance: ששת העובדים לדוגמה של שטראוס",
+    "eval: הערכת מודל השפה (רץ מול מודל אמיתי)",
+]
+
+# כל מודול חושף רק את public.py; מנוע החישוב לא תלוי באף מודול אחר.
+[tool.importlinter]
+root_package = "app"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "calculation is a pure library"
+type = "forbidden"
+source_modules = ["app.modules.calculation"]
+forbidden_modules = [
+    "app.modules.rules",
+    "app.modules.vehicles",
+    "app.modules.cases",
+    "app.modules.conversation",
+    "sqlalchemy",
+    "fastapi",
+]
+
+[[tool.importlinter.contracts]]
+name = "modules talk only through public.py"
+type = "forbidden"
+source_modules = ["app.modules.conversation", "app.modules.cases"]
+forbidden_modules = [
+    "app.modules.calculation.engine",
+    "app.modules.calculation.tax",
+    "app.modules.rules.loader",
+    "app.modules.vehicles.repository",
+]
