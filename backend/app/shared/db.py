@@ -77,8 +77,8 @@ class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=NAMING)
 
 
-def make_engine(url: str) -> Engine:
-    engine = create_engine(url, future=True)
+def make_engine(url: str, **kwargs) -> Engine:
+    engine = create_engine(url, future=True, **kwargs)
     if url.startswith("sqlite"):
         @event.listens_for(engine, "connect")
         def _fk_on(dbapi_conn, _):

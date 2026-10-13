@@ -9,3 +9,4 @@ node_modules/
 dist/
 eval-report.md
 *.egg-info/
+*.db.bak
