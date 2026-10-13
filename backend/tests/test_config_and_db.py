@@ -115,3 +115,33 @@ def test_current_car_match_rules(vehicle_session):
     choose = match_current_car(repo, "COROLLA CROSS", 2024)
     assert choose.status == "CHOOSE" and 1 < len(choose.choices) <= 5
     assert len({c.use_value for c in choose.choices}) == len(choose.choices)
+
+
+# ---------- כינויים בעברית לרכבי הקטלוג (extensions.yaml) ----------
+
+def test_hebrew_aliases_find_catalog_cars(snapshot):
+    from app.modules.rules.public import find_catalog_car
+
+    def codes(text):
+        return [c.catalog_code for c in find_catalog_car(snapshot, text)]
+
+    assert codes("קורולה קרוס") == ["CAR-09"]
+    assert codes("קורולה") == ["CAR-07"]          # התאמה מדויקת קודמת לחלקית
+    assert codes("אטו 3") == ["CAR-10"] and codes("אטו") == ["CAR-10"]
+    assert codes("טוסון (2025)") == ["CAR-12"]
+    assert codes("מאזדה3") == ["CAR-13"]           # רווחים לא משנים
+
+
+def test_alias_for_unknown_car_is_rejected(config_copy):
+    p = config_copy / "extensions.yaml"
+    p.write_text(p.read_text(encoding="utf-8") + '  CAR-99: ["רכב דמיוני"]\n', encoding="utf-8")
+    with pytest.raises(ConfigError):
+        RulesStore(config_copy, mode="strict").reload()
+
+
+def test_aliases_are_data_not_code(config_copy):
+    p = config_copy / "extensions.yaml"
+    p.write_text(p.read_text(encoding="utf-8") + '  CAR-05: ["קיה נירו"]\n', encoding="utf-8")
+    from app.modules.rules.public import find_catalog_car
+    snap = RulesStore(config_copy, mode="strict").reload()
+    assert [c.catalog_code for c in find_catalog_car(snap, "קיה נירו")] == ["CAR-05"]

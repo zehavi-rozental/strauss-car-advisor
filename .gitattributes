@@ -1,0 +1,8 @@
+# Line endings: LF in the repository; Python and Markdown also LF in the working tree.
+* text=auto
+*.py text eol=lf
+*.md text eol=lf
+
+# Data files are stored byte-for-byte (the tax CSV is CRLF, windows-1255).
+*.xlsx binary
+*.csv binary

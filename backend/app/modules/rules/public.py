@@ -50,14 +50,22 @@ def _norm(text: str) -> str:
     return re.sub(r"[^0-9a-zא-ת]+", "", text.lower())
 
 
+def catalog_names(car: CatalogCar) -> list[str]:
+    """השמות שבהם עובד יכול לכנות רכב: הדגם, בלי "BYD", והכינויים מ-extensions.yaml."""
+    return [car.model_name, car.model_name.replace("BYD ", ""), *car.aliases]
+
+
 def find_catalog_car(snapshot: RulesSnapshot, text: str) -> list[CatalogCar]:
-    """חיפוש רכב בקטלוג לפי שם או מזהה. התאמה מדויקת קודמת להתאמה חלקית."""
+    """חיפוש רכב בקטלוג לפי שם, כינוי או מזהה. התאמה מדויקת קודמת להתאמה חלקית."""
     key = _norm(re.sub(r"\(\d{4}\)", "", text))
+    if not key:
+        return []
     exact = [c for c in snapshot.catalog
-             if key in (_norm(c.model_name), _norm(c.catalog_code), _norm(c.model_name.replace("BYD ", "")))]
+             if key == _norm(c.catalog_code) or key in {_norm(n) for n in catalog_names(c)}]
     if exact:
         return exact
-    return [c for c in snapshot.catalog if key and (key in _norm(c.model_name) or _norm(c.model_name) in key)]
+    return [c for c in snapshot.catalog
+            if any(key in _norm(n) or _norm(n) in key for n in catalog_names(c))]
 
 
 def candidate_states(snapshot: RulesSnapshot) -> list[State]:
@@ -93,6 +101,6 @@ def parse_reference_state(snapshot: RulesSnapshot, label: str, *, current_copay:
 
 __all__ = [
     "FAMILY_GROUP", "CatalogCar", "ConfigError", "Occupation", "ReferenceEmployee", "ReferenceResult",
-    "RulesSnapshot", "RulesStore", "candidate_states", "car_state", "find_catalog_car",
+    "RulesSnapshot", "RulesStore", "candidate_states", "car_state", "catalog_names", "find_catalog_car",
     "load_snapshot", "occupation_rule", "parse_reference_state", "reference_employee",
 ]

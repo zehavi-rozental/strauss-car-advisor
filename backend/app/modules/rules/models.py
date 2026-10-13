@@ -98,6 +98,7 @@ class Extensions(_Strict):
     default_vehicle_type: str
     electric_fuel_codes: list[str]
     display_rounding: Literal["SHEKEL", "AGORA"]
+    car_aliases: dict[str, list[str]] = Field(default_factory=dict)   # מזהה קטלוג → כינויים בעברית
 
 
 # ---------- strauss-data.xlsx ----------
@@ -121,6 +122,7 @@ class CatalogCar(_Strict):
     use_value: Decimal
     monthly_cost: Decimal
     default_copay: Decimal
+    aliases: tuple[str, ...] = ()           # מ-extensions.yaml (car_aliases)
 
     @property
     def label(self) -> str:

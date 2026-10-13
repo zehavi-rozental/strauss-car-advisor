@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-from app.modules.rules.public import RulesSnapshot
+from app.modules.rules.public import RulesSnapshot, catalog_names
 
 from .llm.port import ToolCall
 from .parsing import find_year, first_number, is_no_car, is_none, is_unknown, match_drive, strip_year
@@ -11,6 +11,10 @@ from .stage import ConversationState, next_question
 from .tools import OPT_OUT_WORDS, available_options
 
 _RANK_RE = re.compile(r"הכי\s*משתלם|הכי\s*טוב|תמליץ|המלצ|דרג", re.IGNORECASE)
+
+
+def _key(text: str) -> str:
+    return re.sub(r"[^0-9a-zא-ת]+", "", text.lower())
 
 
 def _call(name: str, **args) -> list[ToolCall]:
@@ -72,10 +76,16 @@ def _option_calls(state: ConversationState, snapshot: RulesSnapshot, text: str) 
     if _RANK_RE.search(text):
         return _call("rank_options")
     options = available_options(snapshot, state)
-    upper = text.upper()
-    # שמות קודם: שם רכב יכול להכיל ספרה (MAZDA 3), אז לא מפרשים אותה כמספר ברשימה
-    named = {o.id: o.car.model_name.upper() for o in options if o.car is not None and o.car.model_name.upper() in upper}
-    # "COROLLA" בתוך "COROLLA CROSS" — נשאר רק השם הארוך
+    key = _key(text)
+    # שמות וכינויים קודם: שם רכב יכול להכיל ספרה (MAZDA 3), אז לא מפרשים אותה כמספר ברשימה
+    named: dict[str, str] = {}
+    for o in options:
+        if o.car is None:
+            continue
+        hits = [n for n in map(_key, catalog_names(o.car)) if n and n in key]
+        if hits:
+            named[o.id] = max(hits, key=len)
+    # "קורולה" בתוך "קורולה קרוס" — נשאר רק השם הארוך
     chosen = [i for i, n in named.items() if not any(n != m and n in m for m in named.values())]
     if any(w in text.lower() for w in OPT_OUT_WORDS):
         chosen.append("OPT_OUT")

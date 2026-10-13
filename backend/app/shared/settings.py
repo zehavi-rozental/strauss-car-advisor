@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     llm_timeout_s: float = 20.0
 
     max_message_chars: int = 1000
-    rate_limit_per_minute: int = 10
+    rate_limit_per_minute: int = 30      # הודעות לשיחה בדקה
     create_rate_limit_per_minute: int = 20
     max_messages_per_conversation: int = 80
 

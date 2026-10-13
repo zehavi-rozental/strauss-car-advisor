@@ -128,3 +128,10 @@ def test_mandatory_car_has_no_opt_out(snapshot):
     state = ConversationState()
     state.profile.group, state.profile.occupation = "ב", "נציג/ת מכירות שטח"
     assert "OPT_OUT" not in {o.id for o in available_options(snapshot, state)}
+
+
+def test_fallback_option_selection_by_hebrew_names(sessions):
+    svc = service(sessions)
+    turn, _ = talk(svc, profile() + ["קורולה קרוס", "300", "טוסון ואטו"])
+    assert turn.stage == Stage.PRESENTED
+    assert [r.label for r in turn.results] == ["ATTO 3 (2025)", "TUCSON (2025)"]

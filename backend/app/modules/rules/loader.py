@@ -143,6 +143,10 @@ def _load_workbook(path: Path, ext: Extensions, strauss: StraussRules):
     bad = [c.catalog_code for c in catalog if c.group not in known_groups]
     if bad:
         raise ConfigError(f"קבוצה לא מוכרת ברכבים {bad}")
+    unknown = sorted(set(ext.car_aliases) - {c.catalog_code for c in catalog})
+    if unknown:
+        raise ConfigError(f"כינויים לרכבים שאינם בקטלוג: {unknown}")
+    catalog = [c.model_copy(update={"aliases": tuple(ext.car_aliases.get(c.catalog_code, ()))}) for c in catalog]
 
     occupations: dict[str, Occupation] = {}
     for r in _rows(wb[SHEET_OCCUPATIONS]):
