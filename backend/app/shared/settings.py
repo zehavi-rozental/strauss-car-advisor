@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     openrouter_api_key: str = ""
     llm_cooldown_429_s: float = 60.0  # ספק שהחזיר 429 מדולג למשך הזמן הזה; 418 — עד הפעלה מחדש
+    llm_cooldown_fail_s: float = 60.0  # 5xx או timeout: מדולג למשך הזמן הזה (התור הבא לא מחכה לו)
     gemini_thinking_level: str = "low"  # Gemini 3: הנמוך שמתקבל ("minimal" נדחה ב-3.7); ריק = ברירת המודל
     gemini_thinking_budget: int = 0     # Gemini 2.x: 0 = בלי חשיבה
 
@@ -51,8 +52,8 @@ class Settings(BaseSettings):
     llm_fallback_api_key: str = ""
     llm_base_url: str = ""            # ספק תואם OpenAI: ריק = ברירת המחדל של הספק
     llm_fallback_base_url: str = ""
-    llm_timeout_s: float = 8.0        # לכל קריאה: רשומה איטית → הבאה בשרשרת
-    llm_turn_deadline_s: float = 10.0  # לכל תור: אחרי זמן זה על ספקים — תבניות, בלי רשומות נוספות
+    llm_timeout_s: float = 4.0        # לכל קריאה: רשומה איטית → הבאה בשרשרת
+    llm_turn_deadline_s: float = 6.0   # לכל תור: אחרי זמן זה על ספקים — תבניות, בלי רשומות נוספות
 
     max_message_chars: int = 1000
     rate_limit_per_minute: int = 30      # הודעות לשיחה בדקה

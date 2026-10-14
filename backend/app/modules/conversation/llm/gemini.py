@@ -52,7 +52,7 @@ def _thinking(model: str, level: str, budget: int) -> Optional[dict[str, Any]]:
 class GeminiAdapter:
     name = "gemini"
 
-    def __init__(self, model: str, api_key: str, base_url: str = "", timeout_s: float = 8.0,
+    def __init__(self, model: str, api_key: str, base_url: str = "", timeout_s: float = 4.0,
                  client: Optional[httpx.Client] = None, thinking_level: str = "low", thinking_budget: int = 0):
         self.model = model
         self.url = f"{(base_url or BASE_URL).rstrip('/')}/models/{model}:generateContent"

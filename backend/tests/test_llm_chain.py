@@ -82,12 +82,32 @@ def test_418_skips_the_entry_until_restart():
     assert a.calls == 1
 
 
-@pytest.mark.parametrize("failure", [500, "timeout"])
-def test_5xx_and_timeout_do_not_cool_down(failure):
+@pytest.mark.parametrize("failure", [500, 503, "timeout"])
+def test_5xx_and_timeout_cool_down_without_a_request(failure):
+    clock = Clock()
     a, b = ScriptedProvider("gemini", "a", [failure]), ScriptedProvider("groq", "c")
-    ch = chain(a, b)
+    ch = LLMChain([a, b], cooldown_fail_s=60, clock=clock)
     ch.complete(MSG)
-    assert ch.complete(MSG).text == "ok from gemini:a"   # נוסה שוב מיד
+    clock.now += 59
+    assert ch.complete(MSG).text == "ok from groq:c"
+    assert a.calls == 1                                   # דולג — לא נשלחה אליו בקשה
+    clock.now += 2
+    assert ch.complete(MSG).text == "ok from gemini:a"   # אחרי 60 שניות — שוב בשרשרת
+    assert a.calls == 2
+
+
+def test_timeout_cut_by_the_turn_deadline_does_not_cool_down():
+    """הקריאה קיבלה פחות מה-timeout שלה בגלל זמן התור — הספק לא אשם."""
+    clock = Clock()
+    slow = SlowProvider("gemini", "a", clock, 10)
+    slow.timeout_s = 4                                    # ה-timeout הרגיל של הספק
+    ch = LLMChain([slow], cooldown_fail_s=60, clock=clock)
+    with pytest.raises(LLMError):
+        ch.complete(MSG, deadline=clock.now + 2)          # נשארו 2 שניות < 4
+    assert ch.status()[0]["status"] == "timeout" and ch.status()[0]["cooling_down"] is None
+    with pytest.raises(LLMError):
+        ch.complete(MSG, deadline=clock.now + 10)         # מקבל את ה-4 המלאים ונכשל → המתנה
+    assert ch.status()[0]["cooling_down"] == "60s"
 
 
 def test_everyone_cooling_down_fails_fast_without_calls():
@@ -147,7 +167,7 @@ def test_health_lists_every_entry_and_its_last_status(engine):
     assert list(entries) == ["gemini:a", "gemini:b", "groq:c", "openrouter:d"]
     assert entries["gemini:a"]["status"] == "429" and entries["gemini:a"]["cooling_down"].endswith("s")
     assert entries["gemini:b"]["status"] == "5xx" and entries["gemini:b"]["detail"] == "HTTP 503"
-    assert entries["gemini:b"]["cooling_down"] is None
+    assert entries["gemini:b"]["cooling_down"].endswith("s")     # גם 5xx ממתין
     assert entries["groq:c"]["status"] == "ok" and entries["groq:c"]["last_at"]
     assert entries["openrouter:d"]["status"] == "disabled"
     assert health["llm"] == "gemini+groq"

@@ -29,7 +29,7 @@ def _message(m: ChatMessage) -> dict[str, Any]:
 
 class OpenAICompatAdapter:
     def __init__(self, provider: str, model: str, api_key: str = "", base_url: str = "",
-                 timeout_s: float = 8.0, client: Optional[httpx.Client] = None):
+                 timeout_s: float = 4.0, client: Optional[httpx.Client] = None):
         self.name = provider
         self.model = model
         self.base_url = (base_url or PRESETS.get(provider, "")).rstrip("/")

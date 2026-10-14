@@ -123,17 +123,20 @@ class LLMChain:
     """שרשרת ספקים לפי סדר. כשל זמני (429, 418, 5xx, timeout) או כל כשל אחר — הבא בתור.
     400 (בקשה שגויה, דטרמיניסטי) עוצר את השרשרת לאותה קריאה.
 
-    ספק שהחזיר 429 מדולג למשך cooldown_429_s, ו-418 עד הפעלה מחדש, כדי שכל תור לא
+    ספק שהחזיר 429 מדולג למשך cooldown_429_s, 5xx או timeout למשך cooldown_fail_s,
+    ו-418 עד הפעלה מחדש, כדי שכל תור לא
     יבזבז עליו זמן. אם כולם נכשלו או בהמתנה — LLMError, והשיחה עוברת לתבניות.
     בלוג נרשמים רק הרשומה, משך ותוצאה — אף פעם לא תוכן ההודעות.
     """
 
     def __init__(self, providers: Sequence[LLMPort] = (), *, disabled: Sequence[tuple[str, str]] = (),
-                 cooldown_429_s: float = 60.0, turn_deadline_s: Optional[float] = None,
+                 cooldown_429_s: float = 60.0, cooldown_fail_s: float = 60.0,
+                 turn_deadline_s: Optional[float] = None,
                  clock: Callable[[], float] = time.monotonic):
         self.entries = [ChainEntry(entry_label(p), p) for p in providers]
         self.disabled = [ChainEntry(label, None, status="disabled", detail=reason) for label, reason in disabled]
         self.cooldown_429_s = cooldown_429_s
+        self.cooldown_fail_s = cooldown_fail_s
         self.turn_deadline_s = turn_deadline_s
         self.clock = clock
         self._lock = threading.Lock()
@@ -187,12 +190,16 @@ class LLMChain:
                 log.warning("llm turn deadline reached; not trying %s", entry.label)
                 raise LLMError("זמן התור נגמר") from last
             assert entry.provider is not None
+            own = getattr(entry.provider, "timeout_s", None)
+            capped = remaining is not None and own is not None and remaining < own
             started = time.monotonic()
             try:
                 response = entry.provider.complete(messages, tools, require_tool, remaining)
             except Exception as exc:  # כל כשל — עוברים לבא בתור (מלבד 400)
                 ms = (time.monotonic() - started) * 1000
-                status, cooldown = _classify(exc, self.cooldown_429_s)
+                status, cooldown = _classify(exc, self.cooldown_429_s, self.cooldown_fail_s)
+                if status == "timeout" and capped:
+                    cooldown = 0.0   # נקטע בגלל זמן התור, לא בגלל הספק — לא מענישים אותו
                 self._record(entry, status, _detail(exc), cooldown)
                 log.warning("llm %s failed after %.0fms: %s%s", entry.label, ms, _detail(exc),
                             " (cooling down)" if cooldown else "")
@@ -208,7 +215,7 @@ class LLMChain:
         raise LLMError("אין ספק מודל שפה זמין") from last
 
 
-def _classify(exc: Exception, cooldown_429_s: float) -> tuple[str, float]:
+def _classify(exc: Exception, cooldown_429_s: float, cooldown_fail_s: float) -> tuple[str, float]:
     status = getattr(exc, "status", None)
     if status == 429:
         return "429", cooldown_429_s
@@ -217,9 +224,9 @@ def _classify(exc: Exception, cooldown_429_s: float) -> tuple[str, float]:
     if status == 400:
         return "400", 0.0
     if status is not None and 500 <= status < 600:
-        return "5xx", 0.0
+        return "5xx", cooldown_fail_s
     if getattr(exc, "timeout", False):
-        return "timeout", 0.0
+        return "timeout", cooldown_fail_s
     return "error", 0.0
 
 
