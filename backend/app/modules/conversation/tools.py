@@ -102,6 +102,7 @@ class MatchCarArgs(_Args):
     registration_year: Optional[int] = Field(None, ge=1980, le=2049)
     choice_number: Optional[int] = Field(None, ge=1, le=5)
     no_car: bool = False
+    reset: bool = False          # "זה לא הרכב שלי" בלי דגם: מוחקים את ההתאמה ושואלים שוב
 
 
 class CalculateArgs(_Args):
@@ -205,6 +206,11 @@ def _invalidate_results(state: ConversationState) -> None:
 def match_current_car(ctx: ToolContext, args: MatchCarArgs) -> dict[str, Any]:
     old = ctx.state.current
     keep = dict(copay=old.copay, copay_unknown=old.copay_unknown)
+
+    if args.reset:
+        ctx.state.current = CurrentCar(**keep)
+        _invalidate_results(ctx.state)
+        return {"status": "RESET", "next": "ask the employee for the exact model"}
 
     if args.no_car:
         ctx.state.current = CurrentCar(source="none", label="ללא רכב")
@@ -404,9 +410,11 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         "match_current_car",
         "Identify the employee's current company car. Pass the model name in Latin letters as on the "
         "tax-authority list (e.g. 'COROLLA CROSS'), the registration year if stated, a choice_number when "
-        "the employee picks from a list, or no_car=true if they have no car today.",
+        "the employee picks from a list, or no_car=true if they have no car today. If the employee says the "
+        "identified car is wrong without naming another model, pass reset=true.",
         _obj({"model": {"type": "string"}, "registration_year": {"type": "integer"},
-              "choice_number": {"type": "integer"}, "no_car": {"type": "boolean"}})),
+              "choice_number": {"type": "integer"}, "no_car": {"type": "boolean"},
+              "reset": {"type": "boolean"}})),
     "list_options": ToolSpec("list_options", "List the alternatives the employee may compare.", _obj({})),
     "calculate": ToolSpec(
         "calculate",

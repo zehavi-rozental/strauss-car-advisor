@@ -110,10 +110,21 @@ def waiting_text(state: ConversationState) -> str:
             "אמשיך את החישוב ברגע שתתקבל תשובה.")
 
 
+def confirm_car_text(state: ConversationState) -> str:
+    """שורת אישור לרכב שזוהה — רק מתוצאת ההתאמה: דגם, קבוצה (לרכב מהקטלוג) והנעה."""
+    c = state.current
+    details = [c.label or ""]
+    if c.group:
+        details.append(f"קבוצה {c.group}")
+    if c.drive:
+        details.append(DRIVE_HE[c.drive.value])
+    return f"זיהיתי: {', '.join(details)}. אם זה לא הרכב שלך, כתבו את הדגם המדויק."
+
+
 def render(state: ConversationState, snapshot: RulesSnapshot, *, understood: bool,
-           just_calculated: bool) -> str:
+           just_calculated: bool, matched_car: bool = False) -> str:
     """ההודעה הבאה לפי מצב השיחה בלבד."""
-    parts: list[str] = []
+    parts: list[str] = [confirm_car_text(state)] if matched_car else []
     if just_calculated and state.results:
         parts.append(results_text(state))
     if state.stage == Stage.WAITING_FOR_REP:

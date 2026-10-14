@@ -99,6 +99,11 @@ class TurnOutcome:
     path: str = "parser"      # parser / llm / fallback / templates / waiting — ללוג, בלי תוכן
 
 
+def _car_key(state: ConversationState) -> tuple:
+    c = state.current
+    return (c.source, c.catalog_code, c.label, c.use_value)
+
+
 def _recorded(facts: dict[str, Any]) -> bool:
     """הכלי רץ ושמר משהו. קריאה כפויה בלי שדות (save_profile ריק) אינה "הבנה"."""
     return bool(facts.get("ok")) and facts.get("saved") != []
@@ -122,6 +127,7 @@ class Agent:
             return TurnOutcome(reply=render(state, snapshot, understood=True, just_calculated=False),
                                source="template", path="waiting")
 
+        car_before = _car_key(state)
         # הקורא הדטרמיניסטי קודם. מה שהוא קורא במלואו לא מגיע למודל בכלל — מהיר ובלי תלות בספק.
         plan = fallback_plan(state, snapshot, text)
         used_llm = False
@@ -146,7 +152,10 @@ class Agent:
         state.stage = next_stage(state)
         understood = understood or state.stage != before
 
-        draft = render(state, snapshot, understood=understood, just_calculated=just_calculated)
+        # רכב שזוהה בתור הזה (מהקורא, מהמודל או מהגיבוי) — אומרים איזה, כדי שטעות לא תעבור בשקט
+        matched_car = state.current.source in ("catalog", "tax") and _car_key(state) != car_before
+        draft = render(state, snapshot, understood=understood, just_calculated=just_calculated,
+                       matched_car=matched_car)
         # ניסוח במודל רק לתוצאות או להודעה שלא הובנה (שאלה חופשית). השאלה הבאה בפרופיל/ברכב
         # היא תבנית: מהירה, ובלי סיכון לשומר המספרים.
         if not used_llm or not (just_calculated or not understood):

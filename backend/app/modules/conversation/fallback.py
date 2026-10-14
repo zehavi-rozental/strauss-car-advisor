@@ -32,6 +32,9 @@ from .stage import ConversationState, Stage, missing_profile, next_question, nex
 from .tools import OPT_OUT_WORDS, available_options
 
 _RANK_RE = re.compile(r"הכי\s*משתלם|הכי\s*טוב|תמליץ|המלצ|דרג", re.IGNORECASE)
+_NOT_THIS_CAR_RE = re.compile(r"לא\s+(?:זה\s+)?(?:הרכב|הדגם)|(?:זה|זו)\s+לא\s+(?:נכון|הוא|היא)")
+# בזמן שאוספים את פרטי הרכב הנוכחי, הודעה שמזכירה רכב אחר היא תיקון — לא תשובה לשאלה
+_CAR_DETAIL_QUESTIONS = {"copay", "use_value", "drive", "maintenance", "car_choice"}
 _ONLY_NUMBERS_RE = re.compile(r"^\s*\d+(?:\s*(?:,|ו-?|and|&)\s*\d+)*\s*[.!]?\s*$")
 SHORT_MODEL_WORDS = 3     # תשובה קצרה בלי שם מוכר → חיפוש במאגר; משפט ארוך → שאלה חוזרת
 SINGLE_VALUE_WORDS = 4    # תשובה לשאלה בודדת: עד 4 מילים ומספר אחד בדיוק
@@ -89,6 +92,10 @@ def fallback_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) 
         return _profile_plan(state, snapshot, question, t)
     if question == "car":
         return _car_plan(snapshot, t)
+    if question in _CAR_DETAIL_QUESTIONS:
+        correction = _correction_plan(state, snapshot, t)
+        if correction is not None:
+            return correction
     if question == "car_choice":
         value = single_value(t)
         return ParserPlan(_call("match_current_car", choice_number=int(float(value))), True) if value else ParserPlan()
@@ -138,6 +145,17 @@ def _profile_plan(state: ConversationState, snapshot: RulesSnapshot, question: s
     if question == "children":
         return ParserPlan(_call("save_profile", children_under_23=int(float(value))), True)
     return ParserPlan(_call("save_profile", **{asked: value}), True)
+
+
+def _correction_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Optional[ParserPlan]:
+    """תיקון הרכב שזוהה: שם רכב אחר מהקטלוג → התאמה מחדש (ההשתתפות שכבר נמסרה נשמרת);
+    "זה לא הרכב" בלי דגם → מוחקים את ההתאמה ושואלים שוב. אחרת None — זו תשובה לשאלה."""
+    cars = named_cars(text, snapshot.catalog)
+    if cars and cars[0].catalog_code != state.current.catalog_code:
+        return _car_plan(snapshot, text)          # כולל בדיקת "לא" באמצע ומילים נוספות
+    if not cars and _NOT_THIS_CAR_RE.search(text):
+        return ParserPlan(_call("match_current_car", reset=True), True)
+    return None
 
 
 def _car_plan(snapshot: RulesSnapshot, text: str) -> ParserPlan:

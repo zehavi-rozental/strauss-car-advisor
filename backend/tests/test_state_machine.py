@@ -184,3 +184,57 @@ def test_no_copay_phrase_is_zero(sessions):
 def test_parse_copay(text, expected):
     from app.modules.conversation.parsing import parse_copay
     assert parse_copay(text) == expected
+
+
+# ---------- אישור הרכב שזוהה, ותיקון שלו ----------
+
+CONFIRM_TAIL = "אם זה לא הרכב שלך, כתבו את הדגם המדויק."
+
+
+def test_identified_car_is_confirmed_with_label_group_and_drive(sessions):
+    turn, _ = talk(service(sessions), profile() + ["יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש"])
+    assert turn.reply.startswith(f"זיהיתי: COROLLA CROSS (2025), קבוצה ג, היברידי. {CONFIRM_TAIL}")
+    assert turn.stage == Stage.CHOOSE_OPTIONS and "לאילו חלופות להשוות" in turn.reply   # ואז השאלה הבאה
+
+
+def test_tax_file_car_confirmation_has_no_group(sessions):
+    turn, _ = talk(service(sessions), profile() + ["קורולה קרוס 2023"])
+    assert turn.reply.startswith(f"זיהיתי: COROLLA CROSS (2023), היברידי. {CONFIRM_TAIL}")
+
+
+def test_correction_at_the_copay_question_rematches_the_car(sessions):
+    svc = service(sessions)
+    turn, token = talk(svc, profile() + ["קורולה"])
+    assert turn.reply.startswith("זיהיתי: COROLLA (2026), קבוצה ב, בנזין.")
+    assert svc.view(turn.conversation_id, token).state.current.catalog_code == "CAR-07"
+
+    turn = svc.send(turn.conversation_id, token, "לא, זו קורולה קרוס")
+    current = svc.view(turn.conversation_id, token).state.current
+    assert current.catalog_code == "CAR-09" and current.copay is None
+    assert turn.reply.startswith("זיהיתי: COROLLA CROSS (2025), קבוצה ג, היברידי.")
+    assert "כמה את/ה משתתף/ת" in turn.reply and turn.stage == Stage.COLLECT_CURRENT_CAR
+
+
+def test_plain_number_at_the_copay_question_is_still_the_copay(sessions):
+    svc = service(sessions)
+    turn, token = talk(svc, profile() + ["קורולה", "300"])
+    assert turn.stage == Stage.CHOOSE_OPTIONS
+    current = svc.view(turn.conversation_id, token).state.current
+    assert (current.catalog_code, current.copay) == ("CAR-07", Decimal(300))
+    assert not turn.reply.startswith("זיהיתי")          # הרכב לא השתנה בתור הזה
+
+
+def test_correction_keeps_the_copay_already_given(sessions):
+    svc = service(sessions)
+    turn, token = talk(svc, profile() + ["ZOOMOBILE X"])          # לא נמצא → שאלת שווי שימוש
+    turn = svc.send(turn.conversation_id, token, "סליחה, זו קורולה קרוס")
+    assert svc.view(turn.conversation_id, token).state.current.catalog_code == "CAR-09"
+
+
+def test_not_this_car_resets_and_asks_for_the_model(sessions):
+    svc = service(sessions)
+    turn, token = talk(svc, profile() + ["קורולה"])
+    turn = svc.send(turn.conversation_id, token, "זה לא הרכב שלי")
+    current = svc.view(turn.conversation_id, token).state.current
+    assert current.catalog_code is None and current.source is None
+    assert "איזה רכב צמוד יש לך היום" in turn.reply
