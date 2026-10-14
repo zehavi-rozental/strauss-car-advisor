@@ -131,3 +131,19 @@ def test_answer_values_notes_and_names_are_not_logged(client, caplog):
     assert "rep answered question" in logged
     for secret in ("987.65", "SECRET-NOTE", "SECRET-NAME", TOKEN):
         assert secret not in logged
+
+
+def test_wrong_tokens_count_against_the_rate_limit(engine):
+    client = make_client(engine, rep_access_token=TOKEN, rep_rate_limit_per_minute=2)
+    wrong = {"X-Rep-Token": "guess"}
+    codes = [client.get("/api/rep/questions", headers=wrong).status_code for _ in range(3)]
+    assert codes == [401, 401, 429]                      # גם ניחושים נספרים
+    assert client.get("/api/rep/questions", headers=AUTH).status_code == 429
+
+
+def test_rep_api_is_closed_by_default(engine):
+    from app.shared.settings import Settings
+    assert Settings(_env_file=None).rep_access_token == ""
+    client = make_client(engine)                         # בלי REP_ACCESS_TOKEN
+    for headers in ({}, {"X-Rep-Token": ""}, {"X-Rep-Token": "demo-rep"}, {"X-Rep-Token": "change-me"}):
+        assert client.get("/api/rep/questions", headers=headers).status_code == 401

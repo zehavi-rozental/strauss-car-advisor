@@ -48,14 +48,16 @@ def _header_text(value: Optional[str]) -> str:
 
 def rep_name(request: Request, x_rep_token: Optional[str] = Header(None),
              x_rep_name: Optional[str] = Header(None)) -> str:
-    """בודק הרשאה והגבלת קצב, ומחזיר את שם הנציג (לשדה answered_by)."""
+    """בודק הגבלת קצב ואז הרשאה, ומחזיר את שם הנציג (לשדה answered_by).
+
+    הגבלת הקצב קודמת לבדיקת הטוקן: גם ניסיונות עם טוקן שגוי נספרים, כך שאי אפשר לנחש בלי הגבלה."""
     ctx = context(request)
-    expected = ctx.settings.rep_access_token
-    if not expected or not x_rep_token or not hmac.compare_digest(x_rep_token.encode(), expected.encode()):
-        raise HTTPException(401, "נדרשת הרשאת נציג")
     client = request.client.host if request.client else "unknown"
     if not ctx.rep_limiter.allow(client):
         raise HTTPException(429, "יותר מדי בקשות. נסו שוב בעוד דקה.")
+    expected = ctx.settings.rep_access_token
+    if not expected or not x_rep_token or not hmac.compare_digest(x_rep_token.encode(), expected.encode()):
+        raise HTTPException(401, "נדרשת הרשאת נציג")
     return _header_text(x_rep_name).strip()[:60] or DEFAULT_REP_NAME
 
 

@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     create_rate_limit_per_minute: int = 20
     max_messages_per_conversation: int = 80
 
-    rep_access_token: str = "demo-rep"     # כותרת X-Rep-Token; ריק = ה-API של הנציג סגור
+    rep_access_token: str = ""             # כותרת X-Rep-Token; ריק (ברירת המחדל) = ה-API של הנציג סגור
     rep_rate_limit_per_minute: int = 60
     session_cookie_secure: bool = False
     log_level: str = "INFO"
