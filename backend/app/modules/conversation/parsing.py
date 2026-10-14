@@ -10,6 +10,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Iterable, Optional
 
 from app.modules.calculation.public import Drive
+from app.modules.rules.public import words
 
 NUMBER_RE = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?")
 YEAR_RE = re.compile(r"(?<!\d)(19[89]\d|20[0-4]\d)(?!\d)")
@@ -155,6 +156,45 @@ _APPROX_AFTER_RE = re.compile(r"^\s*(?:ו?חצי|ורבע|ושלושת\s*רבע�
 
 def is_approximate(before: str, after: str = "") -> bool:
     return bool(_APPROX_BEFORE_RE.search(before) or _APPROX_AFTER_RE.search(after))
+
+
+def copay_span(text: str) -> Optional[tuple[int, int]]:
+    """היכן בטקסט נאמרה ההשתתפות (כדי להוציא אותה כשבודקים מה נשאר בהודעה)."""
+    m = _COPAY_RE.search(text) or _NO_COPAY_RE.search(text)
+    return m.span() if m else None
+
+
+PREFIX_LETTERS = "והבל"          # אות שימוש אחת לפני מילה: "ואני", "בחודש", "והרכב"
+NAME_PREFIX_LETTERS = "והבלמשכ"  # כמו mentions: "הקורולה", "ואטו 3"
+
+
+def negates(text: str) -> bool:
+    """ "לא" (או "ולא"/"שלא") בכל מקום חוץ מהמילה הראשונה: "זה לא קורולה קרוס" שולל את הרכב.
+    "לא" כמילה ראשונה הוא תיקון ("לא, זו קורולה קרוס")."""
+    return any(w == "לא" or (len(w) == 3 and w[0] in "וש" and w[1:] == "לא") for w in words(text)[1:])
+
+
+def leftover_words(text: str, name: str, fillers: Iterable[str]) -> list[str]:
+    """מה נשאר בהודעה על הרכב אחרי: ההשתתפות, השנה, שם הדגם, מילות מילוי ו"לא" פותח.
+    כל מילה שנשארה ("קרוסאובר", "הגבוהה", "של טויוטה") אומרת שיש בהודעה משמעות שהקורא לא מבין."""
+    span = copay_span(text)
+    if span:
+        text = text[:span[0]] + " " + text[span[1]:]
+    ws = words(YEAR_RE.sub(" ", text))
+    if ws and ws[0] == "לא":
+        ws = ws[1:]
+    target = "".join(words(name))
+    for i in range(len(ws)):
+        for j in range(i + 1, len(ws) + 1):
+            joined = "".join(ws[i:j])
+            if joined == target or (joined[0] in NAME_PREFIX_LETTERS and joined[1:] == target):
+                ws = ws[:i] + ws[j:]
+                break
+        else:
+            continue
+        break
+    fill = {w for f in fillers for w in words(f)}
+    return [w for w in ws if w not in fill and not (len(w) > 1 and w[0] in PREFIX_LETTERS and w[1:] in fill)]
 
 
 def parse_profile_fields(text: str, occupations: Iterable[str]) -> dict[str, object]:

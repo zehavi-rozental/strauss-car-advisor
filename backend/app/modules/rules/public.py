@@ -59,6 +59,20 @@ def _words(text: str) -> str:
     return " ".join(re.sub(r"[^0-9a-zא-ת]+", " ", text.lower()).split())
 
 
+_QUOTES_RE = re.compile("[\"'\u05f4\u05f3]")
+
+
+def words(text: str) -> list[str]:
+    """מילים מנורמלות: אותיות קטנות, בלי סימני פיסוק ובלי גרשיים (ש"ח → שח)."""
+    return _words(_QUOTES_RE.sub("", text)).split()
+
+
+def matched_name(text: str, car: CatalogCar) -> Optional[str]:
+    """השם הארוך ביותר של הרכב (דגם או כינוי) שהטקסט מזכיר כמילים שלמות."""
+    names = [n for n in catalog_names(car) if mentions(text, n)]
+    return max(names, key=len) if names else None
+
+
 def mentions(text: str, name: str) -> bool:
     """השם מופיע בטקסט כמילים שלמות (מותרת אות שימוש אחת: ו/ה/ב/ל/מ/ש/כ; רווח בתוך השם גמיש).
 
@@ -117,6 +131,6 @@ def parse_reference_state(snapshot: RulesSnapshot, label: str, *, current_copay:
 
 __all__ = [
     "FAMILY_GROUP", "CatalogCar", "ConfigError", "Occupation", "ReferenceEmployee", "ReferenceResult",
-    "RulesSnapshot", "RulesStore", "candidate_states", "car_state", "catalog_names", "find_catalog_car", "mentions",
+    "RulesSnapshot", "RulesStore", "candidate_states", "car_state", "catalog_names", "find_catalog_car", "matched_name", "mentions", "words",
     "load_snapshot", "occupation_rule", "parse_reference_state", "reference_employee",
 ]

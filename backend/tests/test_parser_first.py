@@ -142,3 +142,82 @@ def test_keyword_parser_skips_approximate_amounts(snapshot):
     occ = snapshot.occupations.keys()
     assert parse_profile_fields("שכר הבסיס שלי בערך 18 וחצי", occ) == {}
     assert parse_profile_fields("שכר בסיס כ-18,500, פנסיה 6%", occ) == {"pension_percent": "6"}
+
+
+# ---------- הודעה על הרכב עם משמעות נוספת → מודל השפה ----------
+
+CROSSOVER = "הרכב שלי זה הקרוסאובר של טויוטה, הקורולה הגבוהה"
+
+
+def _at_car_question(svc):
+    turns, token = talk(svc, [NOA[0]])
+    assert turns[-1].stage == Stage.COLLECT_CURRENT_CAR
+    return turns[-1].conversation_id, token
+
+
+def test_car_sentence_with_extra_words_goes_to_the_llm(sessions):
+    fake = FakeLLM()
+    svc = service(sessions, LLMChain([fake]))
+    cid, token = _at_car_question(svc)
+    fake.turn(call("match_current_car", model="COROLLA CROSS"), reply=None)
+    turn = svc.send(cid, token, CROSSOVER)
+    assert turn.path == "llm" and fake.calls
+    assert svc.view(cid, token).state.current.catalog_code == "CAR-09"      # המודל הבין
+
+
+def test_crossover_sentence_falls_back_to_the_parser_match_if_the_llm_fails(sessions):
+    from app.modules.conversation.llm.fake import FailingLLM
+    svc = service(sessions, LLMChain([FailingLLM()]))
+    cid, token = _at_car_question(svc)
+    turn = svc.send(cid, token, CROSSOVER)
+    assert turn.path == "fallback"
+    assert svc.view(cid, token).state.current.catalog_code == "CAR-07"      # הגיבוי — כמו קודם
+
+
+@pytest.mark.parametrize("text", [NOA[1], "קורולה קרוס 2023", "יש לי טוסון"])
+def test_plain_car_sentences_stay_on_the_parser(sessions, text):
+    fake = FakeLLM()
+    svc = service(sessions, LLMChain([fake]))
+    cid, token = _at_car_question(svc)
+    turn = svc.send(cid, token, text)
+    assert turn.path == "parser" and fake.calls == []
+
+
+def test_leftover_words():
+    from pathlib import Path
+
+    from app.modules.conversation.parsing import leftover_words
+    from app.modules.rules.public import load_snapshot, matched_name
+
+    snap = load_snapshot(Path(CONFIG))
+    fillers = snap.extensions.car_message_fillers
+    by_code = {c.catalog_code: c for c in snap.catalog}
+    assert leftover_words(CROSSOVER, matched_name(CROSSOVER, by_code["CAR-07"]), fillers) == [
+        "הקרוסאובר", "של", "טויוטה", "הגבוהה"]
+    assert leftover_words(NOA[1], matched_name(NOA[1], by_code["CAR-09"]), fillers) == []
+
+
+# ---------- "לא" באמצע ההודעה שולל את הרכב ----------
+
+NEGATED = "זה לא קורולה קרוס"
+
+
+def test_negated_car_goes_to_the_llm_and_the_parser_matches_nothing(sessions):
+    fake = FakeLLM()
+    svc = service(sessions, LLMChain([fake]))
+    cid, token = _at_car_question(svc)
+    fake.turn(reply=None)                       # המודל לא שומר כלום
+    turn = svc.send(cid, token, NEGATED)
+    assert turn.path == "llm" and fake.calls
+    assert svc.view(cid, token).state.current.catalog_code is None
+
+
+@pytest.mark.parametrize("chain, path", [("failing", "fallback"), ("none", "templates")])
+def test_negated_car_has_no_fallback_match(sessions, chain, path):
+    from app.modules.conversation.llm.fake import FailingLLM
+    svc = service(sessions, LLMChain([FailingLLM()]) if chain == "failing" else LLMChain())
+    cid, token = _at_car_question(svc)
+    turn = svc.send(cid, token, NEGATED)
+    assert turn.path == path
+    assert svc.view(cid, token).state.current.catalog_code is None
+    assert "לא זיהיתי את דגם הרכב" in turn.reply

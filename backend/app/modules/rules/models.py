@@ -121,6 +121,8 @@ class Extensions(_Strict):
     default_vehicle_type: str
     electric_fuel_codes: list[str]
     car_aliases: dict[str, list[str]] = Field(default_factory=dict)   # מזהה קטלוג → כינויים בעברית
+    # מילים שמותר שיישארו בהודעה על הרכב הנוכחי אחרי שם הדגם; כל מילה אחרת → מודל השפה
+    car_message_fillers: list[str] = Field(default_factory=list)
 
 
 # ---------- strauss-data.xlsx ----------

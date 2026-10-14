@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Iterable, Optional
 
-from app.modules.rules.public import CatalogCar, RulesSnapshot, catalog_names, mentions
+from app.modules.rules.public import CatalogCar, RulesSnapshot, catalog_names, matched_name, mentions
 
 from .llm.port import ToolCall
 from .parsing import (
@@ -19,8 +19,10 @@ from .parsing import (
     is_none,
     is_approximate,
     is_unknown,
+    leftover_words,
     match_drive,
     match_group,
+    negates,
     numbers_in,
     parse_copay,
     parse_profile_fields,
@@ -143,10 +145,16 @@ def _car_plan(snapshot: RulesSnapshot, text: str) -> ParserPlan:
     אף פעם לא שולחים משפט שלם כשם דגם. שם קצר שאינו בקטלוג — לא "מלא": המודל אולי יכיר אותו."""
     if is_no_car(text):
         return ParserPlan(_call("match_current_car", no_car=True), True)
+    if negates(text):
+        return ParserPlan()     # "זה לא קורולה קרוס" — לא מתאימים דבר, גם לא כגיבוי; המודל או שאלה חוזרת
     year = find_year(text)
     cars = named_cars(text, snapshot.catalog)
     if cars:
-        calls, complete = _call("match_current_car", model=cars[0].model_name, registration_year=year), True
+        # "מלא" רק אם לא נשאר בהודעה כלום מעבר לשם, לשנה, להשתתפות ולמילות מילוי
+        leftovers = leftover_words(text, matched_name(text, cars[0]) or cars[0].model_name,
+                                   snapshot.extensions.car_message_fillers)
+        calls = _call("match_current_car", model=cars[0].model_name, registration_year=year)
+        complete = not leftovers
     else:
         model = strip_year(text)
         if len(model.split()) > SHORT_MODEL_WORDS:
