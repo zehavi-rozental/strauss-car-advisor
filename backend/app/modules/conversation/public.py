@@ -29,7 +29,7 @@ from app.shared.db import new_id
 
 from .agent import Agent, NullRepresentative, RepresentativePort
 from .llm.factory import build_llm_chain
-from .llm.port import ChatMessage, LLMChain, LLMPort
+from .llm.port import ChatMessage, LLMChain, LLMError, LLMPort
 from .parsing import redact_id_numbers
 from .repository import (
     DATA_FILE,
@@ -254,6 +254,7 @@ def reproduce_run(sessions: sessionmaker, run_id: str) -> ScenarioResult:
 
 
 __all__ = [
+    "ChatMessage", "LLMError",
     "ConversationConflict", "ConversationLimitReached", "ConversationNotFound", "ConversationService",
     "ConversationState",
     "ConversationView", "LLMChain", "LLMPort", "OptionResult", "RepReason", "RepresentativePort", "Stage",

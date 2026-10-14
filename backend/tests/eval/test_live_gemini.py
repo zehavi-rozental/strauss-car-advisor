@@ -12,24 +12,22 @@ import pytest
 from app.modules.conversation.public import build_llm_chain
 from app.shared.settings import Settings
 
-from ..conftest import BACKEND, make_client
+from ..conftest import make_client
 
 pytestmark = pytest.mark.eval
 
 # מכסה חינמית של Gemini: ~10 בקשות לדקה, ותור שיחה = 2–3 בקשות. השהיה בין תורות שומרת מתחת למכסה.
 TURN_PAUSE_S = float(os.environ.get("EVAL_TURN_PAUSE_S", "30"))
 
-SETTINGS = Settings(_env_file=BACKEND / ".env")
+SETTINGS = Settings()
+CHAIN = build_llm_chain(SETTINGS)   # LLM_CHAIN עם מפתח לכל ספק (או ההגדרות הישנות)
 NOA_PROFILE = ("אני מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, "
                "2.75 נקודות זיכוי, 2 ילדים")
 
 
-@pytest.mark.skipif(not SETTINGS.llm_api_key, reason="LLM_API_KEY לא מוגדר")
+@pytest.mark.skipif(not CHAIN.available, reason="אין רשומה זמינה בשרשרת (LLM_CHAIN / מפתחות)")
 def test_noa_levi_against_real_provider(engine):
-    chain = build_llm_chain(SETTINGS)
-    if not chain.available:
-        pytest.skip("אין ספק מודל שפה מוגדר (LLM_PROVIDER / LLM_MODEL)")
-    client = make_client(engine, llm=chain)
+    client = make_client(engine, llm=CHAIN)
     cid = client.post("/api/conversations").json()["conversation_id"]
 
     def say(text: str) -> dict:
