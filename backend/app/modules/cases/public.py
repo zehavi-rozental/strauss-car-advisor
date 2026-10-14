@@ -308,7 +308,7 @@ class CasesService:
 
 
 __all__ = [
-    "ALLOWED_CONTEXT_KEYS", "AnswerInvalid", "AnswerType", "CasesService", "MissingField", "Mode",
+    "ALLOWED_CONTEXT_KEYS", "DEFAULT_REP_NAME", "AnswerInvalid", "AnswerType", "CasesService", "MissingField", "Mode",
     "QuestionAlreadyAnswered", "QuestionAnswered", "QuestionNotFound", "QuestionRequest", "QuestionView",
     "Status", "validate_answer",
 ]

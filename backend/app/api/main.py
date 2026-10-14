@@ -19,6 +19,7 @@ from app.shared.settings import ENV_FILE, Settings, get_settings
 
 from .deps import AppContext
 from .ratelimit import RateLimiter
+from .rep_routes import router as rep_router
 from .routes import router
 
 
@@ -47,13 +48,16 @@ def create_app(settings: Optional[Settings] = None, *, engine: Optional[Engine] 
     llm = llm if llm is not None else build_llm_chain(settings)
     log.info(startup_summary(settings, llm))
 
+    cases = CasesService(sessions)
     app = FastAPI(title="Strauss Car Advisor")
     app.state.ctx = AppContext(
         settings=settings, sessions=sessions, rules=rules,
-        service=ConversationService(sessions, rules, llm, CasesService(sessions),
-                                    settings.max_messages_per_conversation),
+        service=ConversationService(sessions, rules, llm, cases, settings.max_messages_per_conversation),
+        cases=cases,
         message_limiter=RateLimiter(settings.rate_limit_per_minute),
         create_limiter=RateLimiter(settings.create_rate_limit_per_minute),
+        rep_limiter=RateLimiter(settings.rep_rate_limit_per_minute),
     )
     app.include_router(router)
+    app.include_router(rep_router)
     return app
