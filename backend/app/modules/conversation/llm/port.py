@@ -19,16 +19,29 @@ class LLMError(Exception):
     status: קוד HTTP כשיש; timeout: הבקשה לא הסתיימה בזמן. לפיהם השרשרת מחליטה על המתנה.
     """
 
-    def __init__(self, message: str = "", *, status: Optional[int] = None, timeout: bool = False):
+    def __init__(self, message: str = "", *, status: Optional[int] = None, timeout: bool = False,
+                 provider_message: Optional[str] = None):
         super().__init__(message)
         self.status = status
         self.timeout = timeout
+        self.provider_message = provider_message   # error.message של הספק ב-4xx (בלי תוכן משתמש)
 
     @classmethod
     def from_http(cls, provider: str, exc: Exception) -> "LLMError":
-        status = getattr(getattr(exc, "response", None), "status_code", None)
+        response = getattr(exc, "response", None)
+        status = getattr(response, "status_code", None)
         return cls(f"{provider}: {describe_error(exc)}", status=status,
-                   timeout=isinstance(exc, httpx.TimeoutException))
+                   timeout=isinstance(exc, httpx.TimeoutException),
+                   provider_message=_provider_message(response) if status and 400 <= status < 500 else None)
+
+
+def _provider_message(response: Optional[httpx.Response]) -> Optional[str]:
+    """Google ו-OpenAI מחזירים {"error": {"message": ...}} — תיאור הבעיה בבקשה, לא תוכן המשתמש."""
+    try:
+        message = response.json()["error"]["message"]  # type: ignore[union-attr]
+    except Exception:
+        return None
+    return str(message)[:300] if message else None
 
 
 def describe_error(exc: Exception) -> str:
@@ -51,6 +64,7 @@ class ChatMessage:
     tool_calls: tuple[ToolCall, ...] = ()
     tool_call_id: str = ""      # להודעת tool: לאיזו קריאה זו התשובה
     name: str = ""              # להודעת tool: שם הכלי
+    raw: Any = None             # להודעת assistant: התוכן של הספק כפי שהוחזר (נשלח חזרה בלי שינוי)
 
 
 @dataclass(frozen=True)
@@ -64,6 +78,8 @@ class ToolSpec:
 class LLMResponse:
     text: str = ""
     tool_calls: tuple[ToolCall, ...] = field(default_factory=tuple)
+    # התוכן הגולמי של הספק (Gemini: ה-parts, כולל thoughtSignature). חייב לחזור כמו שהוא בסבב הבא.
+    raw: Any = None
 
 
 class LLMPort(Protocol):
@@ -86,7 +102,7 @@ class ChainEntry:
 
     label: str
     provider: Optional[LLMPort]
-    status: str = "untried"            # untried / ok / 429 / 418 / 5xx / timeout / error / disabled
+    status: str = "untried"            # untried / ok / 400 / 429 / 418 / 5xx / timeout / error / disabled
     detail: Optional[str] = None       # למשל "HTTP 503" או "no API key"
     last_at: Optional[datetime] = None
     cooldown_until: float = 0.0        # לפי השעון של השרשרת (monotonic)
@@ -99,6 +115,7 @@ def entry_label(provider: LLMPort) -> str:
 
 class LLMChain:
     """שרשרת ספקים לפי סדר. כשל זמני (429, 418, 5xx, timeout) או כל כשל אחר — הבא בתור.
+    400 (בקשה שגויה, דטרמיניסטי) עוצר את השרשרת לאותה קריאה.
 
     ספק שהחזיר 429 מדולג למשך cooldown_429_s, ו-418 עד הפעלה מחדש, כדי שכל תור לא
     יבזבז עליו זמן. אם כולם נכשלו או בהמתנה — LLMError, והשיחה עוברת לתבניות.
@@ -157,12 +174,15 @@ class LLMChain:
             started = time.monotonic()
             try:
                 response = entry.provider.complete(messages, tools, require_tool)
-            except Exception as exc:  # כל כשל — עוברים לבא בתור
+            except Exception as exc:  # כל כשל — עוברים לבא בתור (מלבד 400)
                 ms = (time.monotonic() - started) * 1000
                 status, cooldown = _classify(exc, self.cooldown_429_s)
                 self._record(entry, status, _detail(exc), cooldown)
                 log.warning("llm %s failed after %.0fms: %s%s", entry.label, ms, _detail(exc),
                             " (cooling down)" if cooldown else "")
+                if status == "400":
+                    # הבקשה עצמה שגויה — כל רשומה תדחה אותה. לא מבזבזים זמן; התור עובר לתבניות.
+                    raise LLMError(f"{entry.label}: bad request", status=400) from exc
                 last = exc
                 continue
             self._record(entry, "ok")
@@ -178,6 +198,8 @@ def _classify(exc: Exception, cooldown_429_s: float) -> tuple[str, float]:
         return "429", cooldown_429_s
     if status == 418:
         return "418", FOREVER
+    if status == 400:
+        return "400", 0.0
     if status is not None and 500 <= status < 600:
         return "5xx", 0.0
     if getattr(exc, "timeout", False):
@@ -188,7 +210,8 @@ def _classify(exc: Exception, cooldown_429_s: float) -> tuple[str, float]:
 def _detail(exc: Exception) -> str:
     status = getattr(exc, "status", None)
     if status:
-        return f"HTTP {status}"
+        message = getattr(exc, "provider_message", None)
+        return f"HTTP {status}" + (f" ({message})" if message else "")
     if getattr(exc, "timeout", False):
         return "timeout"
     return type(exc).__name__

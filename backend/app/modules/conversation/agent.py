@@ -131,7 +131,9 @@ class Agent:
         understood = understood or state.stage != before
 
         draft = render(state, snapshot, understood=understood, just_calculated=just_calculated)
-        if not used_llm:
+        # ניסוח במודל רק לתוצאות או להודעה שלא הובנה (שאלה חופשית). השאלה הבאה בפרופיל/ברכב
+        # היא תבנית: מהירה, ובלי סיכון לשומר המספרים.
+        if not used_llm or not (just_calculated or not understood):
             return TurnOutcome(reply=draft, source="template", just_calculated=just_calculated)
         reply, source, blocked = self._phrase(state, draft, text)
         return TurnOutcome(reply=reply, source=source, guard_blocked=blocked, just_calculated=just_calculated)
@@ -173,7 +175,8 @@ class Agent:
                 break
             if not response.tool_calls:
                 break
-            messages.append(ChatMessage("assistant", response.text, tool_calls=response.tool_calls))
+            messages.append(ChatMessage("assistant", response.text, tool_calls=response.tool_calls,
+                                        raw=response.raw))
             for call in response.tool_calls:
                 facts = self._run(ctx, call)
                 understood = understood or _recorded(facts)

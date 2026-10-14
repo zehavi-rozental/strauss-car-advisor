@@ -133,3 +133,66 @@ def test_adapters_report_status_and_timeout_for_the_chain(make):
     with pytest.raises(LLMError) as err:
         make(slow).complete(MESSAGES)
     assert err.value.timeout and err.value.status is None
+
+
+def test_gemini_two_rounds_send_back_thought_signatures_unchanged():
+    """Gemini 3: functionCall מגיע עם thoughtSignature; בסבב הבא ה-parts חוזרים בדיוק כמו שהם,
+    ואחריהם תור user אחד עם functionResponse לכל קריאה, באותו סדר."""
+    returned_parts = [
+        {"functionCall": {"name": "match_current_car", "args": {"model": "COROLLA CROSS"}}, "thoughtSignature": "sig-A"},
+        {"functionCall": {"name": "save_profile", "args": {"current_copay": 300}, "id": "fc-2"}},
+    ]
+    bodies = []
+
+    def handler(request):
+        bodies.append(json.loads(request.content))
+        parts = returned_parts if len(bodies) == 1 else [{"text": ""}]
+        return httpx.Response(200, json={"candidates": [{"content": {"role": "model", "parts": parts}}]})
+
+    adapter = GeminiAdapter("gemini-3.8-flash", "k", client=_client(handler))
+    first = adapter.complete([ChatMessage("system", "sys"), ChatMessage("user", "קורולה קרוס, 300")],
+                             [TOOL_SPECS["match_current_car"], TOOL_SPECS["save_profile"]], require_tool=True)
+    assert [c.name for c in first.tool_calls] == ["match_current_car", "save_profile"]
+
+    # כמו בסוכן: הודעת assistant עם raw, ואחריה תשובת tool לכל קריאה
+    history = [ChatMessage("system", "sys"), ChatMessage("user", "קורולה קרוס, 300"),
+               ChatMessage("assistant", first.text, tool_calls=first.tool_calls, raw=first.raw)]
+    history += [ChatMessage("tool", json.dumps({"ok": True}), tool_call_id=c.id, name=c.name) for c in first.tool_calls]
+    adapter.complete(history, [TOOL_SPECS["list_options"]])
+
+    second = bodies[1]
+    assert second["contents"][0] == {"role": "user", "parts": [{"text": "קורולה קרוס, 300"}]}
+    assert second["contents"][1] == {"role": "model", "parts": returned_parts}      # בלי שינוי, כולל החתימה
+    assert second["contents"][2] == {"role": "user", "parts": [
+        {"functionResponse": {"name": "match_current_car", "response": {"result": {"ok": True}}}},
+        {"functionResponse": {"name": "save_profile", "response": {"result": {"ok": True}}, "id": "fc-2"}},
+    ]}
+    assert len(second["contents"]) == 3
+
+
+@pytest.mark.parametrize("model, expected", [
+    ("gemini-3.8-flash", {"thinkingLevel": "low"}),
+    ("gemini-2.5-flash", {"thinkingBudget": 0}),
+])
+def test_gemini_thinking_config(model, expected):
+    bodies = []
+
+    def handler(request):
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "x"}]}}]})
+
+    GeminiAdapter(model, "k", client=_client(handler)).complete(MESSAGES)
+    assert bodies[0]["generationConfig"]["thinkingConfig"] == expected
+
+
+def test_4xx_keeps_the_providers_error_message():
+    body = {"error": {"code": 400, "message": "Function call is missing a thought_signature"}}
+    adapter = GeminiAdapter("g", "k", client=_client(lambda r: httpx.Response(400, json=body)))
+    with pytest.raises(LLMError) as err:
+        adapter.complete(MESSAGES)
+    assert err.value.status == 400 and err.value.provider_message == "Function call is missing a thought_signature"
+    # 5xx: אין הודעת ספק
+    adapter = GeminiAdapter("g", "k", client=_client(lambda r: httpx.Response(503, json=body)))
+    with pytest.raises(LLMError) as err:
+        adapter.complete(MESSAGES)
+    assert err.value.provider_message is None

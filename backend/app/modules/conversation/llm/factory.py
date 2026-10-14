@@ -67,7 +67,8 @@ def _provider(settings: Settings, name: str, model: str) -> tuple[Optional[LLMPo
     if name == "gemini":
         if not key:
             return None, "no API key (GEMINI_API_KEY)"
-        return GeminiAdapter(model, key, timeout_s=timeout), ""
+        return GeminiAdapter(model, key, timeout_s=timeout, thinking_level=settings.gemini_thinking_level,
+                             thinking_budget=settings.gemini_thinking_budget), ""
     if name in PRESETS or base_url:
         if not key and name not in NO_KEY_NEEDED:
             return None, f"no API key ({KEY_FIELDS.get(name, 'LLM_API_KEY').upper()})"

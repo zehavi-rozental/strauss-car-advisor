@@ -31,32 +31,40 @@ def test_invented_number_is_blocked():
     assert not is_safe("כ-11,700 ₪", allowed)              # עיגול שהמודל המציא
 
 
-def test_blocked_reply_is_replaced_by_template(sessions):
-    fake = FakeLLM().turn(call("save_profile", occupation="מנהלת מוצר"),
-                          reply="מעולה! לפי התפקיד תרוויחי בערך 700 ₪ יותר. מה השכר שלך?")
+def _free_form_turn(sessions, user_text, reply):
+    """שאלה חופשית שלא מתאימה לאף שדה: אין שמירה, ולכן המודל מנסח (מקרה שבו עדיין יש ניסוח)."""
+    fake = FakeLLM().turn(reply=reply)
     svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([fake]))
     turn, token = svc.start()
-    turn = svc.send(turn.conversation_id, token, "מנהלת מוצר")
+    return svc.send(turn.conversation_id, token, user_text)
+
+
+def test_blocked_reply_is_replaced_by_template(sessions):
+    turn = _free_form_turn(sessions, "כמה בערך ארוויח?", "לפי הניסיון תרוויחי בערך 700 ₪ יותר. מה התפקיד שלך?")
     assert turn.stage == Stage.COLLECT_PROFILE
     assert turn.source == "template" and "700" not in turn.reply
-    assert "שכר הבסיס" in turn.reply
+    assert "לא הצלחתי להבין" in turn.reply and "התפקיד" in turn.reply
     with sessions() as s:
         last = s.scalars(select(MessageRow).order_by(MessageRow.seq.desc())).first()
         assert last.guard_blocked is True and last.content == turn.reply
 
 
-def _phrase_test(sessions, reply):
-    fake = FakeLLM().turn(call("save_profile", occupation="מנהלת מוצר"), reply=reply)
-    svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([fake]))
-    turn, token = svc.start()
-    return svc.send(turn.conversation_id, token, "אני מנהלת מוצר כבר 7 שנים")
-
-
 def test_numbers_from_the_employees_own_message_are_allowed(sessions):
-    turn = _phrase_test(sessions, "מנהלת מוצר כבר 7 שנים — מעולה! מה שכר הבסיס שלך?")
+    turn = _free_form_turn(sessions, "אני בחברה 7 שנים, זה משנה משהו?",
+                           "7 שנים — יפה! הוותק לא משפיע על החישוב. מה התפקיד שלך?")
     assert turn.source == "llm" and "7 שנים" in turn.reply
 
 
 def test_other_numbers_are_still_blocked(sessions):
-    turn = _phrase_test(sessions, "מנהלת מוצר כבר 8 שנים — מעולה! מה שכר הבסיס שלך?")
+    turn = _free_form_turn(sessions, "אני בחברה 7 שנים, זה משנה משהו?",
+                           "8 שנים — יפה! הוותק לא משפיע על החישוב. מה התפקיד שלך?")
     assert turn.source == "template" and "8" not in turn.reply
+
+
+def test_plain_next_question_is_not_phrased(sessions):
+    fake = FakeLLM().turn(call("save_profile", occupation="מנהלת מוצר"), reply="לא אמור להישלח")
+    svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([fake]))
+    turn, token = svc.start()
+    turn = svc.send(turn.conversation_id, token, "מנהלת מוצר")
+    assert turn.source == "template" and "שכר הבסיס" in turn.reply
+    assert all(c.tools for c in fake.calls)            # אף קריאת ניסוח (בלי כלים)

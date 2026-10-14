@@ -1,7 +1,8 @@
 """מודל שפה מזויף לבדיקות: תסריט לפי תורות, ורישום של מה שנשלח אליו.
 
 כל תור בתסריט: סבבי קריאות לכלים (קריאה עם כלים) ותשובה מנוסחת (קריאה בלי כלים).
-קריאת הניסוח סוגרת את התור. כשהסבבים נגמרו — תשובה ריקה בלי כלים (סוף החילוץ).
+התור נסגר בקריאת הניסוח, או כשמגיעה הודעת עובד חדשה (תור בלי ניסוח — תבנית).
+כשהסבבים נגמרו — תשובה ריקה בלי כלים (סוף החילוץ).
 """
 from __future__ import annotations
 
@@ -17,6 +18,7 @@ class _Turn:
     rounds: deque[tuple[ToolCall, ...]] = field(default_factory=deque)
     reply: Optional[str] = None
     forced_only: bool = False
+    user_turn: Optional[int] = None    # מספר הודעות העובד כשהתור התחיל
 
 
 @dataclass(frozen=True)
@@ -50,6 +52,11 @@ class FakeLLM:
                  require_tool: bool = False) -> LLMResponse:
         self.calls.append(FakeCall(list(messages), [t.name for t in tools], require_tool))
         if tools:
+            user_turn = sum(1 for m in messages if m.role == "user")
+            if self.script and self.script[0].user_turn not in (None, user_turn):
+                self.script.popleft()            # התור הקודם הסתיים בלי ניסוח
+            if self.script and self.script[0].user_turn is None:
+                self.script[0].user_turn = user_turn
             current = self.script[0] if self.script else None
             if current and current.rounds:
                 if current.forced_only and not require_tool:

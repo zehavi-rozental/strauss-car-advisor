@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import hmac
+import logging
 import secrets
 import tempfile
+import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,6 +30,9 @@ from .llm.port import ChatMessage, LLMChain, LLMPort
 from .parsing import redact_id_numbers
 from .repository import DATA_FILE, EXTENSIONS_FILE, RULES_FILE, ConversationRepository, token_hash
 from .stage import ConversationState, OptionResult, RepReason, Stage
+
+
+log = logging.getLogger(__name__)
 
 
 class ConversationNotFound(Exception):
@@ -90,6 +95,13 @@ class ConversationService:
     # ---------- תור ----------
 
     def send(self, conversation_id: str, token: str, text: str) -> TurnResult:
+        started = time.monotonic()
+        try:
+            return self._send(conversation_id, token, text)
+        finally:
+            log.info("turn total=%.0fms", (time.monotonic() - started) * 1000)
+
+    def _send(self, conversation_id: str, token: str, text: str) -> TurnResult:
         snapshot = self.rules.current
         with self.sessions() as session, session.begin():
             repo = ConversationRepository(session)

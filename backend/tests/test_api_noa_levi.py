@@ -44,7 +44,7 @@ def test_noa_levi_with_llm(engine, sessions):
         "text": "אני מנהלת מוצר, ברוטו 18,500, בלי עמלות ובונוסים, פנסיה 6%, השתלמות 2.5%, "
                 "2.75 נקודות זיכוי, 2 ילדים"}).json()
     assert body["stage"] == "COLLECT_CURRENT_CAR"
-    assert body["source"] == "llm"
+    assert body["source"] == "template"      # השאלה הבאה — תבנית, בלי קריאת ניסוח
 
     fake.turn(call("match_current_car", model="COROLLA CROSS"), call("save_profile", current_copay=300),
               reply="מצאתי את COROLLA CROSS (2025). לאיזה רכב להשוות?")

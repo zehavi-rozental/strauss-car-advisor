@@ -33,13 +33,23 @@ def test_first_entry_answers_and_the_rest_are_not_called():
     assert (a.calls, b.calls) == (1, 0)
 
 
-@pytest.mark.parametrize("failure", [429, 418, 500, 503, "timeout", 400])
+@pytest.mark.parametrize("failure", [429, 418, 500, 503, "timeout", 401, 404])
 def test_failure_moves_to_the_next_entry_in_order(failure):
     a = ScriptedProvider("gemini", "a", [failure])
     b = ScriptedProvider("gemini", "b", [failure])
     c = ScriptedProvider("groq", "c")
     assert chain(a, b, c).complete(MSG).text == "ok from groq:c"
     assert (a.calls, b.calls, c.calls) == (1, 1, 1)
+
+
+def test_400_stops_the_chain():
+    """בקשה שגויה תידחה בכל רשומה — לא מנסים את הבאות; התור עובר לתבניות."""
+    a, b = ScriptedProvider("gemini", "a", [400]), ScriptedProvider("groq", "c")
+    ch = chain(a, b)
+    with pytest.raises(LLMError) as err:
+        ch.complete(MSG)
+    assert err.value.status == 400 and b.calls == 0
+    assert ch.complete(MSG).text == "ok from gemini:a"     # בלי המתנה: הבקשה הבאה שונה
 
 
 def test_all_entries_failing_raises():

@@ -36,8 +36,6 @@ def test_noa_levi_against_real_provider(engine):
         r = client.post(f"/api/conversations/{cid}/messages", json={"text": text})
         assert r.status_code == 200, r.text
         body = r.json()
-        # תבנית = הספק נכשל (למשל HTTP 429) או ששומר המספרים חסם; הלוג מראה איזה מהם
-        assert body["source"] == "llm", f"התור נפל לתבנית: {body['reply']}"
         time.sleep(TURN_PAUSE_S)
         return body
 
@@ -49,6 +47,8 @@ def test_noa_levi_against_real_provider(engine):
 
     body = say("אני רוצה לבדוק את BYD אטו 3 החשמלי")
     assert body["stage"] == "PRESENTED", body["reply"]
+    # רק התוצאות מנוסחות במודל; תבנית כאן = הספק נכשל או ששומר המספרים חסם (ראו הלוג)
+    assert body["source"] == "llm", f"התור נפל לתבנית: {body['reply']}"
     [result] = body["results"]
     assert result["label"] == "ATTO 3 (2025)"
     assert result["delta_display"] == "661"
