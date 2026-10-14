@@ -23,7 +23,8 @@ class ElectricRule(_Strict):
 class FamilyTrackRule(_Strict):
     min_children: int = Field(alias="minChildren")
     child_max_age: int = Field(alias="childMaxAge")
-    car_price: Decimal = Field(alias="carPrice")
+    cars: list[str] = Field(min_length=1)                  # מזהי קטלוג; הרשימה היא המסלול המשפחתי
+    price_source: Literal["catalogue"] = Field(alias="priceSource")   # עלות כל רכב לפי הקטלוג
     gap_split_employee: Decimal = Field(alias="gapSplitEmployee")
 
 
@@ -42,7 +43,18 @@ class TierRule(_Strict):
 
 class PensionCreditRule(_Strict):
     rate: Decimal
+    max_contribution_rate: Decimal = Field(alias="maxContributionRate")
     income_ceiling: Decimal = Field(alias="incomeCeiling")
+
+
+class ParticipationRule(_Strict):
+    treatment: Literal["net_deduction"]
+    reduces_value_of_use: Literal[False] = Field(alias="reducesValueOfUse")
+
+
+class RoundingRule(_Strict):
+    during: Literal["none"]
+    display: Literal["shekel"]
 
 
 class NetMethodRule(_Strict):
@@ -53,6 +65,9 @@ class NetMethodRule(_Strict):
     national_insurance: TierRule = Field(alias="nationalInsurance")
     health: TierRule
     pension_credit: PensionCreditRule = Field(alias="pensionCredit")
+    contributions_base: Literal["gross"] = Field(alias="contributionsBase")
+    participation: ParticipationRule
+    rounding: RoundingRule
 
     @model_validator(mode="after")
     def _brackets_ascending(self):
@@ -86,18 +101,25 @@ class StraussRules(_Strict):
 
 # ---------- extensions.yaml ----------
 
+# שדות שעברו לקובץ הכללים של שטראוס. נשארו ב-extensions.yaml → שגיאה, כדי שלא יערכו את הקובץ הלא נכון.
+MOVED_TO_RULES = {
+    "pension_credit_max_rate": "netMethod.pensionCredit.maxContributionRate",
+    "pensionable_components": "netMethod.contributionsBase",
+    "study_fund_components": "netMethod.contributionsBase",
+    "display_rounding": "netMethod.rounding.display",
+}
+
+
 class Extensions(_Strict):
+    """רק מה שקובץ הכללים של שטראוס עדיין לא אומר."""
+
     version: str
-    pension_credit_max_rate: Decimal
-    pensionable_components: list[Literal["base", "commissions", "bonus"]]
-    study_fund_components: list[Literal["base", "commissions", "bonus"]]
     family_gap_adds_to_copay: bool
     copay_policy: Literal["CATALOG_DEFAULT_CONFIRM_ASYNC", "CATALOG_DEFAULT", "REP_REQUIRED"]
     plug_in_counts_as_electric: bool
     child_age_inclusive: bool
     default_vehicle_type: str
     electric_fuel_codes: list[str]
-    display_rounding: Literal["SHEKEL", "AGORA"]
     car_aliases: dict[str, list[str]] = Field(default_factory=dict)   # מזהה קטלוג → כינויים בעברית
 
 

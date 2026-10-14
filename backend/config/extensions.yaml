@@ -1,17 +1,14 @@
-# extensions.yaml — הגדרות שקובץ הכללים של שטראוס לא מפרט.
+# extensions.yaml — רק מה שקובץ הכללים של שטראוס (strauss-rules.json) עדיין לא מפרט.
+# פנסיה, בסיס ההפרשות, השתתפות ועיגול — בקובץ הכללים (netMethod), לא כאן.
 # כל ערך כאן הוא החלטה מתועדת (סעיף 11 באיפיון); תשובה משטראוס = שינוי ערך, לא קוד.
-version: "ext-2026-10-14"
+version: "ext-2026-10-14.2"
 
-pension_credit_max_rate: 0.07          # תקרת זיכוי הפנסיה: 7% × 9,500 (מוסק מגיליון החישובים)
-pensionable_components: [base, commissions, bonus]
-study_fund_components:  [base, commissions, bonus]
 family_gap_adds_to_copay: true          # חלק העובד בפער מתווסף להשתתפות הרכב
 copay_policy: CATALOG_DEFAULT_CONFIRM_ASYNC   # סעיף 8
 plug_in_counts_as_electric: false
 child_age_inclusive: true               # "עד גיל 23" כולל 23
 default_vehicle_type: "1"               # בקטלוג אין עמודת סוג רכב
 electric_fuel_codes: ["4"]              # זיהוי חשמלי לרכב נוכחי שאינו בקטלוג
-display_rounding: SHEKEL
 
 # כינויים בעברית לרכבי הקטלוג (לפי מזהה), לזיהוי הרכב הנוכחי ולבחירת חלופות.
 # כינוי חדש = שורה כאן, לא קוד. ההתאמה מתעלמת מרווחים ומסימנים.

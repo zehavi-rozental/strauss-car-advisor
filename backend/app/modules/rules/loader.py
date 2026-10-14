@@ -15,11 +15,13 @@ from typing import Any, Iterable, Literal
 
 import yaml
 from openpyxl import load_workbook
+from pydantic import ValidationError
 
-from app.modules.calculation.public import Bracket, CalcRules, TwoTier
+from app.modules.calculation.public import FAMILY_GROUP, Bracket, CalcRules, TwoTier
 
 from .models import (
     DRIVE_FROM_HEBREW,
+    MOVED_TO_RULES,
     CatalogCar,
     Extensions,
     Occupation,
@@ -42,6 +44,52 @@ SHEET_RESULTS = "חישובים"
 
 class ConfigError(Exception):
     pass
+
+
+# בסיס ההפרשות לפנסיה ולקרן השתלמות (netMethod.contributionsBase)
+CONTRIBUTION_COMPONENTS = {
+    "gross": ["base", "commissions", "bonus"],
+}
+
+
+def _schema_error(file_name: str, exc: ValidationError) -> ConfigError:
+    """שגיאת סכמה בעברית: שם הקובץ ונתיב השדה (כמו בקובץ), בלי מונחים של pydantic."""
+    problems = []
+    for err in exc.errors():
+        path = ".".join(str(part) for part in err["loc"])
+        if err["type"] == "missing":
+            problems.append(f"חסר השדה {path}")
+        elif err["type"] in ("literal_error", "enum"):
+            expected = err.get("ctx", {}).get("expected", "")
+            problems.append(f"ערך לא נתמך ב-{path}: {err['input']!r} (אפשרי: {expected})")
+        else:
+            problems.append(f"ערך לא תקין ב-{path}: {err['msg']}")
+    return ConfigError(f"{file_name}: " + "; ".join(problems))
+
+
+def _check_family_cars(strauss: StraussRules, catalog: list[CatalogCar]) -> None:
+    """familyTrack.cars הוא המסלול המשפחתי — בדיוק: כל רכב ברשימה בקטלוג ובקבוצה משפחתי, ולהפך."""
+    by_code = {c.catalog_code: c for c in catalog}
+    listed = strauss.family_track.cars
+    for code in listed:
+        if code not in by_code:
+            raise ConfigError(f"הרכב {code} ברשימת המסלול המשפחתי (familyTrack.cars) אינו בקטלוג")
+        if by_code[code].group != FAMILY_GROUP:
+            raise ConfigError(f"הרכב {code} ברשימת המסלול המשפחתי אינו בקבוצה '{FAMILY_GROUP}' בקטלוג")
+    extra = sorted(c.catalog_code for c in catalog if c.group == FAMILY_GROUP and c.catalog_code not in listed)
+    if extra:
+        raise ConfigError(f"רכבים בקבוצה '{FAMILY_GROUP}' בקטלוג שאינם ב-familyTrack.cars: {extra}")
+
+
+def _parse_extensions(raw: Any) -> Extensions:
+    moved = [k for k in MOVED_TO_RULES if isinstance(raw, dict) and k in raw]
+    if moved:
+        where = ", ".join(f"{k} → {MOVED_TO_RULES[k]}" for k in moved)
+        raise ConfigError(f"{EXTENSIONS_FILE}: השדות עברו לקובץ הכללים {RULES_FILE} — יש להסיר אותם: {where}")
+    try:
+        return Extensions.model_validate(raw)
+    except ValidationError as exc:
+        raise _schema_error(EXTENSIONS_FILE, exc) from exc
 
 
 @dataclass(frozen=True)
@@ -105,9 +153,9 @@ def build_calc_rules(strauss: StraussRules, ext: Extensions) -> CalcRules:
         health=tier(nm.health),
         pension_credit_rate=nm.pension_credit.rate,
         pension_credit_income_ceiling=nm.pension_credit.income_ceiling,
-        pension_credit_max_rate=ext.pension_credit_max_rate,
-        pensionable_components=ext.pensionable_components,
-        study_fund_components=ext.study_fund_components,
+        pension_credit_max_rate=nm.pension_credit.max_contribution_rate,
+        pensionable_components=CONTRIBUTION_COMPONENTS[nm.contributions_base],
+        study_fund_components=CONTRIBUTION_COMPONENTS[nm.contributions_base],
     )
 
 
@@ -147,6 +195,7 @@ def _load_workbook(path: Path, ext: Extensions, strauss: StraussRules):
     if unknown:
         raise ConfigError(f"כינויים לרכבים שאינם בקטלוג: {unknown}")
     catalog = [c.model_copy(update={"aliases": tuple(ext.car_aliases.get(c.catalog_code, ()))}) for c in catalog]
+    _check_family_cars(strauss, catalog)
 
     occupations: dict[str, Occupation] = {}
     for r in _rows(wb[SHEET_OCCUPATIONS]):
@@ -193,8 +242,11 @@ def load_snapshot(config_dir: Path) -> RulesSnapshot:
             raise ConfigError(f"חסר קובץ הגדרות: {p}")
     contents = {name: p.read_bytes() for name, p in paths.items()}
     try:
-        strauss = StraussRules.model_validate(json.loads(contents[RULES_FILE].decode("utf-8")))
-        ext = Extensions.model_validate(yaml.safe_load(contents[EXTENSIONS_FILE].decode("utf-8")))
+        try:
+            strauss = StraussRules.model_validate(json.loads(contents[RULES_FILE].decode("utf-8")))
+        except ValidationError as exc:
+            raise _schema_error(RULES_FILE, exc) from exc
+        ext = _parse_extensions(yaml.safe_load(contents[EXTENSIONS_FILE].decode("utf-8")))
         catalog, occupations, employees, results = _load_workbook(paths[DATA_FILE], ext, strauss)
         calc = build_calc_rules(strauss, ext)
     except ConfigError:

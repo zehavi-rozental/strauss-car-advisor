@@ -166,3 +166,17 @@ def test_tax_continuous_at_bracket_edges(rules, taxable):
     below = compute_net(e, StateInputs("x", use_value=taxable - D("0.01") - e.base), rules).income_tax
     at = compute_net(e, StateInputs("x", use_value=taxable - e.base), rules).income_tax
     assert D(0) <= at - below < D("0.01")
+
+
+# ---------- מסלול משפחתי: עלות כל רכב לפי הקטלוג (familyTrack.priceSource) ----------
+
+def test_family_track_uses_each_cars_catalog_cost(snapshot, rules):
+    """קבוצה ב (תקציב 3,700), 5 ילדים. קרניבל 6,000 → פער 2,300; סנטה פה 5,600 → פער 1,900; העובד 50%."""
+    employee = emp(group="ב", eligible_children=5)
+    today = current(snapshot, "NIRO", D(250))
+    carnival = evaluate(employee, today, car_state(cat(snapshot, "CARNIVAL")), rules)
+    santa_fe = evaluate(employee, today, car_state(cat(snapshot, "SANTA FE")), rules)
+    assert carnival.eligible and santa_fe.eligible
+    assert carnival.alternative.family_share == D(1150)
+    assert santa_fe.alternative.family_share == D(950)
+    assert santa_fe.delta_display > carnival.delta_display

@@ -145,3 +145,52 @@ def test_aliases_are_data_not_code(config_copy):
     from app.modules.rules.public import find_catalog_car
     snap = RulesStore(config_copy, mode="strict").reload()
     assert [c.catalog_code for c in find_catalog_car(snap, "קיה נירו")] == ["CAR-05"]
+
+
+# ---------- קובץ הכללים המעודכן: מסלול משפחתי, שדות חובה, שדות שעברו ----------
+
+def _edit_rules(config_dir: Path, edit) -> None:
+    p = config_dir / "strauss-rules.json"
+    data = json.loads(p.read_text(encoding="utf-8"))
+    edit(data)
+    p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+
+def test_family_cars_come_from_the_rules_file(snapshot):
+    assert snapshot.strauss.family_track.cars == ["CAR-19", "CAR-20"]
+    assert snapshot.strauss.family_track.price_source == "catalogue"
+    assert snapshot.calc.pension_credit_max_rate == Decimal("0.07")
+    assert snapshot.calc.pensionable_components == ["base", "commissions", "bonus"]
+
+
+def test_family_car_missing_from_catalog_fails(config_copy):
+    _edit_rules(config_copy, lambda d: d["familyTrack"].update(cars=["CAR-19", "CAR-20", "CAR-99"]))
+    with pytest.raises(ConfigError, match="CAR-99"):
+        RulesStore(config_copy, mode="strict").reload()
+
+
+def test_family_group_car_not_on_the_list_fails(config_copy):
+    _edit_rules(config_copy, lambda d: d["familyTrack"].update(cars=["CAR-19"]))
+    with pytest.raises(ConfigError, match="CAR-20"):
+        RulesStore(config_copy, mode="strict").reload()
+
+
+def test_listed_family_car_must_be_in_the_family_group(config_copy):
+    _edit_rules(config_copy, lambda d: d["familyTrack"].update(cars=["CAR-19", "CAR-20", "CAR-10"]))
+    with pytest.raises(ConfigError, match="CAR-10.*משפחתי"):
+        RulesStore(config_copy, mode="strict").reload()
+
+
+def test_missing_rule_field_has_a_hebrew_message(config_copy):
+    _edit_rules(config_copy, lambda d: d["netMethod"]["pensionCredit"].pop("maxContributionRate"))
+    with pytest.raises(ConfigError) as err:
+        RulesStore(config_copy, mode="strict").reload()
+    assert "strauss-rules.json" in str(err.value)
+    assert "חסר השדה netMethod.pensionCredit.maxContributionRate" in str(err.value)
+
+
+def test_field_moved_to_the_rules_file_cannot_stay_in_extensions(config_copy):
+    p = config_copy / "extensions.yaml"
+    p.write_text(p.read_text(encoding="utf-8") + "\npension_credit_max_rate: 0.07\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="pension_credit_max_rate → netMethod.pensionCredit.maxContributionRate"):
+        RulesStore(config_copy, mode="strict").reload()

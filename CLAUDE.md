@@ -53,9 +53,13 @@ A module, and `app/api`, imports another module **only** through that module's `
 
 - Tax-authority key: tax year + registration year + **vehicle type** + manufacturer code + model code. ATTO 3 and TANG share manufacturer and model codes.
 - Drive codes in the tax file: 0 petrol, 1 hybrid, 2 plug-in, 3 electric. The column header in the file is misleading.
-- Pension and study fund are computed on base + commissions + bonus. Pension credit = 35% × min(pension, 7% × 9,500).
-- The employee's copay does not reduce the taxable use value.
-- The employee's share of the family-track gap is added on top of the copay.
+- From the rules file (`strauss-rules.json`, the source of truth; not our own decisions any more):
+  - Pension and study fund base: `netMethod.contributionsBase` (`gross` = base + commissions + bonus).
+  - Pension credit: `netMethod.pensionCredit` = rate × min(pension, maxContributionRate × incomeCeiling) = 35% × min(pension, 7% × 9,500).
+  - Copay: `netMethod.participation` — a net deduction that does not reduce the taxable use value (`reducesValueOfUse: false`).
+  - Family track: exactly the cars in `familyTrack.cars`; each car's monthly cost comes from the catalog (`priceSource: catalogue` — Carnival 6,000, Santa Fe 5,600).
+  - Rounding: `netMethod.rounding` — none during the calculation, whole shekels for display only.
+- `extensions.yaml` keeps only what the rules file does not say (e.g. the employee's share of the family-track gap is added on top of the copay). A field that moved to the rules file fails loading if it is left there.
 - Copay for a new car: calculate immediately with the catalog default and mark it "pending representative approval" (`CATALOG_DEFAULT_CONFIRM_ASYNC`).
 - Current-car matching: company catalog first, then the tax file. Several matches with different use values → the employee chooses from up to 5.
 
