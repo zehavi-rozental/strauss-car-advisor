@@ -6,3 +6,5 @@
 # Data files are stored byte-for-byte (the tax CSV is CRLF, windows-1255).
 *.xlsx binary
 *.csv binary
+# The Strauss rules file is kept exactly as delivered (byte-for-byte, matches their SHA-256).
+backend/config/strauss-rules.json binary
