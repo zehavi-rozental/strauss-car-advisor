@@ -56,7 +56,9 @@ def compute_net(employee: Employee, state: StateInputs, rules: CalcRules,
     pension = _components(employee, rules.pensionable_components) * employee.pension_rate
     study_fund = _components(employee, rules.study_fund_components) * employee.study_fund_rate
 
-    taxable = cash_gross + state.use_value
+    # ההשתתפות תמיד יורדת מהנטו; לפי הכללים היא יכולה גם להקטין את שווי השימוש החייב
+    use_value = max(ZERO, state.use_value - state.copay) if rules.copay_reduces_use_value else state.use_value
+    taxable = cash_gross + use_value
     pension_credit = rules.pension_credit_rate * min(
         pension, rules.pension_credit_max_rate * rules.pension_credit_income_ceiling
     )
@@ -72,7 +74,7 @@ def compute_net(employee: Employee, state: StateInputs, rules: CalcRules,
     return Breakdown(
         label=state.label,
         cash_gross=cash_gross,
-        use_value=state.use_value,
+        use_value=use_value,
         maintenance=state.maintenance,
         electric_gross_up=electric_gross_up,
         pension=pension,

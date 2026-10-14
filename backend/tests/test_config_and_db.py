@@ -194,3 +194,62 @@ def test_field_moved_to_the_rules_file_cannot_stay_in_extensions(config_copy):
     p.write_text(p.read_text(encoding="utf-8") + "\npension_credit_max_rate: 0.07\n", encoding="utf-8")
     with pytest.raises(ConfigError, match="pension_credit_max_rate → netMethod.pensionCredit.maxContributionRate"):
         RulesStore(config_copy, mode="strict").reload()
+
+
+# ---------- חלופות שהקבצים מזכירים: שינוי בקובץ הכללים בלבד, לא בקוד ----------
+
+def _noa(snap, alternative="ATTO 3 (2025)", **employee_changes):
+    from app.modules.calculation.public import evaluate
+    from app.modules.rules.public import occupation_rule, parse_reference_state, reference_employee
+    ref = next(e for e in snap.reference_employees if e.employee_id == "E-001")
+    employee = reference_employee(ref).model_copy(update=employee_changes)
+    current = parse_reference_state(snap, ref.current_car, current_copay=ref.current_copay, for_current=True)
+    return evaluate(employee, current, parse_reference_state(snap, alternative), snap.calc,
+                    occupation_rule(snap.occupations.get(ref.occupation)))
+
+
+def test_contributions_on_base_salary_only(snapshot, config_copy):
+    _edit_rules(config_copy, lambda d: d["netMethod"].update(contributionsBase="base"))
+    alt = load_snapshot(config_copy)
+    assert alt.calc.pensionable_components == alt.calc.study_fund_components == ["base"]
+    gross = _noa(snapshot, commissions=Decimal(3000))
+    base = _noa(alt, commissions=Decimal(3000))
+    assert gross.today.pension == Decimal(21500) * Decimal("0.06")        # בסיס + עמלות
+    assert base.today.pension == Decimal(18500) * Decimal("0.06")         # בסיס בלבד
+    assert base.today.net > gross.today.net
+
+
+def test_electric_as_a_flat_gross_component(snapshot, config_copy):
+    _edit_rules(config_copy, lambda d: d["electric"].update(method="gross"))
+    gross_up = _noa(snapshot)
+    flat = _noa(load_snapshot(config_copy))
+    assert flat.alternative.electric_gross_up == Decimal(250)              # 250 ברוטו, לא מגולם
+    assert gross_up.alternative.electric_gross_up > Decimal(250)
+    assert flat.alternative.net < gross_up.alternative.net                 # המס יורד מה-250
+    assert flat.today.net == gross_up.today.net                            # היום (היברידי) לא משתנה
+
+
+def test_copay_reduces_the_taxable_use_value(snapshot, config_copy):
+    _edit_rules(config_copy, lambda d: d["netMethod"]["participation"].update(reducesValueOfUse=True))
+    default = _noa(snapshot)
+    reduced = _noa(load_snapshot(config_copy))
+    assert default.today.use_value == Decimal(4070)
+    assert reduced.today.use_value == Decimal(4070 - 300)
+    assert reduced.today.income_tax < default.today.income_tax
+    assert reduced.today.net > default.today.net
+    assert reduced.today.copay == default.today.copay == Decimal(300)     # עדיין יורדת מהנטו
+
+
+@pytest.mark.parametrize("edit, field", [
+    (lambda d: d["netMethod"].update(contributionsBase="bonus"), "netMethod.contributionsBase"),
+    (lambda d: d["electric"].update(method="net"), "electric.method"),
+    (lambda d: d["netMethod"]["rounding"].update(display="agora"), "netMethod.rounding.display"),
+    (lambda d: d["netMethod"]["participation"].update(treatment="gross_deduction"),
+     "netMethod.participation.treatment"),
+    (lambda d: d["familyTrack"].update(priceSource="fixed"), "familyTrack.priceSource"),
+])
+def test_unknown_rule_values_fail_with_a_hebrew_message(config_copy, edit, field):
+    _edit_rules(config_copy, edit)
+    with pytest.raises(ConfigError) as err:
+        RulesStore(config_copy, mode="strict").reload()
+    assert f"ערך לא נתמך ב-{field}" in str(err.value) and "strauss-rules.json" in str(err.value)

@@ -49,6 +49,7 @@ class ConfigError(Exception):
 # בסיס ההפרשות לפנסיה ולקרן השתלמות (netMethod.contributionsBase)
 CONTRIBUTION_COMPONENTS = {
     "gross": ["base", "commissions", "bonus"],
+    "base": ["base"],
 }
 
 
@@ -146,6 +147,7 @@ def build_calc_rules(strauss: StraussRules, ext: Extensions) -> CalcRules:
         family_gap_employee_share=strauss.family_track.gap_split_employee,
         family_gap_adds_to_copay=ext.family_gap_adds_to_copay,
         plug_in_counts_as_electric=ext.plug_in_counts_as_electric,
+        copay_reduces_use_value=nm.participation.reduces_value_of_use,
         tax_year=nm.tax_year,
         credit_point_value=nm.credit_point_value,
         brackets=[Bracket(up_to=u, rate=r) for u, r in nm.brackets],

@@ -59,6 +59,7 @@ A module, and `app/api`, imports another module **only** through that module's `
   - Copay: `netMethod.participation` — a net deduction that does not reduce the taxable use value (`reducesValueOfUse: false`).
   - Family track: exactly the cars in `familyTrack.cars`; each car's monthly cost comes from the catalog (`priceSource: catalogue` — Carnival 6,000, Santa Fe 5,600).
   - Rounding: `netMethod.rounding` — none during the calculation, whole shekels for display only.
+  - Alternatives a pilot can switch to in the rules file alone: `contributionsBase: base` (base salary only), `electric.method: gross` (flat gross component), `participation.reducesValueOfUse: true` (copay reduces the taxable use value). Any other value fails loading with a Hebrew error.
 - `extensions.yaml` keeps only what the rules file does not say (e.g. the employee's share of the family-track gap is added on top of the copay). A field that moved to the rules file fails loading if it is left there.
 - Copay for a new car: calculate immediately with the catalog default and mark it "pending representative approval" (`CATALOG_DEFAULT_CONFIRM_ASYNC`).
 - Current-car matching: company catalog first, then the tax file. Several matches with different use values → the employee chooses from up to 5.

@@ -49,7 +49,7 @@ class PensionCreditRule(_Strict):
 
 class ParticipationRule(_Strict):
     treatment: Literal["net_deduction"]
-    reduces_value_of_use: Literal[False] = Field(alias="reducesValueOfUse")
+    reduces_value_of_use: bool = Field(alias="reducesValueOfUse")   # true: ההשתתפות מקטינה את שווי השימוש החייב
 
 
 class RoundingRule(_Strict):
@@ -65,7 +65,7 @@ class NetMethodRule(_Strict):
     national_insurance: TierRule = Field(alias="nationalInsurance")
     health: TierRule
     pension_credit: PensionCreditRule = Field(alias="pensionCredit")
-    contributions_base: Literal["gross"] = Field(alias="contributionsBase")
+    contributions_base: Literal["gross", "base"] = Field(alias="contributionsBase")   # base: בסיס בלבד
     participation: ParticipationRule
     rounding: RoundingRule
 

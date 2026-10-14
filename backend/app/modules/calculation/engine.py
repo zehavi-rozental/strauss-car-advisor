@@ -31,7 +31,7 @@ from .models import (
 )
 from .tax import StateInputs, compute_net, solve_gross_up
 
-ENGINE_VERSION = "1.0.0"
+ENGINE_VERSION = "1.1.0"   # 1.1: השתתפות שמקטינה את שווי השימוש (לפי הכללים)
 
 REASON_OWN_OR_LOWER = "הרכב מהקבוצה שלך או נמוכה ממנה"
 REASON_HIGHER_GROUP = "הרכב מקבוצה גבוהה מהקבוצה שלך"

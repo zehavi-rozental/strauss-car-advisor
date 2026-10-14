@@ -46,6 +46,7 @@ class CalcRules(Frozen):
     family_gap_employee_share: Decimal
     family_gap_adds_to_copay: bool = True
     plug_in_counts_as_electric: bool = False
+    copay_reduces_use_value: bool = False      # true: שווי השימוש החייב = שווי − השתתפות (לא פחות מ-0)
 
     tax_year: int
     credit_point_value: Decimal
