@@ -6,6 +6,7 @@ from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 
+import app.modules.cases.models  # noqa: F401
 import app.modules.conversation.models  # noqa: F401
 import app.modules.vehicles.models  # noqa: F401
 from app.shared.db import Base, make_engine

@@ -5,7 +5,8 @@ from logging.config import fileConfig
 
 from alembic import context
 
-import app.modules.conversation.models  # noqa: F401  (רישום הטבלאות)
+import app.modules.cases.models  # noqa: F401  (רישום הטבלאות)
+import app.modules.conversation.models  # noqa: F401
 import app.modules.vehicles.models  # noqa: F401
 from app.shared.db import Base, make_engine
 from app.shared.settings import get_settings

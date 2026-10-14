@@ -29,6 +29,7 @@ from sqlalchemy.pool import StaticPool  # noqa: E402
 
 from app.api.main import create_app  # noqa: E402
 from app.modules.conversation.public import LLMChain  # noqa: E402
+from app.modules.cases.public import CasesService  # noqa: E402,F401  (רישום טבלת rep_questions)
 from app.modules.vehicles.models import TaxVehicle  # noqa: E402
 from app.shared.db import Base, make_engine, session_factory  # noqa: E402
 from app.shared.settings import Settings  # noqa: E402

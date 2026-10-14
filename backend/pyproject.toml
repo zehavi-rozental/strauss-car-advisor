@@ -93,3 +93,17 @@ name = "the conversation module does not know about HTTP"
 type = "forbidden"
 source_modules = ["app.modules.conversation"]
 forbidden_modules = ["fastapi", "starlette", "app.api"]
+
+# שאלות לנציג: המודול לא מכיר את השיחה (היא נרשמת לאירועים שלו), ולא HTTP
+[[tool.importlinter.contracts]]
+name = "cases does not know about conversation or HTTP"
+type = "forbidden"
+source_modules = ["app.modules.cases"]
+forbidden_modules = ["app.modules.conversation", "app.api", "fastapi", "starlette"]
+
+[[tool.importlinter.contracts]]
+name = "cases is used only through its public.py"
+type = "forbidden"
+source_modules = ["app.modules.conversation", "app.api"]
+forbidden_modules = ["app.modules.cases.models"]
+allow_indirect_imports = true
