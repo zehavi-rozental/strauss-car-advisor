@@ -102,12 +102,12 @@ class _FailsFromCall:
     def __init__(self, inner, fail_from: int):
         self.inner, self.fail_from, self.n = inner, fail_from, 0
 
-    def complete(self, messages, tools=(), require_tool=False):
+    def complete(self, messages, tools=(), require_tool=False, timeout_s=None):
         self.n += 1
         if self.n >= self.fail_from:
             from app.modules.conversation.llm.port import LLMError
             raise LLMError("HTTP 429")
-        return self.inner.complete(messages, tools, require_tool)
+        return self.inner.complete(messages, tools, require_tool, timeout_s)
 
 
 def test_provider_failure_after_first_round_keeps_profile(sessions):
@@ -127,3 +127,32 @@ def test_provider_failure_on_first_round_uses_fallback_parser(sessions):
     turn, token = svc.start()
     turn = svc.send(turn.conversation_id, token, NOA_PROFILE)
     assert turn.stage == Stage.COLLECT_CURRENT_CAR and turn.source == "template"
+
+
+def test_found_car_does_not_trigger_a_second_round(sessions):
+    """רכב נמצא → בחירת חלופות: העובד עוד לא בחר, אין טעם בסבב נוסף."""
+    fake = FakeLLM().turn(NOA_SAVE, reply=None)
+    svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([fake]))
+    turn, token = svc.start()
+    svc.send(turn.conversation_id, token, NOA_PROFILE)
+    before = len(fake.calls)
+    fake.turn(call("match_current_car", model="COROLLA CROSS"), call("save_profile", current_copay=300))
+    turn = svc.send(turn.conversation_id, token, "קורולה קרוס, 300")
+    assert turn.stage == Stage.CHOOSE_OPTIONS
+    assert len([c for c in fake.calls[before:] if c.tools]) == 1
+
+
+def test_turn_deadline_falls_back_to_templates(sessions):
+    """כל הספקים איטיים: אחרי 10 שניות (שעון השרשרת) התור עובר לתבניות בלי לנסות עוד רשומות."""
+    from .test_llm_chain import Clock, SlowProvider
+    from app.modules.conversation.llm.fake import ScriptedProvider
+
+    clock = Clock()
+    slow = [SlowProvider("gemini", m, clock, 8) for m in ("a", "b")]
+    never = ScriptedProvider("groq", "c")
+    chain = LLMChain([*slow, never], turn_deadline_s=10, clock=clock)
+    svc = ConversationService(sessions, RulesStore(CONFIG), chain)
+    turn, token = svc.start()
+    turn = svc.send(turn.conversation_id, token, NOA_PROFILE)
+    assert turn.source == "template" and turn.stage == Stage.COLLECT_CURRENT_CAR   # הפרסר בגיבוי
+    assert never.calls == 0 and clock.now - 1000 == 10

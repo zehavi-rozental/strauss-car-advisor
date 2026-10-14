@@ -6,7 +6,7 @@ from typing import Any, Optional, Sequence
 
 import httpx
 
-from .port import ChatMessage, LLMError, LLMResponse, ToolCall, ToolSpec
+from .port import ChatMessage, LLMError, _timeout, LLMResponse, ToolCall, ToolSpec
 
 PRESETS = {
     "groq": "https://api.groq.com/openai/v1",
@@ -36,10 +36,11 @@ class OpenAICompatAdapter:
         if not self.base_url:
             raise ValueError(f"אין כתובת לספק {provider}")
         self.headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        self.timeout_s = timeout_s
         self.client = client or httpx.Client(timeout=timeout_s)
 
     def complete(self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = (),
-                 require_tool: bool = False) -> LLMResponse:
+                 require_tool: bool = False, timeout_s: Optional[float] = None) -> LLMResponse:
         body: dict[str, Any] = {"model": self.model, "temperature": 0.2,
                                 "messages": [_message(m) for m in messages]}
         if tools:
@@ -48,7 +49,8 @@ class OpenAICompatAdapter:
             if require_tool:
                 body["tool_choice"] = "required"
         try:
-            r = self.client.post(f"{self.base_url}/chat/completions", json=body, headers=self.headers)
+            r = self.client.post(f"{self.base_url}/chat/completions", json=body, headers=self.headers,
+                                 timeout=_timeout(self.timeout_s, timeout_s))
             r.raise_for_status()
             msg = r.json()["choices"][0]["message"]
             calls = tuple(

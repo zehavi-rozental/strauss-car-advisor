@@ -113,9 +113,10 @@ class Agent:
 
         used_llm = False
         understood = False
+        deadline = self.llm.turn_deadline()   # אחרי LLM_TURN_DEADLINE_S — תבניות, בלי ספקים נוספים
         if self.llm.available:
             try:
-                understood = self._extract_llm(ctx, history, text)
+                understood = self._extract_llm(ctx, history, text, deadline)
                 used_llm = True
             except LLMError:
                 log.warning("llm extraction failed; falling back to templates")
@@ -135,7 +136,7 @@ class Agent:
         # היא תבנית: מהירה, ובלי סיכון לשומר המספרים.
         if not used_llm or not (just_calculated or not understood):
             return TurnOutcome(reply=draft, source="template", just_calculated=just_calculated)
-        reply, source, blocked = self._phrase(state, draft, text)
+        reply, source, blocked = self._phrase(state, draft, text, deadline)
         return TurnOutcome(reply=reply, source=source, guard_blocked=blocked, just_calculated=just_calculated)
 
     # ---------- חילוץ ----------
@@ -154,7 +155,8 @@ class Agent:
         return ChatMessage("system", EXTRACT_PROMPT.format(stage=stage.value, missing=", ".join(missing) or "nothing",
                                                            context=context))
 
-    def _extract_llm(self, ctx: ToolContext, history: Sequence[ChatMessage], text: str) -> bool:
+    def _extract_llm(self, ctx: ToolContext, history: Sequence[ChatMessage], text: str,
+                     deadline: Optional[float] = None) -> bool:
         messages: list[ChatMessage] = [self._system(ctx), *history[-HISTORY_MESSAGES:], ChatMessage("user", text)]
         understood = False
         for round_no in range(MAX_TOOL_ROUNDS):
@@ -165,7 +167,8 @@ class Agent:
             messages[0] = self._system(ctx)
             forced = round_no == 0 and stage in FORCED_TOOL_STAGES
             try:
-                response = self.llm.complete(messages, [TOOL_SPECS[n] for n in names], require_tool=forced)
+                response = self.llm.complete(messages, [TOOL_SPECS[n] for n in names], require_tool=forced,
+                                             deadline=deadline)
             except LLMError:
                 if round_no == 0:
                     raise          # שום דבר לא נשמר — מצב הגיבוי יקרא את ההודעה
@@ -182,8 +185,10 @@ class Agent:
                 understood = understood or _recorded(facts)
                 messages.append(ChatMessage("tool", json.dumps(facts, ensure_ascii=False, default=str),
                                             tool_call_id=call.id, name=call.name))
-            # סבב נוסף רק כשהשלב התקדם ויש כלים חדשים (פרופיל ורכב באותה הודעה); אחרת זו קריאה מבוזבזת
-            if next_stage(ctx.state) == stage:
+            # סבב נוסף רק כשהשלב התקדם לשלב שעדיין אוסף נתונים (פרופיל ורכב באותה הודעה).
+            # רכב שנמצא → בחירת חלופות: העובד עוד לא בחר, וסבב נוסף הוא קריאה מבוזבזת.
+            new_stage = next_stage(ctx.state)
+            if new_stage == stage or new_stage not in FORCED_TOOL_STAGES:
                 break
         return understood
 
@@ -248,13 +253,15 @@ class Agent:
 
     # ---------- ניסוח ----------
 
-    def _phrase(self, state: ConversationState, draft: str, text: str) -> tuple[str, str, bool]:
+    def _phrase(self, state: ConversationState, draft: str, text: str,
+                deadline: Optional[float] = None) -> tuple[str, str, bool]:
         # מותר: מה שבמצב (פרופיל + תוצאות המנוע), מה שבטיוטה, ומה שהעובד עצמו כתב (ציטוט שלו)
         allowed = (collect_numbers(state.model_dump(mode="json")) | collect_numbers(draft)
                    | collect_numbers(text))
         try:
             response = self.llm.complete([ChatMessage("system", PHRASE_PROMPT),
-                                          ChatMessage("user", f"Draft:\n{draft}\n\nEmployee's message:\n{text}")])
+                                          ChatMessage("user", f"Draft:\n{draft}\n\nEmployee's message:\n{text}")],
+                                         deadline=deadline)
         except LLMError:
             return draft, "template", False
         reply = response.text.strip()

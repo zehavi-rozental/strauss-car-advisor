@@ -83,12 +83,13 @@ class LLMResponse:
 
 
 class LLMPort(Protocol):
-    """require_tool=True: הספק חייב לקרוא לאחד הכלים (Gemini mode ANY / OpenAI tool_choice required)."""
+    """require_tool=True: הספק חייב לקרוא לאחד הכלים (Gemini mode ANY / OpenAI tool_choice required).
+    timeout_s: תקרה לקריאה הזו (מה שנשאר מזמן התור); הספק לוקח את הקטן מבינה לבין שלו."""
 
     name: str
 
     def complete(self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = (),
-                 require_tool: bool = False) -> LLMResponse:
+                 require_tool: bool = False, timeout_s: Optional[float] = None) -> LLMResponse:
         ...
 
 
@@ -108,6 +109,11 @@ class ChainEntry:
     cooldown_until: float = 0.0        # לפי השעון של השרשרת (monotonic)
 
 
+def _timeout(own: float, cap: Optional[float]) -> float:
+    """הזמן לקריאה: של הספק, או מה שנשאר מהתור אם זה קצר יותר."""
+    return own if cap is None else max(0.1, min(own, cap))
+
+
 def entry_label(provider: LLMPort) -> str:
     model = getattr(provider, "model", "")
     return f"{provider.name}:{model}" if model else provider.name
@@ -123,10 +129,12 @@ class LLMChain:
     """
 
     def __init__(self, providers: Sequence[LLMPort] = (), *, disabled: Sequence[tuple[str, str]] = (),
-                 cooldown_429_s: float = 60.0, clock: Callable[[], float] = time.monotonic):
+                 cooldown_429_s: float = 60.0, turn_deadline_s: Optional[float] = None,
+                 clock: Callable[[], float] = time.monotonic):
         self.entries = [ChainEntry(entry_label(p), p) for p in providers]
         self.disabled = [ChainEntry(label, None, status="disabled", detail=reason) for label, reason in disabled]
         self.cooldown_429_s = cooldown_429_s
+        self.turn_deadline_s = turn_deadline_s
         self.clock = clock
         self._lock = threading.Lock()
 
@@ -143,6 +151,10 @@ class LLMChain:
         """קצר (נשמר בשיחה): שמות הספקים בלי כפילויות."""
         names = list(dict.fromkeys(e.provider.name for e in self.entries if e.provider is not None))
         return ("+".join(names) or "templates")[:32]
+
+    def turn_deadline(self) -> Optional[float]:
+        """נקודת הזמן (לפי שעון השרשרת) שאחריה התור מפסיק לנסות ספקים ועובר לתבניות."""
+        return self.clock() + self.turn_deadline_s if self.turn_deadline_s else None
 
     def status(self) -> list[dict[str, Any]]:
         now = self.clock()
@@ -165,15 +177,19 @@ class LLMChain:
             entry.cooldown_until = self.clock() + cooldown if cooldown else 0.0
 
     def complete(self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = (),
-                 require_tool: bool = False) -> LLMResponse:
+                 require_tool: bool = False, deadline: Optional[float] = None) -> LLMResponse:
         last: Optional[Exception] = None
         for entry in self.entries:
             if self.clock() < entry.cooldown_until:
                 continue
+            remaining = None if deadline is None else deadline - self.clock()
+            if remaining is not None and remaining <= 0:
+                log.warning("llm turn deadline reached; not trying %s", entry.label)
+                raise LLMError("זמן התור נגמר") from last
             assert entry.provider is not None
             started = time.monotonic()
             try:
-                response = entry.provider.complete(messages, tools, require_tool)
+                response = entry.provider.complete(messages, tools, require_tool, remaining)
             except Exception as exc:  # כל כשל — עוברים לבא בתור (מלבד 400)
                 ms = (time.monotonic() - started) * 1000
                 status, cooldown = _classify(exc, self.cooldown_429_s)

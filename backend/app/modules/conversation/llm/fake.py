@@ -49,7 +49,7 @@ class FakeLLM:
         return self
 
     def complete(self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = (),
-                 require_tool: bool = False) -> LLMResponse:
+                 require_tool: bool = False, timeout_s: Optional[float] = None) -> LLMResponse:
         self.calls.append(FakeCall(list(messages), [t.name for t in tools], require_tool))
         if tools:
             user_turn = sum(1 for m in messages if m.role == "user")
@@ -77,7 +77,7 @@ class FailingLLM:
     name = "failing"
 
     def complete(self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = (),
-                 require_tool: bool = False) -> LLMResponse:
+                 require_tool: bool = False, timeout_s: Optional[float] = None) -> LLMResponse:
         raise LLMError("down")
 
 
@@ -93,10 +93,12 @@ class ScriptedProvider:
         self.name, self.model = name, model
         self.outcomes: deque[object] = deque(outcomes)
         self.calls = 0
+        self.last_timeout_s: Optional[float] = None
 
     def complete(self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = (),
-                 require_tool: bool = False) -> LLMResponse:
+                 require_tool: bool = False, timeout_s: Optional[float] = None) -> LLMResponse:
         self.calls += 1
+        self.last_timeout_s = timeout_s
         outcome = self.outcomes.popleft() if self.outcomes else "ok"
         if isinstance(outcome, int):
             raise LLMError(f"{self.name}: HTTP {outcome}", status=outcome)

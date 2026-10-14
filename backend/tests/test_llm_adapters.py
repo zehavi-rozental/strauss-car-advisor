@@ -196,3 +196,17 @@ def test_4xx_keeps_the_providers_error_message():
     with pytest.raises(LLMError) as err:
         adapter.complete(MESSAGES)
     assert err.value.provider_message is None
+
+
+def test_adapter_call_timeout_is_capped_by_the_turn():
+    seen = []
+
+    def handler(request):
+        seen.append(request.extensions["timeout"]["read"])
+        return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "x"}]}}]})
+
+    adapter = GeminiAdapter("g", "k", timeout_s=8, client=_client(handler))
+    adapter.complete(MESSAGES)
+    adapter.complete(MESSAGES, timeout_s=3)
+    adapter.complete(MESSAGES, timeout_s=30)
+    assert seen == [8, 3, 8]

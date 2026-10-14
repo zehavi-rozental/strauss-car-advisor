@@ -6,7 +6,7 @@ from typing import Any, Optional, Sequence
 
 import httpx
 
-from .port import ChatMessage, LLMError, LLMResponse, ToolCall, ToolSpec
+from .port import ChatMessage, LLMError, _timeout, LLMResponse, ToolCall, ToolSpec
 
 BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
@@ -57,11 +57,12 @@ class GeminiAdapter:
         self.model = model
         self.url = f"{(base_url or BASE_URL).rstrip('/')}/models/{model}:generateContent"
         self.headers = {"x-goog-api-key": api_key}
+        self.timeout_s = timeout_s
         self.client = client or httpx.Client(timeout=timeout_s)
         self.thinking = _thinking(model, thinking_level, thinking_budget)
 
     def complete(self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = (),
-                 require_tool: bool = False) -> LLMResponse:
+                 require_tool: bool = False, timeout_s: Optional[float] = None) -> LLMResponse:
         system, contents = _contents(messages)
         generation: dict[str, Any] = {"temperature": 0.2}
         if self.thinking:
@@ -76,7 +77,8 @@ class GeminiAdapter:
                 body["toolConfig"] = {"functionCallingConfig": {
                     "mode": "ANY", "allowedFunctionNames": [t.name for t in tools]}}
         try:
-            r = self.client.post(self.url, json=body, headers=self.headers)
+            r = self.client.post(self.url, json=body, headers=self.headers,
+                                 timeout=_timeout(self.timeout_s, timeout_s))
             r.raise_for_status()
             parts = r.json()["candidates"][0]["content"].get("parts", [])
         except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:

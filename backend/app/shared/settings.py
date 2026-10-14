@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     llm_base_url: str = ""            # ספק תואם OpenAI: ריק = ברירת המחדל של הספק
     llm_fallback_base_url: str = ""
     llm_timeout_s: float = 8.0        # לכל קריאה: רשומה איטית → הבאה בשרשרת
+    llm_turn_deadline_s: float = 10.0  # לכל תור: אחרי זמן זה על ספקים — תבניות, בלי רשומות נוספות
 
     max_message_chars: int = 1000
     rate_limit_per_minute: int = 30      # הודעות לשיחה בדקה

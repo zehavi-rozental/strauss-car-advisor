@@ -161,3 +161,44 @@ def test_health_before_any_call_and_after_418(engine):
     ch.complete(MSG)
     first = client.get("/api/health").json()["llm_chain"][0]
     assert first["status"] == "418" and first["cooling_down"] == "until restart"
+
+
+# ---------- זמן תור ----------
+
+class SlowProvider(ScriptedProvider):
+    """מקדם את השעון בזמן שלקח לו (עד התקרה שקיבל) ונכשל ב-timeout."""
+
+    def __init__(self, name, model, clock, seconds):
+        super().__init__(name, model)
+        self.clock, self.seconds = clock, seconds
+
+    def complete(self, messages, tools=(), require_tool=False, timeout_s=None):
+        self.calls += 1
+        self.last_timeout_s = timeout_s
+        self.clock.now += min(self.seconds, timeout_s) if timeout_s is not None else self.seconds
+        raise LLMError("slow", timeout=True)
+
+
+def test_turn_deadline_stops_trying_further_entries():
+    clock = Clock()
+    a = SlowProvider("gemini", "a", clock, 6)
+    b = SlowProvider("gemini", "b", clock, 6)
+    c = ScriptedProvider("groq", "c")
+    ch = LLMChain([a, b, c], turn_deadline_s=10, clock=clock)
+    deadline = ch.turn_deadline()
+    with pytest.raises(LLMError):
+        ch.complete(MSG, deadline=deadline)
+    assert (a.last_timeout_s, b.last_timeout_s) == (10, 4)   # כל קריאה מקבלת את מה שנשאר
+    assert c.calls == 0 and clock.now - 1000 == 10
+
+
+def test_without_deadline_no_cap_is_passed():
+    a = ScriptedProvider("gemini", "a")
+    LLMChain([a]).complete(MSG)
+    assert a.last_timeout_s is None
+    assert LLMChain([a]).turn_deadline() is None
+
+
+def test_deadline_from_settings():
+    s = Settings(_env_file=None, llm_chain="gemini:a", gemini_api_key="g", llm_turn_deadline_s=7)
+    assert build_llm_chain(s).turn_deadline_s == 7
