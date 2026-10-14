@@ -94,7 +94,7 @@ def fallback_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) 
     if question == "car":
         return _car_plan(snapshot, t)
     if question in _CAR_DETAIL_QUESTIONS:
-        correction = _correction_plan(state, snapshot, t)
+        correction = correction_plan(state, snapshot, t)
         if correction is not None:
             return correction
     if question == "car_choice":
@@ -148,7 +148,7 @@ def _profile_plan(state: ConversationState, snapshot: RulesSnapshot, question: s
     return ParserPlan(_call("save_profile", **{asked: value}), True)
 
 
-def _correction_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Optional[ParserPlan]:
+def correction_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Optional[ParserPlan]:
     """תיקון הרכב שזוהה: שם רכב אחר מהקטלוג → התאמה מחדש (ההשתתפות שכבר נמסרה נשמרת);
     "זה לא הרכב" בלי דגם → מוחקים את ההתאמה ושואלים שוב. אחרת None — זו תשובה לשאלה."""
     cars = named_cars(text, snapshot.catalog)

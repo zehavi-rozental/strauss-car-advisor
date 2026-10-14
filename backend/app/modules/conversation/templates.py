@@ -96,18 +96,21 @@ def results_text(state: ConversationState) -> str:
     return text
 
 
-REP_TEXT = {
-    RepReason.CURRENT_COPAY: "ההשתתפות הנוכחית שלך",
-    RepReason.CURRENT_USE_VALUE: "שווי השימוש של הרכב הנוכחי",
-    RepReason.OCCUPATION_OPT_OUT: "האפשרות לוותר על הרכב בתפקיד שלך",
-}
+WAITING = "שאלתי את נציג התחבורה ואעדכן כשתגיע תשובה."
 
 
-def waiting_text(state: ConversationState) -> str:
+def asked_text(state: ConversationState) -> str:
+    """מה נשאל את הנציג, מתוך שדות השאלה בלבד (סוג השאלה ושמות הרכבים)."""
     assert state.pending_rep is not None
-    topic = REP_TEXT[state.pending_rep.reason]
-    return (f"שלחתי לנציג/ת התחבורה שאלה לגבי {topic}. "
-            "אמשיך את החישוב ברגע שתתקבל תשובה.")
+    labels = " ו-".join(state.pending_rep.labels)
+    topics = {
+        RepReason.NEW_CAR_COPAY: f"מה ההשתתפות החודשית ב-{labels}",
+        RepReason.CURRENT_COPAY: f"מה ההשתתפות הנוכחית שלך ב-{labels}",
+        RepReason.CURRENT_USE_VALUE: f"מה שווי השימוש של {labels}",
+        RepReason.OCCUPATION_OPT_OUT: "אם בעיסוק שלך מותר לוותר על הרכב",
+        RepReason.MAINTENANCE_AMOUNT: "מה סכום אחזקת הרכב החודשי אם תוותר/י על הרכב",
+    }
+    return f"שאלתי את נציג התחבורה {topics[state.pending_rep.reason]}. אעדכן כשתגיע תשובה."
 
 
 def confirm_car_text(state: ConversationState) -> str:
@@ -122,15 +125,19 @@ def confirm_car_text(state: ConversationState) -> str:
 
 
 def render(state: ConversationState, snapshot: RulesSnapshot, *, understood: bool,
-           just_calculated: bool, matched_car: bool = False, notice: Optional[str] = None) -> str:
+           just_calculated: bool, matched_car: bool = False, notice: Optional[str] = None,
+           rep_opened: bool = False) -> str:
     """ההודעה הבאה לפי מצב השיחה בלבד (ומשפט מהקורא, אם יש, לפני השאלה)."""
     parts: list[str] = [confirm_car_text(state)] if matched_car else []
     if notice:
         parts.append(notice)
-    if just_calculated and state.results:
+    waiting = state.stage == Stage.WAITING_FOR_REP
+    # השתתפות שהנציג חייב לאשר (REP_REQUIRED): התוצאה מוצגת רק אחרי התשובה
+    hide_results = waiting and state.pending_rep is not None and state.pending_rep.reason == RepReason.NEW_CAR_COPAY
+    if just_calculated and state.results and not hide_results:
         parts.append(results_text(state))
-    if state.stage == Stage.WAITING_FOR_REP:
-        parts.append(waiting_text(state))
+    if waiting:
+        parts.append(asked_text(state) if rep_opened else WAITING)
         return "\n\n".join(parts)
     field = next_question(state)
     if not understood and field == "car":

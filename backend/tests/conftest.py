@@ -61,16 +61,7 @@ def sessions(engine):
     return session_factory(engine)
 
 
-def make_client(engine, llm=None, rep=None, **overrides) -> TestClient:
+def make_client(engine, llm=None, **overrides) -> TestClient:
     settings = Settings(_env_file=None, llm_provider="none", **overrides)
-    app = create_app(settings, engine=engine, llm=llm if llm is not None else LLMChain(), rep=rep)
+    app = create_app(settings, engine=engine, llm=llm if llm is not None else LLMChain())
     return TestClient(app)
-
-
-class RecordingRep:
-    def __init__(self):
-        self.questions = []
-
-    def open_question(self, reason, context):
-        self.questions.append((reason, context))
-        return f"q{len(self.questions)}"

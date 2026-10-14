@@ -27,7 +27,9 @@ from app.modules.rules.public import RulesSnapshot, RulesStore, load_snapshot
 from app.modules.vehicles.public import CurrentCarMatch, VehicleRepository, match_current_car
 from app.shared.db import new_id
 
-from .agent import Agent, NullRepresentative, RepresentativePort
+from app.modules.cases.public import CasesService, Mode
+
+from .agent import Agent
 from .llm.factory import build_llm_chain
 from .llm.port import ChatMessage, LLMChain, LLMError, LLMPort
 from .parsing import redact_id_numbers
@@ -95,11 +97,12 @@ def _uuid(value: str) -> uuid.UUID:
 
 class ConversationService:
     def __init__(self, sessions: sessionmaker, rules: RulesStore, llm: LLMChain,
-                 rep: Optional[RepresentativePort] = None, max_messages: int = 80):
+                 cases: Optional[CasesService] = None, max_messages: int = 80):
         self.sessions = sessions
         self.rules = rules
         self.llm = llm
-        self.agent = Agent(llm, rep or NullRepresentative())
+        self.agent = Agent(llm)
+        self.cases = cases or CasesService(sessions)
         self.max_messages = max_messages
         self._snapshot_ids: dict[str, uuid.UUID] = {}
         self._snapshot_lock = threading.Lock()
@@ -201,6 +204,13 @@ class ConversationService:
             if not saved:
                 log.warning("turn discarded: conversation changed by a concurrent turn")
                 raise ConversationConflict()
+            # שאלות לנציג — באותה טרנזקציה: תור שבוטל (409) לא משאיר שאלה, ותור חוזר לא יוצר כפיל
+            self.cases.cancel(session, outcome.cancel_question_ids)
+            opened = [self.cases.open_question(session, str(conv_id), req) for req in outcome.question_requests]
+            required = [q.id for q in opened if q.mode == Mode.REQUIRED]
+            if required and state.pending_rep is not None:
+                state.pending_rep.question_ids = list(dict.fromkeys(state.pending_rep.question_ids + required))
+                repo.update_state(conv_id, state.model_dump(mode="json"))
             # seq מחושב כאן, אחרי העדכון ותחת אותה נעילת כתיבה
             repo.add_message(conv_id, "user", text, "user")
             repo.add_message(conv_id, "assistant", outcome.reply, outcome.source, outcome.guard_blocked)
@@ -262,6 +272,6 @@ __all__ = [
     "ChatMessage", "LLMError",
     "ConversationConflict", "ConversationLimitReached", "ConversationNotFound", "ConversationService",
     "ConversationState",
-    "ConversationView", "LLMChain", "LLMPort", "OptionResult", "RepReason", "RepresentativePort", "Stage",
+    "ConversationView", "LLMChain", "LLMPort", "OptionResult", "RepReason", "Stage",
     "TurnResult", "build_llm_chain", "reproduce_run",
 ]

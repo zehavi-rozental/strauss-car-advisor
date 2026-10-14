@@ -11,13 +11,17 @@ from app.modules.conversation.stage import ConversationState
 from app.modules.conversation.tools import available_options
 from app.modules.rules.public import RulesStore
 
-from .conftest import CONFIG, RecordingRep
+from .conftest import CONFIG
 
 PROFILE_AFTER_OCCUPATION = ["18,500", "אין", "אין", "6", "2.5", "2.75"]
 
 
-def service(sessions, llm=None, rep=None):
-    return ConversationService(sessions, RulesStore(CONFIG), llm or LLMChain(), rep)
+def service(sessions, llm=None):
+    return ConversationService(sessions, RulesStore(CONFIG), llm or LLMChain())
+
+
+def open_questions(svc):
+    return svc.cases.list_open()
 
 
 def talk(svc, messages, start=None):
@@ -55,16 +59,20 @@ def test_disallowed_tool_is_ignored(sessions):
 
 
 def test_unknown_copay_opens_rep_question(sessions):
-    rep = RecordingRep()
-    svc = service(sessions, rep=rep)
+    svc = service(sessions)
     turn, token = talk(svc, profile() + ["COROLLA CROSS", "לא יודעת"])
     assert turn.stage == Stage.WAITING_FOR_REP and turn.pending_rep == RepReason.CURRENT_COPAY
-    [(reason, context)] = rep.questions
-    assert reason == RepReason.CURRENT_COPAY
-    assert context == {"group": "ג", "car": "COROLLA CROSS (2025)", "suggested_amount": "300"}
-    # בזמן ההמתנה: אין התקדמות ואין שאלה נוספת לנציג
+    [q] = open_questions(svc)
+    assert (q.missing_field.value, q.mode.value, q.answer_type.value) == ("CURRENT_COPAY", "REQUIRED", "MONEY")
+    assert q.context == {"group": "ג", "car_label": "COROLLA CROSS (2025)", "catalog_code": "CAR-09",
+                         "suggested_amount": "300"}
+    assert "שאלתי את נציג התחבורה מה ההשתתפות הנוכחית שלך ב-COROLLA CROSS (2025)" in turn.reply
+    state = svc.view(turn.conversation_id, token).state
+    assert state.pending_rep.question_ids == [q.id]
+    # בזמן ההמתנה: תשובה קצרה, אין התקדמות ואין שאלה נוספת לנציג
     turn = svc.send(turn.conversation_id, token, "ATTO 3")
-    assert turn.stage == Stage.WAITING_FOR_REP and "נציג" in turn.reply and len(rep.questions) == 1
+    assert turn.stage == Stage.WAITING_FOR_REP and turn.path == "waiting"
+    assert turn.reply == "שאלתי את נציג התחבורה ואעדכן כשתגיע תשובה." and len(open_questions(svc)) == 1
 
 
 def test_car_not_found_asks_payslip_use_value(sessions):
@@ -79,23 +87,27 @@ def test_car_not_found_asks_payslip_use_value(sessions):
 
 
 def test_car_not_found_and_use_value_unknown_opens_rep_question(sessions):
-    rep = RecordingRep()
-    turn, _ = talk(service(sessions, rep=rep), profile() + ["ZOOMOBILE X", "לא יודע"])
+    svc = service(sessions)
+    turn, _ = talk(svc, profile() + ["ZOOMOBILE X", "לא יודע"])
     assert turn.stage == Stage.WAITING_FOR_REP and turn.pending_rep == RepReason.CURRENT_USE_VALUE
-    assert rep.questions[0][1] == {"group": "ג", "car": "ZOOMOBILE X", "suggested_amount": None}
+    [q] = open_questions(svc)
+    assert q.missing_field.value == "CURRENT_USE_VALUE" and q.context == {"group": "ג", "car_label": "ZOOMOBILE X"}
 
 
 def test_unknown_occupation_asks_group_and_opt_out_goes_to_rep(sessions):
-    rep = RecordingRep()
-    svc = service(sessions, rep=rep)
+    svc = service(sessions)
     turn, token = talk(svc, ["אסטרונאוטית"])
     assert "קבוצת הזכאות" in turn.reply
     turn, _ = talk(svc, ["ג", *PROFILE_AFTER_OCCUPATION, "2", "COROLLA CROSS", "300"], start=(turn, token))
     assert turn.stage == Stage.CHOOSE_OPTIONS and "ויתור על רכב" in turn.reply
     turn, _ = talk(svc, ["ויתור"], start=(turn, token))
     assert turn.stage == Stage.WAITING_FOR_REP and turn.pending_rep == RepReason.OCCUPATION_OPT_OUT
-    assert rep.questions[0][0] == RepReason.OCCUPATION_OPT_OUT
+    [q] = open_questions(svc)
+    assert (q.missing_field.value, q.mode.value, q.answer_type.value) == ("OCCUPATION_OPT_OUT", "REQUIRED", "BOOLEAN")
+    assert q.question_text == "האם עובד בעיסוק הזה רשאי לוותר על רכב?"
+    assert q.context == {"group": "ג", "occupation_text": "אסטרונאוטית"}
     assert turn.results[0].result["missing_fields"] == ["OCCUPATION_OPT_OUT"]
+    assert "שאלתי את נציג התחבורה אם בעיסוק שלך מותר לוותר על הרכב" in turn.reply
 
 
 def test_registration_year_mismatch_uses_tax_file(sessions):

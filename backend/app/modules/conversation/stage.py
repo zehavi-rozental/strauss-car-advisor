@@ -27,11 +27,13 @@ class Stage(str, Enum):
 
 
 class RepReason(str, Enum):
-    """שאלות חוסמות לנציג התחבורה."""
+    """שאלות לנציג התחבורה (אותם ערכים כמו MissingField במודול cases)."""
 
+    NEW_CAR_COPAY = "NEW_CAR_COPAY"
     CURRENT_COPAY = "CURRENT_COPAY"
     CURRENT_USE_VALUE = "CURRENT_USE_VALUE"
     OCCUPATION_OPT_OUT = "OCCUPATION_OPT_OUT"
+    MAINTENANCE_AMOUNT = "MAINTENANCE_AMOUNT"
 
 
 class Profile(BaseModel):
@@ -78,9 +80,12 @@ class CurrentCar(BaseModel):
 
 
 class PendingRep(BaseModel):
+    """השיחה ממתינה לנציג עד שכל השאלות החוסמות נענו. המזהים נרשמים בשלב הכתיבה של התור."""
+
     reason: RepReason
-    question_id: str
+    question_ids: list[str] = Field(default_factory=list)
     resume_stage: Stage
+    labels: list[str] = Field(default_factory=list)   # שמות הרכבים שעליהם נשאל (לתשובה לעובד)
 
 
 class OptionResult(BaseModel):

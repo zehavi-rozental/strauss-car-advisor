@@ -4,7 +4,7 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Annotated, Any, Callable, Optional
 
@@ -55,6 +55,9 @@ class ToolContext:
     snapshot: RulesSnapshot
     find_vehicle: VehicleLookup
     state: ConversationState
+    # מה התור מבקש מהנציג / מבטל — נפתח ונכתב בשלב הכתיבה של התור, באותה טרנזקציה
+    question_requests: list[Any] = field(default_factory=list)
+    cancel_question_ids: list[str] = field(default_factory=list)
 
 
 class ToolError(Exception):
@@ -370,8 +373,14 @@ def engine_inputs(snapshot: RulesSnapshot, state: ConversationState
     return employee, current, occupation
 
 
-def option_state(option: Option) -> State:
-    return car_state(option.car) if option.car is not None else OptOutState()
+def option_state(option: Option, copay_policy: str = "CATALOG_DEFAULT_CONFIRM_ASYNC") -> State:
+    """חלופה כמצב למנוע. השתתפות לפי הקטלוג: ממתינה לאישור נציג — אלא אם המדיניות היא CATALOG_DEFAULT,
+    שבה הקטלוג הוא הסכום הסופי."""
+    if option.car is None:
+        return OptOutState()
+    if copay_policy == "CATALOG_DEFAULT":
+        return car_state(option.car, copay=option.car.default_copay, copay_status=CopayStatus.CONFIRMED)
+    return car_state(option.car)
 
 
 # ---------- הגדרות לכלים (למודל השפה) ----------

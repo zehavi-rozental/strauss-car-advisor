@@ -47,6 +47,11 @@ class ConversationRepository:
     def get(self, conversation_id: uuid.UUID) -> Optional[ConversationRow]:
         return self.session.get(ConversationRow, conversation_id)
 
+    def update_state(self, conversation_id: uuid.UUID, state: dict[str, Any]) -> None:
+        """עדכון המצב בתוך אותה טרנזקציה שכבר עברה את בדיקת הגרסה (save_turn)."""
+        self.session.execute(update(ConversationRow).where(ConversationRow.id == conversation_id)
+                             .values(state=state).execution_options(synchronize_session=False))
+
     def save_turn(self, conversation_id: uuid.UUID, loaded_version: int, *, state: dict[str, Any], stage: str,
                   message_count: int, llm_mode: str) -> bool:
         """כותב רק אם אף תור אחר לא כתב מאז הקריאה (version לא השתנה). False = התנגשות."""
