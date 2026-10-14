@@ -5,7 +5,7 @@ import logging
 from typing import Optional
 
 from fastapi import FastAPI
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, make_url
 
 from app.modules.conversation.public import (
     ConversationService,
@@ -15,11 +15,26 @@ from app.modules.conversation.public import (
 )
 from app.modules.rules.public import RulesStore
 from app.shared.db import get_engine, session_factory
-from app.shared.settings import Settings, get_settings
+from app.shared.settings import ENV_FILE, Settings, get_settings
 
 from .deps import AppContext
 from .ratelimit import RateLimiter
 from .routes import router
+
+
+log = logging.getLogger(__name__)
+
+
+def startup_summary(settings: Settings, chain: LLMChain) -> str:
+    """שורה אחת: מה נטען בפועל. רק נתיבים ותוויות provider:model — בלי מפתחות ובלי כתובת מסד מלאה."""
+    url = make_url(settings.database_url)
+    database = (url.database or ":memory:") if url.get_backend_name() == "sqlite" else url.get_backend_name()
+    entries = chain.status()
+    active = [e["entry"] for e in entries if e["status"] != "disabled"]
+    disabled = [e["entry"] for e in entries if e["status"] == "disabled"]
+    return (f"startup env_file={ENV_FILE} ({'found' if ENV_FILE.exists() else 'missing'}) "
+            f"database={database} llm_chain=[{', '.join(active) or 'templates'}]"
+            + (f" disabled=[{', '.join(disabled)}]" if disabled else ""))
 
 
 def create_app(settings: Optional[Settings] = None, *, engine: Optional[Engine] = None,
@@ -30,6 +45,7 @@ def create_app(settings: Optional[Settings] = None, *, engine: Optional[Engine] 
     rules.current  # טעינה מיידית: במצב strict קובץ שגוי עוצר את העלייה
     sessions = session_factory(engine or get_engine())
     llm = llm if llm is not None else build_llm_chain(settings)
+    log.info(startup_summary(settings, llm))
 
     app = FastAPI(title="Strauss Car Advisor")
     app.state.ctx = AppContext(

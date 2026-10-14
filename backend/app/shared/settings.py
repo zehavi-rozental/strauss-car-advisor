@@ -5,13 +5,28 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
+# נתיב מוחלט: ההגדרות זהות לא משנה מאיזו תיקייה מריצים (uvicorn / alembic / pytest)
+ENV_FILE = BACKEND_DIR / ".env"
+
+
+def resolve_sqlite_url(url: str) -> str:
+    """sqlite עם נתיב יחסי → נתיב תחת BACKEND_DIR. כל השאר (נתיב מוחלט, זיכרון, postgres) — ללא שינוי."""
+    parsed = make_url(url)
+    database = parsed.database
+    if parsed.get_backend_name() != "sqlite" or not database or database == ":memory:":
+        return url
+    if Path(database).is_absolute():
+        return url
+    return parsed.set(database=str((BACKEND_DIR / database).resolve())).render_as_string(hide_password=False)
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=ENV_FILE, extra="ignore")
 
     database_url: str = f"sqlite:///{BACKEND_DIR / 'car_advisor.db'}"
     config_mode: Literal["dev", "strict"] = "dev"
@@ -47,6 +62,12 @@ class Settings(BaseSettings):
     rep_access_token: str = "demo-rep"
     session_cookie_secure: bool = False
     log_level: str = "INFO"
+
+    @field_validator("database_url")
+    @classmethod
+    def _sqlite_relative_to_backend(cls, value: str) -> str:
+        # "sqlite:///./car_advisor.db" מהשורש היה פותח מסד חדש וריק; תמיד יחסית ל-backend/
+        return resolve_sqlite_url(value)
 
 
 @lru_cache
