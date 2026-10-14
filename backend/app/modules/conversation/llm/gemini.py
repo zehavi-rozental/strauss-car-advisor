@@ -6,7 +6,7 @@ from typing import Any, Optional, Sequence
 
 import httpx
 
-from .port import ChatMessage, LLMError, LLMResponse, ToolCall, ToolSpec
+from .port import ChatMessage, LLMError, describe_error, LLMResponse, ToolCall, ToolSpec
 
 BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
@@ -39,7 +39,8 @@ class GeminiAdapter:
         self.headers = {"x-goog-api-key": api_key}
         self.client = client or httpx.Client(timeout=timeout_s)
 
-    def complete(self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = ()) -> LLMResponse:
+    def complete(self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = (),
+                 require_tool: bool = False) -> LLMResponse:
         system, contents = _contents(messages)
         body: dict[str, Any] = {"contents": contents, "generationConfig": {"temperature": 0.2}}
         if system:
@@ -47,12 +48,15 @@ class GeminiAdapter:
         if tools:
             body["tools"] = [{"functionDeclarations": [
                 {"name": t.name, "description": t.description, "parameters": t.parameters} for t in tools]}]
+            if require_tool:   # החילוץ לא תלוי בכך שהמודל יבחר לקרוא לכלי
+                body["toolConfig"] = {"functionCallingConfig": {
+                    "mode": "ANY", "allowedFunctionNames": [t.name for t in tools]}}
         try:
             r = self.client.post(self.url, json=body, headers=self.headers)
             r.raise_for_status()
             parts = r.json()["candidates"][0]["content"].get("parts", [])
         except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
-            raise LLMError(f"gemini: {type(exc).__name__}") from exc
+            raise LLMError(f"gemini: {describe_error(exc)}") from exc
         text = "".join(p.get("text", "") for p in parts)
         calls = tuple(ToolCall(name=p["functionCall"]["name"], args=p["functionCall"].get("args") or {},
                                id=f"gemini_{i}")

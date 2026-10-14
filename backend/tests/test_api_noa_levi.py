@@ -58,7 +58,7 @@ def test_noa_levi_with_llm(engine, sessions):
     assert body["source"] == "llm" and "661" in body["reply"]
 
     # הכלים שהוצעו למודל תלויים בשלב
-    tool_sets = [tools for _, tools in fake.calls if tools]
+    tool_sets = [c.tools for c in fake.calls if c.tools]
     assert tool_sets[0] == ["save_profile"]
     assert "calculate" in tool_sets[-1]
 

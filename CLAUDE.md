@@ -13,6 +13,7 @@ alembic upgrade head                        # create/upgrade the schema (alembic
 python -m app.modules.vehicles.import_csv   # load the tax-authority CSV into SQLite
 python -m app.verify                        # must report 12/12
 pytest                                      # all tests must pass
+pytest -m eval                              # live LLM eval (needs LLM_API_KEY in .env; free-tier quota ~1 run/min)
 lint-imports                                # module boundaries must hold
 uvicorn app.api.main:create_app --factory   # run the API (no LLM key → template mode)
 ```

@@ -135,3 +135,9 @@ def test_fallback_option_selection_by_hebrew_names(sessions):
     turn, _ = talk(svc, profile() + ["קורולה קרוס", "300", "טוסון ואטו"])
     assert turn.stage == Stage.PRESENTED
     assert [r.label for r in turn.results] == ["ATTO 3 (2025)", "TUCSON (2025)"]
+
+
+def test_fallback_names_match_whole_words_only(sessions):
+    """"אני רוצה" מכיל את האותיות של "נירו" — אסור שזה ייבחר."""
+    turn, _ = talk(service(sessions), profile() + ["קורולה קרוס", "300", "אני רוצה לבדוק את BYD אטו 3 החשמלי"])
+    assert [r.label for r in turn.results] == ["ATTO 3 (2025)"]

@@ -6,7 +6,7 @@ from typing import Any, Optional, Sequence
 
 import httpx
 
-from .port import ChatMessage, LLMError, LLMResponse, ToolCall, ToolSpec
+from .port import ChatMessage, LLMError, describe_error, LLMResponse, ToolCall, ToolSpec
 
 PRESETS = {
     "groq": "https://api.groq.com/openai/v1",
@@ -38,12 +38,15 @@ class OpenAICompatAdapter:
         self.headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self.client = client or httpx.Client(timeout=timeout_s)
 
-    def complete(self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = ()) -> LLMResponse:
+    def complete(self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = (),
+                 require_tool: bool = False) -> LLMResponse:
         body: dict[str, Any] = {"model": self.model, "temperature": 0.2,
                                 "messages": [_message(m) for m in messages]}
         if tools:
             body["tools"] = [{"type": "function", "function": {
                 "name": t.name, "description": t.description, "parameters": t.parameters}} for t in tools]
+            if require_tool:
+                body["tool_choice"] = "required"
         try:
             r = self.client.post(f"{self.base_url}/chat/completions", json=body, headers=self.headers)
             r.raise_for_status()
@@ -53,5 +56,5 @@ class OpenAICompatAdapter:
                          args=json.loads(c["function"].get("arguments") or "{}"))
                 for c in msg.get("tool_calls") or [])
         except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
-            raise LLMError(f"{self.name}: {type(exc).__name__}") from exc
+            raise LLMError(f"{self.name}: {describe_error(exc)}") from exc
         return LLMResponse(text=msg.get("content") or "", tool_calls=calls)

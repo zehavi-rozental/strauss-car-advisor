@@ -35,19 +35,25 @@ from .tools import TOOL_SPECS, ToolContext, available_options, engine_inputs, op
 log = logging.getLogger(__name__)
 
 MAX_TOOL_ROUNDS = 4
+# בשלבי האיסוף הסבב הראשון מחייב קריאה לכלי: החילוץ לא תלוי בכך שהמודל יבחר לקרוא לו
+FORCED_TOOL_STAGES = (Stage.COLLECT_PROFILE, Stage.COLLECT_CURRENT_CAR)
 HISTORY_MESSAGES = 8
 
 EXTRACT_PROMPT = """You are the data-extraction step of a Hebrew-speaking company-car advisor at Strauss.
-You never calculate and never invent numbers: you only call tools to record what the employee said.
+The employee writes in Hebrew. Your only job is to record what they said by calling the tools.
+You never calculate, never answer in text, and never invent values.
 Stage: {stage}. Still missing: {missing}.
 {context}
 Rules:
-- Pass only values the employee stated. Omit anything not stated.
-- Percentages as plain numbers (6 for 6%). Money in shekels.
-- "none" / "אין" for commissions, bonus or study fund means 0.
+- Extract EVERY field the employee mentioned in this message in ONE save_profile call. A single message
+  often holds the whole profile, e.g. "אני מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%,
+  קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים" -> occupation "מנהלת מוצר", base_salary 18500,
+  commissions 0, bonus 0, pension_percent 6, study_fund_percent 2.5, credit_points 2.75, children_under_23 2.
+- "אין" / "לא" / "בלי" for commissions (עמלות), bonus (בונוס) or study fund (קרן השתלמות) means 0.
+- Percentages as plain numbers (6 for 6%). Money in shekels without separators (18,500 -> 18500).
+- Never fill a field the employee did not mention: leave it out, the system will ask for it.
 - If the employee does not know their current copay or use value, set the matching *_unknown flag.
-- Car models in Latin letters as on the tax-authority list (e.g. "קורולה קרוס" -> "COROLLA CROSS").
-- When there is nothing to record, reply with an empty message and no tool call."""
+- Car models in Latin letters as on the tax-authority list (e.g. "קורולה קרוס" -> "COROLLA CROSS")."""
 
 PHRASE_PROMPT = """Rewrite the draft below as one friendly reply in Hebrew to the employee.
 Keep every number, amount and list item exactly as in the draft.
@@ -80,6 +86,11 @@ class TurnOutcome:
     source: str               # llm / template
     guard_blocked: bool = False
     just_calculated: bool = False
+
+
+def _recorded(facts: dict[str, Any]) -> bool:
+    """הכלי רץ ושמר משהו. קריאה כפויה בלי שדות (save_profile ריק) אינה "הבנה"."""
+    return bool(facts.get("ok")) and facts.get("saved") != []
 
 
 class Agent:
@@ -144,20 +155,33 @@ class Agent:
     def _extract_llm(self, ctx: ToolContext, history: Sequence[ChatMessage], text: str) -> bool:
         messages: list[ChatMessage] = [self._system(ctx), *history[-HISTORY_MESSAGES:], ChatMessage("user", text)]
         understood = False
-        for _ in range(MAX_TOOL_ROUNDS):
-            names = ALLOWED_TOOLS[next_stage(ctx.state)]
+        for round_no in range(MAX_TOOL_ROUNDS):
+            stage = next_stage(ctx.state)
+            names = ALLOWED_TOOLS[stage]
             if not names:
                 break
             messages[0] = self._system(ctx)
-            response = self.llm.complete(messages, [TOOL_SPECS[n] for n in names])
+            forced = round_no == 0 and stage in FORCED_TOOL_STAGES
+            try:
+                response = self.llm.complete(messages, [TOOL_SPECS[n] for n in names], require_tool=forced)
+            except LLMError:
+                if round_no == 0:
+                    raise          # שום דבר לא נשמר — מצב הגיבוי יקרא את ההודעה
+                # סבב מאוחר נכשל (למשל 429): מה שכבר נשמר נשאר. אסור לקרוא שוב את אותה
+                # הודעה בגיבוי — השלב כבר התקדם והיא הייתה מתפרשת כתשובה לשאלה אחרת.
+                log.warning("llm extraction round %d failed; keeping what was saved", round_no + 1)
+                break
             if not response.tool_calls:
                 break
             messages.append(ChatMessage("assistant", response.text, tool_calls=response.tool_calls))
             for call in response.tool_calls:
                 facts = self._run(ctx, call)
-                understood = understood or facts["ok"]
+                understood = understood or _recorded(facts)
                 messages.append(ChatMessage("tool", json.dumps(facts, ensure_ascii=False, default=str),
                                             tool_call_id=call.id, name=call.name))
+            # סבב נוסף רק כשהשלב התקדם ויש כלים חדשים (פרופיל ורכב באותה הודעה); אחרת זו קריאה מבוזבזת
+            if next_stage(ctx.state) == stage:
+                break
         return understood
 
     def _run(self, ctx: ToolContext, call: ToolCall) -> dict[str, Any]:
@@ -168,7 +192,7 @@ class Agent:
         return run_tool(ctx, call.name, call.args)
 
     def _execute(self, ctx: ToolContext, calls: Sequence[ToolCall]) -> bool:
-        return any([self._run(ctx, call)["ok"] for call in calls])
+        return any([_recorded(self._run(ctx, call)) for call in calls])
 
     # ---------- נציג ----------
 
@@ -222,7 +246,9 @@ class Agent:
     # ---------- ניסוח ----------
 
     def _phrase(self, state: ConversationState, draft: str, text: str) -> tuple[str, str, bool]:
-        allowed = collect_numbers(state.model_dump(mode="json")) | collect_numbers(draft)
+        # מותר: מה שבמצב (פרופיל + תוצאות המנוע), מה שבטיוטה, ומה שהעובד עצמו כתב (ציטוט שלו)
+        allowed = (collect_numbers(state.model_dump(mode="json")) | collect_numbers(draft)
+                   | collect_numbers(text))
         try:
             response = self.llm.complete([ChatMessage("system", PHRASE_PROMPT),
                                           ChatMessage("user", f"Draft:\n{draft}\n\nEmployee's message:\n{text}")])

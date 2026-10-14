@@ -92,3 +92,27 @@ def test_factory_builds_chain_from_settings():
     # בלי מפתח / בלי ספק → מצב תבניות
     s = Settings(_env_file=None, llm_provider="gemini", llm_model="g", llm_api_key="")
     assert build_llm_chain(s).mode == "templates"
+
+
+def test_forced_tool_mode_in_requests():
+    bodies = []
+
+    def gemini(request):
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": ""}]}}]})
+
+    def openai(request):
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": ""}}]})
+
+    tools = [TOOL_SPECS["save_profile"], TOOL_SPECS["match_current_car"]]
+    GeminiAdapter("g", "k", client=_client(gemini)).complete(MESSAGES, tools, require_tool=True)
+    GeminiAdapter("g", "k", client=_client(gemini)).complete(MESSAGES, tools)
+    OpenAICompatAdapter("groq", "m", "k", client=_client(openai)).complete(MESSAGES, tools, require_tool=True)
+    OpenAICompatAdapter("groq", "m", "k", client=_client(openai)).complete(MESSAGES, tools)
+
+    assert bodies[0]["toolConfig"] == {"functionCallingConfig": {
+        "mode": "ANY", "allowedFunctionNames": ["save_profile", "match_current_car"]}}
+    assert "toolConfig" not in bodies[1]
+    assert bodies[2]["tool_choice"] == "required"
+    assert "tool_choice" not in bodies[3]

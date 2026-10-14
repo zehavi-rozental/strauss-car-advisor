@@ -13,6 +13,12 @@ class LLMError(Exception):
     """הספק לא זמין / החזיר תשובה לא תקינה. השיחה ממשיכה בספק הבא או בתבניות."""
 
 
+def describe_error(exc: Exception) -> str:
+    """תיאור בטוח ללוג: סוג השגיאה וקוד HTTP — בלי תוכן הבקשה או התשובה."""
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    return f"{type(exc).__name__}" + (f" HTTP {status}" if status else "")
+
+
 @dataclass(frozen=True)
 class ToolCall:
     name: str
@@ -43,9 +49,12 @@ class LLMResponse:
 
 
 class LLMPort(Protocol):
+    """require_tool=True: הספק חייב לקרוא לאחד הכלים (Gemini mode ANY / OpenAI tool_choice required)."""
+
     name: str
 
-    def complete(self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = ()) -> LLMResponse:
+    def complete(self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = (),
+                 require_tool: bool = False) -> LLMResponse:
         ...
 
 
@@ -66,15 +75,16 @@ class LLMChain:
     def mode(self) -> str:
         return "+".join(p.name for p in self.providers) or "templates"
 
-    def complete(self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = ()) -> LLMResponse:
+    def complete(self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = (),
+                 require_tool: bool = False) -> LLMResponse:
         last: Optional[Exception] = None
         for provider in self.providers:
             started = time.monotonic()
             try:
-                response = provider.complete(messages, tools)
+                response = provider.complete(messages, tools, require_tool)
             except Exception as exc:  # כל כשל בספק — עוברים לבא בתור
                 log.warning("llm provider=%s failed after %.0fms: %s", provider.name,
-                            (time.monotonic() - started) * 1000, type(exc).__name__)
+                            (time.monotonic() - started) * 1000, exc)
                 last = exc
                 continue
             log.info("llm provider=%s ok in %.0fms tool_calls=%d", provider.name,

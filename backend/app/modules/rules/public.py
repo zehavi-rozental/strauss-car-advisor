@@ -55,6 +55,22 @@ def catalog_names(car: CatalogCar) -> list[str]:
     return [car.model_name, car.model_name.replace("BYD ", ""), *car.aliases]
 
 
+def _words(text: str) -> str:
+    return " ".join(re.sub(r"[^0-9a-zא-ת]+", " ", text.lower()).split())
+
+
+def mentions(text: str, name: str) -> bool:
+    """השם מופיע בטקסט כמילים שלמות (מותרת אות שימוש אחת: ו/ה/ב/ל/מ/ש/כ; רווח בתוך השם גמיש).
+
+    "אני רוצה" לא מזכיר את "נירו", אבל "ואטו 3" ו-"אטו3" מזכירים את "אטו 3".
+    """
+    tokens = _words(name).split()
+    if not tokens:
+        return False
+    pattern = r"(?:^|\s)[והבלמשכ]?" + r"\s*".join(map(re.escape, tokens)) + r"(?=\s|$)"
+    return re.search(pattern, _words(text)) is not None
+
+
 def find_catalog_car(snapshot: RulesSnapshot, text: str) -> list[CatalogCar]:
     """חיפוש רכב בקטלוג לפי שם, כינוי או מזהה. התאמה מדויקת קודמת להתאמה חלקית."""
     key = _norm(re.sub(r"\(\d{4}\)", "", text))
@@ -65,7 +81,7 @@ def find_catalog_car(snapshot: RulesSnapshot, text: str) -> list[CatalogCar]:
     if exact:
         return exact
     return [c for c in snapshot.catalog
-            if any(key in _norm(n) or _norm(n) in key for n in catalog_names(c))]
+            if any(key in _norm(n) or mentions(text, n) for n in catalog_names(c))]
 
 
 def candidate_states(snapshot: RulesSnapshot) -> list[State]:
@@ -101,6 +117,6 @@ def parse_reference_state(snapshot: RulesSnapshot, label: str, *, current_copay:
 
 __all__ = [
     "FAMILY_GROUP", "CatalogCar", "ConfigError", "Occupation", "ReferenceEmployee", "ReferenceResult",
-    "RulesSnapshot", "RulesStore", "candidate_states", "car_state", "catalog_names", "find_catalog_car",
+    "RulesSnapshot", "RulesStore", "candidate_states", "car_state", "catalog_names", "find_catalog_car", "mentions",
     "load_snapshot", "occupation_rule", "parse_reference_state", "reference_employee",
 ]

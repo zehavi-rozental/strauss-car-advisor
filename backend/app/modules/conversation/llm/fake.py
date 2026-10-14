@@ -16,6 +16,14 @@ from .port import ChatMessage, LLMError, LLMResponse, ToolCall, ToolSpec
 class _Turn:
     rounds: deque[tuple[ToolCall, ...]] = field(default_factory=deque)
     reply: Optional[str] = None
+    forced_only: bool = False
+
+
+@dataclass(frozen=True)
+class FakeCall:
+    messages: list[ChatMessage]
+    tools: list[str]
+    require_tool: bool
 
 
 class FakeLLM:
@@ -23,22 +31,30 @@ class FakeLLM:
 
     def __init__(self) -> None:
         self.script: deque[_Turn] = deque()
-        self.calls: list[tuple[list[ChatMessage], list[str]]] = []
+        self.calls: list[FakeCall] = []
 
     def turn(self, *tool_calls: ToolCall, reply: Optional[str] = None,
-             rounds: Sequence[Sequence[ToolCall]] = ()) -> "FakeLLM":
-        """reply=None → הניסוח נכשל (LLMError) והשיחה משתמשת בתבנית."""
+             rounds: Sequence[Sequence[ToolCall]] = (), forced_only: bool = False) -> "FakeLLM":
+        """reply=None → הניסוח נכשל (LLMError) והשיחה משתמשת בתבנית.
+
+        forced_only=True מחקה את Gemini במצב AUTO: בלי require_tool הוא עונה בטקסט
+        ולא קורא לכלי; רק כשהבקשה מחייבת כלי הוא מחזיר את הקריאות.
+        """
         all_rounds = deque(tuple(r) for r in rounds)
         if tool_calls:
             all_rounds.appendleft(tuple(tool_calls))
-        self.script.append(_Turn(rounds=all_rounds, reply=reply))
+        self.script.append(_Turn(rounds=all_rounds, reply=reply, forced_only=forced_only))
         return self
 
-    def complete(self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = ()) -> LLMResponse:
-        self.calls.append((list(messages), [t.name for t in tools]))
+    def complete(self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = (),
+                 require_tool: bool = False) -> LLMResponse:
+        self.calls.append(FakeCall(list(messages), [t.name for t in tools], require_tool))
         if tools:
-            if self.script and self.script[0].rounds:
-                return LLMResponse(tool_calls=self.script[0].rounds.popleft())
+            current = self.script[0] if self.script else None
+            if current and current.rounds:
+                if current.forced_only and not require_tool:
+                    return LLMResponse(text="תודה! רשמתי את הפרטים.")
+                return LLMResponse(tool_calls=current.rounds.popleft())
             return LLMResponse()
         if not self.script:
             raise LLMError("FakeLLM: התסריט נגמר")
@@ -53,7 +69,8 @@ class FailingLLM:
 
     name = "failing"
 
-    def complete(self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = ()) -> LLMResponse:
+    def complete(self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = (),
+                 require_tool: bool = False) -> LLMResponse:
         raise LLMError("down")
 
 

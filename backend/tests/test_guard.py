@@ -43,3 +43,20 @@ def test_blocked_reply_is_replaced_by_template(sessions):
     with sessions() as s:
         last = s.scalars(select(MessageRow).order_by(MessageRow.seq.desc())).first()
         assert last.guard_blocked is True and last.content == turn.reply
+
+
+def _phrase_test(sessions, reply):
+    fake = FakeLLM().turn(call("save_profile", occupation="מנהלת מוצר"), reply=reply)
+    svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([fake]))
+    turn, token = svc.start()
+    return svc.send(turn.conversation_id, token, "אני מנהלת מוצר כבר 7 שנים")
+
+
+def test_numbers_from_the_employees_own_message_are_allowed(sessions):
+    turn = _phrase_test(sessions, "מנהלת מוצר כבר 7 שנים — מעולה! מה שכר הבסיס שלך?")
+    assert turn.source == "llm" and "7 שנים" in turn.reply
+
+
+def test_other_numbers_are_still_blocked(sessions):
+    turn = _phrase_test(sessions, "מנהלת מוצר כבר 8 שנים — מעולה! מה שכר הבסיס שלך?")
+    assert turn.source == "template" and "8" not in turn.reply

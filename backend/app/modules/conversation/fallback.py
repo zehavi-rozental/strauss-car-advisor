@@ -3,11 +3,20 @@ from __future__ import annotations
 
 import re
 
-from app.modules.rules.public import RulesSnapshot, catalog_names
+from app.modules.rules.public import RulesSnapshot, catalog_names, mentions
 
 from .llm.port import ToolCall
-from .parsing import find_year, first_number, is_no_car, is_none, is_unknown, match_drive, strip_year
-from .stage import ConversationState, next_question
+from .parsing import (
+    find_year,
+    first_number,
+    is_no_car,
+    is_none,
+    is_unknown,
+    match_drive,
+    parse_profile_fields,
+    strip_year,
+)
+from .stage import ConversationState, Stage, next_question, next_stage
 from .tools import OPT_OUT_WORDS, available_options
 
 _RANK_RE = re.compile(r"הכי\s*משתלם|הכי\s*טוב|תמליץ|המלצ|דרג", re.IGNORECASE)
@@ -34,6 +43,12 @@ def fallback_calls(state: ConversationState, snapshot: RulesSnapshot, text: str)
     if not t or field is None:
         return []
     n = first_number(t)
+
+    # הודעה חופשית עם כמה שדות ("מנהלת מוצר, שכר בסיס 18,500, פנסיה 6%...") — כולם בקריאה אחת
+    if next_stage(state) == Stage.COLLECT_PROFILE:
+        fields = parse_profile_fields(t, snapshot.occupations.keys())
+        if fields:
+            return _call("save_profile", **fields)
 
     if field == "occupation":
         return _call("save_profile", occupation=t)
@@ -76,13 +91,12 @@ def _option_calls(state: ConversationState, snapshot: RulesSnapshot, text: str) 
     if _RANK_RE.search(text):
         return _call("rank_options")
     options = available_options(snapshot, state)
-    key = _key(text)
     # שמות וכינויים קודם: שם רכב יכול להכיל ספרה (MAZDA 3), אז לא מפרשים אותה כמספר ברשימה
     named: dict[str, str] = {}
     for o in options:
         if o.car is None:
             continue
-        hits = [n for n in map(_key, catalog_names(o.car)) if n and n in key]
+        hits = [_key(n) for n in catalog_names(o.car) if mentions(text, n)]
         if hits:
             named[o.id] = max(hits, key=len)
     # "קורולה" בתוך "קורולה קרוס" — נשאר רק השם הארוך

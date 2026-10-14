@@ -32,6 +32,8 @@ markers = [
     "eval: הערכת מודל השפה (רץ מול מודל אמיתי)",
 ]
 filterwarnings = ["ignore:Using `httpx` with `starlette.testclient`"]
+# הערכה מול מודל אמיתי רצה רק במפורש: pytest -m eval
+addopts = "-m 'not eval'"
 
 # כל מודול חושף רק את public.py; מנוע החישוב לא תלוי באף מודול אחר.
 [tool.importlinter]

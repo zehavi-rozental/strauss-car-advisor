@@ -110,6 +110,46 @@ def match_occupation(names: Iterable[str], text: str) -> Optional[str]:
     return best[1] if best else None
 
 
+_NUM = r"(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)"
+_NEG = r"(?:אין|בלי|ללא|לא)"
+_GAP = r"[^\d,;.\n]{0,12}?"          # בין מילת המפתח למספר — לא חוצים פסיק לשדה הבא
+# כל ביטוי: (שדה ב-save_profile, תבנית). המספר הוא הקבוצה הראשונה.
+_PROFILE_PATTERNS = (
+    ("base_salary", rf"(?:שכר(?:\s*(?:ה)?בסיס)?|ברוטו|משכורת){_GAP}{_NUM}"),
+    ("pension_percent", rf"פנסי(?:ה|ת){_GAP}{_NUM}"),
+    ("study_fund_percent", rf"השתלמות{_GAP}{_NUM}"),
+    ("credit_points", rf"{_NUM}\s*נקוד(?:ות|ה)\s*(?:ה)?זיכוי"),
+    ("credit_points", rf"נקודות\s*(?:ה)?זיכוי{_GAP}{_NUM}"),
+    ("children_under_23", r"(\d+)\s*(?:ילדים|ילדות|ילד)"),
+    ("commissions", rf"עמלות{_GAP}{_NUM}"),
+    ("bonus", rf"בונוס(?:ים)?{_GAP}{_NUM}"),
+)
+# "אין עמלות ואין בונוס" / "בלי עמלות ובונוסים" → 0
+_ZERO_PATTERNS = (
+    ("commissions", rf"{_NEG}(?:\s+לי)?\s*עמלות"),
+    ("bonus", rf"{_NEG}(?:\s+[^\s,]+){{0,2}}?\s*ו?(?:{_NEG}\s*)?בונוס"),
+    ("study_fund_percent", rf"{_NEG}(?:\s+לי)?\s*(?:קרן\s*)?השתלמות"),
+    ("children_under_23", rf"{_NEG}(?:\s+לי)?\s*ילדים"),
+)
+
+
+def parse_profile_fields(text: str, occupations: Iterable[str]) -> dict[str, object]:
+    """כמה שדות פרופיל מהודעה חופשית אחת. רק מה שנאמר במפורש; שום ברירת מחדל."""
+    found: dict[str, object] = {}
+    occupation = match_occupation(occupations, text)
+    if occupation:
+        found["occupation"] = occupation
+    for field, pattern in _PROFILE_PATTERNS:          # סכום מפורש קודם ל"אין"
+        m = re.search(pattern, text)
+        if m and field not in found:
+            value = m.group(1).replace(",", "")
+            found[field] = int(value) if field == "children_under_23" else value
+    for field, pattern in _ZERO_PATTERNS:
+        if field not in found and re.search(pattern, text):
+            found[field] = 0
+    return found
+
+
 def match_group(groups: Iterable[str], text: str) -> Optional[str]:
     """"קבוצה ג" / "ג" → "ג"."""
     cleaned = re.sub(r"קבוצ(?:ה|ת)|זכאות|[^א-ת ]", " ", text)
