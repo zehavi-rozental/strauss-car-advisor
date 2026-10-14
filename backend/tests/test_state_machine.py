@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+import pytest
+
 from app.modules.conversation.llm.fake import FakeLLM, call
 from app.modules.conversation.public import ConversationService, LLMChain, RepReason, Stage
 from app.modules.conversation.stage import ConversationState
@@ -141,3 +143,44 @@ def test_fallback_names_match_whole_words_only(sessions):
     """"אני רוצה" מכיל את האותיות של "נירו" — אסור שזה ייבחר."""
     turn, _ = talk(service(sessions), profile() + ["קורולה קרוס", "300", "אני רוצה לבדוק את BYD אטו 3 החשמלי"])
     assert [r.label for r in turn.results] == ["ATTO 3 (2025)"]
+
+
+# ---------- הרכב הנוכחי ממשפט חופשי ----------
+
+def test_long_sentence_without_a_known_car_asks_for_the_model_again(sessions):
+    svc = service(sessions)
+    turn, token = talk(svc, profile() + ["יש לי רכב חברה ישן מאוד ואני בכלל לא בטוחה מה השם שלו"])
+    assert turn.stage == Stage.COLLECT_CURRENT_CAR
+    assert "לא זיהיתי את דגם הרכב" in turn.reply and "במאגר" not in turn.reply
+    assert svc.view(turn.conversation_id, token).state.current.query is None   # לא חיפשנו משפט שלם
+
+
+def test_known_name_with_year_and_copay_in_one_sentence(sessions):
+    """שנה שונה משנת הקטלוג → מאגר רשות המסים לאותה שנה; ההשתתפות נשמרת מאותה הודעה."""
+    svc = service(sessions)
+    turn, token = talk(svc, profile() + ["יש לי קורולה קרוס 2023 ואני משתתף ב-250 בחודש"])
+    assert turn.stage == Stage.CHOOSE_OPTIONS
+    current = svc.view(turn.conversation_id, token).state.current
+    assert (current.source, current.query, current.reg_year) == ("tax", "COROLLA CROSS", 2023)
+    assert (current.use_value, current.copay) == (Decimal("3910"), Decimal("250"))
+
+
+def test_no_copay_phrase_is_zero(sessions):
+    svc = service(sessions)
+    turn, token = talk(svc, profile() + ["קורולה קרוס, אין לי השתתפות"])
+    assert turn.stage == Stage.CHOOSE_OPTIONS
+    assert svc.view(turn.conversation_id, token).state.current.copay == 0
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("ואני משתתפת היום ב-300 ש\"ח בחודש", Decimal(300)),
+    ("השתתפות עצמית 1,250", Decimal(1250)),
+    ("אני משתתף 250", Decimal(250)),
+    ("אין השתתפות", Decimal(0)),
+    ("לא משתתפת בכלל", Decimal(0)),
+    ("משתתפת, ויש לי 2 ילדים", None),          # לא חוצים פסיק לשדה אחר
+    ("יש לי קורולה קרוס", None),
+])
+def test_parse_copay(text, expected):
+    from app.modules.conversation.parsing import parse_copay
+    assert parse_copay(text) == expected

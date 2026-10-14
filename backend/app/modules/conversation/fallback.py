@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import re
 
-from app.modules.rules.public import RulesSnapshot, catalog_names, mentions
+from typing import Iterable
+
+from app.modules.rules.public import CatalogCar, RulesSnapshot, catalog_names, mentions
 
 from .llm.port import ToolCall
 from .parsing import (
@@ -13,6 +15,7 @@ from .parsing import (
     is_none,
     is_unknown,
     match_drive,
+    parse_copay,
     parse_profile_fields,
     strip_year,
 )
@@ -20,10 +23,23 @@ from .stage import ConversationState, Stage, next_question, next_stage
 from .tools import OPT_OUT_WORDS, available_options
 
 _RANK_RE = re.compile(r"הכי\s*משתלם|הכי\s*טוב|תמליץ|המלצ|דרג", re.IGNORECASE)
+SHORT_MODEL_WORDS = 3     # תשובה קצרה בלי שם מוכר → חיפוש במאגר; משפט ארוך → שאלה חוזרת
 
 
 def _key(text: str) -> str:
     return re.sub(r"[^0-9a-zא-ת]+", "", text.lower())
+
+
+def named_cars(text: str, cars: Iterable[CatalogCar]) -> list[CatalogCar]:
+    """רכבי הקטלוג שהטקסט מזכיר (שם, שם בלי BYD, כינויים מ-extensions.yaml), כמילים שלמות.
+    השם הארוך קודם; שם שמוכל בשם ארוך יותר שנמצא ("קורולה" בתוך "קורולה קרוס") נזרק."""
+    hits: dict[str, tuple[str, CatalogCar]] = {}
+    for car in cars:
+        found = [_key(n) for n in catalog_names(car) if mentions(text, n)]
+        if found:
+            hits[car.catalog_code] = (max(found, key=len), car)
+    keep = [(n, car) for n, car in hits.values() if not any(n != m and n in m for m, _ in hits.values())]
+    return [car for _, car in sorted(keep, key=lambda x: -len(x[0]))]
 
 
 def _call(name: str, **args) -> list[ToolCall]:
@@ -64,9 +80,7 @@ def fallback_calls(state: ConversationState, snapshot: RulesSnapshot, text: str)
         arg = {"base": "base_salary"}.get(field, field)
         return _call("save_profile", **{arg: str(n)}) if n is not None else []
     if field == "car":
-        if is_no_car(t):
-            return _call("match_current_car", no_car=True)
-        return _call("match_current_car", model=strip_year(t), registration_year=find_year(t))
+        return _car_calls(snapshot, t)
     if field == "car_choice":
         return _call("match_current_car", choice_number=int(n)) if n is not None else []
     if field == "use_value":
@@ -79,6 +93,9 @@ def fallback_calls(state: ConversationState, snapshot: RulesSnapshot, text: str)
     if field == "copay":
         if is_unknown(t):
             return _call("save_profile", current_copay_unknown=True)
+        copay = parse_copay(t)
+        if copay is not None:
+            return _call("save_profile", current_copay=str(copay))
         return _money_or_zero("current_copay", t)
     if field == "maintenance":
         return _call("save_profile", current_maintenance=str(n)) if n is not None else []
@@ -87,20 +104,33 @@ def fallback_calls(state: ConversationState, snapshot: RulesSnapshot, text: str)
     return []
 
 
+def _car_calls(snapshot: RulesSnapshot, text: str) -> list[ToolCall]:
+    """הרכב הנוכחי ממשפט חופשי: שם מוכר מהקטלוג (+שנה), וגם השתתפות אם צוינה באותה הודעה.
+    אף פעם לא שולחים משפט שלם כשם דגם."""
+    if is_no_car(text):
+        return _call("match_current_car", no_car=True)
+    year = find_year(text)
+    cars = named_cars(text, snapshot.catalog)
+    if cars:
+        calls = _call("match_current_car", model=cars[0].model_name, registration_year=year)
+    else:
+        model = strip_year(text)
+        if len(model.split()) > SHORT_MODEL_WORDS:
+            return []           # משפט בלי שם מוכר → התבנית שואלת שוב על הדגם בלבד
+        calls = _call("match_current_car", model=model, registration_year=year)
+    copay = parse_copay(text)
+    if copay is not None:
+        calls += _call("save_profile", current_copay=str(copay))
+    return calls
+
+
 def _option_calls(state: ConversationState, snapshot: RulesSnapshot, text: str) -> list[ToolCall]:
     if _RANK_RE.search(text):
         return _call("rank_options")
     options = available_options(snapshot, state)
     # שמות וכינויים קודם: שם רכב יכול להכיל ספרה (MAZDA 3), אז לא מפרשים אותה כמספר ברשימה
-    named: dict[str, str] = {}
-    for o in options:
-        if o.car is None:
-            continue
-        hits = [_key(n) for n in catalog_names(o.car) if mentions(text, n)]
-        if hits:
-            named[o.id] = max(hits, key=len)
-    # "קורולה" בתוך "קורולה קרוס" — נשאר רק השם הארוך
-    chosen = [i for i, n in named.items() if not any(n != m and n in m for m in named.values())]
+    named = {car.catalog_code for car in named_cars(text, [o.car for o in options if o.car is not None])}
+    chosen = [o.id for o in options if o.id in named]
     if any(w in text.lower() for w in OPT_OUT_WORDS):
         chosen.append("OPT_OUT")
     if not chosen:

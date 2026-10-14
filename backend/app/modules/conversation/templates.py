@@ -25,6 +25,8 @@ def signed(value: Any) -> str:
     return f"{v:+,} ₪" if v != 0 else "0 ₪"
 
 
+CAR_AGAIN = "לא זיהיתי את דגם הרכב. כתבו רק את שם הדגם (ושנת רישום אם ידועה), למשל: קורולה קרוס 2023."
+
 GREETING = ("שלום! אני יועץ הרכב של שטראוס. אעזור לך לראות איך שינוי ברכב הצמוד ישפיע על הנטו "
             "החודשי שלך. כל המספרים מחושבים לפי כללי החברה, לא מוערכים.\n")
 
@@ -117,9 +119,12 @@ def render(state: ConversationState, snapshot: RulesSnapshot, *, understood: boo
     if state.stage == Stage.WAITING_FOR_REP:
         parts.append(waiting_text(state))
         return "\n\n".join(parts)
+    field = next_question(state)
+    if not understood and field == "car":
+        parts.append(CAR_AGAIN)
+        return "\n\n".join(parts)
     if not understood:
         parts.append("לא הצלחתי להבין את התשובה.")
-    field = next_question(state)
     if state.stage == Stage.PRESENTED and just_calculated:
         parts.append("רוצה להשוות חלופה נוספת? כתבו את שם הרכב.")
     elif field:

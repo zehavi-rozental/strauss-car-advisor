@@ -133,6 +133,21 @@ _ZERO_PATTERNS = (
 )
 
 
+# השתתפות: מספר אחרי משתתף/ת / השתתפות, בלי לחצות פסיק או מספר אחר ("משתתפת היום ב-300 ש"ח")
+_COPAY_RE = re.compile(rf"(?:משתתף|משתתפ(?:ת|ים|ות)|השתתפות(?:\s*עצמית)?)[^\d,;\n]{{0,20}}?{_NUM}")
+_NO_COPAY_RE = re.compile(rf"{_NEG}(?:\s+לי)?\s*השתתפות|לא\s+משתתפ|לא\s+משתתף")
+
+
+def parse_copay(text: str) -> Optional[Decimal]:
+    """ההשתתפות שהעובד ציין בהודעה חופשית; "אין השתתפות" = 0; לא צוינה = None."""
+    m = _COPAY_RE.search(text)
+    if m:
+        return Decimal(m.group(1).replace(",", ""))
+    if _NO_COPAY_RE.search(text):
+        return Decimal(0)
+    return None
+
+
 def parse_profile_fields(text: str, occupations: Iterable[str]) -> dict[str, object]:
     """כמה שדות פרופיל מהודעה חופשית אחת. רק מה שנאמר במפורש; שום ברירת מחדל."""
     found: dict[str, object] = {}

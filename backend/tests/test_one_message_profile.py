@@ -156,3 +156,24 @@ def test_turn_deadline_falls_back_to_templates(sessions):
     turn = svc.send(turn.conversation_id, token, NOA_PROFILE)
     assert turn.source == "template" and turn.stage == Stage.COLLECT_CURRENT_CAR   # הפרסר בגיבוי
     assert never.calls == 0 and clock.now - 1000 == 10
+
+
+# ---------- המשפטים מהבדיקה החיה, במצב תבניות (בלי מודל שפה) ----------
+
+LIVE_SENTENCES = [
+    NOA_PROFILE,
+    "יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש",
+    "אני רוצה לבדוק את BYD אטו 3 החשמלי",
+]
+
+
+def test_live_sentences_reach_the_result_in_template_mode(engine):
+    client = make_client(engine)
+    cid = client.post("/api/conversations").json()["conversation_id"]
+    stages = []
+    for text in LIVE_SENTENCES:
+        body = client.post(f"/api/conversations/{cid}/messages", json={"text": text}).json()
+        stages.append(body["stage"])
+    assert stages == ["COLLECT_CURRENT_CAR", "CHOOSE_OPTIONS", "PRESENTED"]
+    [result] = body["results"]
+    assert result["label"] == "ATTO 3 (2025)" and result["delta_display"] == "661"
