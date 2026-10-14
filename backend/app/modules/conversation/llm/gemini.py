@@ -6,7 +6,7 @@ from typing import Any, Optional, Sequence
 
 import httpx
 
-from .port import ChatMessage, LLMError, describe_error, LLMResponse, ToolCall, ToolSpec
+from .port import ChatMessage, LLMError, LLMResponse, ToolCall, ToolSpec
 
 BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
@@ -56,7 +56,7 @@ class GeminiAdapter:
             r.raise_for_status()
             parts = r.json()["candidates"][0]["content"].get("parts", [])
         except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
-            raise LLMError(f"gemini: {describe_error(exc)}") from exc
+            raise LLMError.from_http("gemini", exc) from exc
         text = "".join(p.get("text", "") for p in parts)
         calls = tuple(ToolCall(name=p["functionCall"]["name"], args=p["functionCall"].get("args") or {},
                                id=f"gemini_{i}")

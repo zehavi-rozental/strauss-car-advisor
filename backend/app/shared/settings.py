@@ -18,6 +18,14 @@ class Settings(BaseSettings):
     config_dir: Path = BACKEND_DIR / "config"
     tax_csv_path: Path = BACKEND_DIR / "data" / "tax-authority-2026.csv"
 
+    # שרשרת ספקים לפי סדר: "gemini:<model>,gemini:<model>,groq:<model>". ריקה = LLM_PROVIDER + LLM_FALLBACK_*.
+    llm_chain: str = ""
+    gemini_api_key: str = ""
+    groq_api_key: str = ""
+    openrouter_api_key: str = ""
+    llm_cooldown_429_s: float = 60.0  # ספק שהחזיר 429 מדולג למשך הזמן הזה; 418 — עד הפעלה מחדש
+
+    # תאימות לאחור (כשאין LLM_CHAIN)
     llm_provider: str = "fake"
     llm_model: str = ""
     llm_api_key: str = ""

@@ -116,3 +116,20 @@ def test_forced_tool_mode_in_requests():
     assert "toolConfig" not in bodies[1]
     assert bodies[2]["tool_choice"] == "required"
     assert "tool_choice" not in bodies[3]
+
+
+@pytest.mark.parametrize("make", [
+    lambda h: GeminiAdapter("g", "k", client=_client(h)),
+    lambda h: OpenAICompatAdapter("groq", "m", "k", client=_client(h)),
+])
+def test_adapters_report_status_and_timeout_for_the_chain(make):
+    with pytest.raises(LLMError) as err:
+        make(lambda r: httpx.Response(429)).complete(MESSAGES)
+    assert err.value.status == 429 and not err.value.timeout
+
+    def slow(request):
+        raise httpx.ReadTimeout("slow", request=request)
+
+    with pytest.raises(LLMError) as err:
+        make(slow).complete(MESSAGES)
+    assert err.value.timeout and err.value.status is None

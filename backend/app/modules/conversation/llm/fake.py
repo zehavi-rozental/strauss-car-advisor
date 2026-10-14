@@ -76,3 +76,23 @@ class FailingLLM:
 
 def call(name: str, **args) -> ToolCall:
     return ToolCall(name=name, args=args, id=f"call_{name}")
+
+
+class ScriptedProvider:
+    """ספק לבדיקות השרשרת: כל קריאה לוקחת את התוצאה הבאה — קוד HTTP (int), "timeout",
+    או טקסט. כשהתסריט נגמר הוא עונה "ok"."""
+
+    def __init__(self, name: str, model: str = "", outcomes: Sequence[object] = ()):
+        self.name, self.model = name, model
+        self.outcomes: deque[object] = deque(outcomes)
+        self.calls = 0
+
+    def complete(self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = (),
+                 require_tool: bool = False) -> LLMResponse:
+        self.calls += 1
+        outcome = self.outcomes.popleft() if self.outcomes else "ok"
+        if isinstance(outcome, int):
+            raise LLMError(f"{self.name}: HTTP {outcome}", status=outcome)
+        if outcome == "timeout":
+            raise LLMError(f"{self.name}: timeout", timeout=True)
+        return LLMResponse(text=f"{outcome} from {self.name}:{self.model}")

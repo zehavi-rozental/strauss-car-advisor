@@ -6,7 +6,7 @@ from typing import Any, Optional, Sequence
 
 import httpx
 
-from .port import ChatMessage, LLMError, describe_error, LLMResponse, ToolCall, ToolSpec
+from .port import ChatMessage, LLMError, LLMResponse, ToolCall, ToolSpec
 
 PRESETS = {
     "groq": "https://api.groq.com/openai/v1",
@@ -56,5 +56,5 @@ class OpenAICompatAdapter:
                          args=json.loads(c["function"].get("arguments") or "{}"))
                 for c in msg.get("tool_calls") or [])
         except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
-            raise LLMError(f"{self.name}: {describe_error(exc)}") from exc
+            raise LLMError.from_http(self.name, exc) from exc
         return LLMResponse(text=msg.get("content") or "", tool_calls=calls)
