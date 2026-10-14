@@ -79,6 +79,10 @@ def test_noa_levi_fallback_mode(engine, sessions):
         assert body["source"] == "template"
     _assert_noa_result(body, sessions)
     assert "+661 ₪" in body["reply"] and "11,693 ₪" in body["reply"]
+    # גרסת קובץ הכללים לא מוצגת לעובד, אבל נשארת בתוצאה (מסך האימות)
+    assert "חישוב חודשי לפי כללי החברה ולוחות המס של 2025" in body["reply"]
+    assert "mock-2026-10-12" not in body["reply"] and "קובץ כללים" not in body["reply"]
+    assert body["results"][0]["rules_version"] == "mock-2026-10-12"
 
     with sessions() as s:
         sources = {m.source for m in s.scalars(select(MessageRow))}

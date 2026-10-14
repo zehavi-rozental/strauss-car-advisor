@@ -172,7 +172,8 @@ def _lines(today_state: State, alt_state: State, today: Optional[Breakdown],
 
 def evaluate(employee: Employee, current: State, alternative: State, rules: CalcRules,
              occupation: Optional[OccupationRule] = None) -> ScenarioResult:
-    assumptions = [f"חישוב חודשי לפי לוחות {rules.tax_year} (קובץ כללים {rules.rules_version})"]
+    # טקסט לעובד: בלי גרסת קובץ הכללים (היא נשמרת ב-rules_version לתצוגת האימות)
+    assumptions = [f"חישוב חודשי לפי כללי החברה ולוחות המס של {rules.tax_year}"]
     common = dict(rules_version=rules.rules_version, extensions_version=rules.extensions_version,
                   engine_version=ENGINE_VERSION)
 
