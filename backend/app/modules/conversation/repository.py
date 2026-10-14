@@ -63,28 +63,30 @@ class ConversationRepository:
 
     # ---------- גרסאות הגדרות והרצות ----------
 
-    def snapshot_row(self, snapshot: RulesSnapshot) -> ConfigSnapshotRow:
-        """שורה אחת לכל גרסה, עם התוכן המלא של שלושת הקבצים."""
-        key = combined_hash(snapshot)
-        row = self.session.scalar(select(ConfigSnapshotRow).where(ConfigSnapshotRow.combined_hash == key))
-        if row is None:
-            files = snapshot.file_contents
-            row = ConfigSnapshotRow(
-                combined_hash=key, rules_version=snapshot.calc.rules_version,
-                extensions_version=snapshot.calc.extensions_version, file_hashes=dict(snapshot.file_hashes),
-                strauss_rules_json=files[RULES_FILE].decode("utf-8"),
-                extensions_yaml=files[EXTENSIONS_FILE].decode("utf-8"),
-                strauss_data_xlsx=files[DATA_FILE])
-            self.session.add(row)
-            self.session.flush()
-        return row
+    def find_snapshot(self, key: str) -> Optional[uuid.UUID]:
+        return self.session.scalar(select(ConfigSnapshotRow.id).where(ConfigSnapshotRow.combined_hash == key))
 
-    def add_run(self, conversation_id: uuid.UUID, snapshot: RulesSnapshot, label: str, engine_version: str,
-                status: str, inputs: dict[str, Any], result: dict[str, Any],
-                delta: Optional[Decimal]) -> CalculationRunRow:
-        row = CalculationRunRow(conversation_id=conversation_id, config_snapshot_id=self.snapshot_row(snapshot).id,
+    def insert_snapshot(self, snapshot: RulesSnapshot) -> uuid.UUID:
+        """שורה אחת לכל גרסה, עם התוכן המלא של שלושת הקבצים. מפתח ייחודי: combined_hash."""
+        files = snapshot.file_contents
+        row = ConfigSnapshotRow(
+            combined_hash=combined_hash(snapshot), rules_version=snapshot.calc.rules_version,
+            extensions_version=snapshot.calc.extensions_version, file_hashes=dict(snapshot.file_hashes),
+            strauss_rules_json=files[RULES_FILE].decode("utf-8"),
+            extensions_yaml=files[EXTENSIONS_FILE].decode("utf-8"),
+            strauss_data_xlsx=files[DATA_FILE])
+        self.session.add(row)
+        self.session.flush()
+        return row.id
+
+    def add_run(self, conversation_id: uuid.UUID, config_snapshot_id: uuid.UUID, label: str,
+                engine_version: str, status: str, inputs: dict[str, Any], result: dict[str, Any],
+                delta: Optional[Decimal], run_id: Optional[uuid.UUID] = None) -> CalculationRunRow:
+        row = CalculationRunRow(conversation_id=conversation_id, config_snapshot_id=config_snapshot_id,
                                 engine_version=engine_version, option_label=label[:128], status=status,
                                 inputs=inputs, result=result, delta_display=delta)
+        if run_id is not None:
+            row.id = run_id
         self.session.add(row)
         self.session.flush()
         return row

@@ -11,7 +11,6 @@ from typing import Any, Callable, Optional, Protocol, Sequence
 
 from app.modules.calculation.public import ScenarioResult, evaluate
 from app.modules.rules.public import RulesSnapshot
-from app.modules.vehicles.public import VehicleRepository
 
 from .fallback import fallback_calls
 from .guard import collect_numbers, violations
@@ -30,7 +29,7 @@ from .stage import (
     next_stage,
 )
 from .templates import GREETING, question, render
-from .tools import TOOL_SPECS, ToolContext, available_options, engine_inputs, option_state, run_tool
+from .tools import TOOL_SPECS, ToolContext, VehicleLookup, available_options, engine_inputs, option_state, run_tool
 
 log = logging.getLogger(__name__)
 
@@ -101,10 +100,10 @@ class Agent:
     def greeting(self, state: ConversationState, snapshot: RulesSnapshot) -> str:
         return GREETING + question("occupation", state, snapshot)
 
-    def run_turn(self, snapshot: RulesSnapshot, vehicles: VehicleRepository, state: ConversationState,
+    def run_turn(self, snapshot: RulesSnapshot, find_vehicle: VehicleLookup, state: ConversationState,
                  history: Sequence[ChatMessage], text: str, record_run: RecordRun) -> TurnOutcome:
         text = redact_id_numbers(text)
-        ctx = ToolContext(snapshot=snapshot, vehicles=vehicles, state=state)
+        ctx = ToolContext(snapshot=snapshot, find_vehicle=find_vehicle, state=state)
         before = next_stage(state)
 
         if before == Stage.WAITING_FOR_REP:

@@ -5,6 +5,7 @@ import hmac
 import logging
 import secrets
 import tempfile
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -12,6 +13,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from pydantic import TypeAdapter
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from app.modules.calculation.public import (
@@ -21,14 +23,22 @@ from app.modules.calculation.public import (
     State,
     evaluate,
 )
-from app.modules.rules.public import RulesStore, load_snapshot
-from app.modules.vehicles.public import VehicleRepository
+from app.modules.rules.public import RulesSnapshot, RulesStore, load_snapshot
+from app.modules.vehicles.public import CurrentCarMatch, VehicleRepository, match_current_car
+from app.shared.db import new_id
 
 from .agent import Agent, NullRepresentative, RepresentativePort
 from .llm.factory import build_llm_chain
 from .llm.port import ChatMessage, LLMChain, LLMPort
 from .parsing import redact_id_numbers
-from .repository import DATA_FILE, EXTENSIONS_FILE, RULES_FILE, ConversationRepository, token_hash
+from .repository import (
+    DATA_FILE,
+    EXTENSIONS_FILE,
+    RULES_FILE,
+    ConversationRepository,
+    combined_hash,
+    token_hash,
+)
 from .stage import ConversationState, OptionResult, RepReason, Stage
 
 
@@ -61,6 +71,16 @@ class ConversationView:
     messages: list[dict[str, Any]]
 
 
+@dataclass(frozen=True)
+class _PendingRun:
+    """הרצת חישוב שנאספה בזיכרון בשלב (ב), ונכתבת רק בשלב (ג)."""
+
+    id: uuid.UUID
+    label: str
+    inputs: dict[str, Any]
+    result: ScenarioResult
+
+
 def _uuid(value: str) -> uuid.UUID:
     try:
         return uuid.UUID(str(value))
@@ -76,6 +96,42 @@ class ConversationService:
         self.llm = llm
         self.agent = Agent(llm, rep or NullRepresentative())
         self.max_messages = max_messages
+        self._snapshot_ids: dict[str, uuid.UUID] = {}
+        self._snapshot_lock = threading.Lock()
+        self.snapshot_id(rules.current)        # בהפעלה: שורת הגרסה קיימת לפני התור הראשון
+
+    # ---------- גרסת הגדרות ----------
+
+    def snapshot_id(self, snapshot: RulesSnapshot) -> uuid.UUID:
+        """המזהה של שורת הגרסה. נוצרת פעם אחת (בהפעלה, ושוב אחרי טעינה מחדש של הכללים),
+        בטרנזקציה קצרה משלה — לא בתוך כתיבת התור — כך ששני תורות ראשונים לא מתחרים על המפתח."""
+        key = combined_hash(snapshot)
+        cached = self._snapshot_ids.get(key)
+        if cached is not None:
+            return cached
+        with self._snapshot_lock:
+            if key not in self._snapshot_ids:
+                self._snapshot_ids[key] = self._ensure_snapshot(snapshot, key)
+            return self._snapshot_ids[key]
+
+    def _ensure_snapshot(self, snapshot: RulesSnapshot, key: str) -> uuid.UUID:
+        with self.sessions() as session:
+            found = ConversationRepository(session).find_snapshot(key)
+        if found is not None:
+            return found
+        try:
+            with self.sessions() as session, session.begin():
+                return ConversationRepository(session).insert_snapshot(snapshot)
+        except IntegrityError:   # תהליך אחר יצר אותה בינתיים
+            with self.sessions() as session:
+                found = ConversationRepository(session).find_snapshot(key)
+            assert found is not None
+            return found
+
+    def _find_vehicle(self, model: str, reg_year: Optional[int]) -> CurrentCarMatch:
+        """חיפוש במאגר בסשן קריאה קצר משלו (שלב ב רץ בלי סשן פתוח)."""
+        with self.sessions() as session:
+            return match_current_car(VehicleRepository(session), model, reg_year)
 
     # ---------- שיחה חדשה ----------
 
@@ -102,33 +158,53 @@ class ConversationService:
             log.info("turn total=%.0fms", (time.monotonic() - started) * 1000)
 
     def _send(self, conversation_id: str, token: str, text: str) -> TurnResult:
+        """שלושה שלבים, כדי שאף טרנזקציה לא תהיה פתוחה בזמן קריאות למודל השפה:
+        (א) קריאה קצרה, (ב) הסוכן בלי סשן פתוח, (ג) כתיבה קצרה של כל התור."""
         snapshot = self.rules.current
-        with self.sessions() as session, session.begin():
+        snapshot_id = self.snapshot_id(snapshot)   # אחרי טעינה מחדש — נוצרת כאן, מחוץ לתור
+        text = redact_id_numbers(text)
+
+        # (א) קריאה
+        with self.sessions() as session:
             repo = ConversationRepository(session)
             row = self._load(repo, conversation_id, token)
             if row.message_count >= self.max_messages:
                 raise ConversationLimitReached()
+            conv_id, loaded_count = row.id, row.message_count
             state = ConversationState.model_validate(row.state)
             history = [ChatMessage("user" if m.role == "user" else "assistant", m.content)
                        for m in repo.messages(row.id)]
-            text = redact_id_numbers(text)
 
-            def record_run(label: str, inputs: dict[str, Any], result: ScenarioResult) -> str:
-                run = repo.add_run(row.id, snapshot, label, result.engine_version, result.status.value, inputs,
-                                   result.model_dump(mode="json"), result.delta_display)
-                return str(run.id)
+        # (ב) הסוכן — הרצות החישוב נאספות בזיכרון
+        pending: list[_PendingRun] = []
 
-            outcome = self.agent.run_turn(snapshot, VehicleRepository(session), state, history, text, record_run)
-            repo.add_message(row.id, "user", text, "user")
-            repo.add_message(row.id, "assistant", outcome.reply, outcome.source, outcome.guard_blocked)
+        def record_run(label: str, inputs: dict[str, Any], result: ScenarioResult) -> str:
+            run_id = new_id()
+            pending.append(_PendingRun(run_id, label, inputs, result))
+            return str(run_id)
+
+        outcome = self.agent.run_turn(snapshot, self._find_vehicle, state, history, text, record_run)
+
+        # (ג) כתיבה
+        with self.sessions() as session, session.begin():
+            repo = ConversationRepository(session)
+            row = repo.get(conv_id)
+            if row is None:
+                raise ConversationNotFound()
             row.state = state.model_dump(mode="json")
             row.stage = state.stage.value
-            row.message_count += 1
+            row.message_count = loaded_count + 1
             row.llm_mode = self.llm.mode
-            return TurnResult(conversation_id=str(row.id), stage=state.stage, reply=outcome.reply,
-                              source=outcome.source,
-                              results=state.results if outcome.just_calculated else [],
-                              pending_rep=state.pending_rep.reason if state.pending_rep else None)
+            repo.add_message(conv_id, "user", text, "user")
+            repo.add_message(conv_id, "assistant", outcome.reply, outcome.source, outcome.guard_blocked)
+            for run in pending:
+                repo.add_run(conv_id, snapshot_id, run.label, run.result.engine_version, run.result.status.value,
+                             run.inputs, run.result.model_dump(mode="json"), run.result.delta_display, run_id=run.id)
+
+        return TurnResult(conversation_id=str(conv_id), stage=state.stage, reply=outcome.reply,
+                          source=outcome.source,
+                          results=state.results if outcome.just_calculated else [],
+                          pending_rep=state.pending_rep.reason if state.pending_rep else None)
 
     def view(self, conversation_id: str, token: str) -> ConversationView:
         with self.sessions() as session:

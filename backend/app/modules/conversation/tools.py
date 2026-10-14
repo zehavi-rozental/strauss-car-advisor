@@ -28,7 +28,7 @@ from app.modules.rules.public import (
     find_catalog_car,
     occupation_rule,
 )
-from app.modules.vehicles.public import VehicleRepository, match_current_car as match_tax_file
+from app.modules.vehicles.public import CurrentCarMatch
 
 from .llm.port import ToolSpec
 from .parsing import match_drive, match_group, match_occupation, parse_decimal
@@ -45,10 +45,15 @@ from .stage import (
 OPT_OUT_WORDS = ("ויתור", "לוותר", "opt out", "opt_out", "בלי רכב", "ללא רכב")
 
 
+# חיפוש במאגר רשות המסים: (דגם, שנת רישום) → התאמה. כל קריאה פותחת סשן קריאה קצר משלה,
+# כך שאין טרנזקציה פתוחה בזמן שהסוכן מחכה למודל השפה.
+VehicleLookup = Callable[[str, Optional[int]], CurrentCarMatch]
+
+
 @dataclass
 class ToolContext:
     snapshot: RulesSnapshot
-    vehicles: VehicleRepository
+    find_vehicle: VehicleLookup
     state: ConversationState
 
 
@@ -231,7 +236,7 @@ def match_current_car(ctx: ToolContext, args: MatchCarArgs) -> dict[str, Any]:
         return {"status": "FOUND", "source": "catalog", "label": car.label, "group": car.group,
                 "use_value": str(car.use_value)}
 
-    match = match_tax_file(ctx.vehicles, model, reg_year=year)
+    match = ctx.find_vehicle(model, year)
     if match.status == "FOUND" and match.vehicle is not None:
         v = match.vehicle
         ctx.state.current = CurrentCar(query=model, reg_year=v.key.reg_year, source="tax", label=v.label,
