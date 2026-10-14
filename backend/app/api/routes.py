@@ -9,6 +9,7 @@ from sqlalchemy import text as sql
 
 from app.modules.calculation.public import ENGINE_VERSION
 from app.modules.conversation.public import (
+    ConversationConflict,
     ConversationLimitReached,
     ConversationNotFound,
     ConversationService,
@@ -102,6 +103,8 @@ def send_message(conversation_id: str, body: MessageIn, request: Request) -> dic
         raise HTTPException(404, NOT_FOUND) from None
     except ConversationLimitReached:
         raise HTTPException(429, "הגעתם למספר ההודעות המרבי בשיחה. אפשר לפתוח שיחה חדשה.") from None
+    except ConversationConflict:
+        raise HTTPException(409, "ההודעה הקודמת עדיין בטיפול") from None
 
 
 @router.get("/conversations/{conversation_id}")

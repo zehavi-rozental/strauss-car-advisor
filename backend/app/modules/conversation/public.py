@@ -53,6 +53,10 @@ class ConversationLimitReached(Exception):
     pass
 
 
+class ConversationConflict(Exception):
+    """תור אחר על אותה שיחה נכתב בזמן שהתור הזה רץ. התור הזה בוטל ולא נשמר דבר ממנו."""
+
+
 @dataclass
 class TurnResult:
     conversation_id: str
@@ -170,7 +174,7 @@ class ConversationService:
             row = self._load(repo, conversation_id, token)
             if row.message_count >= self.max_messages:
                 raise ConversationLimitReached()
-            conv_id, loaded_count = row.id, row.message_count
+            conv_id, loaded_count, loaded_version = row.id, row.message_count, row.version
             state = ConversationState.model_validate(row.state)
             history = [ChatMessage("user" if m.role == "user" else "assistant", m.content)
                        for m in repo.messages(row.id)]
@@ -185,16 +189,15 @@ class ConversationService:
 
         outcome = self.agent.run_turn(snapshot, self._find_vehicle, state, history, text, record_run)
 
-        # (ג) כתיבה
+        # (ג) כתיבה — רק אם הגרסה לא השתנתה מאז (א); אחרת התור כולו מבוטל
         with self.sessions() as session, session.begin():
             repo = ConversationRepository(session)
-            row = repo.get(conv_id)
-            if row is None:
-                raise ConversationNotFound()
-            row.state = state.model_dump(mode="json")
-            row.stage = state.stage.value
-            row.message_count = loaded_count + 1
-            row.llm_mode = self.llm.mode
+            saved = repo.save_turn(conv_id, loaded_version, state=state.model_dump(mode="json"),
+                                   stage=state.stage.value, message_count=loaded_count + 1, llm_mode=self.llm.mode)
+            if not saved:
+                log.warning("turn discarded: conversation changed by a concurrent turn")
+                raise ConversationConflict()
+            # seq מחושב כאן, אחרי העדכון ותחת אותה נעילת כתיבה
             repo.add_message(conv_id, "user", text, "user")
             repo.add_message(conv_id, "assistant", outcome.reply, outcome.source, outcome.guard_blocked)
             for run in pending:
@@ -251,7 +254,8 @@ def reproduce_run(sessions: sessionmaker, run_id: str) -> ScenarioResult:
 
 
 __all__ = [
-    "ConversationLimitReached", "ConversationNotFound", "ConversationService", "ConversationState",
+    "ConversationConflict", "ConversationLimitReached", "ConversationNotFound", "ConversationService",
+    "ConversationState",
     "ConversationView", "LLMChain", "LLMPort", "OptionResult", "RepReason", "RepresentativePort", "Stage",
     "TurnResult", "build_llm_chain", "reproduce_run",
 ]

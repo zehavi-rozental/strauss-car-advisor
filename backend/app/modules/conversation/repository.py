@@ -6,10 +6,12 @@ import uuid
 from decimal import Decimal
 from typing import Any, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.modules.rules.public import RulesSnapshot
+
+from app.shared.db import utcnow
 
 from .models import CalculationRunRow, ConfigSnapshotRow, ConversationRow, MessageRow
 
@@ -44,6 +46,17 @@ class ConversationRepository:
 
     def get(self, conversation_id: uuid.UUID) -> Optional[ConversationRow]:
         return self.session.get(ConversationRow, conversation_id)
+
+    def save_turn(self, conversation_id: uuid.UUID, loaded_version: int, *, state: dict[str, Any], stage: str,
+                  message_count: int, llm_mode: str) -> bool:
+        """כותב רק אם אף תור אחר לא כתב מאז הקריאה (version לא השתנה). False = התנגשות."""
+        result = self.session.execute(
+            update(ConversationRow)
+            .where(ConversationRow.id == conversation_id, ConversationRow.version == loaded_version)
+            .values(state=state, stage=stage, message_count=message_count, llm_mode=llm_mode,
+                    version=loaded_version + 1, updated_at=utcnow())
+            .execution_options(synchronize_session=False))
+        return result.rowcount == 1
 
     # ---------- הודעות ----------
 

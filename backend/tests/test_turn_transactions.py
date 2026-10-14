@@ -83,3 +83,78 @@ def test_lost_insert_race_reuses_the_winners_row(sessions, monkeypatch):
     assert second.snapshot_id(second.rules.current) == winner
     with sessions() as s:
         assert s.scalar(select(func.count()).select_from(ConfigSnapshotRow)) == 1
+
+
+# ---------- שני תורות במקביל על אותה שיחה ----------
+
+class BarrierLLM(FakeLLM):
+    """שני התורות נעצרים יחד בחילוץ (שניהם בשלב ב), ואז כל אחד שומר את העיסוק מההודעה שלו."""
+
+    def __init__(self, barrier):
+        super().__init__()
+        self.barrier = barrier
+
+    def complete(self, messages, tools=(), require_tool=False, timeout_s=None):
+        from app.modules.conversation.llm.port import LLMResponse
+        if tools and require_tool:
+            self.barrier.wait(timeout=10)
+            occupation = [m for m in messages if m.role == "user"][-1].content
+            return LLMResponse(tool_calls=(call("save_profile", occupation=occupation),))
+        return LLMResponse()
+
+
+def test_concurrent_turns_one_wins_one_conflicts(tmp_path):
+    import threading
+
+    from app.modules.conversation.models import ConversationRow, MessageRow
+    from app.modules.conversation.public import ConversationConflict, TurnResult
+
+    sessions = file_db(tmp_path)
+    svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([BarrierLLM(threading.Barrier(2))]))
+    turn, token = svc.start()
+    outcomes: dict[str, object] = {}
+
+    def send(text):
+        try:
+            outcomes[text] = svc.send(turn.conversation_id, token, text)
+        except Exception as exc:   # noqa: BLE001 — נבדק למטה
+            outcomes[text] = exc
+
+    threads = [threading.Thread(target=send, args=(t,)) for t in ("מנהלת מוצר", "מפתח תוכנה")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=20)
+
+    winners = [k for k, v in outcomes.items() if isinstance(v, TurnResult)]
+    losers = [k for k, v in outcomes.items() if isinstance(v, ConversationConflict)]
+    assert len(winners) == 1 and len(losers) == 1, outcomes
+
+    with sessions() as s:
+        row = s.scalars(select(ConversationRow)).one()
+        contents = [m.content for m in s.scalars(select(MessageRow).order_by(MessageRow.seq))]
+    assert (row.version, row.message_count) == (1, 1)
+    assert len(contents) == 3 and contents[1] == winners[0] and losers[0] not in contents
+    expected = {"מנהלת מוצר": "מנהל/ת מוצר", "מפתח תוכנה": "מפתח/ת תוכנה"}[winners[0]]
+    assert row.state["profile"]["occupation"] == expected
+
+    # השיחה ממשיכה רגיל אחרי ההתנגשות
+    svc.llm = LLMChain()
+    svc.agent.llm = svc.llm
+    assert svc.send(turn.conversation_id, token, "18,500").stage == Stage.COLLECT_PROFILE
+
+
+def test_conflict_is_http_409(engine, monkeypatch):
+    from app.modules.conversation.public import ConversationConflict, ConversationService as Service
+
+    from .conftest import make_client
+
+    client = make_client(engine)
+    cid = client.post("/api/conversations").json()["conversation_id"]
+
+    def conflict(self, *args, **kwargs):
+        raise ConversationConflict()
+
+    monkeypatch.setattr(Service, "send", conflict)
+    r = client.post(f"/api/conversations/{cid}/messages", json={"text": "שלום"})
+    assert r.status_code == 409 and r.json()["detail"] == "ההודעה הקודמת עדיין בטיפול"

@@ -39,6 +39,8 @@ class ConversationRow(Base):
     session_token_hash: Mapped[str] = mapped_column(String(64))   # sha256; הטוקן עצמו לא נשמר
     state: Mapped[dict[str, Any]] = mapped_column(PortableJSON)
     message_count: Mapped[int] = mapped_column(Integer, default=0)
+    # נעילה אופטימית: כל תור כותב רק אם הגרסה לא השתנתה מאז שקרא אותה
+    version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     llm_mode: Mapped[str] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow, onupdate=utcnow)
