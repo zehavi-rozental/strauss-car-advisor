@@ -69,10 +69,13 @@ def test_unknown_copay_opens_rep_question(sessions):
     assert "שאלתי את נציג התחבורה מה ההשתתפות הנוכחית שלך ב-COROLLA CROSS (2025)" in turn.reply
     state = svc.view(turn.conversation_id, token).state
     assert state.pending_rep.question_ids == [q.id]
-    # בזמן ההמתנה: תשובה קצרה, אין התקדמות ואין שאלה נוספת לנציג
+    # בזמן ההמתנה: רכב אחר בלי סימן תיקון — שואלים במקום לנחש; אין התקדמות ואין שאלה נוספת לנציג
     turn = svc.send(turn.conversation_id, token, "ATTO 3")
     assert turn.stage == Stage.WAITING_FOR_REP and turn.path == "waiting"
-    assert turn.reply == "שאלתי את נציג התחבורה ואעדכן כשתגיע תשובה." and len(open_questions(svc)) == 1
+    assert turn.reply.startswith("לא בטוח שהבנתי: ATTO 3 (2025) הוא הרכב שלך היום")
+    assert len(open_questions(svc)) == 1
+    turn = svc.send(turn.conversation_id, token, "נו?")
+    assert turn.reply == "שאלתי את נציג התחבורה ואעדכן כשתגיע תשובה."
 
 
 def test_car_not_found_asks_payslip_use_value(sessions):

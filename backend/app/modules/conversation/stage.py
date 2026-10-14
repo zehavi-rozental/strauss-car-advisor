@@ -106,6 +106,13 @@ class ConfirmedCopay(BaseModel):
     effective_date: Optional[date] = None
 
 
+class CarClarification(BaseModel):
+    """בזמן המתנה לנציג העובד הזכיר רכב — לא ברור אם זה הרכב שלו או חלופה. שאלנו; זו התשובה שמחכה."""
+
+    catalog_code: str
+    label: str
+
+
 class ConversationState(BaseModel):
     stage: Stage = Stage.COLLECT_PROFILE
     profile: Profile = Field(default_factory=Profile)
@@ -116,6 +123,8 @@ class ConversationState(BaseModel):
     pending_rep: Optional[PendingRep] = None
     confirmed_copays: dict[str, ConfirmedCopay] = Field(default_factory=dict)
     applied_answers: list[str] = Field(default_factory=list)    # תשובות נציג שכבר יושמו (פעם אחת בלבד)
+    pending_clarification: Optional[CarClarification] = None
+    queued_options: list[str] = Field(default_factory=list)     # חלופות לחישוב אחרי תשובת הנציג
 
 
 # ---------- מה חסר ----------

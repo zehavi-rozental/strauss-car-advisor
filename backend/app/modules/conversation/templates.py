@@ -98,6 +98,15 @@ def results_text(state: ConversationState) -> str:
 
 
 WAITING = "שאלתי את נציג התחבורה ואעדכן כשתגיע תשובה."
+
+
+def clarify_car_text(label: str) -> str:
+    return (f"לא בטוח שהבנתי: {label} הוא הרכב שלך היום, או חלופה שתרצי לבדוק? "
+            f"אם זה הרכב שלך, כתבו \"זה הרכב שלי\". אם זו חלופה, אבדוק אותה ברגע שהנציג יענה.")
+
+
+def queued_option_text(label: str) -> str:
+    return f"בסדר, אבדוק את {label} כחלופה ברגע שהנציג יענה."
 OPT_OUT_DENIED = "לפי נציג התחבורה, בעיסוק שלך לא ניתן לוותר על הרכב"
 
 

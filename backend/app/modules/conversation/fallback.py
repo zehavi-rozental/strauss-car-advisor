@@ -170,8 +170,9 @@ def _car_plan(snapshot: RulesSnapshot, text: str) -> ParserPlan:
     cars = named_cars(text, snapshot.catalog)
     if cars:
         # "מלא" רק אם לא נשאר בהודעה כלום מעבר לשם, לשנה, להשתתפות ולמילות מילוי
+        ext = snapshot.extensions
         leftovers = leftover_words(text, matched_name(text, cars[0]) or cars[0].model_name,
-                                   snapshot.extensions.car_message_fillers)
+                                   ext.car_message_fillers + ext.correction_cues)
         calls = _call("match_current_car", model=cars[0].model_name, registration_year=year)
         complete = not leftovers
     else:

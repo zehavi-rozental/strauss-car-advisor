@@ -14,14 +14,17 @@ from typing import Any, Callable, Optional, Sequence
 from app.modules.calculation.public import CopayStatus, ScenarioResult, evaluate
 from app.modules.calculation.public import Status as CalcStatus
 from app.modules.cases.public import AnswerType, MissingField, Mode, QuestionAnswered, QuestionRequest
-from app.modules.rules.public import RulesSnapshot
+from app.modules.rules.public import RulesSnapshot, words
 
-from .fallback import correction_plan, fallback_plan
+
+from .fallback import ParserPlan, correction_plan, fallback_plan, named_cars
 from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
 from .parsing import redact_id_numbers
 from .stage import (
     ALLOWED_TOOLS,
+    MAX_OPTIONS,
+    CarClarification,
     ConfirmedCopay,
     ConversationState,
     OptionResult,
@@ -36,8 +39,10 @@ from .stage import (
 from .templates import (
     GREETING,
     OPT_OUT_DENIED,
+    clarify_car_text,
     confirmed_assumption,
     question,
+    queued_option_text,
     render,
     rep_changed_text,
     rep_confirmed_text,
@@ -102,7 +107,31 @@ class TurnOutcome:
     cancel_question_ids: list[str] = field(default_factory=list)
 
 
-_CORRECTION_CUE_RE = re.compile(r"\s*(?:לא|סליחה|טעות|בעצם|רגע|אופס)(?![א-ת])|\s*(?:זה|זו)\s+לא\s+הרכב")
+CUE_WORDS = 3                  # מילת תיקון נספרת באחת משלוש המילים הראשונות
+_CUE_PREFIXES = "והבלש"         # "ובעצם", "שטעיתי"
+
+WAITING_CORRECTION_PROMPT = """The employee is waiting for the transport representative to answer a question about
+their CURRENT company car ({car}). Their new message mentions a car.
+Call match_current_car (model name in Latin letters, e.g. "COROLLA CROSS") ONLY if the message corrects which car
+they have today. If they ask about a car as an alternative, or you are not sure, do not call any tool."""
+
+
+def _has_cue(text: str, cues: list[str]) -> bool:
+    cue_set = {w for c in cues for w in words(c)}
+    return any(w in cue_set or (len(w) > 1 and w[0] in _CUE_PREFIXES and w[1:] in cue_set)
+               for w in words(text)[:CUE_WORDS])
+
+
+def _clarification_answer(text: str) -> Optional[str]:
+    """תשובה לשאלה "הרכב שלך או חלופה?": mine / alternative / None (משהו אחר)."""
+    ws = words(text)
+    if not ws or len(ws) > 4:
+        return None
+    if ws in (["כן"], ["נכון"]) or ("הרכב" in ws and "שלי" in ws and "לא" not in ws):
+        return "mine"
+    if ws == ["לא"] or "חלופה" in ws:
+        return "alternative"
+    return None
 
 
 def _car_key(state: ConversationState) -> tuple:
@@ -129,11 +158,10 @@ class Agent:
         before = next_stage(state)
 
         if before == Stage.WAITING_FOR_REP:
-            correction = self._waiting_correction(state, snapshot, text)
+            correction, reply = self._waiting(state, snapshot, text)
             if correction is None:
-                # ממתינים לנציג: תשובה קצרה, בלי מודל שפה ובלי שינוי במצב
-                return TurnOutcome(reply=render(state, snapshot, understood=True, just_calculated=False),
-                                   source="template", path="waiting")
+                # ממתינים לנציג: תשובה קצרה (או שאלת הבהרה), בלי שינוי בשלב, ברכב או בשאלות
+                return TurnOutcome(reply=reply, source="template", path="waiting")
             # העובד מתקן את הרכב: השאלות על הרכב הקודם מתבטלות, ונשאל שוב על הרכב החדש
             ctx.cancel_question_ids.extend(state.pending_rep.question_ids)
             state.pending_rep = None
@@ -251,17 +279,56 @@ class Agent:
 
     # ---------- נציג ----------
 
-    @staticmethod
-    def _waiting_correction(state: ConversationState, snapshot: RulesSnapshot, text: str):
-        """בזמן המתנה על פרטי הרכב הנוכחי, הודעה שהקורא קורא במלואה כתיקון הרכב — מטופלת."""
+    def _waiting(self, state: ConversationState, snapshot: RulesSnapshot,
+                 text: str) -> tuple[Optional[ParserPlan], str]:
+        """הודעה בזמן המתנה לנציג. (תיקון לביצוע, תשובה). תיקון רק כשבטוחים — אחרת שואלים."""
+        waiting_reply = render(state, snapshot, understood=True, just_calculated=False)
         pending = state.pending_rep
         if pending is None or pending.reason not in (RepReason.CURRENT_COPAY, RepReason.CURRENT_USE_VALUE):
+            return None, waiting_reply
+
+        clarification = state.pending_clarification
+        if clarification is not None:
+            answer = _clarification_answer(text)
+            if answer == "mine":
+                state.pending_clarification = None
+                car = next(c for c in snapshot.catalog if c.catalog_code == clarification.catalog_code)
+                call = ToolCall("match_current_car", {"model": car.model_name}, "clarified")
+                return ParserPlan([call], True), ""
+            if answer == "alternative":
+                state.pending_clarification = None
+                if clarification.catalog_code not in state.queued_options:
+                    state.queued_options.append(clarification.catalog_code)
+                return None, queued_option_text(clarification.label)
+
+        if _has_cue(text, snapshot.extensions.correction_cues):
+            plan = correction_plan(state, snapshot, text)
+            if plan is not None and plan.complete and plan.calls:
+                return plan, ""
+            return None, waiting_reply
+
+        others = [c for c in named_cars(text, snapshot.catalog) if c.catalog_code != state.current.catalog_code]
+        if not others:
+            return None, waiting_reply
+        calls = self._llm_waiting_correction(state, text)
+        if calls:
+            return ParserPlan(list(calls), True), ""
+        # בלי מודל, או שהמודל לא בטוח: לא מנחשים — שואלים, וזוכרים על איזה רכב
+        state.pending_clarification = CarClarification(catalog_code=others[0].catalog_code, label=others[0].label)
+        return None, clarify_car_text(others[0].label)
+
+    def _llm_waiting_correction(self, state: ConversationState, text: str) -> Optional[tuple[ToolCall, ...]]:
+        """המודל מקבל רק את match_current_car: יקרא לו רק אם ההודעה מתקנת את הרכב של היום."""
+        if not self.llm.available:
             return None
-        # בזמן המתנה שם רכב לבד ("ATTO 3") הוא כנראה שאלה על חלופה — תיקון רק עם סימן מפורש בתחילתו
-        if not _CORRECTION_CUE_RE.match(text):
+        system = WAITING_CORRECTION_PROMPT.format(car=state.current.label or "")
+        try:
+            response = self.llm.complete([ChatMessage("system", system), ChatMessage("user", text)],
+                                         [TOOL_SPECS["match_current_car"]], deadline=self.llm.turn_deadline())
+        except LLMError:
             return None
-        plan = correction_plan(state, snapshot, text)
-        return plan if plan is not None and plan.complete and plan.calls else None
+        calls = tuple(c for c in response.tool_calls if c.name == "match_current_car")
+        return calls or None
 
     @staticmethod
     def _request(ctx: ToolContext, field: MissingField, mode: Mode, answer_type: AnswerType, text: str,
@@ -338,6 +405,13 @@ class Agent:
             lines.append(rep_maintenance_text(amount))
 
         state.applied_answers.append(qid)
+        if state.pending_rep is None and state.queued_options:
+            # חלופות שהעובד ביקש בזמן ההמתנה — מחושבות עכשיו
+            available = {o.id for o in available_options(snapshot, state)}
+            queued = [o for o in state.queued_options if o in available][:MAX_OPTIONS]
+            state.queued_options = []
+            if queued:
+                state.selected, state.calculated_for = queued, []
         just_calculated = False
         if next_stage(state) == Stage.CALCULATING:
             self._calculate(ctx, record_run)

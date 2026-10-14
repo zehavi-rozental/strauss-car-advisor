@@ -123,6 +123,8 @@ class Extensions(_Strict):
     car_aliases: dict[str, list[str]] = Field(default_factory=dict)   # מזהה קטלוג → כינויים בעברית
     # מילים שמותר שיישארו בהודעה על הרכב הנוכחי אחרי שם הדגם; כל מילה אחרת → מודל השפה
     car_message_fillers: list[str] = Field(default_factory=list)
+    # מילים שמסמנות תיקון של הרכב הנוכחי (באחת משלוש המילים הראשונות)
+    correction_cues: list[str] = Field(default_factory=list)
 
 
 # ---------- strauss-data.xlsx ----------
