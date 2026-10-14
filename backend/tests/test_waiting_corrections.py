@@ -12,7 +12,7 @@ from .conftest import CONFIG, make_client
 
 PROFILE = ("אני מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, "
            "2.75 נקודות זיכוי, 2 ילדים")
-CLARIFY = ("לא בטוח שהבנתי: ATTO 3 (2025) הוא הרכב שלך היום, או חלופה שתרצי לבדוק? "
+CLARIFY = ("לא בטוח שהבנתי: ATTO 3 (2025) הוא הרכב שלך היום, או חלופה שתרצו לבדוק? "
            "אם זה הרכב שלך, כתבו \"זה הרכב שלי\". אם זו חלופה, אבדוק אותה ברגע שהנציג יענה.")
 
 
@@ -38,7 +38,7 @@ def test_cues_in_the_first_words_are_corrections(sessions, text):
     turn = svc.send(cid, token, text)
     assert svc.cases.get(old.id).status == Status.CANCELLED
     assert state(svc, cid, token).current.catalog_code == "CAR-09"
-    assert turn.stage == Stage.COLLECT_CURRENT_CAR and "כמה את/ה משתתף/ת" in turn.reply
+    assert turn.stage == Stage.COLLECT_CURRENT_CAR and "מה ההשתתפות החודשית שלך היום" in turn.reply
 
 
 def test_negation_is_still_not_a_correction(sessions):
@@ -65,7 +65,7 @@ def test_this_is_my_car_rematches_and_cancels(sessions):
     s = state(svc, cid, token)
     assert s.current.catalog_code == "CAR-10" and s.pending_clarification is None and s.pending_rep is None
     assert svc.cases.get(old.id).status == Status.CANCELLED
-    assert turn.reply.startswith("זיהיתי: ATTO 3 (2025)") and "כמה את/ה משתתף/ת" in turn.reply
+    assert turn.reply.startswith("זיהיתי: ATTO 3 (2025)") and "מה ההשתתפות החודשית שלך היום" in turn.reply
 
 
 def test_an_alternative_is_calculated_after_the_rep_answers(engine):

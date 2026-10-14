@@ -82,6 +82,7 @@ INTRO_PROMPT = """Write one or two short, warm sentences in Hebrew to an employe
 comparison of their monthly net pay right after your text.
 Do not write any digits, amounts, percentages or car model names.
 Do not say whether the net pay goes up or down, or whether the change is good or bad.
+Address the employee in gender-neutral Hebrew (plural forms such as כתבו, or neutral phrasing); never assume their gender.
 Return only the sentences."""
 
 DIGIT_RE = re.compile(r"\d")
@@ -89,6 +90,7 @@ DIGIT_RE = re.compile(r"\d")
 PHRASE_PROMPT = """Rewrite the draft below as one friendly reply in Hebrew to the employee.
 Keep every number, amount and list item exactly as in the draft.
 Do not add numbers, estimates, calculations or advice that are not in the draft.
+Address the employee in gender-neutral Hebrew (plural forms such as כתבו, or neutral phrasing); never assume their gender.
 Return only the reply text."""
 
 

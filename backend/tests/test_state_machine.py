@@ -227,7 +227,7 @@ def test_correction_at_the_copay_question_rematches_the_car(sessions):
     current = svc.view(turn.conversation_id, token).state.current
     assert current.catalog_code == "CAR-09" and current.copay is None
     assert turn.reply.startswith("זיהיתי: COROLLA CROSS (2025), קבוצה ג, היברידי.")
-    assert "כמה את/ה משתתף/ת" in turn.reply and turn.stage == Stage.COLLECT_CURRENT_CAR
+    assert "מה ההשתתפות החודשית שלך היום" in turn.reply and turn.stage == Stage.COLLECT_CURRENT_CAR
 
 
 def test_plain_number_at_the_copay_question_is_still_the_copay(sessions):
@@ -253,3 +253,24 @@ def test_not_this_car_resets_and_asks_for_the_model(sessions):
     current = svc.view(turn.conversation_id, token).state.current
     assert current.catalog_code is None and current.source is None
     assert "איזה רכב צמוד יש לך היום" in turn.reply
+
+
+# ---------- ניסוח ניטרלי מגדרית ----------
+
+def test_employee_facing_templates_are_gender_neutral():
+    """אף תבנית לא מניחה מגדר: לא צורות יחיד ממוגדרות, לא צורות לוכסן (את/ה)."""
+    import inspect
+    import re
+
+    from app.modules.conversation import templates
+    source = inspect.getsource(templates)
+    strings = " ".join(re.findall(r'"([^"\n]*[א-ת][^"\n]*)"', source))
+    for gendered in ("שתרצי", "תרצה", "אתה", "את/ה", "/ת", "/י", "לא יודע\\", "יודעת", "בחרי", "כתבי"):
+        assert gendered not in strings, gendered
+
+
+def test_unknown_reply_suggested_by_the_bot_is_understood(sessions):
+    """הבוט מציע לכתוב "לא ידוע" — והקורא מבין אותו כ"לא יודע/ת"."""
+    svc = service(sessions)
+    turn, _ = talk(svc, profile() + ["COROLLA CROSS", "לא ידוע"])
+    assert turn.stage == Stage.WAITING_FOR_REP and turn.pending_rep == RepReason.CURRENT_COPAY
