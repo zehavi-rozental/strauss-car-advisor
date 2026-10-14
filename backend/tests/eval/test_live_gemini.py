@@ -52,4 +52,4 @@ def test_noa_levi_against_real_provider(engine):
     [result] = body["results"]
     assert result["label"] == "ATTO 3 (2025)"
     assert result["delta_display"] == "661"
-    assert "661" in body["reply"]
+    assert "+661 ₪" in body["reply"]           # שורת התוצאה מהתבנית, לא מהמודל

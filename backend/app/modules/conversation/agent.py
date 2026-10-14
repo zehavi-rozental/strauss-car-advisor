@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, Protocol, Sequence
 
@@ -53,6 +54,16 @@ Rules:
 - Never fill a field the employee did not mention: leave it out, the system will ask for it.
 - If the employee does not know their current copay or use value, set the matching *_unknown flag.
 - Car models in Latin letters as on the tax-authority list (e.g. "קורולה קרוס" -> "COROLLA CROSS")."""
+
+# תוצאות: המודל כותב רק פתיח בלי מספרים. שורות התוצאה (נטו היום, נטו בחלופה, ההפרש עם סימן)
+# תמיד מהתבנית — כך שהמודל לא יכול לטעות בכיוון ("ירד" כשהנטו עולה) או במספר.
+INTRO_PROMPT = """Write one or two short, warm sentences in Hebrew to an employee. The system shows a
+comparison of their monthly net pay right after your text.
+Do not write any digits, amounts, percentages or car model names.
+Do not say whether the net pay goes up or down, or whether the change is good or bad.
+Return only the sentences."""
+
+DIGIT_RE = re.compile(r"\d")
 
 PHRASE_PROMPT = """Rewrite the draft below as one friendly reply in Hebrew to the employee.
 Keep every number, amount and list item exactly as in the draft.
@@ -135,7 +146,10 @@ class Agent:
         # היא תבנית: מהירה, ובלי סיכון לשומר המספרים.
         if not used_llm or not (just_calculated or not understood):
             return TurnOutcome(reply=draft, source="template", just_calculated=just_calculated)
-        reply, source, blocked = self._phrase(state, draft, text, deadline)
+        if just_calculated:
+            reply, source, blocked = self._intro(draft, text, deadline)
+        else:
+            reply, source, blocked = self._phrase(state, draft, text, deadline)
         return TurnOutcome(reply=reply, source=source, guard_blocked=blocked, just_calculated=just_calculated)
 
     # ---------- חילוץ ----------
@@ -251,6 +265,21 @@ class Agent:
             self._open_rep(ctx, RepReason.OCCUPATION_OPT_OUT, None, Stage.PRESENTED)
 
     # ---------- ניסוח ----------
+
+    def _intro(self, draft: str, text: str, deadline: Optional[float]) -> tuple[str, str, bool]:
+        """פתיח מהמודל + שורות התוצאה מהתבנית. ספרה כלשהי בפתיח → בלי פתיח (נחסם)."""
+        try:
+            response = self.llm.complete([ChatMessage("system", INTRO_PROMPT),
+                                          ChatMessage("user", f"Employee's message:\n{text}")], deadline=deadline)
+        except LLMError:
+            return draft, "template", False
+        intro = response.text.strip()
+        if not intro:
+            return draft, "template", False
+        if DIGIT_RE.search(intro):
+            log.warning("number guard dropped an llm intro to results (digits)")
+            return draft, "template", True
+        return f"{intro}\n\n{draft}", "llm", False
 
     def _phrase(self, state: ConversationState, draft: str, text: str,
                 deadline: Optional[float] = None) -> tuple[str, str, bool]:

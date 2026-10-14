@@ -52,10 +52,11 @@ def test_noa_levi_with_llm(engine, sessions):
     assert body["stage"] == "CHOOSE_OPTIONS"
 
     fake.turn(call("calculate", options=["ATTO 3"]),
-              reply="במעבר ל-ATTO 3 (2025) הנטו שלך יעלה ב-661 ₪ בחודש: מ-11,032 ₪ ל-11,693 ₪.")
+              reply="הנה ההשוואה שביקשת, לפי כללי החברה.")
     body = client.post(f"/api/conversations/{cid}/messages", json={"text": "ATTO 3"}).json()
     _assert_noa_result(body, sessions)
-    assert body["source"] == "llm" and "661" in body["reply"]
+    assert body["source"] == "llm" and body["reply"].startswith("הנה ההשוואה שביקשת")
+    assert "+661 ₪" in body["reply"] and "11,693 ₪" in body["reply"]     # שורות התוצאה מהתבנית
 
     # הכלים שהוצעו למודל תלויים בשלב
     tool_sets = [c.tools for c in fake.calls if c.tools]
