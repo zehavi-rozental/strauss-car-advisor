@@ -122,9 +122,11 @@ def confirm_car_text(state: ConversationState) -> str:
 
 
 def render(state: ConversationState, snapshot: RulesSnapshot, *, understood: bool,
-           just_calculated: bool, matched_car: bool = False) -> str:
-    """ההודעה הבאה לפי מצב השיחה בלבד."""
+           just_calculated: bool, matched_car: bool = False, notice: Optional[str] = None) -> str:
+    """ההודעה הבאה לפי מצב השיחה בלבד (ומשפט מהקורא, אם יש, לפני השאלה)."""
     parts: list[str] = [confirm_car_text(state)] if matched_car else []
+    if notice:
+        parts.append(notice)
     if just_calculated and state.results:
         parts.append(results_text(state))
     if state.stage == Stage.WAITING_FOR_REP:

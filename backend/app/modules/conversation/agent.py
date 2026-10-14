@@ -134,7 +134,7 @@ class Agent:
         deadline = self.llm.turn_deadline()   # אחרי LLM_TURN_DEADLINE_S — תבניות, בלי ספקים נוספים
         if plan.complete or not self.llm.available:
             path = "parser" if plan.complete else "templates"
-            understood = self._execute(ctx, plan.calls)
+            understood = self._execute(ctx, plan.calls) or plan.notice is not None
         else:
             try:
                 understood = self._extract_llm(ctx, history, text, deadline)
@@ -155,7 +155,7 @@ class Agent:
         # רכב שזוהה בתור הזה (מהקורא, מהמודל או מהגיבוי) — אומרים איזה, כדי שטעות לא תעבור בשקט
         matched_car = state.current.source in ("catalog", "tax") and _car_key(state) != car_before
         draft = render(state, snapshot, understood=understood, just_calculated=just_calculated,
-                       matched_car=matched_car)
+                       matched_car=matched_car, notice=plan.notice if path == "parser" else None)
         # ניסוח במודל רק לתוצאות או להודעה שלא הובנה (שאלה חופשית). השאלה הבאה בפרופיל/ברכב
         # היא תבנית: מהירה, ובלי סיכון לשומר המספרים.
         if not used_llm or not (just_calculated or not understood):

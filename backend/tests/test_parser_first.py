@@ -221,3 +221,29 @@ def test_negated_car_has_no_fallback_match(sessions, chain, path):
     assert turn.path == path
     assert svc.view(cid, token).state.current.catalog_code is None
     assert "לא זיהיתי את דגם הרכב" in turn.reply
+
+
+# ---------- מספר מחוץ לרשימת החלופות: תשובה מיידית, בלי מודל ----------
+
+OUT_OF_RANGE = "אין חלופה מספר 300. בחרו מספר בין 1 ל-13, או כתבו את שם הרכב."
+
+
+@pytest.mark.parametrize("text", ["300", "2, 300"])
+def test_out_of_range_option_number_is_answered_without_the_llm(sessions, text):
+    fake = FakeLLM()
+    svc = service(sessions, LLMChain([fake]))
+    turns, token = talk(svc, NOA[:2] + [text])
+    turn = turns[-1]
+    assert fake.calls == [] and turn.path == "parser"
+    assert turn.reply.startswith(OUT_OF_RANGE)
+    assert "לאילו חלופות להשוות" in turn.reply and "13. ויתור על רכב" in turn.reply
+    assert "לא הצלחתי להבין" not in turn.reply
+    assert turn.stage == Stage.CHOOSE_OPTIONS
+    assert svc.view(turn.conversation_id, token).state.selected == []
+
+
+def test_in_range_number_still_selects_the_option(sessions):
+    fake = FakeLLM()
+    turns, _ = talk(service(sessions, LLMChain([fake])), NOA[:2] + ["2"])
+    assert fake.calls == [] and turns[-1].stage == Stage.PRESENTED
+    assert [r.label for r in turns[-1].results] == ["YARIS CROSS HSD (2025)"]

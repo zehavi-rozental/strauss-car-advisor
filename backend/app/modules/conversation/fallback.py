@@ -51,6 +51,7 @@ _ZERO_ALLOWED = {"commissions", "bonus", "study_fund_percent", "children"}
 class ParserPlan:
     calls: list[ToolCall] = field(default_factory=list)
     complete: bool = False          # ההודעה נקראה במלואה — אין צורך במודל השפה
+    notice: Optional[str] = None    # משפט שהקורא רוצה להציג לפני השאלה הבאה
 
 
 def _key(text: str) -> str:
@@ -195,5 +196,12 @@ def _option_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) -
         chosen.append("OPT_OUT")
     # מספר לבד = בחירה מהרשימה, רק כשההודעה היא מספרים בלבד ("2", "1, 3"); "לבדוק 2 רכבים" אינו בחירה
     if not chosen and _ONLY_NUMBERS_RE.match(text):
-        chosen = [options[int(m) - 1].id for m in re.findall(r"\d+", text) if 1 <= int(m) <= len(options)]
+        numbers = [int(m) for m in re.findall(r"\d+", text)]
+        outside = [n for n in numbers if not 1 <= n <= len(options)]
+        if outside:
+            # רק מספרים, ולפחות אחד מחוץ לרשימה: נקרא במלואו — עונים מיד, בלי מודל ובלי בחירה
+            return ParserPlan(complete=True, notice=(
+                f"אין חלופה מספר {', '.join(map(str, outside))}. "
+                f"בחרו מספר בין 1 ל-{len(options)}, או כתבו את שם הרכב."))
+        chosen = [options[n - 1].id for n in numbers]
     return ParserPlan(_call("calculate", options=chosen), True) if chosen else ParserPlan()
