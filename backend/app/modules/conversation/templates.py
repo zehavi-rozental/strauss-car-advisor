@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -97,6 +98,41 @@ def results_text(state: ConversationState) -> str:
 
 
 WAITING = "שאלתי את נציג התחבורה ואעדכן כשתגיע תשובה."
+OPT_OUT_DENIED = "לפי נציג התחבורה, בעיסוק שלך לא ניתן לוותר על הרכב"
+
+
+def _effective(effective: Optional[date]) -> str:
+    return f" (בתוקף מ-{effective:%d.%m.%Y})" if effective else ""
+
+
+def confirmed_assumption(label: str, effective: Optional[date]) -> str:
+    return f"השתתפות ב-{label} — אושר על ידי נציג התחבורה{_effective(effective)}"
+
+
+def rep_confirmed_text(label: str, effective: Optional[date]) -> str:
+    return f"נציג התחבורה אישר את ההשתתפות ב-{label}{_effective(effective)}."
+
+
+def rep_changed_text(label: str, amount: Decimal, effective: Optional[date], old_delta: Any, new_delta: Any) -> str:
+    """מספרים מהתשובה ומתוצאות המנוע בלבד. בלי חצים בטקסט בעברית."""
+    return (f"נציג התחבורה עדכן את ההשתתפות ב-{label} ל-{money(amount)}{_effective(effective)}. "
+            f"השינוי בנטו היה {signed(old_delta)} ועכשיו {signed(new_delta)}.")
+
+
+def rep_current_text(field: str, label: str, amount: Decimal) -> str:
+    what = "ההשתתפות הנוכחית שלך" if field == "CURRENT_COPAY" else "שווי השימוש"
+    return f"נציג התחבורה השיב: {what} ב-{label} היא {money(amount)}."
+
+
+def rep_opt_out_text(allowed: bool) -> str:
+    if allowed:
+        return ("נציג התחבורה השיב שבעיסוק שלך מותר לוותר על הרכב. "
+                "שאלתי אותו מה סכום אחזקת הרכב החודשי; אעדכן כשתגיע תשובה.")
+    return f"{OPT_OUT_DENIED}."
+
+
+def rep_maintenance_text(amount: Decimal) -> str:
+    return f"נציג התחבורה השיב: סכום אחזקת הרכב בוויתור הוא {money(amount)} בחודש."
 
 
 def asked_text(state: ConversationState) -> str:
@@ -108,7 +144,7 @@ def asked_text(state: ConversationState) -> str:
         RepReason.CURRENT_COPAY: f"מה ההשתתפות הנוכחית שלך ב-{labels}",
         RepReason.CURRENT_USE_VALUE: f"מה שווי השימוש של {labels}",
         RepReason.OCCUPATION_OPT_OUT: "אם בעיסוק שלך מותר לוותר על הרכב",
-        RepReason.MAINTENANCE_AMOUNT: "מה סכום אחזקת הרכב החודשי אם תוותר/י על הרכב",
+        RepReason.MAINTENANCE_AMOUNT: "מה סכום אחזקת הרכב החודשי בוויתור",
     }
     return f"שאלתי את נציג התחבורה {topics[state.pending_rep.reason]}. אעדכן כשתגיע תשובה."
 

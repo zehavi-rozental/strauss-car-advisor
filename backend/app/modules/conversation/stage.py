@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from enum import Enum
 from typing import Any, Literal, Optional
@@ -50,6 +51,9 @@ class Profile(BaseModel):
     study_fund_percent: Optional[Decimal] = None
     credit_points: Optional[Decimal] = None
     children: Optional[int] = None
+    # תשובות הנציג לעיסוק שאינו בטבלה: מותר לוותר? ובאיזה סכום אחזקה
+    rep_opt_out_allowed: Optional[bool] = None
+    rep_opt_out_maintenance: Optional[Decimal] = None
 
 
 class CarChoice(BaseModel):
@@ -95,6 +99,13 @@ class OptionResult(BaseModel):
     result: dict[str, Any]                    # ScenarioResult במבנה JSON
 
 
+class ConfirmedCopay(BaseModel):
+    """השתתפות שהנציג אישר או קבע לחלופה (לפי מזהה קטלוג)."""
+
+    value: Decimal
+    effective_date: Optional[date] = None
+
+
 class ConversationState(BaseModel):
     stage: Stage = Stage.COLLECT_PROFILE
     profile: Profile = Field(default_factory=Profile)
@@ -103,6 +114,8 @@ class ConversationState(BaseModel):
     results: list[OptionResult] = Field(default_factory=list)
     calculated_for: list[str] = Field(default_factory=list)
     pending_rep: Optional[PendingRep] = None
+    confirmed_copays: dict[str, ConfirmedCopay] = Field(default_factory=dict)
+    applied_answers: list[str] = Field(default_factory=list)    # תשובות נציג שכבר יושמו (פעם אחת בלבד)
 
 
 # ---------- מה חסר ----------

@@ -8,11 +8,12 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any, Callable, Optional, Sequence
 
 from app.modules.calculation.public import CopayStatus, ScenarioResult, evaluate
 from app.modules.calculation.public import Status as CalcStatus
-from app.modules.cases.public import AnswerType, MissingField, Mode, QuestionRequest
+from app.modules.cases.public import AnswerType, MissingField, Mode, QuestionAnswered, QuestionRequest
 from app.modules.rules.public import RulesSnapshot
 
 from .fallback import correction_plan, fallback_plan
@@ -21,6 +22,7 @@ from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
 from .parsing import redact_id_numbers
 from .stage import (
     ALLOWED_TOOLS,
+    ConfirmedCopay,
     ConversationState,
     OptionResult,
     PendingRep,
@@ -31,7 +33,19 @@ from .stage import (
     missing_profile,
     next_stage,
 )
-from .templates import GREETING, question, render
+from .templates import (
+    GREETING,
+    OPT_OUT_DENIED,
+    confirmed_assumption,
+    question,
+    render,
+    rep_changed_text,
+    rep_confirmed_text,
+    rep_current_text,
+    rep_maintenance_text,
+    rep_opt_out_text,
+    results_text,
+)
 from .tools import TOOL_SPECS, ToolContext, VehicleLookup, available_options, engine_inputs, option_state, run_tool
 
 log = logging.getLogger(__name__)
@@ -281,6 +295,94 @@ class Agent:
         state.pending_rep = PendingRep(reason=reason, resume_stage=Stage.COLLECT_CURRENT_CAR,
                                        labels=[c.label or ""])
 
+    # ---------- תשובות הנציג ----------
+
+    def apply_answer(self, snapshot: RulesSnapshot, find_vehicle: VehicleLookup, state: ConversationState,
+                     event: QuestionAnswered, record_run: RecordRun) -> TurnOutcome:
+        """מיישם תשובת נציג על מצב השיחה. בלי מודל שפה; כל מספר בהודעה — מהתשובה או מהמנוע."""
+        ctx = ToolContext(snapshot=snapshot, find_vehicle=find_vehicle, state=state)
+        field, qid = event.missing_field, event.question_id
+        lines: list[str] = []
+        show_results = False
+        pending = state.pending_rep
+        was_waiting_on_copay = pending is not None and pending.reason == RepReason.NEW_CAR_COPAY
+        if pending is not None and qid in pending.question_ids:
+            pending.question_ids.remove(qid)
+            if not pending.question_ids:
+                state.pending_rep = None
+        amount = Decimal(event.value) if field != MissingField.OCCUPATION_OPT_OUT else None
+
+        if field == MissingField.NEW_CAR_COPAY:
+            state.confirmed_copays[event.option_id] = ConfirmedCopay(value=amount, effective_date=event.effective_date)
+            line = self._apply_new_car_copay(ctx, event, amount, record_run)
+            if line:
+                lines.append(line)
+            show_results = was_waiting_on_copay and state.pending_rep is None   # REP_REQUIRED: עכשיו מציגים
+        elif field in (MissingField.CURRENT_COPAY, MissingField.CURRENT_USE_VALUE):
+            c = state.current
+            if field == MissingField.CURRENT_COPAY:
+                c.copay, c.copay_unknown = amount, False
+            else:
+                c.source, c.label = "stated", c.label or c.query
+                c.use_value, c.use_value_unknown = amount, False
+            state.calculated_for = []
+            lines.append(rep_current_text(field.value, c.label or "", amount))
+        elif field == MissingField.OCCUPATION_OPT_OUT:
+            allowed = event.value == "true"
+            state.profile.rep_opt_out_allowed = allowed
+            state.calculated_for = []
+            lines.append(rep_opt_out_text(allowed))
+        elif field == MissingField.MAINTENANCE_AMOUNT:
+            state.profile.rep_opt_out_maintenance = amount
+            state.calculated_for = []
+            lines.append(rep_maintenance_text(amount))
+
+        state.applied_answers.append(qid)
+        just_calculated = False
+        if next_stage(state) == Stage.CALCULATING:
+            self._calculate(ctx, record_run)
+            just_calculated = True
+        state.stage = next_stage(state)
+        rep_opened = any(r.mode == Mode.REQUIRED for r in ctx.question_requests)
+        if field == MissingField.NEW_CAR_COPAY:
+            if show_results and state.results:
+                lines.append(results_text(state))
+        elif not (field == MissingField.OCCUPATION_OPT_OUT and state.profile.rep_opt_out_allowed):
+            lines.append(render(state, snapshot, understood=True, just_calculated=just_calculated,
+                                rep_opened=rep_opened))
+        return TurnOutcome(reply="\n\n".join(x for x in lines if x), source="rep", just_calculated=just_calculated,
+                           path="rep", question_requests=ctx.question_requests)
+
+    def _apply_new_car_copay(self, ctx: ToolContext, event: QuestionAnswered, amount: Decimal,
+                             record_run: RecordRun) -> Optional[str]:
+        """אותו סכום — האישור נרשם בהנחות, בלי חישוב. סכום אחר — המנוע מחשב את החלופה מחדש."""
+        state, snap = ctx.state, ctx.snapshot
+        item = next((r for r in state.results if r.option_id == event.option_id), None)
+        if item is None:
+            return None                        # החלופה כבר לא מוצגת; ההשתתפות נשמרה לפעם הבאה
+        used = (item.result.get("alternative") or {}).get("copay")
+        if used is not None and Decimal(str(used)) == amount:
+            pending_text = f"השתתפות ב-{item.label} לפי הקטלוג — ממתינה לאישור נציג"
+            item.result["assumptions"] = [
+                confirmed_assumption(item.label, event.effective_date) if a == pending_text else a
+                for a in item.result.get("assumptions", [])]
+            return rep_confirmed_text(item.label, event.effective_date)
+        option = next((o for o in available_options(snap, state) if o.id == event.option_id), None)
+        if option is None:
+            return None
+        employee, current, occupation = engine_inputs(snap, state)
+        alternative = option_state(option, snap.extensions.copay_policy, amount)
+        result = evaluate(employee, current, alternative, snap.calc, occupation)
+        inputs = {"employee": employee.model_dump(mode="json"), "current": current.model_dump(mode="json"),
+                  "alternative": alternative.model_dump(mode="json"),
+                  "occupation": occupation.model_dump(mode="json") if occupation else None}
+        old_delta = item.result.get("delta_display")
+        item.run_id = record_run(option.label, inputs, result)
+        item.result = result.model_dump(mode="json")
+        if old_delta is None or result.delta_display is None:
+            return rep_confirmed_text(item.label, event.effective_date)
+        return rep_changed_text(item.label, amount, event.effective_date, old_delta, result.delta_display)
+
     # ---------- חישוב ----------
 
     def _calculate(self, ctx: ToolContext, record_run: RecordRun) -> None:
@@ -295,8 +397,11 @@ class Agent:
             option = options.get(option_id)
             if option is None:
                 continue
-            alternative = option_state(option, policy)
+            confirmed = state.confirmed_copays.get(option_id)
+            alternative = option_state(option, policy, confirmed.value if confirmed else None)
             result = evaluate(employee, current, alternative, snap.calc, occupation)
+            if option.car is None and state.profile.rep_opt_out_allowed is False:
+                result = result.model_copy(update={"reason": OPT_OUT_DENIED})   # לפי תשובת הנציג
             inputs = {
                 "employee": employee.model_dump(mode="json"),
                 "current": current.model_dump(mode="json"),
@@ -325,11 +430,19 @@ class Agent:
             state.pending_rep = PendingRep(reason=RepReason.NEW_CAR_COPAY, resume_stage=Stage.PRESENTED,
                                            labels=required_labels)
         if needs_opt_out:
-            self._request(ctx, MissingField.OCCUPATION_OPT_OUT, Mode.REQUIRED, AnswerType.BOOLEAN,
-                          "האם עובד בעיסוק הזה רשאי לוותר על רכב?",
-                          {"group": state.profile.group, "occupation_text": state.profile.occupation_text})
+            p = state.profile
+            if p.rep_opt_out_allowed is None:
+                self._request(ctx, MissingField.OCCUPATION_OPT_OUT, Mode.REQUIRED, AnswerType.BOOLEAN,
+                              "האם עובד בעיסוק הזה רשאי לוותר על רכב?",
+                              {"group": p.group, "occupation_text": p.occupation_text})
+                reason = RepReason.OCCUPATION_OPT_OUT
+            else:   # מותר לוותר, וחסר רק סכום האחזקה
+                self._request(ctx, MissingField.MAINTENANCE_AMOUNT, Mode.REQUIRED, AnswerType.MONEY,
+                              "מה סכום אחזקת הרכב החודשי לעובד בעיסוק הזה אם יוותר על הרכב?",
+                              {"group": p.group, "occupation_text": p.occupation_text})
+                reason = RepReason.MAINTENANCE_AMOUNT
             if state.pending_rep is None:
-                state.pending_rep = PendingRep(reason=RepReason.OCCUPATION_OPT_OUT, resume_stage=Stage.PRESENTED)
+                state.pending_rep = PendingRep(reason=reason, resume_stage=Stage.PRESENTED)
 
     # ---------- ניסוח ----------
 

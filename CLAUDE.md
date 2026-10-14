@@ -30,11 +30,15 @@ Modular monolith (ports & adapters). Every module can later be extracted into a 
 | `calculation` | Pure engine. Must not import the database, FastAPI or other modules (enforced by `lint-imports`). |
 | `rules` | Loads `config/strauss-rules.json` (as delivered), `config/extensions.yaml` and `config/strauss-data.xlsx`. |
 | `vehicles` | Tax-authority vehicle data and current-car matching. |
-| `cases` | Questions to the transport representative. |
+| `cases` | Questions to the transport representative (owns `rep_questions`). Questions open in the conversation turn's write transaction; answers are published as `QuestionAnswered` events that the conversation applies idempotently. Must not import `conversation`. |
 | `conversation` | State machine and LLM agent: tools, number guard, template fallback, LLM adapters. The deterministic parser reads each message first; the LLM is called only for what it cannot read in full. Must not import FastAPI. |
 | `shared` | Money, database, settings. |
 
 `app/api` is the HTTP layer (cookie, rate limits, serialization) and the composition root (`deps.py`, `main.py`).
+
+Endpoints:
+- Employee (session cookie): `POST /api/conversations`, `POST /api/conversations/{id}/messages`, `GET /api/conversations/{id}`, `GET /api/conversations/{id}/updates?after=<seq>` (polling), plus `GET /api/catalog`, `/api/occupations`, `/api/health`.
+- Transport representative (header `X-Rep-Token` = `REP_ACCESS_TOKEN`, optional `X-Rep-Name`): `GET /api/rep/questions?status=OPEN`, `GET /api/rep/questions/{id}`, `POST /api/rep/questions/{id}/answer` (200 / 401 / 404 / 409 / 422). The rep sees only the question context, never salary or profile data; answer values and notes are never logged.
 
 A module, and `app/api`, imports another module **only** through that module's `public.py`.
 

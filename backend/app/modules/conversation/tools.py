@@ -370,14 +370,25 @@ def engine_inputs(snapshot: RulesSnapshot, state: ConversationState
         current = CarState(label=c.label or c.query or "הרכב שלך", group=None, drive=c.drive,
                            use_value=c.use_value, copay=c.copay, copay_status=CopayStatus.EMPLOYEE_STATED)
     occupation = occupation_rule(snapshot.occupations.get(p.occupation or ""))
+    if occupation is None and p.occupation_unknown and p.group:
+        # עיסוק שאינו בטבלה: לפי תשובות הנציג. ויתור מחושב רק כששתי התשובות ידועות.
+        if p.rep_opt_out_allowed is False:
+            occupation = OccupationRule(name=p.occupation_text or "", group=p.group, car_mandatory=False,
+                                        opt_out_allowed=False, maintenance=Decimal(0))
+        elif p.rep_opt_out_allowed and p.rep_opt_out_maintenance is not None:
+            occupation = OccupationRule(name=p.occupation_text or "", group=p.group, car_mandatory=False,
+                                        opt_out_allowed=True, maintenance=p.rep_opt_out_maintenance)
     return employee, current, occupation
 
 
-def option_state(option: Option, copay_policy: str = "CATALOG_DEFAULT_CONFIRM_ASYNC") -> State:
-    """חלופה כמצב למנוע. השתתפות לפי הקטלוג: ממתינה לאישור נציג — אלא אם המדיניות היא CATALOG_DEFAULT,
-    שבה הקטלוג הוא הסכום הסופי."""
+def option_state(option: Option, copay_policy: str = "CATALOG_DEFAULT_CONFIRM_ASYNC",
+                 confirmed: Optional[Decimal] = None) -> State:
+    """חלופה כמצב למנוע. השתתפות שהנציג אישר — סופית. אחרת לפי הקטלוג: ממתינה לאישור נציג —
+    אלא אם המדיניות היא CATALOG_DEFAULT, שבה הקטלוג הוא הסכום הסופי."""
     if option.car is None:
         return OptOutState()
+    if confirmed is not None:
+        return car_state(option.car, copay=confirmed, copay_status=CopayStatus.CONFIRMED)
     if copay_policy == "CATALOG_DEFAULT":
         return car_state(option.car, copay=option.car.default_copay, copay_status=CopayStatus.CONFIRMED)
     return car_state(option.car)

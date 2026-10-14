@@ -107,6 +107,15 @@ def send_message(conversation_id: str, body: MessageIn, request: Request) -> dic
         raise HTTPException(409, "ההודעה הקודמת עדיין בטיפול") from None
 
 
+@router.get("/conversations/{conversation_id}/updates")
+def get_updates(conversation_id: str, request: Request, after: int = 0) -> dict[str, Any]:
+    """לתשאול כל כמה שניות: הודעות אחרי seq, שלב, שאלות לנציג שעדיין פתוחות ותוצאות אחרונות."""
+    try:
+        return _service(request).updates(conversation_id, request.cookies.get(COOKIE, ""), after)
+    except ConversationNotFound:
+        raise HTTPException(404, NOT_FOUND) from None
+
+
 @router.get("/conversations/{conversation_id}")
 def get_conversation(conversation_id: str, request: Request) -> dict[str, Any]:
     try:
