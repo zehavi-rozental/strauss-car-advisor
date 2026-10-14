@@ -1,33 +1,69 @@
-"""מצב גיבוי בלי מודל שפה: שאלה אחת בכל פעם, והתשובה מתורגמת לקריאות לאותם כלים."""
+"""קורא ההודעות הדטרמיניסטי. רץ לפני מודל השפה: מה שהוא קורא במלואו לא מגיע למודל בכלל.
+
+fallback_plan מחזיר את הקריאות לכלים ואם הקריאה "מלאה" — כלומר ההודעה נקראה בלי ספק.
+כשלא, התור עובר למודל השפה, והקריאות כאן משמשות רק אם המודל נכשל.
+כלל ברזל: עדיף לא לקרוא מאשר לקרוא לא נכון ("בערך 18 וחצי" אינו 18).
+"""
 from __future__ import annotations
 
 import re
-
-from typing import Iterable
+from dataclasses import dataclass, field
+from typing import Iterable, Optional
 
 from app.modules.rules.public import CatalogCar, RulesSnapshot, catalog_names, mentions
 
 from .llm.port import ToolCall
 from .parsing import (
     find_year,
-    first_number,
     is_no_car,
     is_none,
+    is_approximate,
     is_unknown,
     match_drive,
+    match_group,
+    numbers_in,
     parse_copay,
     parse_profile_fields,
     strip_year,
 )
-from .stage import ConversationState, Stage, next_question, next_stage
+from .stage import ConversationState, Stage, missing_profile, next_question, next_stage
 from .tools import OPT_OUT_WORDS, available_options
 
 _RANK_RE = re.compile(r"הכי\s*משתלם|הכי\s*טוב|תמליץ|המלצ|דרג", re.IGNORECASE)
+_ONLY_NUMBERS_RE = re.compile(r"^\s*\d+(?:\s*(?:,|ו-?|and|&)\s*\d+)*\s*[.!]?\s*$")
 SHORT_MODEL_WORDS = 3     # תשובה קצרה בלי שם מוכר → חיפוש במאגר; משפט ארוך → שאלה חוזרת
+SINGLE_VALUE_WORDS = 4    # תשובה לשאלה בודדת: עד 4 מילים ומספר אחד בדיוק
+
+# שם השדה בשאלה → שם הארגומנט ב-save_profile
+_PROFILE_ARG = {"occupation": "occupation", "group": "eligibility_group", "base": "base_salary",
+                "commissions": "commissions", "bonus": "bonus", "pension_percent": "pension_percent",
+                "study_fund_percent": "study_fund_percent", "credit_points": "credit_points",
+                "children": "children_under_23"}
+_ZERO_ALLOWED = {"commissions", "bonus", "study_fund_percent", "children"}
+
+
+@dataclass(frozen=True)
+class ParserPlan:
+    calls: list[ToolCall] = field(default_factory=list)
+    complete: bool = False          # ההודעה נקראה במלואה — אין צורך במודל השפה
 
 
 def _key(text: str) -> str:
     return re.sub(r"[^0-9a-zא-ת]+", "", text.lower())
+
+
+def _call(name: str, **args) -> list[ToolCall]:
+    return [ToolCall(name=name, args=args, id=f"fallback_{name}")]
+
+
+def single_value(text: str) -> Optional[str]:
+    """הערך בתשובה קצרה: עד 4 מילים ומספר אחד בדיוק ("18,500 ש"ח", "6%"). אחרת None."""
+    numbers = numbers_in(text)
+    if is_approximate(text, re.split(r"\d[\d,.]*", text, maxsplit=1)[-1]):
+        return None                         # "בערך 18 וחצי", "כ-18,500" — לא שומרים ערך משוער
+    if len(text.split()) <= SINGLE_VALUE_WORDS and len(numbers) == 1:
+        return str(numbers[0])
+    return None
 
 
 def named_cars(text: str, cars: Iterable[CatalogCar]) -> list[CatalogCar]:
@@ -42,100 +78,96 @@ def named_cars(text: str, cars: Iterable[CatalogCar]) -> list[CatalogCar]:
     return [car for _, car in sorted(keep, key=lambda x: -len(x[0]))]
 
 
-def _call(name: str, **args) -> list[ToolCall]:
-    return [ToolCall(name=name, args=args, id=f"fallback_{name}")]
-
-
-def _money_or_zero(field: str, text: str) -> list[ToolCall]:
-    if is_none(text):
-        return _call("save_profile", **{field: 0})
-    n = first_number(text)
-    return _call("save_profile", **{field: str(n)}) if n is not None else []
-
-
-def fallback_calls(state: ConversationState, snapshot: RulesSnapshot, text: str) -> list[ToolCall]:
-    field = next_question(state)
+def fallback_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) -> ParserPlan:
+    question = next_question(state)
     t = text.strip()
-    if not t or field is None:
-        return []
-    n = first_number(t)
-
-    # הודעה חופשית עם כמה שדות ("מנהלת מוצר, שכר בסיס 18,500, פנסיה 6%...") — כולם בקריאה אחת
+    if not t or question is None:
+        return ParserPlan()
     if next_stage(state) == Stage.COLLECT_PROFILE:
-        fields = parse_profile_fields(t, snapshot.occupations.keys())
-        if fields:
-            return _call("save_profile", **fields)
-
-    if field == "occupation":
-        return _call("save_profile", occupation=t)
-    if field == "group":
-        return _call("save_profile", eligibility_group=t)
-    if field in ("commissions", "bonus", "study_fund_percent"):
-        return _money_or_zero(field, t)
-    if field == "children":
-        if is_none(t):
-            return _call("save_profile", children_under_23=0)
-        return _call("save_profile", children_under_23=int(n)) if n is not None else []
-    if field in ("base", "pension_percent", "credit_points"):
-        arg = {"base": "base_salary"}.get(field, field)
-        return _call("save_profile", **{arg: str(n)}) if n is not None else []
-    if field == "car":
-        return _car_calls(snapshot, t)
-    if field == "car_choice":
-        return _call("match_current_car", choice_number=int(n)) if n is not None else []
-    if field == "use_value":
+        return _profile_plan(state, snapshot, question, t)
+    if question == "car":
+        return _car_plan(snapshot, t)
+    if question == "car_choice":
+        value = single_value(t)
+        return ParserPlan(_call("match_current_car", choice_number=int(float(value))), True) if value else ParserPlan()
+    if question == "use_value":
         if is_unknown(t):
-            return _call("save_profile", current_use_value_unknown=True)
-        return _call("save_profile", current_use_value=str(n)) if n is not None else []
-    if field == "drive":
+            return ParserPlan(_call("save_profile", current_use_value_unknown=True), True)
+        value = single_value(t)
+        return ParserPlan(_call("save_profile", current_use_value=value), True) if value else ParserPlan()
+    if question == "drive":
         drive = match_drive(t)
-        return _call("save_profile", current_drive=drive.value) if drive else []
-    if field == "copay":
+        return ParserPlan(_call("save_profile", current_drive=drive.value), True) if drive else ParserPlan()
+    if question == "copay":
         if is_unknown(t):
-            return _call("save_profile", current_copay_unknown=True)
+            return ParserPlan(_call("save_profile", current_copay_unknown=True), True)
         copay = parse_copay(t)
-        if copay is not None:
-            return _call("save_profile", current_copay=str(copay))
-        return _money_or_zero("current_copay", t)
-    if field == "maintenance":
-        return _call("save_profile", current_maintenance=str(n)) if n is not None else []
-    if field == "options":
-        return _option_calls(state, snapshot, t)
-    return []
+        if copay is None and is_none(t):
+            copay = 0
+        if copay is None:
+            copay = single_value(t)
+        return ParserPlan(_call("save_profile", current_copay=str(copay)), True) if copay is not None else ParserPlan()
+    if question == "maintenance":
+        value = single_value(t)
+        return ParserPlan(_call("save_profile", current_maintenance=value), True) if value else ParserPlan()
+    if question == "options":
+        return _option_plan(state, snapshot, t)
+    return ParserPlan()
 
 
-def _car_calls(snapshot: RulesSnapshot, text: str) -> list[ToolCall]:
+def _profile_plan(state: ConversationState, snapshot: RulesSnapshot, question: str, text: str) -> ParserPlan:
+    asked = _PROFILE_ARG[question]
+    # הודעה חופשית עם כמה שדות ("מנהלת מוצר, שכר בסיס 18,500, פנסיה 6%...") — לפי מילות מפתח
+    fields = parse_profile_fields(text, snapshot.occupations.keys())
+    if fields:
+        needed = {_PROFILE_ARG[f] for f in missing_profile(state.profile)}
+        return ParserPlan(_call("save_profile", **fields), asked in fields or needed <= set(fields))
+    if question == "occupation":
+        # עיסוק שלא בטבלה: נשמר כ"לא ידוע" רק אם המודל לא זמין או נכשל — הקריאה לא "מלאה"
+        return ParserPlan(_call("save_profile", occupation=text), False)
+    if question == "group":
+        group = match_group(snapshot.calc.group_order, text)
+        return ParserPlan(_call("save_profile", eligibility_group=group), True) if group else ParserPlan()
+    if question in _ZERO_ALLOWED and is_none(text):
+        return ParserPlan(_call("save_profile", **{asked: 0}), True)
+    value = single_value(text)
+    if value is None:
+        return ParserPlan()
+    if question == "children":
+        return ParserPlan(_call("save_profile", children_under_23=int(float(value))), True)
+    return ParserPlan(_call("save_profile", **{asked: value}), True)
+
+
+def _car_plan(snapshot: RulesSnapshot, text: str) -> ParserPlan:
     """הרכב הנוכחי ממשפט חופשי: שם מוכר מהקטלוג (+שנה), וגם השתתפות אם צוינה באותה הודעה.
-    אף פעם לא שולחים משפט שלם כשם דגם."""
+    אף פעם לא שולחים משפט שלם כשם דגם. שם קצר שאינו בקטלוג — לא "מלא": המודל אולי יכיר אותו."""
     if is_no_car(text):
-        return _call("match_current_car", no_car=True)
+        return ParserPlan(_call("match_current_car", no_car=True), True)
     year = find_year(text)
     cars = named_cars(text, snapshot.catalog)
     if cars:
-        calls = _call("match_current_car", model=cars[0].model_name, registration_year=year)
+        calls, complete = _call("match_current_car", model=cars[0].model_name, registration_year=year), True
     else:
         model = strip_year(text)
         if len(model.split()) > SHORT_MODEL_WORDS:
-            return []           # משפט בלי שם מוכר → התבנית שואלת שוב על הדגם בלבד
-        calls = _call("match_current_car", model=model, registration_year=year)
+            return ParserPlan()     # משפט בלי שם מוכר → התבנית שואלת שוב על הדגם בלבד
+        calls, complete = _call("match_current_car", model=model, registration_year=year), False
     copay = parse_copay(text)
     if copay is not None:
         calls += _call("save_profile", current_copay=str(copay))
-    return calls
+    return ParserPlan(calls, complete)
 
 
-def _option_calls(state: ConversationState, snapshot: RulesSnapshot, text: str) -> list[ToolCall]:
+def _option_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) -> ParserPlan:
     if _RANK_RE.search(text):
-        return _call("rank_options")
+        return ParserPlan(_call("rank_options"), True)
     options = available_options(snapshot, state)
     # שמות וכינויים קודם: שם רכב יכול להכיל ספרה (MAZDA 3), אז לא מפרשים אותה כמספר ברשימה
     named = {car.catalog_code for car in named_cars(text, [o.car for o in options if o.car is not None])}
     chosen = [o.id for o in options if o.id in named]
     if any(w in text.lower() for w in OPT_OUT_WORDS):
         chosen.append("OPT_OUT")
-    if not chosen:
-        for m in re.findall(r"\d+", text):
-            i = int(m)
-            if 1 <= i <= len(options):
-                chosen.append(options[i - 1].id)
-    return _call("calculate", options=chosen) if chosen else []
+    # מספר לבד = בחירה מהרשימה, רק כשההודעה היא מספרים בלבד ("2", "1, 3"); "לבדוק 2 רכבים" אינו בחירה
+    if not chosen and _ONLY_NUMBERS_RE.match(text):
+        chosen = [options[int(m) - 1].id for m in re.findall(r"\d+", text) if 1 <= int(m) <= len(options)]
+    return ParserPlan(_call("calculate", options=chosen), True) if chosen else ParserPlan()

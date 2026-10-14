@@ -14,6 +14,8 @@ from .conftest import CONFIG, make_client
 
 NOA_PROFILE = ("אני מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, "
                "2.75 נקודות זיכוי, 2 ילדים")
+# הקורא מבין שכר ופנסיה, אבל השאלה (עיסוק) לא נענתה → לא "מלא" → המודל; בכישלון — הגיבוי
+PARTIAL_PROFILE = "שכר בסיס 18,500 ופנסיה 6%"
 NOA_SAVE = call("save_profile", occupation="מנהלת מוצר", base_salary=18500, commissions=0, bonus=0,
                 pension_percent=6, study_fund_percent=2.5, credit_points=2.75, children_under_23=2)
 
@@ -23,7 +25,7 @@ def test_forced_tool_mode_saves_profile_when_model_prefers_text(sessions):
     fake = FakeLLM().turn(NOA_SAVE, forced_only=True, reply=None)
     svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([fake]))
     turn, token = svc.start()
-    turn = svc.send(turn.conversation_id, token, NOA_PROFILE)
+    turn = svc.send(turn.conversation_id, token, "הנה הפרטים שלי")      # הקורא לא מבין → המודל
 
     assert fake.calls[0].require_tool is True and fake.calls[0].tools == ["save_profile"]
     assert turn.stage == Stage.COLLECT_CURRENT_CAR
@@ -38,14 +40,14 @@ def test_only_first_round_of_collecting_stages_is_forced(sessions):
     fake = FakeLLM().turn(NOA_SAVE, reply=None)
     svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([fake]))
     turn, token = svc.start()
-    svc.send(turn.conversation_id, token, NOA_PROFILE)
+    svc.send(turn.conversation_id, token, "הנה הפרטים שלי")
     extraction = [c for c in fake.calls if c.tools]
     assert [c.require_tool for c in extraction] == [True, False]   # הסבב השני חופשי לסיים
 
     fake.turn(call("match_current_car", model="COROLLA CROSS"), call("save_profile", current_copay=300))
-    svc.send(turn.conversation_id, token, "קורולה קרוס, 300")
+    svc.send(turn.conversation_id, token, "זה הרכב שלי, אותו אחד כמו תמיד")
     fake.turn(call("calculate", options=["ATTO 3"]))
-    svc.send(turn.conversation_id, token, "אטו 3")
+    svc.send(turn.conversation_id, token, "את החשמלי הסיני בבקשה")
     choose = [c for c in fake.calls if "calculate" in c.tools]
     assert choose and not any(c.require_tool for c in choose)       # בחירת חלופות לא כפויה
 
@@ -90,7 +92,7 @@ def test_second_round_only_when_the_stage_moved(sessions):
     fake = FakeLLM().turn(call("save_profile", occupation="מנהלת מוצר"), reply=None)
     svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([fake]))
     turn, token = svc.start()
-    svc.send(turn.conversation_id, token, "מנהלת מוצר")
+    svc.send(turn.conversation_id, token, "הנה הפרטים שלי")
     assert len([c for c in fake.calls if c.tools]) == 1
 
 
@@ -115,7 +117,7 @@ def test_provider_failure_after_first_round_keeps_profile(sessions):
     fake = FakeLLM().turn(NOA_SAVE, reply=None)
     svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([_FailsFromCall(fake, fail_from=2)]))
     turn, token = svc.start()
-    turn = svc.send(turn.conversation_id, token, NOA_PROFILE)
+    turn = svc.send(turn.conversation_id, token, "הנה הפרטים שלי")
     assert turn.stage == Stage.COLLECT_CURRENT_CAR and turn.source == "template"
     current = svc.view(turn.conversation_id, token).state.current
     assert current.query is None and current.source is None        # לא חיפשו "רכב" בשם הפרופיל
@@ -125,8 +127,10 @@ def test_provider_failure_after_first_round_keeps_profile(sessions):
 def test_provider_failure_on_first_round_uses_fallback_parser(sessions):
     svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([_FailsFromCall(FakeLLM(), fail_from=1)]))
     turn, token = svc.start()
-    turn = svc.send(turn.conversation_id, token, NOA_PROFILE)
-    assert turn.stage == Stage.COLLECT_CURRENT_CAR and turn.source == "template"
+    turn = svc.send(turn.conversation_id, token, PARTIAL_PROFILE)
+    assert turn.path == "fallback" and turn.source == "template"
+    profile = svc.view(turn.conversation_id, token).state.profile
+    assert (profile.base, profile.pension_percent) == (18500, 6)
 
 
 def test_found_car_does_not_trigger_a_second_round(sessions):
@@ -134,10 +138,10 @@ def test_found_car_does_not_trigger_a_second_round(sessions):
     fake = FakeLLM().turn(NOA_SAVE, reply=None)
     svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([fake]))
     turn, token = svc.start()
-    svc.send(turn.conversation_id, token, NOA_PROFILE)
+    svc.send(turn.conversation_id, token, "הנה הפרטים שלי")
     before = len(fake.calls)
     fake.turn(call("match_current_car", model="COROLLA CROSS"), call("save_profile", current_copay=300))
-    turn = svc.send(turn.conversation_id, token, "קורולה קרוס, 300")
+    turn = svc.send(turn.conversation_id, token, "זה הרכב שלי, אותו אחד כמו תמיד")
     assert turn.stage == Stage.CHOOSE_OPTIONS
     assert len([c for c in fake.calls[before:] if c.tools]) == 1
 
@@ -153,8 +157,10 @@ def test_turn_deadline_falls_back_to_templates(sessions):
     chain = LLMChain([*slow, never], turn_deadline_s=10, clock=clock)
     svc = ConversationService(sessions, RulesStore(CONFIG), chain)
     turn, token = svc.start()
-    turn = svc.send(turn.conversation_id, token, NOA_PROFILE)
-    assert turn.source == "template" and turn.stage == Stage.COLLECT_CURRENT_CAR   # הפרסר בגיבוי
+    turn = svc.send(turn.conversation_id, token, PARTIAL_PROFILE)     # הקורא מבין רק חלק → המודל
+    assert turn.source == "template" and turn.path == "fallback"
+    profile = svc.view(turn.conversation_id, token).state.profile
+    assert (profile.base, profile.pension_percent) == (18500, 6)   # הגיבוי שמר מה שהקורא הבין
     assert never.calls == 0 and clock.now - 1000 == 10
 
 

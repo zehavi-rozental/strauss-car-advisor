@@ -65,6 +65,7 @@ class TurnResult:
     source: str
     results: list[OptionResult] = field(default_factory=list)
     pending_rep: Optional[RepReason] = None
+    path: str = ""            # parser / llm / fallback / templates / waiting (ללוג; לא נשלח ב-API)
 
 
 @dataclass
@@ -156,10 +157,13 @@ class ConversationService:
 
     def send(self, conversation_id: str, token: str, text: str) -> TurnResult:
         started = time.monotonic()
+        path = "error"
         try:
-            return self._send(conversation_id, token, text)
+            result = self._send(conversation_id, token, text)
+            path = result.path
+            return result
         finally:
-            log.info("turn total=%.0fms", (time.monotonic() - started) * 1000)
+            log.info("turn path=%s total=%.0fms", path, (time.monotonic() - started) * 1000)
 
     def _send(self, conversation_id: str, token: str, text: str) -> TurnResult:
         """שלושה שלבים, כדי שאף טרנזקציה לא תהיה פתוחה בזמן קריאות למודל השפה:
@@ -207,7 +211,8 @@ class ConversationService:
         return TurnResult(conversation_id=str(conv_id), stage=state.stage, reply=outcome.reply,
                           source=outcome.source,
                           results=state.results if outcome.just_calculated else [],
-                          pending_rep=state.pending_rep.reason if state.pending_rep else None)
+                          pending_rep=state.pending_rep.reason if state.pending_rep else None,
+                          path=outcome.path)
 
     def view(self, conversation_id: str, token: str) -> ConversationView:
         with self.sessions() as session:

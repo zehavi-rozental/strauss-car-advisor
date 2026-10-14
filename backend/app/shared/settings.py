@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     llm_fallback_base_url: str = ""
     llm_timeout_s: float = 4.0        # לכל קריאה: רשומה איטית → הבאה בשרשרת
     llm_turn_deadline_s: float = 6.0   # לכל תור: אחרי זמן זה על ספקים — תבניות, בלי רשומות נוספות
+    llm_intro_budget_s: float = 2.5    # פתיח לתוצאות: לא ענה בזמן → התוצאה מהתבנית מיד
 
     max_message_chars: int = 1000
     rate_limit_per_minute: int = 30      # הודעות לשיחה בדקה

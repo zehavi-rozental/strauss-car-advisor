@@ -148,6 +148,15 @@ def parse_copay(text: str) -> Optional[Decimal]:
     return None
 
 
+# ערך משוער: "בערך", "כ-", "בסביבות"... לפני המספר, או "וחצי", "אלף"... אחריו. אסור לשמור אותו כמדויק.
+_APPROX_BEFORE_RE = re.compile(r"בערך|כמעט|בסביבות|משהו\s*כמו|לפחות|(?:^|\s)כ-?\s*\d|~")
+_APPROX_AFTER_RE = re.compile(r"^\s*(?:ו?חצי|ורבע|ושלושת\s*רבעי|אלף|אלפים|[kK](?![a-zA-Z]))")
+
+
+def is_approximate(before: str, after: str = "") -> bool:
+    return bool(_APPROX_BEFORE_RE.search(before) or _APPROX_AFTER_RE.search(after))
+
+
 def parse_profile_fields(text: str, occupations: Iterable[str]) -> dict[str, object]:
     """כמה שדות פרופיל מהודעה חופשית אחת. רק מה שנאמר במפורש; שום ברירת מחדל."""
     found: dict[str, object] = {}
@@ -156,6 +165,8 @@ def parse_profile_fields(text: str, occupations: Iterable[str]) -> dict[str, obj
         found["occupation"] = occupation
     for field, pattern in _PROFILE_PATTERNS:          # סכום מפורש קודם ל"אין"
         m = re.search(pattern, text)
+        if m and is_approximate(m.group(0), text[m.end(1):]):
+            continue                                   # "בערך 18 וחצי" — לא מנחשים; המודל יקרא
         if m and field not in found:
             value = m.group(1).replace(",", "")
             found[field] = int(value) if field == "children_under_23" else value

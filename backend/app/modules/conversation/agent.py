@@ -13,7 +13,7 @@ from typing import Any, Callable, Optional, Protocol, Sequence
 from app.modules.calculation.public import ScenarioResult, evaluate
 from app.modules.rules.public import RulesSnapshot
 
-from .fallback import fallback_calls
+from .fallback import fallback_plan
 from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
 from .parsing import redact_id_numbers
@@ -96,6 +96,7 @@ class TurnOutcome:
     source: str               # llm / template
     guard_blocked: bool = False
     just_calculated: bool = False
+    path: str = "parser"      # parser / llm / fallback / templates / waiting — ללוג, בלי תוכן
 
 
 def _recorded(facts: dict[str, Any]) -> bool:
@@ -119,19 +120,23 @@ class Agent:
 
         if before == Stage.WAITING_FOR_REP:
             return TurnOutcome(reply=render(state, snapshot, understood=True, just_calculated=False),
-                               source="template")
+                               source="template", path="waiting")
 
+        # הקורא הדטרמיניסטי קודם. מה שהוא קורא במלואו לא מגיע למודל בכלל — מהיר ובלי תלות בספק.
+        plan = fallback_plan(state, snapshot, text)
         used_llm = False
-        understood = False
         deadline = self.llm.turn_deadline()   # אחרי LLM_TURN_DEADLINE_S — תבניות, בלי ספקים נוספים
-        if self.llm.available:
+        if plan.complete or not self.llm.available:
+            path = "parser" if plan.complete else "templates"
+            understood = self._execute(ctx, plan.calls)
+        else:
             try:
                 understood = self._extract_llm(ctx, history, text, deadline)
-                used_llm = True
+                used_llm, path = True, "llm"
             except LLMError:
-                log.warning("llm extraction failed; falling back to templates")
-        if not used_llm:
-            understood = self._execute(ctx, fallback_calls(state, snapshot, text))
+                log.warning("llm extraction failed; falling back to the parser")
+                path = "fallback"
+                understood = self._execute(ctx, plan.calls)   # התוכנית חושבה לפני כל שינוי במצב
 
         self._open_blocking_rep(ctx)
         just_calculated = False
@@ -145,12 +150,14 @@ class Agent:
         # ניסוח במודל רק לתוצאות או להודעה שלא הובנה (שאלה חופשית). השאלה הבאה בפרופיל/ברכב
         # היא תבנית: מהירה, ובלי סיכון לשומר המספרים.
         if not used_llm or not (just_calculated or not understood):
-            return TurnOutcome(reply=draft, source="template", just_calculated=just_calculated)
+            return TurnOutcome(reply=draft, source="template", just_calculated=just_calculated, path=path)
         if just_calculated:
-            reply, source, blocked = self._intro(draft, text, deadline)
+            # לפתיח יש תקציב קצר משלו: אם לא ענה בזמן — התוצאה מהתבנית מיד, בלי פתיח
+            reply, source, blocked = self._intro(draft, text, self.llm.intro_deadline(deadline))
         else:
             reply, source, blocked = self._phrase(state, draft, text, deadline)
-        return TurnOutcome(reply=reply, source=source, guard_blocked=blocked, just_calculated=just_calculated)
+        return TurnOutcome(reply=reply, source=source, guard_blocked=blocked, just_calculated=just_calculated,
+                           path=path)
 
     # ---------- חילוץ ----------
 

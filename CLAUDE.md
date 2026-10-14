@@ -31,7 +31,7 @@ Modular monolith (ports & adapters). Every module can later be extracted into a 
 | `rules` | Loads `config/strauss-rules.json` (as delivered), `config/extensions.yaml` and `config/strauss-data.xlsx`. |
 | `vehicles` | Tax-authority vehicle data and current-car matching. |
 | `cases` | Questions to the transport representative. |
-| `conversation` | State machine and LLM agent: tools, number guard, template fallback, LLM adapters. Must not import FastAPI. |
+| `conversation` | State machine and LLM agent: tools, number guard, template fallback, LLM adapters. The deterministic parser reads each message first; the LLM is called only for what it cannot read in full. Must not import FastAPI. |
 | `shared` | Money, database, settings. |
 
 `app/api` is the HTTP layer (cookie, rate limits, serialization) and the composition root (`deps.py`, `main.py`).

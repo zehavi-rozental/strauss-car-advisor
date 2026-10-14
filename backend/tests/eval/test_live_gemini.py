@@ -43,10 +43,11 @@ def test_noa_levi_against_real_provider(engine):
     body = say("יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש")
     assert body["stage"] == "CHOOSE_OPTIONS", body["reply"]
 
-    body = say("אני רוצה לבדוק את BYD אטו 3 החשמלי")
+    # שני התורות הראשונים — הקורא הדטרמיניסטי (בלי מודל). כאן אין שם דגם ואין מספר מהרשימה,
+    # כך שרק מודל השפה יכול להבין: ה-BYD החשמלי מקבוצה ג הוא ATTO 3.
+    body = say("את ה-BYD החשמלי מקבוצה ג בבקשה")
     assert body["stage"] == "PRESENTED", body["reply"]
-    # רק התוצאות מנוסחות במודל; תבנית כאן = הספק נכשל או ששומר המספרים חסם (ראו הלוג)
-    assert body["source"] == "llm", f"התור נפל לתבנית: {body['reply']}"
+    assert any(e["status"] == "ok" for e in CHAIN.status()), CHAIN.status()   # המודל באמת ענה
     [result] = body["results"]
     assert result["label"] == "ATTO 3 (2025)"
     assert result["delta_display"] == "661"

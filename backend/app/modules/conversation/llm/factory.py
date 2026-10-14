@@ -91,4 +91,4 @@ def build_llm_chain(settings: Settings) -> LLMChain:
             providers.append(port)
     return LLMChain(providers, disabled=disabled, cooldown_429_s=settings.llm_cooldown_429_s,
                     cooldown_fail_s=settings.llm_cooldown_fail_s,
-                    turn_deadline_s=settings.llm_turn_deadline_s)
+                    turn_deadline_s=settings.llm_turn_deadline_s, intro_budget_s=settings.llm_intro_budget_s)

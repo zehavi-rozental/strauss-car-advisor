@@ -41,19 +41,18 @@ def test_noa_levi_with_llm(engine, sessions):
                    pension_percent=6, study_fund_percent=2.5, credit_points=2.75, children_under_23=2),
               reply="תודה! איזה רכב יש לך היום?")
     body = client.post(f"/api/conversations/{cid}/messages", json={
-        "text": "אני מנהלת מוצר, ברוטו 18,500, בלי עמלות ובונוסים, פנסיה 6%, השתלמות 2.5%, "
-                "2.75 נקודות זיכוי, 2 ילדים"}).json()
+        "text": "הנה הפרטים שלי"}).json()     # הקורא לא מבין → המודל
     assert body["stage"] == "COLLECT_CURRENT_CAR"
     assert body["source"] == "template"      # השאלה הבאה — תבנית, בלי קריאת ניסוח
 
     fake.turn(call("match_current_car", model="COROLLA CROSS"), call("save_profile", current_copay=300),
               reply="מצאתי את COROLLA CROSS (2025). לאיזה רכב להשוות?")
-    body = client.post(f"/api/conversations/{cid}/messages", json={"text": "קורולה קרוס, משתתפת 300"}).json()
+    body = client.post(f"/api/conversations/{cid}/messages", json={"text": "זה הרכב שלי, אותו אחד כמו תמיד"}).json()
     assert body["stage"] == "CHOOSE_OPTIONS"
 
     fake.turn(call("calculate", options=["ATTO 3"]),
               reply="הנה ההשוואה שביקשת, לפי כללי החברה.")
-    body = client.post(f"/api/conversations/{cid}/messages", json={"text": "ATTO 3"}).json()
+    body = client.post(f"/api/conversations/{cid}/messages", json={"text": "את החשמלי הסיני בבקשה"}).json()
     _assert_noa_result(body, sessions)
     assert body["source"] == "llm" and body["reply"].startswith("הנה ההשוואה שביקשת")
     assert "+661 ₪" in body["reply"] and "11,693 ₪" in body["reply"]     # שורות התוצאה מהתבנית

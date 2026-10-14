@@ -80,7 +80,7 @@ def _results_turn(sessions, intro):
     fake.turn(call("calculate", options=["ATTO 3"]), reply=intro)
     svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([fake]))
     turn, token = svc.start()
-    for text in ("פרופיל", "קורולה קרוס, 300", "אטו 3"):
+    for text in ("הנה הפרטים שלי", "זה הרכב שלי, אותו אחד כמו תמיד", "את החשמלי הסיני בבקשה"):   # הקורא לא מבין → המודל
         turn = svc.send(turn.conversation_id, token, text)
     return turn, fake
 

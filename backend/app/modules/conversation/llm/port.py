@@ -131,13 +131,14 @@ class LLMChain:
 
     def __init__(self, providers: Sequence[LLMPort] = (), *, disabled: Sequence[tuple[str, str]] = (),
                  cooldown_429_s: float = 60.0, cooldown_fail_s: float = 60.0,
-                 turn_deadline_s: Optional[float] = None,
+                 turn_deadline_s: Optional[float] = None, intro_budget_s: Optional[float] = None,
                  clock: Callable[[], float] = time.monotonic):
         self.entries = [ChainEntry(entry_label(p), p) for p in providers]
         self.disabled = [ChainEntry(label, None, status="disabled", detail=reason) for label, reason in disabled]
         self.cooldown_429_s = cooldown_429_s
         self.cooldown_fail_s = cooldown_fail_s
         self.turn_deadline_s = turn_deadline_s
+        self.intro_budget_s = intro_budget_s
         self.clock = clock
         self._lock = threading.Lock()
 
@@ -158,6 +159,13 @@ class LLMChain:
     def turn_deadline(self) -> Optional[float]:
         """נקודת הזמן (לפי שעון השרשרת) שאחריה התור מפסיק לנסות ספקים ועובר לתבניות."""
         return self.clock() + self.turn_deadline_s if self.turn_deadline_s else None
+
+    def intro_deadline(self, turn_deadline: Optional[float]) -> Optional[float]:
+        """לפתיח של התוצאות: התקציב הקצר שלו, ולא יותר ממה שנשאר לתור."""
+        if not self.intro_budget_s:
+            return turn_deadline
+        own = self.clock() + self.intro_budget_s
+        return own if turn_deadline is None else min(own, turn_deadline)
 
     def status(self) -> list[dict[str, Any]]:
         now = self.clock()

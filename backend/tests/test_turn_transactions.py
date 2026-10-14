@@ -49,9 +49,9 @@ def test_no_write_lock_is_held_during_llm_calls(tmp_path):
     fake.turn(NOA_SAVE)
     svc.send(turn.conversation_id, token, "פרופיל")
     fake.turn(call("match_current_car", model="COROLLA CROSS"), call("save_profile", current_copay=300))
-    svc.send(turn.conversation_id, token, "קורולה קרוס, 300")
+    svc.send(turn.conversation_id, token, "זה הרכב שלי, אותו אחד כמו תמיד")
     fake.turn(call("calculate", options=["ATTO 3"]), reply="הנה ההשוואה שביקשת.")
-    turn = svc.send(turn.conversation_id, token, "אטו 3")
+    turn = svc.send(turn.conversation_id, token, "את החשמלי הסיני בבקשה")
 
     assert fake.writes == 1                               # הכתיבה המקבילה הצליחה
     assert turn.stage == Stage.PRESENTED and turn.results[0].result["delta_display"] == "661"
@@ -120,7 +120,8 @@ def test_concurrent_turns_one_wins_one_conflicts(tmp_path):
         except Exception as exc:   # noqa: BLE001 — נבדק למטה
             outcomes[text] = exc
 
-    threads = [threading.Thread(target=send, args=(t,)) for t in ("מנהלת מוצר", "מפתח תוכנה")]
+    # עיסוקים שלא בטבלה: הקורא לא "מבין" אותם, ולכן שני התורות עוברים במודל ונעצרים במחסום
+    threads = [threading.Thread(target=send, args=(t,)) for t in ("התפקיד שלי הוא אלפא", "התפקיד שלי הוא בטא")]
     for t in threads:
         t.start()
     for t in threads:
@@ -135,13 +136,12 @@ def test_concurrent_turns_one_wins_one_conflicts(tmp_path):
         contents = [m.content for m in s.scalars(select(MessageRow).order_by(MessageRow.seq))]
     assert (row.version, row.message_count) == (1, 1)
     assert len(contents) == 3 and contents[1] == winners[0] and losers[0] not in contents
-    expected = {"מנהלת מוצר": "מנהל/ת מוצר", "מפתח תוכנה": "מפתח/ת תוכנה"}[winners[0]]
-    assert row.state["profile"]["occupation"] == expected
+    assert row.state["profile"]["occupation_text"] == winners[0]
 
     # השיחה ממשיכה רגיל אחרי ההתנגשות
     svc.llm = LLMChain()
     svc.agent.llm = svc.llm
-    assert svc.send(turn.conversation_id, token, "18,500").stage == Stage.COLLECT_PROFILE
+    assert svc.send(turn.conversation_id, token, "ג").stage == Stage.COLLECT_PROFILE
 
 
 def test_conflict_is_http_409(engine, monkeypatch):
