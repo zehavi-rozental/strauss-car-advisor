@@ -124,10 +124,12 @@ class PendingConfirmation(BaseModel):
 
 
 class CarClarification(BaseModel):
-    """בזמן המתנה לנציג העובד הזכיר רכב — לא ברור אם זה הרכב שלו או חלופה. שאלנו; זו התשובה שמחכה."""
+    """העובד הזכיר רכב ולא ברור אם זה הרכב שלו או חלופה (בהמתנה לנציג, או ב-Q3 כשהרכב של היום עוד לא
+    ידוע). שאלנו; זו התשובה שמחכה."""
 
     catalog_code: str
     label: str
+    reg_year: Optional[int] = None      # שנה שנכתבה עם הרכב — להתאמה, אם זה הרכב של היום
 
 
 class ConversationState(BaseModel):

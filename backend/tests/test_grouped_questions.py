@@ -55,7 +55,7 @@ def test_official_scenario_reaches_the_car_question_in_three_bot_turns(sessions,
 def test_scenario_continues_with_the_leftovers_and_the_car(sessions):
     svc = service(sessions)
     turn, token = svc.start()
-    for m in (SCENARIO_1, SCENARIO_2, "אין בונוס, 2 ילדים", "קורולה קרוס", "300", "אטו 3"):
+    for m in (SCENARIO_1, SCENARIO_2, "אין בונוס, 2 ילדים", "יש לי קורולה קרוס", "300", "אטו 3"):
         turn = svc.send(turn.conversation_id, token, m)
     assert turn.stage == Stage.PRESENTED and turn.results[0].label == "ATTO 3 (2025)"
 
@@ -86,7 +86,7 @@ def test_group_only_asks_the_occupation_when_opting_out(sessions):
     svc = service(sessions)
     turn, token = svc.start()
     for m in (SCENARIO_1, "אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.25 נקודות זיכוי, 2 ילדים",
-              "קורולה קרוס", "300"):
+              "יש לי קורולה קרוס", "300"):
         turn = svc.send(turn.conversation_id, token, m)
     assert "ויתור על רכב" in turn.reply                                    # התפקיד לא נשאל עד עכשיו
     turn = svc.send(turn.conversation_id, token, "ויתור")
@@ -108,3 +108,84 @@ def test_a_full_q3_answer_is_read_with_the_q2_leftovers(sessions):
     assert turn.stage == Stage.CHOOSE_OPTIONS
     assert "\n\nאיזה רכב מעניין אותך" in turn.reply
     assert "לא זיהיתי" not in turn.reply and "מה ההשתתפות" not in turn.reply and "ועוד:" not in turn.reply
+
+
+# ---------- Q3 שואלת על הרכב של היום ועל החלופות: התפקיד נקבע בקוד, לא מנחשים ----------
+
+ASK_ATTO = "ATTO 3 (2025) הוא הרכב שלך היום, או חלופה שתרצו לבדוק?"
+
+
+def at_q3(svc):
+    turn, token = svc.start()
+    for m in (SCENARIO_1, SCENARIO_2):
+        turn = svc.send(turn.conversation_id, token, m)
+    return turn, token
+
+
+def test_a_bare_car_name_at_q3_gets_a_question_with_buttons(sessions):
+    svc = service(sessions)
+    turn, token = at_q3(svc)
+    turn = svc.send(turn.conversation_id, token, "ATTO 3")
+    assert turn.reply == ASK_ATTO
+    assert turn.expects["field"] == "clarification"
+    assert [c["label"] for c in turn.expects["choices"]] == ["הרכב שלי היום", "חלופה לבדוק"]
+    s = svc.view(turn.conversation_id, token).state
+    assert s.current.source is None and s.selected == []                       # שום דבר לא נשמר
+    turn = svc.send(turn.conversation_id, token, "הרכב שלי היום")
+    assert svc.view(turn.conversation_id, token).state.current.catalog_code == "CAR-10"
+
+
+def test_the_alternative_button_selects_the_car(sessions):
+    svc = service(sessions)
+    turn, token = at_q3(svc)
+    svc.send(turn.conversation_id, token, "ATTO 3")
+    turn = svc.send_choice(turn.conversation_id, token, ["alternative"])
+    s = svc.view(turn.conversation_id, token).state
+    assert s.selected == ["CAR-10"] and s.current.source is None and s.pending_clarification is None
+    assert turn.reply.startswith("מה הרכב היום")                                # עכשיו רק הרכב של היום
+
+
+def test_an_alternative_cue_selects_the_car_as_an_alternative(sessions):
+    svc = service(sessions)
+    turn, token = at_q3(svc)
+    turn = svc.send(turn.conversation_id, token, "אני רוצה לבדוק ATTO 3")
+    s = svc.view(turn.conversation_id, token).state
+    assert s.selected == ["CAR-10"] and s.current.source is None
+    turn = svc.send(turn.conversation_id, token, "קורולה קרוס")               # עכשיו נשאל רק הרכב של היום
+    assert svc.view(turn.conversation_id, token).state.current.catalog_code == "CAR-09"
+
+
+def test_a_current_cue_sets_the_current_car(sessions):
+    svc = service(sessions)
+    turn, token = at_q3(svc)
+    turn = svc.send(turn.conversation_id, token, "יש לי ATTO 3")
+    s = svc.view(turn.conversation_id, token).state
+    assert s.current.catalog_code == "CAR-10" and s.selected == []
+
+
+def test_an_llm_call_against_the_cue_is_blocked_and_the_bot_asks(sessions):
+    fake = FakeLLM()
+    fake.turn(call("save_profile", eligibility_group="ג", base_salary=14200))
+    fake.turn(call("save_profile", commissions=1000, pension_percent=6, study_fund_percent=2.5,
+                   credit_points=2.25, approximate_fields=["commissions"]))
+    fake.turn(call("match_current_car", model="ATTO 3"))                       # "רוצה לבדוק" = חלופה
+    svc = service(sessions, LLMChain([fake]))
+    turn, token = at_q3(svc)
+    turn = svc.send(turn.conversation_id, token, "אני רוצה לבדוק ATTO 3")
+    assert turn.reply == ASK_ATTO
+    s = svc.view(turn.conversation_id, token).state
+    assert s.current.source is None and s.selected == []                       # גם הקורא לא רץ כגיבוי
+    assert s.pending_clarification.catalog_code == "CAR-10"
+
+
+def test_an_llm_calculate_for_the_current_car_is_blocked(sessions):
+    fake = FakeLLM()
+    fake.turn(call("save_profile", eligibility_group="ג", base_salary=14200))
+    fake.turn(call("save_profile", commissions=1000, pension_percent=6, study_fund_percent=2.5,
+                   credit_points=2.25, approximate_fields=["commissions"]))
+    fake.turn(call("calculate", options=["ATTO 3"]))                           # "יש לי" = הרכב של היום
+    svc = service(sessions, LLMChain([fake]))
+    turn, token = at_q3(svc)
+    turn = svc.send(turn.conversation_id, token, "יש לי ATTO 3")
+    assert turn.reply == ASK_ATTO
+    assert svc.view(turn.conversation_id, token).state.selected == []

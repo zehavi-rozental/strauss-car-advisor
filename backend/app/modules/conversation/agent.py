@@ -14,11 +14,11 @@ from typing import Any, Callable, Optional, Sequence
 from app.modules.calculation.public import CopayStatus, ScenarioResult, evaluate
 from app.modules.calculation.public import Status as CalcStatus
 from app.modules.cases.public import AnswerType, MissingField, Mode, QuestionAnswered, QuestionRequest
-from app.modules.rules.public import RulesSnapshot, find_catalog_car, words
+from app.modules.rules.public import CatalogCar, RulesSnapshot, find_catalog_car, words
 
 
 from .expects import build_expects, choice_calls
-from .fallback import ParserPlan, correction_plan, fallback_plan, named_cars
+from .fallback import ParserPlan, car_roles, correction_plan, fallback_plan, named_cars
 from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
 from .parsing import match_occupation, redact_id_numbers
@@ -301,6 +301,28 @@ def _recorded(facts: dict[str, Any]) -> bool:
     return bool(facts.get("ok")) and facts.get("saved") != []
 
 
+def _role_conflict(ctx: ToolContext, call: ToolCall, text: str) -> Optional[CatalogCar]:
+    """המודל קרא ל-match_current_car על רכב שנכתב כחלופה ("רוצה לבדוק"), או ל-calculate על רכב שנכתב
+    כרכב של היום ("יש לי"). התפקיד נקבע בקוד לפי המילים (car_role_cues) — הקריאה לא רצה, ושואלים."""
+    if call.name not in ("match_current_car", "calculate"):
+        return None
+    snapshot = ctx.snapshot
+    cars = named_cars(text, snapshot.catalog)
+    if not cars:
+        return None
+    roles = car_roles(text, cars, snapshot.extensions.car_role_cues)
+    if call.name == "match_current_car":
+        model = call.args.get("model")
+        targets = find_catalog_car(snapshot, str(model)) if model else []
+        wrong = "alternative"
+    else:
+        options = available_options(snapshot, ctx.state)
+        resolved = [resolve_option(snapshot, options, str(t)) for t in call.args.get("options") or []]
+        targets = [o.car for o in resolved if o is not None and o.car is not None]
+        wrong = "current"
+    return next((c for c in targets if roles.get(c.catalog_code) == wrong), None)
+
+
 class Agent:
     def __init__(self, llm: LLMChain, mode: str = "llm_first"):
         self.llm = llm
@@ -319,10 +341,12 @@ class Agent:
         before = next_stage(state)
         field_ = field or build_expects(state, snapshot)["field"]
         if field_ == "clarification":
+            waiting = state.pending_rep is not None
             plan, reply = self._clarified(state, snapshot, ids[0])
             if plan is None:
                 return TurnOutcome(reply=reply, source="template", path="choice")
-            before = self._start_correction(ctx)
+            if waiting:
+                before = self._start_correction(ctx)
         elif field_ == "confirmation":
             plan = _confirmation_plan(state, "כן" if ids[0] == "yes" else "לא") or ParserPlan(complete=True)
         elif field_ == "occupation_confirmation":
@@ -349,9 +373,12 @@ class Agent:
             plan = confirmed                     # "כן" / "לא" על "התכוונת ל-18,000 ₪?"
         elif state.pending_occupation is not None and (answer := _occupation_answer(state, text)) is not None:
             plan = _occupation_plan(ctx, answer)  # "כן" / מספר הצעה / "לא" על "לא מצאתי את ... בטבלה"
+        elif state.pending_clarification is not None and (answer := _clarification_answer(text)) is not None:
+            plan = self._clarified(state, snapshot, answer)[0]   # "הרכב שלי היום" / "חלופה לבדוק"
         else:
             state.pending_confirmation = None    # תשובה אחרת: השאלה הקודמת כבר לא רלוונטית
             state.pending_occupation = None
+            state.pending_clarification = None
             # הקורא הדטרמיניסטי קודם. מה שהוא קורא במלואו לא מגיע למודל בכלל — מהיר ובלי תלות בספק.
             plan = fallback_plan(state, snapshot, text)
         return self._finish(ctx, history, text, plan, before, record_run)
@@ -376,6 +403,9 @@ class Agent:
         if parser_decides or not self.llm.available:
             path = "choice" if choice else "parser" if plan.complete else "templates"
             understood = self._execute(ctx, plan.calls) or plan.notice is not None
+            if plan.clarify is not None:
+                state.pending_clarification = plan.clarify     # "<רכב> הוא הרכב שלך היום, או חלופה?"
+                understood = True
         else:
             # המודל קורא קודם. תוכנית הקורא חושבה לפני כל שינוי במצב: גיבוי, ובדיקה צולבת כשנקרא במלואו.
             cross = _expected_values(snapshot, plan) if plan.complete else {}
@@ -388,7 +418,8 @@ class Agent:
             # המודל לא קרא לכלי, נכשל או בהמתנה: הקורא (מלא, או רק הגיבוי הבטוח שלו). ניחוש "כל ההודעה
             # היא הערך" רץ רק כשהמודל לא זמין — אם המודל קרא את ההודעה ולא רשם דבר, לא מנחשים.
             declined = path == "llm"
-            if not understood and not conflicts and not (declined and plan.guess):
+            asked_role = state.pending_clarification is not None      # המודל קרא לכלי בניגוד למילים
+            if not understood and not conflicts and not asked_role and not (declined and plan.guess):
                 if plan.calls or plan.notice is not None or not declined:
                     path = "fallback"            # הקורא פעל, או שהמודל נכשל
                 understood = self._execute(ctx, plan.calls) or plan.notice is not None
@@ -413,7 +444,7 @@ class Agent:
         # ניסוח במודל רק לתוצאות או להודעה שלא הובנה (שאלה חופשית). השאלה הבאה בפרופיל/ברכב
         # היא תבנית: מהירה, ובלי סיכון לשומר המספרים.
         checked = (bool(problems) or state.pending_confirmation is not None     # בדיקת ערכים — תמיד תבנית
-                   or state.pending_occupation is not None)
+                   or state.pending_occupation is not None or state.pending_clarification is not None)
         if not used_llm or not (just_calculated or not understood) or rep_opened or checked:
             return TurnOutcome(reply=draft, source="template", just_calculated=just_calculated, path=path,
                                **requests)
@@ -469,6 +500,12 @@ class Agent:
             messages.append(ChatMessage("assistant", response.text, tool_calls=response.tool_calls,
                                         raw=response.raw))
             for call in response.tool_calls:
+                blocked = _role_conflict(ctx, call, text)
+                if blocked is not None:
+                    log.info("tool %s blocked: the car's role contradicts the message", call.name)
+                    ctx.state.pending_clarification = CarClarification(catalog_code=blocked.catalog_code,
+                                                                       label=blocked.label)
+                    return understood        # לא ממשיכים עם ההודעה הזו: שואלים על הרכב
                 call = _cross_check(ctx, call, cross or {}, conflicts if conflicts is not None else [])
                 facts = self._run(ctx, call)
                 understood = understood or _recorded(facts)
@@ -525,12 +562,17 @@ class Agent:
     @staticmethod
     def _clarified(state: ConversationState, snapshot: RulesSnapshot,
                    answer: str) -> tuple[Optional[ParserPlan], str]:
-        """תשובה ל"הוא הרכב שלך היום, או חלופה?": mine → התאמה מחדש; alternative → בתור לחישוב."""
+        """תשובה ל"הוא הרכב שלך היום, או חלופה?": mine → התאמה (מחדש); alternative → בהמתנה לנציג
+        בתור לחישוב, וב-Q3 נבחרת מיד (ומחושבת כשהרכב של היום ידוע)."""
         clarification = state.pending_clarification
         state.pending_clarification = None
         if answer == "mine":
             car = next(c for c in snapshot.catalog if c.catalog_code == clarification.catalog_code)
-            call = ToolCall("match_current_car", {"model": car.model_name}, "clarified")
+            call = ToolCall("match_current_car", {"model": car.model_name,
+                                                  "registration_year": clarification.reg_year}, "clarified")
+            return ParserPlan([call], True, direct=True), ""
+        if state.pending_rep is None:
+            call = ToolCall("calculate", {"options": [*state.selected, clarification.catalog_code]}, "clarified")
             return ParserPlan([call], True, direct=True), ""
         if clarification.catalog_code not in state.queued_options:
             state.queued_options.append(clarification.catalog_code)

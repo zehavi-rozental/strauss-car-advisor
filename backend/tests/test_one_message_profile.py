@@ -66,7 +66,7 @@ def test_noa_one_message_profile_in_fallback_mode(engine):
     cid = client.post("/api/conversations").json()["conversation_id"]
     body = client.post(f"/api/conversations/{cid}/messages", json={"text": NOA_PROFILE}).json()
     assert body["stage"] == "COLLECT_CURRENT_CAR" and body["source"] == "template"
-    client.post(f"/api/conversations/{cid}/messages", json={"text": "קורולה קרוס"})
+    client.post(f"/api/conversations/{cid}/messages", json={"text": "יש לי קורולה קרוס"})
     client.post(f"/api/conversations/{cid}/messages", json={"text": "300"})
     body = client.post(f"/api/conversations/{cid}/messages", json={"text": "אטו 3"}).json()
     assert body["stage"] == "PRESENTED" and body["results"][0]["delta_display"] == "661"

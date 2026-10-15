@@ -64,7 +64,7 @@ def test_disallowed_tool_is_ignored(sessions):
 
 def test_unknown_copay_opens_rep_question(sessions):
     svc = service(sessions)
-    turn, token = talk(svc, profile() + ["COROLLA CROSS", "לא יודעת"])
+    turn, token = talk(svc, profile() + ["יש לי COROLLA CROSS", "לא יודעת"])
     assert turn.stage == Stage.WAITING_FOR_REP and turn.pending_rep == RepReason.CURRENT_COPAY
     [q] = open_questions(svc)
     assert (q.missing_field.value, q.mode.value, q.answer_type.value) == ("CURRENT_COPAY", "REQUIRED", "MONEY")
@@ -107,7 +107,7 @@ def test_unknown_occupation_asks_group_and_opt_out_goes_to_rep(sessions):
     assert "לא מצאתי את \"אסטרונאוטית\" בטבלת העיסוקים. זה התפקיד שלך?" in turn.reply   # לא נשמר בלי אישור
     turn, _ = talk(svc, ["כן"], start=(turn, token))
     assert "קבוצת הזכאות" in turn.reply
-    turn, _ = talk(svc, ["ג", "18,500", Q2_ANSWER.format(children="2"), "COROLLA CROSS", "300"], start=(turn, token))
+    turn, _ = talk(svc, ["ג", "18,500", Q2_ANSWER.format(children="2"), "יש לי COROLLA CROSS", "300"], start=(turn, token))
     assert turn.stage == Stage.CHOOSE_OPTIONS and "ויתור על רכב" in turn.reply
     turn, _ = talk(svc, ["ויתור"], start=(turn, token))
     assert turn.stage == Stage.WAITING_FOR_REP and turn.pending_rep == RepReason.OCCUPATION_OPT_OUT
@@ -155,14 +155,14 @@ def test_mandatory_car_has_no_opt_out(snapshot):
 
 def test_fallback_option_selection_by_hebrew_names(sessions):
     svc = service(sessions)
-    turn, _ = talk(svc, profile() + ["קורולה קרוס", "300", "טוסון ואטו"])
+    turn, _ = talk(svc, profile() + ["יש לי קורולה קרוס", "300", "טוסון ואטו"])
     assert turn.stage == Stage.PRESENTED
     assert [r.label for r in turn.results] == ["ATTO 3 (2025)", "TUCSON (2025)"]
 
 
 def test_fallback_names_match_whole_words_only(sessions):
     """"אני רוצה" מכיל את האותיות של "נירו" — אסור שזה ייבחר."""
-    turn, _ = talk(service(sessions), profile() + ["קורולה קרוס", "300", "אני רוצה לבדוק את BYD אטו 3 החשמלי"])
+    turn, _ = talk(service(sessions), profile() + ["יש לי קורולה קרוס", "300", "אני רוצה לבדוק את BYD אטו 3 החשמלי"])
     assert [r.label for r in turn.results] == ["ATTO 3 (2025)"]
 
 
@@ -225,7 +225,7 @@ def test_tax_file_car_confirmation_has_no_group(sessions):
 
 def test_correction_at_the_copay_question_rematches_the_car(sessions):
     svc = service(sessions)
-    turn, token = talk(svc, profile() + ["קורולה"])
+    turn, token = talk(svc, profile() + ["יש לי קורולה"])
     assert turn.reply.startswith("זיהיתי: COROLLA (2026), קבוצה ב, בנזין.")
     assert svc.view(turn.conversation_id, token).state.current.catalog_code == "CAR-07"
 
@@ -238,7 +238,7 @@ def test_correction_at_the_copay_question_rematches_the_car(sessions):
 
 def test_plain_number_at_the_copay_question_is_still_the_copay(sessions):
     svc = service(sessions)
-    turn, token = talk(svc, profile() + ["קורולה", "300"])
+    turn, token = talk(svc, profile() + ["יש לי קורולה", "300"])
     assert turn.stage == Stage.CHOOSE_OPTIONS
     current = svc.view(turn.conversation_id, token).state.current
     assert (current.catalog_code, current.copay) == ("CAR-07", Decimal(300))
@@ -254,7 +254,7 @@ def test_correction_keeps_the_copay_already_given(sessions):
 
 def test_not_this_car_resets_and_asks_for_the_model(sessions):
     svc = service(sessions)
-    turn, token = talk(svc, profile() + ["קורולה"])
+    turn, token = talk(svc, profile() + ["יש לי קורולה"])
     turn = svc.send(turn.conversation_id, token, "זה לא הרכב שלי")
     current = svc.view(turn.conversation_id, token).state.current
     assert current.catalog_code is None and current.source is None
@@ -278,5 +278,5 @@ def test_employee_facing_templates_are_gender_neutral():
 def test_unknown_reply_suggested_by_the_bot_is_understood(sessions):
     """הבוט מציע לכתוב "לא ידוע" — והקורא מבין אותו כ"לא יודע/ת"."""
     svc = service(sessions)
-    turn, _ = talk(svc, profile() + ["COROLLA CROSS", "לא ידוע"])
+    turn, _ = talk(svc, profile() + ["יש לי COROLLA CROSS", "לא ידוע"])
     assert turn.stage == Stage.WAITING_FOR_REP and turn.pending_rep == RepReason.CURRENT_COPAY

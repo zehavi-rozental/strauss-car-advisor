@@ -125,7 +125,7 @@ def test_confirmed_copay_is_used_next_time_without_a_new_question(client):
 # ---------- שאלה חוסמת: הזרימה ממשיכה ----------
 
 def test_rep_answer_unblocks_and_the_flow_continues(client):
-    cid, body = start(client, NOA[0], "קורולה קרוס", "לא יודעת")
+    cid, body = start(client, NOA[0], "יש לי קורולה קרוס", "לא יודעת")
     assert body["stage"] == "WAITING_FOR_REP"
     [q] = open_questions(client)
     seq = last_seq(client, cid)
@@ -143,7 +143,7 @@ def test_rep_answer_unblocks_and_the_flow_continues(client):
 
 UNKNOWN = ["אסטרונאוטית", "כן", "ג, שכר בסיס 18,500",
            "אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים",
-           "קורולה קרוס", "300", "ויתור"]
+           "יש לי קורולה קרוס", "300", "ויתור"]
 
 
 def test_opt_out_denied_by_the_rep(client):
@@ -181,7 +181,7 @@ def test_opt_out_allowed_then_maintenance_amount(client):
 
 def test_answer_stored_but_apply_failed_is_applied_on_the_next_read(client):
     service = client.app.state.ctx.service
-    cid, _ = start(client, NOA[0], "קורולה קרוס", "לא יודעת")
+    cid, _ = start(client, NOA[0], "יש לי קורולה קרוס", "לא יודעת")
     [q] = open_questions(client)
     real = service.agent.apply_answer
     calls = {"n": 0}

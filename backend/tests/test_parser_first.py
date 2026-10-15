@@ -343,7 +343,7 @@ def test_official_scenario_sentence_saves_an_approximate_commission(sessions):
     assert (p.commissions, p.pension_percent, p.study_fund_percent, p.credit_points) == (
         1000, 6, Decimal("2.5"), Decimal("2.25"))
     assert p.approximate_fields == ["commissions"]
-    for m in ["אין בונוס, 2 ילדים", "קורולה קרוס", "300", "אטו 3"]:   # מה שחסר מ-Q2 נשאל בתוך Q3
+    for m in ["אין בונוס, 2 ילדים", "יש לי קורולה קרוס", "300", "אטו 3"]:   # מה שחסר מ-Q2 נשאל בתוך Q3
         turn = svc.send(turn.conversation_id, token, m)
     assert turn.stage == Stage.PRESENTED
     assert "עמלות: כ-1,000 ₪, לפי ההערכה שלך" in turn.results[0].result["assumptions"]

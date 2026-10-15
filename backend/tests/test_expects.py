@@ -52,7 +52,7 @@ def test_expects_follows_the_state_machine(engine):
     e = say(client, cid, "אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים")["expects"]
     assert [f["field"] for f in e["fields"]] == ["car", "copay", "options"]          # Q3
     assert (e["field"], e["type"], ids(e, "quick_replies")) == ("car", "car_search", ["no_car"])
-    e = say(client, cid, "קורולה קרוס")["expects"]
+    e = say(client, cid, "יש לי קורולה קרוס")["expects"]
     assert [f["field"] for f in e["fields"]] == ["copay", "options"]
     assert (e["field"], ids(e, "quick_replies")) == ("copay", ["none", "unknown"])
     e = say(client, cid, "300")["expects"]
@@ -79,7 +79,7 @@ def test_expects_for_confirmation_variants_drive_and_waiting(engine):
     assert (e["field"], ids(e)) == ("drive", ["PETROL", "HYBRID", "PLUG_IN", "ELECTRIC"])
 
     cid, _ = new(client)
-    body = say(client, cid, PROFILE, "קורולה", "לא יודעת")
+    body = say(client, cid, PROFILE, "יש לי קורולה", "לא יודעת")
     assert body["stage"] == "WAITING_FOR_REP" and body["expects"]["type"] == "none"
     e = say(client, cid, "אטו 3")["expects"]
     assert (e["field"], ids(e)) == ("clarification", ["mine", "alternative"])
@@ -93,7 +93,7 @@ def test_choices_select_exactly_the_option_without_the_llm(engine):
     fake = FakeLLM()
     client = make_client(engine, llm=LLMChain([fake]))             # llm_first (ברירת המחדל)
     cid, _ = new(client)
-    say(client, cid, PROFILE, "קורולה קרוס", "300")
+    say(client, cid, PROFILE, "יש לי קורולה קרוס", "300")
     before = len(fake.calls)
     r = post(client, cid, choices=["CAR-10"])
     assert r.status_code == 200, r.text
@@ -108,7 +108,7 @@ def test_choices_select_exactly_the_option_without_the_llm(engine):
 def test_invalid_or_too_many_choices_are_rejected(engine):
     client = make_client(engine)
     cid, _ = new(client)
-    say(client, cid, PROFILE, "קורולה קרוס", "300")
+    say(client, cid, PROFILE, "יש לי קורולה קרוס", "300")
     r = post(client, cid, choices=["CAR-99"])
     assert r.status_code == 422 and r.json()["detail"] == "הבחירה אינה מהאפשרויות שהוצעו"
     r = post(client, cid, choices=["CAR-09"])                      # הרכב הנוכחי — לא הוצע

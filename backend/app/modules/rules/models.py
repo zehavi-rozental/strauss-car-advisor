@@ -110,6 +110,13 @@ MOVED_TO_RULES = {
 }
 
 
+class CarRoleCues(_Strict):
+    """מילים שקובעות אם רכב בהודעה הוא הרכב של היום או חלופה לבדיקה."""
+
+    current: list[str] = Field(default_factory=list)
+    alternative: list[str] = Field(default_factory=list)
+
+
 class Extensions(_Strict):
     """רק מה שקובץ הכללים של שטראוס עדיין לא אומר."""
 
@@ -131,6 +138,7 @@ class Extensions(_Strict):
     option_message_fillers: list[str] = Field(default_factory=list)
     value_qualifiers: list[str] = Field(default_factory=list)  # מילה אחרי ערך מתויג שמשנה את משמעותו
     non_title_words: list[str] = Field(default_factory=list)   # ברכה, שאלה — לא שם תפקיד
+    car_role_cues: CarRoleCues = Field(default_factory=CarRoleCues)
     # תחילת שם היצרן בקטלוג → מילים שמותר לכתוב לצד הדגם ("BYD אטו 3")
     manufacturer_brands: dict[str, list[str]] = Field(default_factory=dict)
     # טווחים סבירים לכל ערך שנשמר בפרופיל (מכל מקור: הקורא, המודל, כפתורים). מחוץ לטווח — לא נשמר.

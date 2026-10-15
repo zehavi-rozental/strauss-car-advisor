@@ -23,3 +23,21 @@ cases:
   - {text: "אין בונוס, 2 ילדים, הרכב של אשתי קורולה קרוס", allowed: [{bonus: 0, children: 2}]}
   - {text: "קורולה קרוס ו-ATTO 3, אין בונוס", allowed: []}
   - {text: "300", allowed: [{copay: 300}]}
+  # הרכב של היום או חלופה: נקבע לפי מילים (car_role_cues); שם רכב לבד — שואלים
+  - {text: "ATTO 3", allowed: [{clarify: CAR-10}]}
+  - {text: "אטו 3", allowed: [{clarify: CAR-10}]}
+  - {text: "אני רוצה לבדוק ATTO 3", allowed: [{selected: [CAR-10]}]}
+  - {text: "ATTO 3 מעניין אותי", allowed: [{selected: [CAR-10]}]}
+  - {text: "רוצה לעבור לאטו 3", allowed: [{selected: [CAR-10]}]}
+  - {text: "יש לי ATTO 3", allowed: [{car: CAR-10}]}
+  - {text: "אני נוהגת ב-ATTO 3", allowed: [{car: CAR-10}]}
+  - {text: "הרכב שלי ATTO 3, משתתפת ב-500", allowed: [{car: CAR-10, copay: 500}]}
+  - text: "יש לי קורולה קרוס ורוצה לבדוק ATTO 3"
+    allowed: [{car: CAR-09, selected: [CAR-10]}]
+  - text: "אין בונוס, 2 ילדים, יש לי קורולה קרוס, משתתפת ב-300, ורוצה לבדוק ATTO 3"
+    allowed: [{bonus: 0, children: 2, car: CAR-09, copay: 300, selected: [CAR-10]}]
+  - {text: "אין בונוס, 2 ילדים, ATTO 3", allowed: [{bonus: 0, children: 2, clarify: CAR-10}]}
+  - {text: "יש לי ATTO 3 ואני רוצה לבדוק אותו", allowed: []}               # שתי המילים לאותו רכב — לא מנחשים
+  - {text: "קורולה קרוס, אין לי השתתפות", allowed: [{car: CAR-09, copay: 0}]}
+  - {text: "קורולה קרוס 2023", allowed: [{car: "tax:COROLLA CROSS (2023)"}]}  # שנה אחרת מהקטלוג — הרכב של היום
+  - {text: "רוצה לבדוק מודל 3", allowed: []}                              # קבוצה ד — לא זמין

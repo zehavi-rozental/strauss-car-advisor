@@ -74,7 +74,7 @@ def test_noa_levi_fallback_mode(engine, sessions):
     body = None
     for text in ["מנהלת מוצר, שכר בסיס 18,500",
                  "אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים",
-                 "קורולה קרוס", "300", "אטו 3"]:      # שמות בעברית: כינויים מ-extensions.yaml
+                 "יש לי קורולה קרוס", "300", "אטו 3"]:      # שמות בעברית: כינויים מ-extensions.yaml
         body = client.post(f"/api/conversations/{cid}/messages", json={"text": text}).json()
         assert body["source"] == "template"
     _assert_noa_result(body, sessions)

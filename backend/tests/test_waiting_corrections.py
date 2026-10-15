@@ -20,7 +20,7 @@ def waiting(sessions, llm=None):
     """נועה, "קורולה" (CAR-07), "לא יודע" → ממתינים לנציג על ההשתתפות."""
     svc = ConversationService(sessions, RulesStore(CONFIG), llm or LLMChain())
     turn, token = svc.start()
-    for text in (PROFILE, "קורולה", "לא יודע"):
+    for text in (PROFILE, "יש לי קורולה", "לא יודע"):
         turn = svc.send(turn.conversation_id, token, text)
     assert turn.stage == Stage.WAITING_FOR_REP
     [question] = svc.cases.list_open()
@@ -71,7 +71,7 @@ def test_this_is_my_car_rematches_and_cancels(sessions):
 def test_an_alternative_is_calculated_after_the_rep_answers(engine):
     client = make_client(engine, rep_access_token="t")
     cid = client.post("/api/conversations").json()["conversation_id"]
-    for text in (PROFILE, "קורולה קרוס", "לא יודעת", "ATTO 3"):
+    for text in (PROFILE, "יש לי קורולה קרוס", "לא יודעת", "ATTO 3"):
         body = client.post(f"/api/conversations/{cid}/messages", json={"text": text}).json()
     assert body["reply"] == CLARIFY
     body = client.post(f"/api/conversations/{cid}/messages", json={"text": "חלופה"}).json()

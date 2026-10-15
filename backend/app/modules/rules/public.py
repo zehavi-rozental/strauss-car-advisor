@@ -16,7 +16,7 @@ from app.modules.calculation.public import (
 )
 
 from .loader import ConfigError, RulesSnapshot, RulesStore, load_snapshot
-from .models import CatalogCar, Occupation, ReferenceEmployee, ReferenceResult
+from .models import CarRoleCues, CatalogCar, Occupation, ReferenceEmployee, ReferenceResult
 
 
 def car_state(car: CatalogCar, *, copay: Optional[Decimal] = None,
@@ -130,7 +130,7 @@ def parse_reference_state(snapshot: RulesSnapshot, label: str, *, current_copay:
 
 
 __all__ = [
-    "FAMILY_GROUP", "CatalogCar", "ConfigError", "Occupation", "ReferenceEmployee", "ReferenceResult",
+    "FAMILY_GROUP", "CarRoleCues", "CatalogCar", "ConfigError", "Occupation", "ReferenceEmployee", "ReferenceResult",
     "RulesSnapshot", "RulesStore", "candidate_states", "car_state", "catalog_names", "find_catalog_car", "matched_name", "mentions", "words",
     "load_snapshot", "occupation_rule", "parse_reference_state", "reference_employee",
 ]

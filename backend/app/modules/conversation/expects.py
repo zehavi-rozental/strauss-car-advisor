@@ -30,6 +30,7 @@ _UNKNOWN_FLAGS = {"use_value": "current_use_value_unknown", "copay": "current_co
 OCCUPATION_YES = {"id": "yes", "label": "כן, זה התפקיד שלי"}
 YES_NO = [{"id": "yes", "label": "כן"}, {"id": "no", "label": "לא"}]
 CLARIFY = [{"id": "mine", "label": "זה הרכב שלי"}, {"id": "alternative", "label": "חלופה לבדיקה"}]
+CLARIFY_ROLE = [{"id": "mine", "label": "הרכב שלי היום"}, {"id": "alternative", "label": "חלופה לבדוק"}]
 INVALID = "הבחירה אינה מהאפשרויות שהוצעו"
 FIELD_NEEDED = "יש לציין לאיזה שדה הבחירה"
 
@@ -92,9 +93,9 @@ def build_expects(state: ConversationState, snapshot: RulesSnapshot) -> dict[str
         pending = state.pending_occupation
         return _expects("occupation_confirmation", "choice",
                         [{"id": n, "label": n} for n in pending.suggestions] + [OCCUPATION_YES])
+    if state.pending_clarification is not None:
+        return _expects("clarification", "choice", CLARIFY if stage == Stage.WAITING_FOR_REP else CLARIFY_ROLE)
     if stage == Stage.WAITING_FOR_REP:
-        if state.pending_clarification is not None:
-            return _expects("clarification", "choice", CLARIFY)
         return _expects(None, "none")
     fields = question_fields(state)
     if "occupation" in fields:            # Q1: קבוצה או תפקיד — שניהם עונים

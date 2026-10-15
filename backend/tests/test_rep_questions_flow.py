@@ -58,7 +58,7 @@ def test_new_car_copay_question_is_opened_once_and_the_result_is_shown(engine):
 def test_waiting_makes_no_llm_call(sessions):
     fake = FakeLLM()
     svc = service(sessions, LLMChain([fake]))
-    turn, token = talk(svc, [NOA[0], "קורולה קרוס", "לא יודעת"])
+    turn, token = talk(svc, [NOA[0], "יש לי קורולה קרוס", "לא יודעת"])
     assert turn.stage == Stage.WAITING_FOR_REP
     before = len(fake.calls)
     turn = svc.send(turn.conversation_id, token, "נו, יש תשובה?")
@@ -70,7 +70,7 @@ def test_correcting_the_car_cancels_its_questions(engine):
     client = make_client(engine)
     cases = client.app.state.ctx.service.cases
     cid = client.post("/api/conversations").json()["conversation_id"]
-    for text in [NOA[0], "קורולה", "לא יודע"]:
+    for text in [NOA[0], "יש לי קורולה", "לא יודע"]:
         body = client.post(f"/api/conversations/{cid}/messages", json={"text": text}).json()
     assert body["stage"] == "WAITING_FOR_REP"
     [old] = cases.list_open()

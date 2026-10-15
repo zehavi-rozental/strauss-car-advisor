@@ -15,10 +15,12 @@ from decimal import Decimal
 from typing import Iterable, Optional
 
 from app.modules.calculation.public import Drive
-from app.modules.rules.public import CatalogCar, RulesSnapshot, catalog_names, matched_name, mentions, words
+from app.modules.rules.public import (CarRoleCues, CatalogCar, RulesSnapshot, catalog_names, matched_name,
+                                      mentions, words)
 
 from .llm.port import ToolCall
 from .parsing import (
+    NAME_PREFIX_LETTERS,
     NUMBER_RE,
     approx_spans,
     plain_decimal,
@@ -39,7 +41,7 @@ from .parsing import (
     unread_words,
     year_spans,
 )
-from .stage import ConversationState, current_group
+from .stage import CarClarification, ConversationState, current_group
 from .tools import OPT_OUT_WORDS, available_options
 
 _RANK_RE = re.compile(r"הכי\s*משתלם|הכי\s*טוב|תמליץ|המלצ|דרג", re.IGNORECASE)
@@ -73,6 +75,7 @@ class ParserPlan:
     fallback_notice: Optional[str] = None    # משפט לפני השאלה הבאה, כשהקריאות רצו כגיבוי
     direct: bool = False                     # תשובה לשאלה של הקוד (אישור, הבהרה, כפתור) — לא עוברת למודל
     guess: bool = False                      # "כל ההודעה היא הערך" (תפקיד/דגם קצר) — רק כשהמודל לא זמין
+    clarify: Optional[CarClarification] = None   # רכב שלא ברור אם הוא של היום או חלופה — שואלים
 
 
 def _key(text: str) -> str:
@@ -148,20 +151,19 @@ def _field_plan(state: ConversationState, snapshot: RulesSnapshot, field_: str, 
 
 def _grouped_plan(state: ConversationState, snapshot: RulesSnapshot, group: Optional[str],
                   fields: list[str], t: str) -> ParserPlan:
-    """שאלה מקובצת. לא מנחשים: (1) ב-Q3 רכב בשמו הוא הרכב של היום (השאלה שואלת עליו קודם), וההודעה
+    """שאלה מקובצת. לא מנחשים: (1) ב-Q3 תפקיד כל רכב בשמו (של היום / חלופה) נקבע לפי מילים, וההודעה
     נקראת יחד עם ההשתתפות וערכים מתויגים שנשארו מ-Q2;
     (2) ערכים מתויגים ("פנסיה 6%", "קבוצה ג") — כשההודעה נקראה במלואה; (3) אחרת ההודעה נקראת
     כתשובה לכל שדה בנפרד, ופועלים רק אם בדיוק שדה אחד קורא אותה במלואה ("300" כשחסרים רכב
     והשתתפות = השתתפות; "אין" כשחסרים עמלות ובונוס — שואלים שוב)."""
     car_guess = None
     if "car" in fields:
-        plan = _car_plan(snapshot, t)
-        if plan.complete and plan.calls:
-            return plan
         cars = named_cars(t, snapshot.catalog)
         if cars:
-            # רכב בשמו לפני שהרכב של היום ידוע — לא בוחרים אותו כחלופה
-            return _q3_car_plan(snapshot, cars, t)
+            return _q3_car_plan(state, snapshot, fields, cars, t)
+        plan = _car_plan(snapshot, t)
+        if plan.complete and plan.calls:
+            return plan                   # "אין רכב"
         car_guess = plan if plan.calls else None      # דגם קצר שלא בקטלוג — גיבוי, אם אף שדה אחר לא קורא
     profile_fields = [f for f in fields if f in _PROFILE_ARG]
     if profile_fields:
@@ -348,28 +350,107 @@ def _car_plan(snapshot: RulesSnapshot, text: str) -> ParserPlan:
     return ParserPlan(calls, complete, guess=not complete)
 
 
-def _q3_car_plan(snapshot: RulesSnapshot, cars: list[CatalogCar], text: str) -> ParserPlan:
-    """תשובה מלאה ל-Q3: הרכב של היום (+שנה, +השתתפות) יחד עם ערכים מתויגים שנשארו מ-Q2
+# משפטי-משנה: פסיק (לא בתוך "14,200"), נקודה (לא בתוך "2.5"), נקודה-פסיק, שורה חדשה
+_CLAUSE_RE = re.compile(r"[;\n]|,(?!\d{3})|\.(?!\d)")
+
+
+def _phrase_at(ws: list[str], phrase: str) -> list[tuple[int, int]]:
+    """היכן הביטוי מופיע ברשימת המילים (מילים שלמות; אות שימוש אחת לפניו). ביטוי שמסתיים באות אחת
+    ("לעבור ל") — האות היא תחילת המילה הבאה ("לעבור לאטו 3")."""
+    tokens = words(phrase)
+    tail = tokens.pop() if len(tokens) > 1 and len(tokens[-1]) == 1 else None
+    target = "".join(tokens)
+    hits = []
+    for i in range(len(ws)):
+        for j in range(i + 1, len(ws) + 1):
+            joined = "".join(ws[i:j])
+            if joined == target or (joined[0] in NAME_PREFIX_LETTERS and joined[1:] == target):
+                if tail is None or (j < len(ws) and ws[j].startswith(tail)):
+                    hits.append((i, j))
+                break
+            if len(joined) > len(target) + 1:
+                break
+    return hits
+
+
+def car_roles(text: str, cars: list[CatalogCar], cues: CarRoleCues) -> dict[str, Optional[str]]:
+    """תפקיד כל רכב שבהודעה: "current" / "alternative" / None (בלי מילה, או מילים משני הסוגים).
+    מילה נקשרת לרכב הראשון אחריה באותו משפט-משנה ("יש לי קורולה קרוס ורוצה לבדוק ATTO 3"),
+    ואם אין אחריה רכב — לרכב שלפניה ("ATTO 3 מעניין אותי", "קורולה קרוס ואני משתתפת ב-300")."""
+    found: dict[str, set[str]] = {c.catalog_code: set() for c in cars}
+    for clause in _CLAUSE_RE.split(text):
+        ws = words(clause)
+        at = [(i, j, car.catalog_code) for car in cars for n in catalog_names(car) for i, j in _phrase_at(ws, n)]
+        # שם שמוכל בשם ארוך יותר ("קורולה" בתוך "קורולה קרוס") — לא רכב נפרד
+        at = sorted((i, j, c) for i, j, c in at if not any(a <= i and j <= b and (a, b) != (i, j) for a, b, _ in at))
+        if not at:
+            continue
+        for role, phrases in (("current", cues.current), ("alternative", cues.alternative)):
+            for phrase in phrases:
+                for i, j in _phrase_at(ws, phrase):
+                    after = [c for a, _, c in at if a >= j]
+                    before = [c for _, b, c in at if b <= i]
+                    if after or before:
+                        found[after[0] if after else before[-1]].add(role)
+    return {code: next(iter(roles)) if len(roles) == 1 else None for code, roles in found.items()}
+
+
+def _q3_car_plan(state: ConversationState, snapshot: RulesSnapshot, fields: list[str],
+                 cars: list[CatalogCar], text: str) -> ParserPlan:
+    """תשובה ל-Q3 עם רכב בשמו, יחד עם ההשתתפות וערכים מתויגים שנשארו מ-Q2
     ("אין בונוס, 2 ילדים, יש לי קורולה קרוס ואני משתתפת ב-300"). הכלל הוא של כל ההודעה:
-    פועלים רק כשלא נשאר בה דבר שלא נקרא."""
+    פועלים רק כשלא נשאר בה דבר שלא נקרא.
+
+    השאלה שואלת גם על הרכב של היום וגם על החלופות, ולכן תפקיד כל רכב נקבע במילים (car_role_cues),
+    לא מנחשים: רכב בלי מילה ("ATTO 3") — שואלים אם זה הרכב של היום או חלופה."""
     ext = snapshot.extensions
-    if len(cars) != 1 or negates(text):
+    if negates(text):
         return ParserPlan()
-    car = cars[0]
-    reading = read_profile(text, snapshot.occupations.keys(), ext.correction_cues, ext.value_qualifiers)
+    roles = car_roles(text, cars, ext.car_role_cues)
+    year = find_year(text)
     copay = parse_copay(text)
-    spans = [*reading.spans, *approx_spans(text), copay_span(text), *year_spans(text)]
-    phrases = [*reading.phrases, matched_name(text, car) or car.model_name]
-    fillers = [*ext.profile_fillers, *ext.car_message_fillers, *ext.correction_cues]
+    # רכב יחיד בלי מילה: השתתפות שנמסרה היא תמיד על הרכב של היום ("קורולה קרוס, אין לי השתתפות"),
+    # ושנה אחרת מהקטלוג — החלופות הן רכבים חדשים מהקטלוג ("COROLLA CROSS 2023")
+    if len(cars) == 1 and roles[cars[0].catalog_code] is None and (
+            copay is not None or (year is not None and year != cars[0].reg_year)):
+        roles[cars[0].catalog_code] = "current"
+    if "options" not in fields:           # כבר נבחרה חלופה: השאלה שואלת רק על הרכב של היום
+        roles = {code: role or "current" for code, role in roles.items()}
+    current = [c for c in cars if roles[c.catalog_code] == "current"]
+    alternatives = [c for c in cars if roles[c.catalog_code] == "alternative"]
+    unclear = [c for c in cars if roles[c.catalog_code] is None]
+    if len(current) > 1 or len(unclear) > 1:
+        return ParserPlan()
+    available = {o.id for o in available_options(snapshot, state)}
+    if any(c.catalog_code not in available for c in alternatives):
+        return ParserPlan()                   # חלופה שאינה זמינה (קבוצה גבוהה) — המודל או שאלה
+    reading = read_profile(text, snapshot.occupations.keys(), ext.correction_cues, ext.value_qualifiers)
+    # השנה שייכת לרכב של היום (או לרכב ששואלים עליו); עם חלופות בלבד היא נשארת לא מובנת
+    spans = [*reading.spans, *approx_spans(text), copay_span(text),
+             *(year_spans(text) if current or unclear else [])]
+    phrases = [*reading.phrases, *(matched_name(text, c) or c.model_name for c in cars)]
+    fillers = [*ext.profile_fillers, *ext.car_message_fillers, *ext.option_message_fillers, *ext.correction_cues,
+               *ext.car_role_cues.current, *ext.car_role_cues.alternative]
+    for car in alternatives:
+        fillers += _descriptors(car, ext.manufacturer_brands)
     if unread_words(text, spans, phrases, fillers, leading_no=True):
         return ParserPlan()
-    calls = _call("match_current_car", model=car.model_name, registration_year=find_year(text))
+    calls: list[ToolCall] = []
+    if current:
+        calls += _call("match_current_car", model=current[0].model_name, registration_year=year)
     profile = dict(reading.fields)
     if copay is not None:
         profile["current_copay"] = str(copay)
     if profile:
         calls += _call("save_profile", **profile, approximate_fields=list(reading.approximate))
-    return ParserPlan(calls, True)
+    if alternatives:
+        calls += _call("calculate", options=[*state.selected, *(c.catalog_code for c in alternatives)])
+    if not unclear:
+        return ParserPlan(calls, True)
+    car = unclear[0]
+    label = f"{car.model_name} ({year})" if year else car.label     # השנה כפי שהעובד כתב
+    return ParserPlan(calls, True, direct=True,
+                      clarify=CarClarification(catalog_code=car.catalog_code, label=label, reg_year=year))
 
 
 def _car_detail_plan(snapshot: RulesSnapshot, question: str, text: str) -> ParserPlan:

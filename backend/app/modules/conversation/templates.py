@@ -337,6 +337,11 @@ def clarify_car_text(label: str) -> str:
             f"אם זה הרכב שלך, כתבו \"זה הרכב שלי\". אם זו חלופה, אבדוק אותה ברגע שהנציג יענה.")
 
 
+def clarify_role_text(label: str) -> str:
+    """ב-Q3, כשלא ברור אם הרכב שנכתב הוא הרכב של היום או חלופה."""
+    return f"{label} הוא הרכב שלך היום, או חלופה שתרצו לבדוק?"
+
+
 def queued_option_text(label: str) -> str:
     return f"בסדר, אבדוק את {label} כחלופה ברגע שהנציג יענה."
 OPT_OUT_DENIED = "לפי נציג התחבורה, בעיסוק שלך לא ניתן לוותר על הרכב"
@@ -420,6 +425,9 @@ def render(state: ConversationState, snapshot: RulesSnapshot, *, understood: boo
         parts.append(results_text(state))
     if waiting:
         parts.append(asked_text(state) if rep_opened else WAITING)
+        return "\n\n".join(parts)
+    if state.pending_clarification is not None:
+        parts.append(clarify_role_text(state.pending_clarification.label))
         return "\n\n".join(parts)
     fields = current_group(state)[1]
     if not understood and fields[:1] == ["car"]:
