@@ -142,7 +142,7 @@ def fallback_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) 
 
 def _profile_plan(snapshot: RulesSnapshot, question: str, text: str) -> ParserPlan:
     ext = snapshot.extensions
-    reading = read_profile(text, snapshot.occupations.keys(), ext.correction_cues)
+    reading = read_profile(text, snapshot.occupations.keys(), ext.correction_cues, ext.value_qualifiers)
     if reading.fields:
         if not unread_words(text, reading.spans + approx_spans(text), reading.phrases, ext.profile_fillers):
             return ParserPlan(_call("save_profile", **reading.fields,
@@ -151,7 +151,12 @@ def _profile_plan(snapshot: RulesSnapshot, question: str, text: str) -> ParserPl
     asked = _PROFILE_ARG[question]
     if question == "occupation":
         # תפקיד שאינו בטבלה: כל התשובה הקצרה היא שם התפקיד — גיבוי בלבד (המודל קודם)
-        if len(words(text)) <= SHORT_TITLE_WORDS and not any(ch.isdigit() for ch in text):
+        # "לא יודעת", "אין", "לא מנהלת" — אינם שם תפקיד
+        # ברכה או שאלה ("שלום", "מה זה משנה?") — גם לא
+        ws = words(text)
+        not_a_title = (unknown_span(text) or none_span(text) or "לא" in ws or "?" in text
+                       or any(w in ext.non_title_words for w in ws))
+        if len(words(text)) <= SHORT_TITLE_WORDS and not any(ch.isdigit() for ch in text) and not not_a_title:
             return ParserPlan(_call("save_profile", occupation=text), False, guess=True)
         return ParserPlan()
     if question == "group":
@@ -168,6 +173,8 @@ def _profile_plan(snapshot: RulesSnapshot, question: str, text: str) -> ParserPl
         return ParserPlan()
     value, approximate = read
     if question == "children":
+        if Decimal(value) != int(Decimal(value)) or approximate:
+            return ParserPlan()                                # "2.5", "בערך 2" — שואלים שוב
         return ParserPlan(_call("save_profile", children_under_23=int(Decimal(value))), True)
     return ParserPlan(_call("save_profile", **{asked: value},
                             approximate_fields=[asked] if approximate else []), True)

@@ -1,0 +1,18 @@
+# שאלת הפנסיה (אחוז העובד).
+setup: ["מנהלת מוצר", "18,500", "אין", "אין"]
+cases:
+  - {text: "6", allowed: [{pension: 6}]}
+  - {text: "6%", allowed: [{pension: 6}]}
+  - {text: "6 אחוז", allowed: [{pension: 6}]}
+  - {text: "פנסיה 6%", allowed: [{pension: 6}]}
+  - {text: "6.5%", allowed: [{pension: 6.5}]}
+  - {text: "7 אחוזים מהשכר", allowed: [{pension: 7}]}
+  - {text: "בערך 6", allowed: [{pension: 6, approximate: [pension_percent]}]}
+  - {text: "שש", allowed: [{pension: 6}]}
+  - {text: "60%", allowed: []}
+  - {text: "1,000 ₪", allowed: []}                   # סכום, לא אחוז
+  - {text: "לא יודעת", allowed: []}
+  - {text: "6 או 7", allowed: []}
+  - {text: "6% ממני ו-6.5% מהמעסיק", allowed: [{pension: 6}]}
+  - {text: "6%, וקרן השתלמות 2.5%", allowed: [{pension: 6, study_fund: 2.5}, {pension: 6}]}
+  - {text: "המעסיק מפריש 6.5%", allowed: []}         # חלק המעסיק — לא מה שנשאל

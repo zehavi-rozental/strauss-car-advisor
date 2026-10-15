@@ -1,0 +1,18 @@
+# שאלת סוג ההנעה (דגם שלא נמצא, אחרי שווי השימוש).
+setup: ["אני מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים", "טויוטה מיסטרי", "3000"]
+cases:
+  - {text: "בנזין", allowed: [{drive: PETROL}]}
+  - {text: "היברידי", allowed: [{drive: HYBRID}]}
+  - {text: "חשמלי", allowed: [{drive: ELECTRIC}]}
+  - {text: "חשמלית", allowed: [{drive: ELECTRIC}]}
+  - {text: "פלאג-אין", allowed: [{drive: PLUG_IN}]}
+  - {text: "פלאג אין", allowed: [{drive: PLUG_IN}]}
+  - {text: "זה רכב היברידי", allowed: [{drive: HYBRID}]}
+  - {text: "הנעה היברידית", allowed: [{drive: HYBRID}]}
+  - {text: "הייבריד", allowed: [{drive: HYBRID}]}
+  - {text: "electric", allowed: [{drive: ELECTRIC}]}
+  - {text: "היברידי נטען", allowed: [{drive: PLUG_IN}]}          # נטען = פלאג-אין, לא היברידי רגיל
+  - {text: "לא היברידי, בנזין", allowed: [{drive: PETROL}]}
+  - {text: "לא יודע", allowed: []}
+  - {text: "דיזל", allowed: []}
+  - {text: "בנזין או היברידי, לא זוכרת", allowed: []}

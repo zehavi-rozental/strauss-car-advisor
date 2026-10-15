@@ -1,0 +1,21 @@
+# שאלת שכר הבסיס.
+setup: ["מנהלת מוצר"]
+cases:
+  - {text: "18,500", allowed: [{base: 18500}]}
+  - {text: "18500", allowed: [{base: 18500}]}
+  - {text: "18,500 ₪", allowed: [{base: 18500}]}
+  - {text: "₪18,500", allowed: [{base: 18500}]}
+  - {text: "18,500 ברוטו", allowed: [{base: 18500}]}
+  - {text: "שכר הבסיס שלי 18,500", allowed: [{base: 18500}]}
+  - {text: "18 אלף", allowed: [{base: 18000}]}
+  - {text: "18k", allowed: [{base: 18000}]}
+  - {text: "בערך 18", allowed: [{confirm: "base_salary=18000"}]}
+  - {text: "18", allowed: [{confirm: "base_salary=18000"}]}
+  - {text: "כ-18 וחצי", allowed: [{confirm: "base_salary=18500"}]}
+  - {text: "בערך 18,500", allowed: [{base: 18500, approximate: [base_salary]}]}
+  - {text: "500,000", allowed: []}
+  - {text: "18,500 או 19,000", allowed: []}
+  - {text: "לא יודעת", allowed: []}
+  - {text: "18,500 נטו", allowed: []}
+  - {text: "שמונה עשר אלף וחמש מאות", allowed: [{base: 18500}]}
+  - {text: "18,500 ופנסיה 6%", allowed: [{base: 18500, pension: 6}, {base: 18500}]}

@@ -10,3 +10,5 @@ dist/
 eval-report.md
 *.egg-info/
 *.db.bak
+backend/tests/phrasings/REPORT.txt
+backend/tests/phrasings/REPORT_LLM.txt

@@ -1,0 +1,19 @@
+# שאלת העמלות.
+setup: ["מנהלת מוצר", "18,500"]
+cases:
+  - {text: "אין", allowed: [{commissions: 0}]}
+  - {text: "אין לי עמלות", allowed: [{commissions: 0}]}
+  - {text: "לא", allowed: [{commissions: 0}]}
+  - {text: "0", allowed: [{commissions: 0}]}
+  - {text: "1,000", allowed: [{commissions: 1000}]}
+  - {text: "1000 ש\"ח", allowed: [{commissions: 1000}]}
+  - {text: "כן, 2,000", allowed: [{commissions: 2000}]}
+  - {text: "עמלות משתנות כ-1,000 ₪", allowed: [{commissions: 1000, approximate: [commissions]}]}
+  - {text: "בממוצע 1,500 בחודש", allowed: [{commissions: 1500, approximate: [commissions]}]}
+  - {text: "1,000 בחודש בערך", allowed: [{commissions: 1000, approximate: [commissions]}]}
+  - {text: "לא יודעת", allowed: []}
+  - {text: "יש, אבל משתנה", allowed: []}
+  - {text: "300,000", allowed: []}
+  - {text: "אין עמלות ואין בונוס", allowed: [{commissions: 0, bonus: 0}]}
+  - {text: "אלף שקל", allowed: [{commissions: 1000}]}
+  - {text: "1,000 או 2,000, תלוי בחודש", allowed: []}

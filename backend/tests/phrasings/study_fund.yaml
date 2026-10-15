@@ -1,0 +1,18 @@
+# שאלת קרן ההשתלמות.
+setup: ["מנהלת מוצר", "18,500", "אין", "אין", "6"]
+cases:
+  - {text: "2.5", allowed: [{study_fund: 2.5}]}
+  - {text: "2.5%", allowed: [{study_fund: 2.5}]}
+  - {text: "2.5 אחוז", allowed: [{study_fund: 2.5}]}
+  - {text: "קרן השתלמות 2.5", allowed: [{study_fund: 2.5}]}
+  - {text: "אין", allowed: [{study_fund: 0}]}
+  - {text: "אין לי קרן השתלמות", allowed: [{study_fund: 0}]}
+  - {text: "לא", allowed: [{study_fund: 0}]}
+  - {text: "0", allowed: [{study_fund: 0}]}
+  - {text: "בערך 2.5", allowed: [{study_fund: 2.5, approximate: [study_fund_percent]}]}
+  - {text: "שתיים וחצי", allowed: [{study_fund: 2.5}]}
+  - {text: "25%", allowed: []}
+  - {text: "לא יודעת", allowed: []}
+  - {text: "2.5 או 3", allowed: []}
+  - {text: "2.5% ממני ו-7.5% מהמעסיק", allowed: [{study_fund: 2.5}]}
+  - {text: "יש לי, לא זוכרת כמה", allowed: []}

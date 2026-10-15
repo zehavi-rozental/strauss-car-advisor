@@ -1,0 +1,18 @@
+# בזמן המתנה לנציג על ההשתתפות.
+setup: ["אני מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים", "קורולה", "לא יודעת"]
+cases:
+  - {text: "נו, יש תשובה?", allowed: []}
+  - {text: "תודה", allowed: []}
+  - {text: "כמה זמן זה לוקח?", allowed: []}
+  - {text: "300", allowed: []}                                  # הנציג קובע, לא ניחוש
+  - {text: "התבלבלתי, זו קורולה קרוס", allowed: [{car: CAR-09, copay_unknown: null, waiting: null}]}
+  - {text: "אופס, התכוונתי לקורולה קרוס", allowed: [{car: CAR-09, copay_unknown: null, waiting: null}]}
+  - {text: "תיקון: קורולה קרוס", allowed: [{car: CAR-09, copay_unknown: null, waiting: null}]}
+  - {text: "רגע, טעיתי, קורולה קרוס", allowed: [{car: CAR-09, copay_unknown: null, waiting: null}]}
+  - {text: "הרכב שלי זה קורולה קרוס", allowed: [{car: CAR-09, copay_unknown: null, waiting: null}, {clarify: CAR-09}]}
+  - {text: "זה לא הרכב שלי", allowed: [{car: null, copay_unknown: null, waiting: null}]}
+  - {text: "זה לא קורולה קרוס", allowed: []}
+  - {text: "אטו 3", allowed: [{clarify: CAR-10}]}
+  - {text: "אני רוצה לבדוק גם את EV3", allowed: [{clarify: CAR-11}, {queued: [CAR-11]}]}
+  - {text: "קורולה קרוס", allowed: [{clarify: CAR-09}]}
+  - {text: "מה עם הבונוס שלי?", allowed: []}

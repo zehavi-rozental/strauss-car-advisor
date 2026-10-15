@@ -44,6 +44,10 @@ def _tax_row(reg_year, model_code, name, use_value, drive="HYBRID", vehicle_type
 
 @pytest.fixture
 def engine():
+    return build_engine()
+
+
+def build_engine():
     """מסד בזיכרון עם כמה רכבים מדומים ממאגר רשות המסים."""
     eng = make_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
     Base.metadata.create_all(eng)

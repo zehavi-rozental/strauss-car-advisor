@@ -1,0 +1,19 @@
+# שאלת הילדים (עד גיל 23).
+setup: ["מנהלת מוצר", "18,500", "אין", "אין", "6", "2.5", "2.25"]
+cases:
+  - {text: "2", allowed: [{children: 2}]}
+  - {text: "2 ילדים", allowed: [{children: 2}]}
+  - {text: "4", allowed: [{children: 4}]}
+  - {text: "0", allowed: [{children: 0}]}
+  - {text: "אין", allowed: [{children: 0}]}
+  - {text: "אין לי ילדים", allowed: [{children: 0}]}
+  - {text: "לא", allowed: [{children: 0}]}
+  - {text: "שניים", allowed: [{children: 2}]}
+  - {text: "ילד אחד", allowed: [{children: 1}]}
+  - {text: "יש לי שני ילדים קטנים", allowed: [{children: 2}]}
+  - {text: "2.5", allowed: []}
+  - {text: "50", allowed: []}
+  - {text: "בערך 2", allowed: []}
+  - {text: "3 ילדים, אחד מעל 23", allowed: [{children: 2}]}
+  - {text: "לא יודעת", allowed: []}
+  - {text: "2 ילדים ואין לי רכב", allowed: [{children: 2, car: none}, {children: 2}]}

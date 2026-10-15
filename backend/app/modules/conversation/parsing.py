@@ -148,7 +148,8 @@ def match_occupation(names: Iterable[str], text: str) -> Optional[str]:
 
 _NUM = r"(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)"
 _NEG = r"(?:אין|בלי|ללא|לא)"
-_GAP = r"[^\d,;.\n]{0,12}?"          # בין מילת המפתח למספר — לא חוצים פסיק לשדה הבא
+# בין מילת המפתח למספר — לא חוצים פסיק לשדה הבא. המילים שבפער נבדקות ("בונוס שנתי 12,000" — לא נקרא במלואו)
+_GAP = r"(?P<gap>[^\d,;.\n]{0,12}?)"
 # כל ביטוי: (שדה ב-save_profile, תבנית). המספר הוא הקבוצה הראשונה.
 _PROFILE_PATTERNS = (
     ("base_salary", rf"(?:שכר(?:\s*(?:ה)?בסיס)?|ברוטו|משכורת){_GAP}{_NUM}"),
@@ -156,7 +157,7 @@ _PROFILE_PATTERNS = (
     ("study_fund_percent", rf"השתלמות{_GAP}{_NUM}"),
     ("credit_points", rf"{_NUM}\s*נקוד(?:ות|ה)\s*(?:ה)?זיכוי"),
     ("credit_points", rf"נקודות\s*(?:ה)?זיכוי{_GAP}{_NUM}"),
-    ("children_under_23", r"(\d+)\s*(?:ילדים|ילדות|ילד)"),
+    ("children_under_23", r"(?<![\d.,])(\d+)\s*(?:ילדים|ילדות|ילד)"),
     ("commissions", rf"עמלות{_GAP}{_NUM}"),
     ("bonus", rf"בונוס(?:ים)?{_GAP}{_NUM}"),
 )
@@ -217,8 +218,10 @@ def read_number(text: str, match: "re.Match[str]", group: int = 0) -> ReadNumber
         end += unit.end()
     # סימן הערכה שייך למספר רק באותו משפט-משנה: לא חוצים פסיק/נקודה ("כ-18,500, פנסיה 6" — רק השכר משוער)
     clause = re.split(r"[,;\n]|\.(?!\d)", text[max(0, match.start() - 25):match.start(group)])[-1]
-    approximate = bool(_APPROX_MARKER_RE.search(clause) or _APPROX_MARKER_RE.search(match.group(0)))
-    return ReadNumber(value, (match.start(), end), approximate)
+    # "כ-800": הסימן צמוד למספר; "1,000 בחודש בערך": הסימן אחרי המספר, באותו משפט-משנה
+    after = re.split(r"[,;\n]|\.(?!\d)", text[end:end + 25])[0]
+    approximate = bool(_APPROX_MARKER_RE.search(clause + match.group(group)) or _APPROX_MARKER_RE.search(after))
+    return ReadNumber(value, (match.start(group), end), approximate)
 
 
 def approx_spans(text: str) -> list[Span]:
@@ -243,9 +246,10 @@ def negates(text: str) -> bool:
 
 def _widen(text: str, start: int, end: int) -> Span:
     """טווח שזוהה מורחב למילים שלמות ("ובונוסים" כולו, לא רק "בונוס")."""
-    while start > 0 and text[start - 1].isalnum():
+    # רק כשהקצה באמצע מילה: טווח שנגמר ברווח לא "בולע" את המילה הבאה ("18,500 נטו")
+    while 0 < start < len(text) and text[start].isalnum() and text[start - 1].isalnum():
         start -= 1
-    while end < len(text) and text[end].isalnum():
+    while 0 < end < len(text) and text[end - 1].isalnum() and text[end].isalnum():
         end += 1
     return start, end
 
@@ -319,7 +323,7 @@ _LABELLED = (
     ("study_fund_percent", rf"(?:קרן\s*)?השתלמות{_SEP}{_NUM}"),
     ("credit_points", rf"{_NUM}\s*נקוד(?:ות|ה)\s*(?:ה)?זיכוי"),
     ("credit_points", rf"נקודות\s*(?:ה)?זיכוי{_SEP}{_NUM}"),
-    ("children_under_23", r"(\d+)\s*(?:ילדים|ילדות|ילד)(?![א-ת])"),
+    ("children_under_23", r"(?<![\d.,])(\d+)\s*(?:ילדים|ילדות|ילד)(?![א-ת])"),
 )
 _LABELLED_ZERO = (
     ("commissions", r"(?:אין|בלי|ללא)\s+(?:לי\s+)?עמלות"),
@@ -327,18 +331,27 @@ _LABELLED_ZERO = (
     ("study_fund_percent", r"(?:אין|בלי|ללא)\s+(?:לי\s+)?(?:קרן\s+)?השתלמות"),
     ("children_under_23", r"(?:אין|בלי|ללא)\s+(?:לי\s+)?ילדים"),
 )
+_DIGITS_RE = re.compile(r"\d+(?:[.,]\d+)*")
 _SECOND_NUMBER_RE = re.compile(r"^\s*(?:או|עד|-|–|/)\s*\d")
 _NEGATIONS = {"לא"}
 
 
-def _labelled_values(text: str, cues: Iterable[str]) -> dict[str, object]:
+def _labelled_values(text: str, cues: Iterable[str], qualifiers: Iterable[str] = ()) -> dict[str, object]:
     """ערכים שאין ספק בהם: מילת מפתח + מספר אחד, בלי שלילה, תיקון, הערכה או מספר שני."""
     stop = _NEGATIONS | {w for c in cues for w in words(c)}
+    qualify = {w for q in qualifiers for w in words(q)}
     found: dict[str, set] = {}
+    matched: list[Span] = []
     for field, pattern in _LABELLED:
         for m in re.finditer(pattern, text):
+            matched.append(m.span())
             before = words(text[:m.start()])[-1:]
             after = text[m.end():]
+            # "שכר בסיס 18,500 נטו", "בונוס 12,000 בשנה" — מילה שמסייגת את הערך
+            if any(w in qualify or (len(w) > 1 and w[0] in PREFIX_LETTERS and w[1:] in qualify)
+                   for w in words(after)[:2]):
+                found.setdefault(field, set()).add(None)
+                continue
             if (before and before[0] in stop) or _SECOND_NUMBER_RE.match(after) \
                     or is_approximate(text[max(0, m.start() - 15):m.end()], after):
                 found.setdefault(field, set()).add(None)        # לא חד-משמעי
@@ -349,11 +362,15 @@ def _labelled_values(text: str, cues: Iterable[str]) -> dict[str, object]:
         for m in re.finditer(pattern, text):
             before = words(text[:m.start()])[-1:]
             found.setdefault(field, set()).add(None if before and before[0] in stop else 0)
+    # מספר שאינו שייך לאף ערך מתויג ("3 ילדים, אחד מעל 23") — ייתכן שהוא מסייג ערך: לא רושמים דבר
+    if any(not any(s <= n.start() and n.end() <= e for s, e in matched) for n in _DIGITS_RE.finditer(text)):
+        return {}
     # שדה עם יותר מערך אחד, או עם מופע לא חד-משמעי — לא נשמר
     return {f: next(iter(v)) for f, v in found.items() if len(v) == 1 and None not in v}
 
 
-def read_profile(text: str, occupations: Iterable[str], cues: Iterable[str] = ()) -> ProfileReading:
+def read_profile(text: str, occupations: Iterable[str], cues: Iterable[str] = (),
+                 qualifiers: Iterable[str] = ()) -> ProfileReading:
     fields: dict[str, object] = {}
     spans: list[Span] = []
     phrases: list[str] = []
@@ -365,10 +382,13 @@ def read_profile(text: str, occupations: Iterable[str], cues: Iterable[str] = ()
     for field, pattern in _PROFILE_PATTERNS:          # סכום מפורש קודם ל"אין"
         m = re.search(pattern, text)
         if m and field not in fields:
-            number = read_number(text, m, 1)
+            number = read_number(text, m, m.lastindex)        # המספר — הקבוצה האחרונה
             value = number.value
+            if field == "children_under_23" and value != int(value):
+                continue                                      # "2.5 ילדים" — לא מספר ילדים
             fields[field] = int(value) if field == "children_under_23" else plain_decimal(value)
-            spans += [m.span(), number.span]
+            keyword = (m.start(), m.start("gap")) if "gap" in m.re.groupindex else m.span()
+            spans += [keyword, number.span]
             if number.approximate:
                 approximate.append(field)
     for field, pattern in _ZERO_PATTERNS:
@@ -378,7 +398,7 @@ def read_profile(text: str, occupations: Iterable[str], cues: Iterable[str] = ()
             spans.append(m.span())
         elif m and fields.get(field) == 0:
             spans.append(m.span())
-    return ProfileReading(fields, spans, phrases, _labelled_values(text, cues), approximate)
+    return ProfileReading(fields, spans, phrases, _labelled_values(text, cues, qualifiers), approximate)
 
 
 def parse_profile_fields(text: str, occupations: Iterable[str]) -> dict[str, object]:

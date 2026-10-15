@@ -1,0 +1,19 @@
+# שאלת שווי השימוש (דגם שלא נמצא במאגר).
+setup: ["אני מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים", "טויוטה מיסטרי"]
+cases:
+  - {text: "3000", allowed: [{use_value: 3000}]}
+  - {text: "3,000 ₪", allowed: [{use_value: 3000}]}
+  - {text: "₪3000", allowed: [{use_value: 3000}]}
+  - {text: "3000 לחודש", allowed: [{use_value: 3000}]}
+  - {text: "2,850 ש\"ח בחודש", allowed: [{use_value: 2850}]}
+  - {text: "שווי שימוש 3000", allowed: [{use_value: 3000}]}
+  - {text: "בתלוש מופיע 3,100", allowed: [{use_value: 3100}]}
+  - {text: "בערך 3000", allowed: [{use_value: 3000, approximate: [current_use_value]}]}
+  - {text: "לא יודע", allowed: [{use_value_unknown: true, waiting: true}]}
+  - {text: "אין לי מושג", allowed: [{use_value_unknown: true, waiting: true}]}
+  - {text: "25,000", allowed: []}
+  - {text: "אולי 3000 אולי 3500", allowed: []}
+  - {text: "שלושת אלפים", allowed: [{use_value: 3000}]}
+  - {text: "3000 וזה רכב היברידי", allowed: [{use_value: 3000, drive: HYBRID}, {use_value: 3000}]}
+  - {text: "קורולה קרוס", allowed: [{car: CAR-09}]}                # הדגם המדויק — מהקטלוג
+  - {text: "המחיר של הרכב 150,000", allowed: []}                 # מחיר, לא שווי שימוש

@@ -1,0 +1,19 @@
+# שאלת הבונוס.
+setup: ["מנהלת מוצר", "18,500", "אין"]
+cases:
+  - {text: "אין", allowed: [{bonus: 0}]}
+  - {text: "אין בונוס", allowed: [{bonus: 0}]}
+  - {text: "אין לי", allowed: [{bonus: 0}]}
+  - {text: "בלי בונוס", allowed: [{bonus: 0}]}
+  - {text: "לא", allowed: [{bonus: 0}]}
+  - {text: "0", allowed: [{bonus: 0}]}
+  - {text: "500", allowed: [{bonus: 500}]}
+  - {text: "500 ש\"ח בחודש", allowed: [{bonus: 500}]}
+  - {text: "1,000 ₪", allowed: [{bonus: 1000}]}
+  - {text: "בונוס חודשי 1,000", allowed: [{bonus: 1000}]}
+  - {text: "כ-800", allowed: [{bonus: 800, approximate: [bonus]}]}
+  - {text: "בונוס שנתי 12,000", allowed: []}         # שנתי, לא חודשי — לא מחלקים בשקט
+  - {text: "לא יודעת", allowed: []}
+  - {text: "יש לי בונוס לפעמים", allowed: []}
+  - {text: "250,000", allowed: []}
+  - {text: "500 או 600", allowed: []}

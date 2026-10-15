@@ -1,0 +1,20 @@
+# שאלת ההשתתפות החודשית ברכב הנוכחי (אחרי שהרכב זוהה).
+setup: ["אני מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים", "קורולה קרוס"]
+cases:
+  - {text: "300", allowed: [{copay: 300}]}
+  - {text: "0", allowed: [{copay: 0}]}
+  - {text: "300 ש\"ח", allowed: [{copay: 300}]}
+  - {text: "₪300 בחודש", allowed: [{copay: 300}]}
+  - {text: "משתתפת ב-300 ש\"ח בחודש", allowed: [{copay: 300}]}
+  - {text: "אין", allowed: [{copay: 0}]}
+  - {text: "אני לא משתתפת", allowed: [{copay: 0}]}
+  - {text: "לא יודעת", allowed: [{copay_unknown: true, waiting: true}]}
+  - {text: "לא זוכר", allowed: [{copay_unknown: true, waiting: true}]}
+  - {text: "בערך 300", allowed: [{copay: 300, approximate: [current_copay]}]}
+  - {text: "כ-250 ₪", allowed: [{copay: 250, approximate: [current_copay]}]}
+  - {text: "50,000", allowed: []}
+  - {text: "300 או 400, לא בטוחה", allowed: []}
+  - {text: "שלוש מאות", allowed: [{copay: 300}]}
+  - {text: "קורולה", allowed: [{car: CAR-07}]}                    # תיקון הרכב שזוהה
+  - {text: "זה לא הרכב שלי", allowed: [{car: null}]}
+  - {text: "300 ופנסיה 7%", allowed: [{copay: 300}, {copay: 300, pension: 7}]}

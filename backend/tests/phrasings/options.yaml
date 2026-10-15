@@ -1,0 +1,24 @@
+# שאלת החלופות (נועה: קבוצה ג, הרכב הנוכחי COROLLA CROSS).
+# ברשימה: 1 PICANTO, 2 YARIS CROSS, 3 DOLPHIN, 4 LEON, 5 NIRO, 6 MG4, 7 COROLLA, 8 KONA EV,
+#          9 ATTO 3, 10 EV3, 11 TUCSON, 12 MAZDA 3, 13 ויתור על רכב
+setup: ["אני מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים", "קורולה קרוס", "300"]
+cases:
+  - {text: "אטו 3", allowed: [{selected: [CAR-10]}]}
+  - {text: "9", allowed: [{selected: [CAR-10]}]}
+  - {text: "אני רוצה לבדוק את BYD אטו 3 החשמלי", allowed: [{selected: [CAR-10]}]}
+  - {text: "1, 3, 9", allowed: [{selected: [CAR-01, CAR-03, CAR-10]}]}
+  - {text: "ATTO 3 ו-EV3", allowed: [{selected: [CAR-10, CAR-11]}]}
+  - {text: "טוסון ומאזדה 3", allowed: [{selected: [CAR-12, CAR-13]}]}
+  - {text: "קורולה", allowed: [{selected: [CAR-07]}]}
+  - {text: "הכי משתלם", allowed: [{selected: [CAR-03, CAR-06, OPT_OUT]}]}
+  - {text: "13", allowed: [{selected: [OPT_OUT]}]}
+  - {text: "ויתור על הרכב", allowed: [{selected: [OPT_OUT]}]}
+  - {text: "1, 2, 3, 4", allowed: [{selected: [CAR-01, CAR-02, CAR-03]}]}
+  - text: "יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש"
+    allowed: []
+  - {text: "קורולה קרוס", allowed: []}                          # הרכב הנוכחי, לא חלופה
+  - {text: "מודל 3", allowed: []}                               # קבוצה ד — לא זמין
+  - {text: "20", allowed: []}
+  - {text: "השוואה מול ניסאן ליף", allowed: []}
+  - {text: "לא אטו 3, אלא EV3", allowed: [{selected: [CAR-11]}]}
+  - {text: "את החשמלי הסיני", allowed: []}                     # DOLPHIN או ATTO 3 — לא מנחשים

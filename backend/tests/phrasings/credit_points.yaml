@@ -1,0 +1,18 @@
+# שאלת נקודות הזיכוי.
+setup: ["מנהלת מוצר", "18,500", "אין", "אין", "6", "2.5"]
+cases:
+  - {text: "2.25", allowed: [{credit_points: 2.25}]}
+  - {text: "3", allowed: [{credit_points: 3}]}
+  - {text: "2.75 נקודות", allowed: [{credit_points: 2.75}]}
+  - {text: "2.75 נקודות זיכוי", allowed: [{credit_points: 2.75}]}
+  - {text: "נקודות זיכוי: 2.75", allowed: [{credit_points: 2.75}]}
+  - {text: "בתלוש כתוב 2.75", allowed: [{credit_points: 2.75}]}
+  - {text: "בערך 2.5", allowed: [{credit_points: 2.5, approximate: [credit_points]}]}
+  - {text: "שתיים ורבע", allowed: [{credit_points: 2.25}]}
+  - {text: "2,25", allowed: [{credit_points: 2.25}]}
+  - {text: "20", allowed: []}
+  - {text: "לא יודעת", allowed: []}
+  - {text: "2.5 או 2.75", allowed: []}
+  - {text: "2.25 ויש לי 2 ילדים", allowed: [{credit_points: 2.25, children: 2}, {credit_points: 2.25}]}
+  - {text: "מה זה נקודות זיכוי?", allowed: []}
+  - {text: "כמו בשנה שעברה", allowed: []}

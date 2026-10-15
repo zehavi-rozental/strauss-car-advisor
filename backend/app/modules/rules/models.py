@@ -129,6 +129,8 @@ class Extensions(_Strict):
     profile_fillers: list[str] = Field(default_factory=list)
     answer_fillers: list[str] = Field(default_factory=list)
     option_message_fillers: list[str] = Field(default_factory=list)
+    value_qualifiers: list[str] = Field(default_factory=list)  # מילה אחרי ערך מתויג שמשנה את משמעותו
+    non_title_words: list[str] = Field(default_factory=list)   # ברכה, שאלה — לא שם תפקיד
     # תחילת שם היצרן בקטלוג → מילים שמותר לכתוב לצד הדגם ("BYD אטו 3")
     manufacturer_brands: dict[str, list[str]] = Field(default_factory=dict)
     # טווחים סבירים לכל ערך שנשמר בפרופיל (מכל מקור: הקורא, המודל, כפתורים). מחוץ לטווח — לא נשמר.

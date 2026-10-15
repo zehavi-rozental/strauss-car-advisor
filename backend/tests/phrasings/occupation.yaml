@@ -1,0 +1,41 @@
+# שאלת התפקיד (ההודעה הראשונה). שאלה חוזרת — תמיד מותרת.
+setup: []
+cases:
+  - text: "מנהלת מוצר"
+    allowed: [{occupation: "מנהל/ת מוצר"}]
+  - text: "מנהל מוצר"
+    allowed: [{occupation: "מנהל/ת מוצר"}]
+  - text: "אני מנהלת מוצר"
+    allowed: [{occupation: "מנהל/ת מוצר"}]
+  - text: "מפתחת תוכנה"
+    allowed: [{occupation: "מפתח/ת תוכנה"}]
+  - text: "אני מפתח תוכנה בצוות הדאטה"
+    allowed: [{occupation: "מפתח/ת תוכנה"}]
+  - text: "נציג מכירות שטח"
+    allowed: [{occupation: "נציג/ת מכירות שטח"}]
+  - text: "מנהל מחלקה"
+    allowed: [{occupation: "מנהל/ת מחלקה"}]
+  - text: "טכנאית שירות"
+    allowed: [{occupation: "טכנאי/ת שירות"}]
+  - text: "רכזת רכש"
+    allowed: [{occupation: "רכז/ת רכש"}]
+  - text: "נהג הפצה"
+    allowed: [{occupation: "נהג/ת הפצה"}]
+  - text: "מהנדסת תהליך במפעל"
+    allowed: [{occupation: "מהנדס/ת תהליך"}]
+  - text: "מנהלת מוצרר"                       # שגיאת הקלדה
+    allowed: [{occupation: "מנהל/ת מוצר"}, {occupation_text: "מנהלת מוצרר", occupation_unknown: true}]
+  - text: "קופאית"                            # לא בטבלה → נשאלת קבוצת הזכאות
+    allowed: [{occupation_text: "קופאית", occupation_unknown: true}]
+  - text: "עובדת במשאבי אנוש"                 # לא "מנהלת" — אסור להתאים למנהל/ת משאבי אנוש
+    allowed: [{occupation_text: "עובדת במשאבי אנוש", occupation_unknown: true}]
+  - text: "לא יודעת"
+    allowed: []
+  - text: "אני לא מנהלת מוצר"
+    allowed: []
+  - text: "שלום"
+    allowed: []
+  - text: "מה זה משנה?"
+    allowed: []
+  - text: "אנליסטית נתונים, שכר 15,000"
+    allowed: [{occupation: "אנליסט/ית נתונים", base: 15000}, {occupation: "אנליסט/ית נתונים"}]

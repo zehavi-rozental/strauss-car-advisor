@@ -1,0 +1,24 @@
+# שאלת הרכב הנוכחי.
+setup: ["אני מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים"]
+cases:
+  - {text: "קורולה קרוס", allowed: [{car: CAR-09}]}
+  - {text: "יש לי קורולה קרוס", allowed: [{car: CAR-09}]}
+  - {text: "COROLLA CROSS", allowed: [{car: CAR-09}]}
+  - {text: "טויוטה קורולה קרוס", allowed: [{car: CAR-09}]}
+  - {text: "קורולה", allowed: [{car: CAR-07}]}
+  - {text: "אטו 3", allowed: [{car: CAR-10}]}
+  - {text: "BYD ATTO 3", allowed: [{car: CAR-10}]}
+  - {text: "קיה נירו", allowed: [{car: CAR-05}]}
+  - {text: "טסלה מודל 3", allowed: [{car: CAR-14}]}
+  - {text: "אין רכב", allowed: [{car: none}]}
+  - {text: "אין לי רכב כרגע", allowed: [{car: none}]}
+  - {text: "FABIA", allowed: [{car_choices: 2}]}                  # שתי גרסאות עם שווי שונה — העובד בוחר
+  - {text: "COROLLA CROSS 2023", allowed: [{car: "tax:COROLLA CROSS (2023)"}, {car: CAR-09}]}
+  - {text: "טויוטה מיסטרי", allowed: [{car: "stated:טויוטה מיסטרי"}]}
+  - text: "יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש"
+    allowed: [{car: CAR-09, copay: 300}]
+  - {text: "זה לא קורולה קרוס", allowed: []}
+  - {text: "לא יודעת איזה רכב", allowed: []}
+  - {text: "קורולה קרוס לבנה", allowed: [{car: CAR-09}]}
+  - {text: "הרכב שלי זה המשפחתי הלבן של היונדאי", allowed: [{car: CAR-20}]}
+  - {text: "קורולה או קורולה קרוס, לא בטוחה", allowed: []}
