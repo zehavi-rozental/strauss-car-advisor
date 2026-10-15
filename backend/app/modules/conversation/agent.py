@@ -23,7 +23,8 @@ from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
 from .parsing import match_occupation, redact_id_numbers
 from .stage import (
-    ALLOWED_TOOLS,
+    allowed_tools,
+    current_group,
     MAX_OPTIONS,
     CarClarification,
     ConfirmedCopay,
@@ -33,8 +34,6 @@ from .stage import (
     RepReason,
     Stage,
     blocking_rep_reason,
-    missing_current_car,
-    missing_profile,
     next_stage,
 )
 from .templates import (
@@ -43,7 +42,7 @@ from .templates import (
     approximate_assumptions,
     clarify_car_text,
     confirmed_assumption,
-    question,
+    group_question,
     conflict_text,
     queued_option_text,
     range_problem_text,
@@ -247,6 +246,13 @@ def _cross_check(ctx: ToolContext, call: ToolCall, expected: dict[str, Any], con
     return call
 
 
+def _mark_asked(state: ConversationState) -> None:
+    """השאלה המקובצת שמוצגת עכשיו נרשמת כ"נשאלה" (Q2 לא נשאלת פעמיים אחרי תשובה חלקית)."""
+    group = current_group(state)[0]
+    if group in ("Q1", "Q2", "Q3") and group not in state.asked_groups:
+        state.asked_groups.append(group)
+
+
 def _occupation_answer(state: ConversationState, text: str) -> Optional[str]:
     """תשובה ל"לא מצאתי את ... בטבלה": "yes", שם הצעה (לפי מספרה), "no", או None (תשובה אחרת — נקראת כרגיל)."""
     ws = words(text)
@@ -301,15 +307,17 @@ class Agent:
         self.mode = mode          # llm_first | parser_first
 
     def greeting(self, state: ConversationState, snapshot: RulesSnapshot) -> str:
-        return GREETING + question("occupation", state, snapshot)
+        _mark_asked(state)
+        return GREETING + group_question(state, snapshot)
 
     def run_choice(self, snapshot: RulesSnapshot, find_vehicle: VehicleLookup, get_vehicle: VehicleGetter,
-                   state: ConversationState, ids: list[str], label: str, record_run: RecordRun) -> TurnOutcome:
+                   state: ConversationState, ids: list[str], label: str, record_run: RecordRun,
+                   field: Optional[str] = None) -> TurnOutcome:
         """בחירה מובנית (כפתור) שכבר נבדקה מול expects: הקוד מיישם אותה ישירות — בלי הקורא ובלי מודל
         השפה. הערכים עוברים את אותם כלים ואותן בדיקות (טווחים, זכאות) כמו כל מקור אחר."""
         ctx = ToolContext(snapshot=snapshot, find_vehicle=find_vehicle, state=state, get_vehicle=get_vehicle)
         before = next_stage(state)
-        field_ = build_expects(state, snapshot)["field"]
+        field_ = field or build_expects(state, snapshot)["field"]
         if field_ == "clarification":
             plan, reply = self._clarified(state, snapshot, ids[0])
             if plan is None:
@@ -400,6 +408,7 @@ class Agent:
         draft = render(state, snapshot, understood=understood or bool(problems), just_calculated=just_calculated,
                        matched_car=matched_car, notice="\n".join(problems) or _plan_notice(plan, path),
                        rep_opened=rep_opened, notice_asks=bool(problems))
+        _mark_asked(state)
         requests = dict(question_requests=ctx.question_requests, cancel_question_ids=ctx.cancel_question_ids)
         # ניסוח במודל רק לתוצאות או להודעה שלא הובנה (שאלה חופשית). השאלה הבאה בפרופיל/ברכב
         # היא תבנית: מהירה, ובלי סיכון לשומר המספרים.
@@ -421,14 +430,15 @@ class Agent:
     def _system(self, ctx: ToolContext) -> ChatMessage:
         state, snap = ctx.state, ctx.snapshot
         stage = next_stage(state)
-        missing = missing_profile(state.profile) + missing_current_car(state.current)
+        group, missing = current_group(state)
         context = ""
-        if stage == Stage.COLLECT_PROFILE:
+        if group in ("Q1", "Q2") or "opt_out_occupation" in missing:
             context = "Occupations table: " + "; ".join(snap.occupations.keys())
         elif stage == Stage.COLLECT_CURRENT_CAR and state.current.choices:
             context = "Car choices: " + "; ".join(f"{i}. {c.label}" for i, c in enumerate(state.current.choices, 1))
-        elif stage in (Stage.CHOOSE_OPTIONS, Stage.PRESENTED):
-            context = "Options: " + "; ".join(f"{o.id}: {o.label}" for o in available_options(snap, state))
+        if "options" in missing or stage in (Stage.CHOOSE_OPTIONS, Stage.PRESENTED):
+            context += ("\n" if context else "") + "Options: " + "; ".join(
+                f"{o.id}: {o.label}" for o in available_options(snap, state))
         return ChatMessage("system", EXTRACT_PROMPT.format(stage=stage.value, missing=", ".join(missing) or "nothing",
                                                            context=context))
 
@@ -439,7 +449,7 @@ class Agent:
         understood = False
         for round_no in range(MAX_TOOL_ROUNDS):
             stage = next_stage(ctx.state)
-            names = ALLOWED_TOOLS[stage]
+            names = allowed_tools(ctx.state)
             if not names:
                 break
             messages[0] = self._system(ctx)
@@ -473,7 +483,7 @@ class Agent:
 
     def _run(self, ctx: ToolContext, call: ToolCall) -> dict[str, Any]:
         """רק הכלים שהשלב הנוכחי מתיר. כלי אחר מתועד ונדחה."""
-        if call.name not in ALLOWED_TOOLS[next_stage(ctx.state)]:
+        if call.name not in allowed_tools(ctx.state):
             log.info("tool %s rejected at stage %s", call.name, next_stage(ctx.state).value)
             return {"ok": False, "error": "tool not allowed at this stage"}
         return run_tool(ctx, call.name, call.args)

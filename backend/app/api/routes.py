@@ -30,6 +30,7 @@ class MessageIn(BaseModel):
     text: Optional[str] = None
     choice: Optional[str] = None
     choices: Optional[list[str]] = None
+    field: Optional[str] = None      # בשאלה מקובצת: לאיזה שדה הבחירה (כשכמה שדות מציעים אותו מזהה)
 
 
 def _turn(t: TurnResult) -> dict[str, Any]:
@@ -117,7 +118,7 @@ def send_message(conversation_id: str, body: MessageIn, request: Request) -> dic
         raise HTTPException(429, "יותר מדי הודעות בדקה. נסו שוב עוד מעט.")
     try:
         if choice is not None:
-            return _turn(ctx.service.send_choice(conversation_id, token, choice))
+            return _turn(ctx.service.send_choice(conversation_id, token, choice, body.field))
         return _turn(ctx.service.send(conversation_id, token, text))
     except ChoiceInvalid as exc:
         raise HTTPException(422, str(exc)) from None

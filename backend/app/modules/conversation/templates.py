@@ -11,7 +11,7 @@ from typing import Any, Optional
 from app.modules.rules.public import RulesSnapshot
 from app.shared.money import to_shekel
 
-from .stage import MAX_OPTIONS, ConversationState, RepReason, Stage, next_question
+from .stage import MAX_OPTIONS, ConversationState, RepReason, Stage, current_group
 from .tools import available_options
 
 DRIVE_HE = {"PETROL": "בנזין", "HYBRID": "היברידי", "PLUG_IN": "פלאג-אין", "ELECTRIC": "חשמלי"}
@@ -37,7 +37,8 @@ def question(field: str, state: ConversationState, snapshot: RulesSnapshot) -> s
     age = snapshot.strauss.family_track.child_max_age
     groups = ", ".join(snapshot.calc.group_order)
     texts = {
-        "occupation": "מה התפקיד שלך בחברה?",
+        "occupation": _group_or_occupation(snapshot) + "?",
+        "opt_out_occupation": "כדי לבדוק אם אפשר לוותר על הרכב, מה התפקיד שלך?",
         "group": (f"לא מצאתי את התפקיד \"{state.profile.occupation_text or ''}\" בטבלת העיסוקים. "
                   f"מה קבוצת הזכאות שלך לרכב? ({groups})"),
         "base": "מה שכר הבסיס החודשי שלך (ברוטו)?",
@@ -64,13 +65,100 @@ def question(field: str, state: ConversationState, snapshot: RulesSnapshot) -> s
     return texts[field]
 
 
-def options_text(state: ConversationState, snapshot: RulesSnapshot) -> str:
+OPTIONS_ASK = "איזה רכב מעניין אותך — הנה הקטלוג בקבוצה שלך, ואפשר גם מקבוצה נמוכה יותר."
+
+
+def _option_lines(state: ConversationState, snapshot: RulesSnapshot) -> list[str]:
     lines = []
     for i, o in enumerate(available_options(snapshot, state), 1):
         extra = f" — קבוצה {o.group}, {DRIVE_HE[o.drive.value]}" if o.drive else ""
         lines.append(f"{i}. {o.label}{extra}")
-    return (f"לאילו חלופות להשוות? אפשר לבחור עד {MAX_OPTIONS} (מספרים או שמות), "
-            "או לכתוב \"הכי משתלם\":\n" + "\n".join(lines))
+    return lines
+
+
+def _choose_hint() -> str:
+    return f"אפשר לבחור עד {MAX_OPTIONS} (מספרים או שמות), או לכתוב \"הכי משתלם\"."
+
+
+def options_text(state: ConversationState, snapshot: RulesSnapshot) -> str:
+    return "\n".join([OPTIONS_ASK, *_option_lines(state, snapshot), _choose_hint()])
+
+
+# ---------- שאלות מקובצות (נוסח התרחיש הרשמי; רק מה שעדיין חסר) ----------
+
+def _group_or_occupation(snapshot: RulesSnapshot) -> str:
+    order = snapshot.calc.group_order
+    # בתרחיש הרשמי השאלה בצורת לוכסן לשני המגדרים; התבניות לא משתמשות בצורות לוכסן — אותה שאלה, בלי מגדר
+    return f"מה קבוצת הזכאות שלך ({order[0]}-{order[-1]}), או מה התפקיד שלך"
+
+
+Q3_CAR = "מה הרכב היום (דגם ושנת רישום) ומה ההשתתפות שלך בו?"
+_Q2_PAY = {"commissions": "עמלות", "bonus": "בונוסים"}
+_Q2_DEDUCTIONS = {"pension_percent": "פנסיה", "study_fund_percent": "קרן השתלמות", "credit_points": "נקודות זיכוי"}
+# שדה מ-Q2 שנשאר חסר ונשאל בתוך Q3
+_LEFTOVER = {"commissions": "יש לך עמלות חודשיות?", "bonus": "יש לך בונוס חודשי?",
+             "pension_percent": "כמה אחוזים מופרשים ממך לפנסיה?",
+             "study_fund_percent": "כמה אחוזים מופרשים ממך לקרן השתלמות?",
+             "credit_points": "כמה נקודות זיכוי יש לך?"}
+
+
+def _q1(fields: list[str], state: ConversationState, snapshot: RulesSnapshot) -> str:
+    if "group" in fields:            # תפקיד שאינו בטבלה (אושר): שואלים את הקבוצה, ואת השכר אם חסר
+        return question("group", state, snapshot) + (" ומה שכר הבסיס החודשי שלך?" if "base" in fields else "")
+    return f"{_group_or_occupation(snapshot)}? ומה שכר הבסיס החודשי שלך?"
+
+
+def _q2(fields: list[str], snapshot: RulesSnapshot) -> str:
+    age = snapshot.strauss.family_track.child_max_age
+    parts = []
+    pay = [name for f, name in _Q2_PAY.items() if f in fields]
+    if pay:
+        parts.append(f"יש רכיבי שכר נוספים — {', '.join(pay)}?")
+    deductions = [name for f, name in _Q2_DEDUCTIONS.items() if f in fields]
+    if deductions:
+        parts.append(f"ואילו הפרשות יורדות לך: {', '.join(deductions)}?")
+    if "children" in fields:
+        parts.append(f"וכמה ילדים עד גיל {age}?")
+    text = " ".join(parts)
+    return text[1:] if text.startswith("ו") else text
+
+
+def _leftovers(fields: list[str], snapshot: RulesSnapshot) -> Optional[str]:
+    age = snapshot.strauss.family_track.child_max_age
+    asks = [_LEFTOVER[f] for f in fields if f in _LEFTOVER]
+    if "children" in fields:
+        asks.append(f"כמה ילדים עד גיל {age} יש לך?")
+    return f"ועוד: {' '.join(asks)}" if asks else None
+
+
+def group_question(state: ConversationState, snapshot: RulesSnapshot) -> str:
+    """השאלה המקובצת הנוכחית. שדה אחד חסר — השאלה הבודדת שלו."""
+    group, fields = current_group(state)
+    if not fields:
+        return ""
+    if len(fields) == 1:
+        return question(fields[0], state, snapshot)
+    if group == "Q1":
+        return _q1(fields, state, snapshot)
+    if group == "Q2":
+        return _q2(fields, snapshot)
+    first: list[str] = []
+    if "car" in fields:
+        first.append(Q3_CAR)
+    elif "copay" in fields:
+        first.append(question("copay", state, snapshot))
+    if "opt_out_occupation" in fields:
+        first.append(question("opt_out_occupation", state, snapshot))
+    lines: list[str] = []
+    if "options" in fields:
+        ask = OPTIONS_ASK if not first else "ו" + OPTIONS_ASK
+        lines = [" ".join(first + [ask]), *_option_lines(state, snapshot), _choose_hint()]
+    else:
+        lines = [" ".join(first)] if first else []
+    leftover = _leftovers(fields, snapshot)
+    if leftover:
+        lines.append(leftover if lines else leftover.removeprefix("ועוד: "))
+    return "\n".join(lines)
 
 
 def results_text(state: ConversationState) -> str:
@@ -262,8 +350,8 @@ def render(state: ConversationState, snapshot: RulesSnapshot, *, understood: boo
     if waiting:
         parts.append(asked_text(state) if rep_opened else WAITING)
         return "\n\n".join(parts)
-    field = next_question(state)
-    if not understood and field == "car":
+    fields = current_group(state)[1]
+    if not understood and fields[:1] == ["car"]:
         parts.append(CAR_AGAIN)
         return "\n\n".join(parts)
     if notice_asks:
@@ -279,6 +367,6 @@ def render(state: ConversationState, snapshot: RulesSnapshot, *, understood: boo
         parts.append("לא הצלחתי להבין את התשובה.")
     if state.stage == Stage.PRESENTED and just_calculated:
         parts.append("אפשר להשוות חלופה נוספת: כתבו את שם הרכב.")
-    elif field:
-        parts.append(question(field, state, snapshot))
+    elif fields:
+        parts.append(group_question(state, snapshot))
     return "\n\n".join(parts)

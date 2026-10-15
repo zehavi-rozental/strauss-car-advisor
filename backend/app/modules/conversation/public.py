@@ -216,22 +216,26 @@ class ConversationService:
     def send(self, conversation_id: str, token: str, text: str) -> TurnResult:
         return self._timed(conversation_id, token, text, None)
 
-    def send_choice(self, conversation_id: str, token: str, ids: list[str]) -> TurnResult:
-        """בחירה מובנית (כפתור): נבדקת מול expects (ChoiceInvalid) ומיושמת בקוד, בלי מודל השפה."""
-        return self._timed(conversation_id, token, "", list(ids))
+    def send_choice(self, conversation_id: str, token: str, ids: list[str],
+                    field: Optional[str] = None) -> TurnResult:
+        """בחירה מובנית (כפתור): נבדקת מול expects (ChoiceInvalid) ומיושמת בקוד, בלי מודל השפה.
+        בשאלה מקובצת field אומר לאיזה שדה הבחירה (חובה רק כשכמה שדות מציעים את אותו מזהה)."""
+        return self._timed(conversation_id, token, "", list(ids), field)
 
-    def _timed(self, conversation_id: str, token: str, text: str, choice: Optional[list[str]]) -> TurnResult:
+    def _timed(self, conversation_id: str, token: str, text: str, choice: Optional[list[str]],
+               field: Optional[str] = None) -> TurnResult:
         started = time.monotonic()
         path = "error"
         try:
             self._apply_pending(self._authorized(conversation_id, token))
-            result = self._send(conversation_id, token, text, choice)
+            result = self._send(conversation_id, token, text, choice, field)
             path = result.path
             return result
         finally:
             log.info("turn path=%s total=%.0fms", path, (time.monotonic() - started) * 1000)
 
-    def _send(self, conversation_id: str, token: str, text: str, choice: Optional[list[str]] = None) -> TurnResult:
+    def _send(self, conversation_id: str, token: str, text: str, choice: Optional[list[str]] = None,
+              field: Optional[str] = None) -> TurnResult:
         """שלושה שלבים, כדי שאף טרנזקציה לא תהיה פתוחה בזמן קריאות למודל השפה:
         (א) קריאה קצרה, (ב) הסוכן בלי סשן פתוח, (ג) כתיבה קצרה של כל התור."""
         snapshot = self.rules.current
@@ -250,13 +254,13 @@ class ConversationService:
                        for m in repo.messages(row.id)]
         if choice is not None:
             # הבחירה נבדקת מול מה שהוצע במצב שנקרא; ההודעה שנשמרת — התווית בעברית
-            text = validate_choice(build_expects(state, snapshot), choice, snapshot, self._get_vehicle)
+            text, field = validate_choice(build_expects(state, snapshot), choice, snapshot, self._get_vehicle, field)
 
         # (ב) הסוכן — הרצות החישוב נאספות בזיכרון
         pending: list[_PendingRun] = []
         if choice is not None:
             outcome = self.agent.run_choice(snapshot, self._find_vehicle, self._get_vehicle, state, choice, text,
-                                            _collector(pending))
+                                            _collector(pending), field)
         else:
             outcome = self.agent.run_turn(snapshot, self._find_vehicle, state, history, text, _collector(pending))
 

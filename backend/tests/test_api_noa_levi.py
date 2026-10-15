@@ -69,10 +69,11 @@ def test_noa_levi_with_llm(engine, sessions):
 
 
 def test_noa_levi_fallback_mode(engine, sessions):
-    client = make_client(engine)   # בלי מודל שפה: שאלה אחת בכל פעם
+    client = make_client(engine)   # בלי מודל שפה: השאלות המקובצות, תשובה קצרה לכל אחת
     cid = client.post("/api/conversations").json()["conversation_id"]
     body = None
-    for text in ["מנהלת מוצר", "18,500", "אין", "אין", "6%", "2.5", "2.75", "2",
+    for text in ["מנהלת מוצר, שכר בסיס 18,500",
+                 "אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים",
                  "קורולה קרוס", "300", "אטו 3"]:      # שמות בעברית: כינויים מ-extensions.yaml
         body = client.post(f"/api/conversations/{cid}/messages", json={"text": text}).json()
         assert body["source"] == "template"

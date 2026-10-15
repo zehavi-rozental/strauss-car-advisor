@@ -49,8 +49,8 @@ def test_only_first_round_of_collecting_stages_is_forced(sessions):
     svc.send(turn.conversation_id, token, "זה הרכב שלי, אותו אחד כמו תמיד")
     fake.turn(call("calculate", options=["ATTO 3"]))
     svc.send(turn.conversation_id, token, "את החשמלי הסיני בבקשה")
-    choose = [c for c in fake.calls if "calculate" in c.tools]
-    assert choose and not any(c.require_tool for c in choose)       # בחירת חלופות לא כפויה
+    choose = [c for c in fake.calls if c.tools][-1]                 # התור השלישי: בחירת חלופות
+    assert "calculate" in choose.tools and not choose.require_tool  # בחירת חלופות לא כפויה
 
 
 def test_empty_forced_call_is_not_understood(sessions):
@@ -122,7 +122,7 @@ def test_provider_failure_after_first_round_keeps_profile(sessions):
     assert turn.stage == Stage.COLLECT_CURRENT_CAR and turn.source == "template"
     current = svc.view(turn.conversation_id, token).state.current
     assert current.query is None and current.source is None        # לא חיפשו "רכב" בשם הפרופיל
-    assert "איזה רכב צמוד" in turn.reply
+    assert "מה הרכב היום (דגם ושנת רישום)" in turn.reply
 
 
 def test_provider_failure_on_first_round_uses_fallback_parser(sessions):

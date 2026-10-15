@@ -12,7 +12,8 @@ from app.modules.rules.public import RulesStore
 
 from .conftest import CONFIG
 
-NOA = ["מנהלת מוצר", "18,500", "אין", "אין", "6", "2.5", "2.75", "2", "COROLLA CROSS", "300"]
+NOA = ["מנהלת מוצר, שכר בסיס 18,500",
+       "אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים", "COROLLA CROSS", "300"]
 
 
 def _count(sessions, model):

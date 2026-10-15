@@ -45,3 +45,8 @@ cases:
     allowed: [{occupation: "מפתח/ת תוכנה", base: 20000}, {base: 20000}]
   - text: "מנהלת מוצר עם קורולה קרוס, שכר 18,500"
     allowed: [{occupation: "מנהל/ת מוצר", base: 18500}, {base: 18500}]     # בגיבוי: רק המתויג
+  # התרחיש הרשמי (שאלות מקובצות): קבוצה ושכר בסיס בלי תווית
+  - text: "קבוצה ג, 14,200 ₪"
+    allowed: [{group: "ג", occupation_unknown: true, base: 14200}]     # רק קבוצה — התפקיד לא נמסר
+  - text: "עמלות משתנות כ-1,000 ₪, פנסיה 6%, קרן השתלמות 2.5%, 2.25 נקודות זיכוי. ויש לי היום רכב חברה."
+    allowed: [{commissions: 1000, pension: 6, study_fund: 2.5, credit_points: 2.25, approximate: [commissions]}]

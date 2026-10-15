@@ -144,6 +144,7 @@ class ConversationState(BaseModel):
     pending_confirmation: Optional[PendingConfirmation] = None
     pending_occupation: Optional[PendingOccupation] = None
     queued_options: list[str] = Field(default_factory=list)     # חלופות לחישוב אחרי תשובת הנציג
+    asked_groups: list[str] = Field(default_factory=list)       # שאלות מקובצות שכבר נשאלו ("Q2")
 
 
 # ---------- מה חסר ----------
@@ -187,14 +188,40 @@ def blocking_rep_reason(state: ConversationState) -> Optional[RepReason]:
     return None
 
 
+# ---------- שאלות מקובצות (כמו בתרחיש הרשמי) ----------
+# Q1: קבוצה או תפקיד + שכר בסיס. Q2: רכיבי שכר, הפרשות וילדים. Q3: הרכב היום, ההשתתפות והחלופות —
+# ומה שנשאר חסר מ-Q2. בכל שאלה נשאל רק מה שעדיין חסר.
+Q1_FIELDS = ("occupation", "group", "base")
+Q2_FIELDS = ("commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points", "children")
+CAR_DETAILS = ("car_choice", "use_value", "drive", "maintenance")   # שאלות המשך על הרכב — אחת בכל פעם
+
+
+def _q2_deferred(state: ConversationState) -> bool:
+    """Q2 נשאלה ונענתה בחלקה: מה שחסר ממנה עובר ל-Q3 (לא שואלים את Q2 שוב)."""
+    p = state.profile
+    return "Q2" in state.asked_groups and any(getattr(p, f) is not None for f in Q2_FIELDS)
+
+
+def needs_opt_out_occupation(state: ConversationState) -> bool:
+    """נמסרה רק קבוצה, והעובד בחר לוותר על הרכב: שואלים מה התפקיד (כלל הוויתור נקבע לפיו)."""
+    p = state.profile
+    return (OPT_OUT_ID in state.selected and p.occupation is None and p.occupation_text is None
+            and p.group is not None and state.pending_occupation is None)
+
+
 def next_stage(state: ConversationState) -> Stage:
     """השלב נגזר מהנתונים בלבד."""
     if state.pending_rep is not None:
         return Stage.WAITING_FOR_REP
-    if missing_profile(state.profile):
+    missing = missing_profile(state.profile)
+    q1 = [f for f in missing if f in Q1_FIELDS]
+    q2 = [f for f in missing if f in Q2_FIELDS]
+    if q1 or (q2 and not _q2_deferred(state)):
         return Stage.COLLECT_PROFILE
     if missing_current_car(state.current):
         return Stage.COLLECT_CURRENT_CAR
+    if q2 or needs_opt_out_occupation(state):
+        return Stage.COLLECT_PROFILE
     if not state.selected:
         return Stage.CHOOSE_OPTIONS
     if state.calculated_for != state.selected:
@@ -202,23 +229,53 @@ def next_stage(state: ConversationState) -> Stage:
     return Stage.PRESENTED
 
 
-def next_question(state: ConversationState) -> Optional[str]:
-    """השדה הבא שנשאל עליו (מצב גיבוי: שאלה אחת בכל פעם)."""
+def current_group(state: ConversationState) -> tuple[Optional[str], list[str]]:
+    """השאלה המקובצת הנוכחית ושדותיה החסרים: ("Q1" | "Q2" | "Q3" | "car_detail", [...])."""
     stage = next_stage(state)
+    p, c = state.profile, state.current
+    missing = missing_profile(p)
+    q1 = [f for f in missing if f in Q1_FIELDS]
+    q2 = [f for f in missing if f in Q2_FIELDS]
+    options = [] if state.selected else ["options"]
     if stage == Stage.COLLECT_PROFILE:
-        return missing_profile(state.profile)[0]
+        if q1:
+            return "Q1", q1
+        if q2 and not _q2_deferred(state):
+            return "Q2", q2
+        return "Q3", q2 + (["opt_out_occupation"] if needs_opt_out_occupation(state) else []) + options
     if stage == Stage.COLLECT_CURRENT_CAR:
-        return missing_current_car(state.current)[0]
+        car = missing_current_car(c)
+        if car[0] in CAR_DETAILS:
+            return "car_detail", [car[0]]
+        if car[0] == "car":
+            car = ["car"] + ([] if c.copay is not None or c.copay_unknown else ["copay"])
+        return "Q3", car + options + q2
     if stage in (Stage.CHOOSE_OPTIONS, Stage.PRESENTED):
-        return "options"
-    return None
+        return "Q3", ["options"]
+    return None, []
 
 
-ALLOWED_TOOLS: dict[Stage, tuple[str, ...]] = {
-    Stage.COLLECT_PROFILE: ("save_profile",),
-    Stage.COLLECT_CURRENT_CAR: ("match_current_car", "save_profile"),
-    Stage.CHOOSE_OPTIONS: ("list_options", "rank_options", "calculate"),
-    Stage.CALCULATING: (),
-    Stage.WAITING_FOR_REP: (),
-    Stage.PRESENTED: ("list_options", "rank_options", "calculate"),
-}
+def question_fields(state: ConversationState) -> list[str]:
+    return current_group(state)[1]
+
+
+def next_question(state: ConversationState) -> Optional[str]:
+    """השדה הנשאל כשנשאל שדה אחד בלבד; None כשהשאלה מקובצת (או שאין שאלה)."""
+    fields = question_fields(state)
+    return fields[0] if len(fields) == 1 else None
+
+
+_Q3_TOOLS = ("save_profile", "match_current_car", "list_options", "rank_options", "calculate")
+
+
+def allowed_tools(state: ConversationState) -> tuple[str, ...]:
+    """הכלים שהשלב מתיר. ב-Q3 הודעה אחת יכולה לכלול רכב, השתתפות, חלופות ושדות שנשארו מ-Q2."""
+    stage = next_stage(state)
+    if stage in (Stage.CALCULATING, Stage.WAITING_FOR_REP):
+        return ()
+    group = current_group(state)[0]
+    if stage == Stage.COLLECT_PROFILE and group in ("Q1", "Q2"):
+        return ("save_profile",)
+    if stage == Stage.COLLECT_PROFILE or stage == Stage.COLLECT_CURRENT_CAR:
+        return _Q3_TOOLS if group == "Q3" else ("match_current_car", "save_profile")
+    return ("list_options", "rank_options", "calculate")

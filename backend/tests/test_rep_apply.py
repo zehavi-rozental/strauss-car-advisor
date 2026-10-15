@@ -134,14 +134,16 @@ def test_rep_answer_unblocks_and_the_flow_continues(client):
     assert updates["stage"] == "CHOOSE_OPTIONS"
     [rep] = updates["messages"]
     assert rep["content"].startswith("נציג התחבורה השיב: ההשתתפות הנוכחית שלך ב-COROLLA CROSS (2025) היא 300 ₪.")
-    assert "לאילו חלופות להשוות" in rep["content"]
+    assert "איזה רכב מעניין אותך" in rep["content"]
     body = say(client, cid, "אטו 3")                                  # ממשיכים כרגיל
     assert body["stage"] == "PRESENTED" and body["results"][0]["delta_display"] == "661"
 
 
 # ---------- ויתור כשהעיסוק לא בטבלה: כן/לא, ואז סכום האחזקה ----------
 
-UNKNOWN = ["אסטרונאוטית", "כן", "ג", "18,500", "אין", "אין", "6", "2.5", "2.75", "2", "קורולה קרוס", "300", "ויתור"]
+UNKNOWN = ["אסטרונאוטית", "כן", "ג, שכר בסיס 18,500",
+           "אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים",
+           "קורולה קרוס", "300", "ויתור"]
 
 
 def test_opt_out_denied_by_the_rep(client):

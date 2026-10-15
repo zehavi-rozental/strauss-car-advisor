@@ -174,8 +174,8 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
             p.group = snap.occupations[name].group
             saved.append("occupation")
         elif ctx.allow_unknown_occupation:
+            # קבוצה שכבר נמסרה (Q1) נשמרת; אחרת היא נשאלת אחרי התפקיד
             p.occupation, p.occupation_text, p.occupation_unknown = None, args.occupation.strip()[:80], True
-            p.group = None
             ctx.state.pending_occupation = None
             saved.append("occupation_unknown")
         else:

@@ -245,7 +245,7 @@ def test_out_of_range_option_number_is_answered_without_the_llm(sessions, text):
     turn = turns[-1]
     assert fake.calls == [] and turn.path == "parser"
     assert turn.reply.startswith(OUT_OF_RANGE)
-    assert "לאילו חלופות להשוות" in turn.reply and "13. ויתור על רכב" in turn.reply
+    assert "איזה רכב מעניין אותך" in turn.reply and "13. ויתור על רכב" in turn.reply
     assert "לא הצלחתי להבין" not in turn.reply
     assert turn.stage == Stage.CHOOSE_OPTIONS
     assert svc.view(turn.conversation_id, token).state.selected == []
@@ -275,7 +275,7 @@ def test_repeated_car_sentence_at_the_options_question_selects_nothing(sessions,
     state = svc.view(turn.conversation_id, token).state
     assert turn.stage == Stage.CHOOSE_OPTIONS and state.selected == [] and turn.results == []
     assert svc.cases.list_open() == []
-    assert "לאילו חלופות להשוות" in turn.reply
+    assert "איזה רכב מעניין אותך" in turn.reply
 
 
 @pytest.mark.parametrize("text, code", [("אני רוצה לבדוק את אטו 3", "CAR-10"), ("קורולה", "CAR-07"),
@@ -343,7 +343,7 @@ def test_official_scenario_sentence_saves_an_approximate_commission(sessions):
     assert (p.commissions, p.pension_percent, p.study_fund_percent, p.credit_points) == (
         1000, 6, Decimal("2.5"), Decimal("2.25"))
     assert p.approximate_fields == ["commissions"]
-    for m in ["אין", "2", "קורולה קרוס", "300", "אטו 3"]:
+    for m in ["אין בונוס, 2 ילדים", "קורולה קרוס", "300", "אטו 3"]:   # מה שחסר מ-Q2 נשאל בתוך Q3
         turn = svc.send(turn.conversation_id, token, m)
     assert turn.stage == Stage.PRESENTED
     assert "עמלות: כ-1,000 ₪, לפי ההערכה שלך" in turn.results[0].result["assumptions"]
@@ -383,7 +383,11 @@ def test_an_llm_that_saves_base_18_is_caught_by_the_range_check(sessions):
 def test_pension_60_is_rejected_and_the_problem_is_named(sessions, llm):
     fake = FakeLLM()
     svc = service(sessions, LLMChain([fake]) if llm else LLMChain())
-    turn, token = _send_all(svc, ["מנהלת מוצר", "18,500", "אין", "אין"])
+    # כל השאר כבר נמסר — הפנסיה לבד חסרה, ונשאלת כשאלה בודדת
+    turn, token = _send_all(svc, ["מנהלת מוצר, שכר בסיס 18,500",
+                                  "אין עמלות ואין בונוס, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים",
+                                  "יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש", "אטו 3"])
+    assert turn.reply == "כמה אחוזים מהשכר מופרשים ממך לפנסיה (חלק העובד)?"
     if llm:
         fake.turn(call("save_profile", pension_percent=60))
         text = "ההפרשה שלי לפנסיה היא שישים"                       # הקורא לא מבין → המודל

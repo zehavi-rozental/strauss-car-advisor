@@ -37,16 +37,23 @@ def ids(expects, key="choices"):
 def test_expects_follows_the_state_machine(engine):
     client = make_client(engine)
     cid, body = new(client)
-    e = body["expects"]
+    e = body["expects"]                                            # Q1: קבוצה או תפקיד, ושכר בסיס
+    assert [f["field"] for f in e["fields"]] == ["occupation", "group", "base"]
     assert (e["field"], e["type"]) == ("occupation", "choice") and "מנהל/ת מוצר" in ids(e)
+    assert ids(e["fields"][1]) == ["א", "ב", "ג", "ד"]
 
-    e = say(client, cid, "מנהלת מוצר")["expects"]
+    e = say(client, cid, "מנהלת מוצר")["expects"]                  # רק מה שחסר
     assert (e["field"], e["type"], e["quick_replies"]) == ("base", "number", [])
-    e = say(client, cid, "18,500")["expects"]
-    assert (e["field"], e["type"], ids(e, "quick_replies")) == ("commissions", "number", ["none"])
-    e = say(client, cid, "אין", "אין", "6", "2.5", "2.75", "2")["expects"]
+    assert [f["field"] for f in e["fields"]] == ["base"]
+    e = say(client, cid, "18,500")["expects"]                       # Q2
+    assert [f["field"] for f in e["fields"]] == ["commissions", "bonus", "pension_percent", "study_fund_percent",
+                                                  "credit_points", "children"]
+    assert ids(e["fields"][0], "quick_replies") == ["none"]
+    e = say(client, cid, "אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים")["expects"]
+    assert [f["field"] for f in e["fields"]] == ["car", "copay", "options"]          # Q3
     assert (e["field"], e["type"], ids(e, "quick_replies")) == ("car", "car_search", ["no_car"])
     e = say(client, cid, "קורולה קרוס")["expects"]
+    assert [f["field"] for f in e["fields"]] == ["copay", "options"]
     assert (e["field"], ids(e, "quick_replies")) == ("copay", ["none", "unknown"])
     e = say(client, cid, "300")["expects"]
     assert (e["field"], e["type"], e["max"], ids(e, "quick_replies")) == ("options", "multi_choice", 3, ["rank"])
@@ -133,16 +140,20 @@ def test_quick_replies_and_confirmation_buttons(engine):
     state = client.get(f"/api/conversations/{cid}").json()["profile"]
     assert state["base"] == "18000" and state["approximate_fields"] == []
     assert body["expects"]["field"] == "commissions"
-    body = post(client, cid, choice="none").json()
+    r = post(client, cid, choice="none")                            # "אין" מוצע לכמה שדות ב-Q2
+    assert r.status_code == 422 and r.json()["detail"] == "יש לציין לאיזה שדה הבחירה"
+    body = post(client, cid, choice="none", field="commissions").json()
     assert client.get(f"/api/conversations/{cid}").json()["profile"]["commissions"] == "0"
-    assert body["expects"]["field"] == "bonus"
+    fields = [f["field"] for f in body["expects"]["fields"]]       # Q2 נענתה בחלקה: מה שנשאר עובר ל-Q3
+    assert fields[:3] == ["car", "copay", "options"] and "bonus" in fields
 
 
 def test_unknown_copay_quick_reply_waits_for_the_rep(engine):
     client = make_client(engine)
     cid, _ = new(client)
     say(client, cid, PROFILE)
-    body = post(client, cid, choice="CAR-09").json()
+    assert post(client, cid, choice="CAR-09").status_code == 422   # ב-Q3 גם חלופה מציעה את CAR-09
+    body = post(client, cid, choice="CAR-09", field="car").json()
     assert body["expects"]["field"] == "copay"
     body = post(client, cid, choice="unknown").json()
     assert body["stage"] == "WAITING_FOR_REP"

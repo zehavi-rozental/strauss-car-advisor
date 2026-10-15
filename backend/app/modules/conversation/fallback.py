@@ -38,7 +38,7 @@ from .parsing import (
     unknown_span,
     unread_words,
 )
-from .stage import ConversationState, Stage, next_question, next_stage
+from .stage import ConversationState, current_group
 from .tools import OPT_OUT_WORDS, available_options
 
 _RANK_RE = re.compile(r"הכי\s*משתלם|הכי\s*טוב|תמליץ|המלצ|דרג", re.IGNORECASE)
@@ -120,21 +120,108 @@ def named_cars(text: str, cars: Iterable[CatalogCar]) -> list[CatalogCar]:
 
 
 def fallback_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) -> ParserPlan:
-    question = next_question(state)
+    group, fields = current_group(state)
     t = text.strip()
-    if not t or question is None:
+    if not t or not fields:
         return ParserPlan()
-    if next_stage(state) == Stage.COLLECT_PROFILE:
-        return _profile_plan(snapshot, question, t)
-    if question == "car":
+    if len(fields) == 1:
+        return _field_plan(state, snapshot, fields[0], t)
+    return _grouped_plan(state, snapshot, group, fields, t)
+
+
+def _field_plan(state: ConversationState, snapshot: RulesSnapshot, field_: str, t: str) -> ParserPlan:
+    """שאלה על שדה אחד (או קריאה של ההודעה כתשובה לשדה אחד מתוך שאלה מקובצת)."""
+    if field_ in _PROFILE_ARG or field_ == "opt_out_occupation":
+        return _profile_plan(snapshot, "occupation" if field_ == "opt_out_occupation" else field_, t)
+    if field_ == "car":
         return _car_plan(snapshot, t)
-    if question in _CAR_DETAIL_QUESTIONS:
+    if field_ in _CAR_DETAIL_QUESTIONS:
         correction = correction_plan(state, snapshot, t)
         if correction is not None:
             return correction
-        return _car_detail_plan(snapshot, question, t)
-    if question == "options":
+        return _car_detail_plan(snapshot, field_, t)
+    if field_ == "options":
         return _option_plan(state, snapshot, t)
+    return ParserPlan()
+
+
+def _grouped_plan(state: ConversationState, snapshot: RulesSnapshot, group: Optional[str],
+                  fields: list[str], t: str) -> ParserPlan:
+    """שאלה מקובצת. לא מנחשים: (1) ב-Q3 שם רכב לבד הוא הרכב של היום (השאלה שואלת עליו קודם);
+    (2) ערכים מתויגים ("פנסיה 6%", "קבוצה ג") — כשההודעה נקראה במלואה; (3) אחרת ההודעה נקראת
+    כתשובה לכל שדה בנפרד, ופועלים רק אם בדיוק שדה אחד קורא אותה במלואה ("300" כשחסרים רכב
+    והשתתפות = השתתפות; "אין" כשחסרים עמלות ובונוס — שואלים שוב)."""
+    car_guess = None
+    if "car" in fields:
+        plan = _car_plan(snapshot, t)
+        if plan.complete and plan.calls:
+            return plan
+        if named_cars(t, snapshot.catalog):
+            return ParserPlan()           # רכב בשמו לפני שהרכב של היום ידוע — לא בוחרים אותו כחלופה
+        car_guess = plan if plan.calls else None      # דגם קצר שלא בקטלוג — גיבוי, אם אף שדה אחר לא קורא
+    profile_fields = [f for f in fields if f in _PROFILE_ARG]
+    if profile_fields:
+        plan = _profile_group_plan(snapshot, group, profile_fields, t)
+        if plan is not None:
+            return plan
+    candidates = [p for f in fields if f != "car" for p in [_field_plan(state, snapshot, f, t)] if p.calls]
+    complete = [p for p in candidates if p.complete]
+    if len(complete) == 1:
+        return complete[0]
+    if not complete and len(candidates) == 1:
+        return candidates[0]
+    if not candidates and car_guess is not None:
+        return car_guess
+    return ParserPlan()
+
+
+_NUMERIC_ARGS = {"base_salary", "commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points"}
+
+
+def _add_free_number(text: str, arg: str, found: dict, spans: list, approximate: list) -> None:
+    """המספר היחיד בהודעה שאינו שייך לערך מתויג — הוא הערך שהשאלה מבקשת."""
+    free = [m for m in NUMBER_RE.finditer(text) if not any(a <= m.start() < b for a, b in spans)]
+    if len(free) == 1:
+        number = read_number(text, free[0])
+        found[arg] = plain_decimal(number.value)
+        spans.append(number.span)
+        if number.approximate:
+            approximate.append(arg)
+
+
+def _group_reading(text: str, order: Iterable[str]) -> Optional[tuple[str, tuple[int, int]]]:
+    """"קבוצה ג", "בקבוצת זכאות ב", או האות לבד כתשובה."""
+    letters = "".join(order)
+    m = re.search(rf"(?:ב|ו)?קבוצ(?:ה|ת)(?:\s*(?:ה)?זכאות)?\s*([{letters}])(?![א-ת])", text)
+    if m:
+        return m.group(1), m.span()
+    # אות קבוצה כמילה בפני עצמה ("ג, שכר בסיס 18,500") — רק כשיש בדיוק אחת כזו
+    lone = list(re.finditer(rf"(?<![א-ת])([{letters}])['׳]?(?![א-ת])", text))
+    return (lone[0].group(1), lone[0].span()) if len(lone) == 1 else None
+
+
+def _profile_group_plan(snapshot: RulesSnapshot, group: Optional[str], fields: list[str],
+                        text: str) -> Optional[ParserPlan]:
+    """ערכים מתויגים בשאלה מקובצת. ב-Q1 גם קבוצה, וסכום יחיד בלי תווית הוא שכר הבסיס
+    (זה המספר היחיד שהשאלה מבקשת): "קבוצה ג, 14,200 ₪". None — אין כאן ערכים מתויגים."""
+    ext = snapshot.extensions
+    reading = read_profile(text, snapshot.occupations.keys(), ext.correction_cues, ext.value_qualifiers)
+    found = dict(reading.fields)
+    spans = list(reading.spans)
+    approximate = list(reading.approximate)
+    if group == "Q1":
+        hit = _group_reading(text, snapshot.calc.group_order)
+        if hit and "occupation" not in found:
+            found["eligibility_group"] = hit[0]
+            spans.append(hit[1])
+        if "base" in fields and "base_salary" not in found:
+            _add_free_number(text, "base_salary", found, spans, approximate)
+    if not found:
+        return None
+    if not unread_words(text, spans + approx_spans(text), reading.phrases, ext.profile_fillers):
+        return ParserPlan(_call("save_profile", **found, approximate_fields=approximate), True)
+    if reading.fields:
+        return _labelled_fallback(reading.labelled)
     return ParserPlan()
 
 
@@ -143,13 +230,19 @@ def fallback_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) 
 def _profile_plan(snapshot: RulesSnapshot, question: str, text: str) -> ParserPlan:
     ext = snapshot.extensions
     reading = read_profile(text, snapshot.occupations.keys(), ext.correction_cues, ext.value_qualifiers)
-    if reading.fields:
-        if not unread_words(text, reading.spans + approx_spans(text), reading.phrases, ext.profile_fillers):
-            return ParserPlan(_call("save_profile", **reading.fields,
-                                    approximate_fields=list(reading.approximate)), True)
-        return _labelled_fallback(reading.labelled)      # לא נקרא במלואו: רק ערכים מתויגים, כגיבוי
     asked = _PROFILE_ARG[question]
+    if reading.fields:
+        found, spans, approximate = dict(reading.fields), list(reading.spans), list(reading.approximate)
+        if asked in _NUMERIC_ARGS and asked not in found:
+            # "18,500, פנסיה 6%" כשנשאל רק השכר: המספר היחיד בלי תווית הוא הערך שנשאל
+            _add_free_number(text, asked, found, spans, approximate)
+        if not unread_words(text, spans + approx_spans(text), reading.phrases, ext.profile_fillers):
+            return ParserPlan(_call("save_profile", **found, approximate_fields=approximate), True)
+        return _labelled_fallback(reading.labelled)      # לא נקרא במלואו: רק ערכים מתויגים, כגיבוי
     if question == "occupation":
+        hit = _group_reading(text, snapshot.calc.group_order)
+        if hit and not unread_words(text, [hit[1]], (), ext.answer_fillers):
+            return ParserPlan(_call("save_profile", eligibility_group=hit[0]), True)
         # תפקיד שאינו בטבלה: כל התשובה הקצרה היא שם התפקיד — גיבוי בלבד (המודל קודם)
         # "לא יודעת", "אין", "לא מנהלת" — אינם שם תפקיד
         # ברכה או שאלה ("שלום", "מה זה משנה?") — גם לא

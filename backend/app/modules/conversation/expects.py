@@ -11,7 +11,7 @@ from app.modules.rules.public import RulesSnapshot
 from app.modules.vehicles.public import VehicleInfo, VehicleKey
 
 from .llm.port import ToolCall
-from .stage import MAX_OPTIONS, ConversationState, Stage, next_question, next_stage
+from .stage import MAX_OPTIONS, ConversationState, Stage, next_stage, question_fields
 from .templates import DRIVE_HE, money
 from .tools import available_options
 
@@ -31,6 +31,7 @@ OCCUPATION_YES = {"id": "yes", "label": "כן, זה התפקיד שלי"}
 YES_NO = [{"id": "yes", "label": "כן"}, {"id": "no", "label": "לא"}]
 CLARIFY = [{"id": "mine", "label": "זה הרכב שלי"}, {"id": "alternative", "label": "חלופה לבדיקה"}]
 INVALID = "הבחירה אינה מהאפשרויות שהוצעו"
+FIELD_NEEDED = "יש לציין לאיזה שדה הבחירה"
 
 
 class ChoiceInvalid(Exception):
@@ -43,7 +44,28 @@ def _quick(*ids: str) -> list[dict[str, str]]:
 
 def _expects(field: Optional[str], kind: str, choices: Optional[list[dict[str, Any]]] = None,
              quick: Optional[list[dict[str, str]]] = None, most: Optional[int] = None) -> dict[str, Any]:
-    return {"field": field, "type": kind, "choices": choices or [], "quick_replies": quick or [], "max": most}
+    one = {"field": field, "type": kind, "choices": choices or [], "quick_replies": quick or [], "max": most}
+    return {**one, "fields": [one] if field else []}
+
+
+def _pick_field(expects: dict[str, Any], ids: list[str], field: Optional[str]) -> dict[str, Any]:
+    """השדה שהבחירה עונה עליו. בשאלה מקובצת: לפי "field", או השדה היחיד שמציע את המזהה."""
+    items = [{k: v for k, v in f.items() if k != "fields"} for f in expects.get("fields") or []]
+    if field:
+        for item in items:
+            if item["field"] == field:
+                return item
+        raise ChoiceInvalid(INVALID)
+    if len(items) <= 1:
+        return items[0] if items else expects
+    offering = [f for f in items
+                if any(i in {c["id"] for c in f["choices"] + f["quick_replies"]} for i in ids)
+                or (f["type"] == "car_search" and any(i not in {q["id"] for q in f["quick_replies"]} for i in ids))]
+    if len(offering) == 1:
+        return offering[0]
+    if len(offering) > 1:
+        raise ChoiceInvalid(FIELD_NEEDED)
+    raise ChoiceInvalid(INVALID)
 
 
 def vehicle_id(key: VehicleKey) -> str:
@@ -74,9 +96,19 @@ def build_expects(state: ConversationState, snapshot: RulesSnapshot) -> dict[str
         if state.pending_clarification is not None:
             return _expects("clarification", "choice", CLARIFY)
         return _expects(None, "none")
-    question = next_question(state)
-    if question == "occupation":
-        return _expects("occupation", "choice", [{"id": n, "label": n} for n in snapshot.occupations])
+    fields = question_fields(state)
+    if "occupation" in fields:            # Q1: קבוצה או תפקיד — שניהם עונים
+        i = fields.index("occupation")
+        fields = fields[:i + 1] + ["group"] + fields[i + 1:]
+    items = [{k: v for k, v in _field_expects(f, state, snapshot).items() if k != "fields"} for f in fields]
+    if not items:
+        return _expects(None, "none")
+    return {**items[0], "fields": items}
+
+
+def _field_expects(question: str, state: ConversationState, snapshot: RulesSnapshot) -> dict[str, Any]:
+    if question in ("occupation", "opt_out_occupation"):
+        return _expects(question, "choice", [{"id": n, "label": n} for n in snapshot.occupations])
     if question == "group":
         return _expects("group", "choice", [{"id": g, "label": f"קבוצה {g}"} for g in snapshot.calc.group_order])
     if question == "car":
@@ -98,9 +130,16 @@ def build_expects(state: ConversationState, snapshot: RulesSnapshot) -> dict[str
 
 
 def validate_choice(expects: dict[str, Any], ids: list[str], snapshot: RulesSnapshot,
-                    get_vehicle: VehicleGetter) -> str:
-    """בודק שהבחירה הוצעה, ומחזיר את התווית בעברית (נשמרת כהודעת העובד)."""
+                    get_vehicle: VehicleGetter, field: Optional[str] = None) -> tuple[str, str]:
+    """בודק שהבחירה הוצעה. מחזיר (התווית בעברית — נשמרת כהודעת העובד, השדה שהיא עונה עליו)."""
     ids = [i.strip() for i in ids]
+    if not ids:
+        raise ChoiceInvalid(INVALID)
+    expects = _pick_field(expects, ids, field)
+    return _validate(expects, ids, snapshot, get_vehicle), expects["field"]
+
+
+def _validate(expects: dict[str, Any], ids: list[str], snapshot: RulesSnapshot, get_vehicle: VehicleGetter) -> str:
     kind = expects["type"]
     if not ids or kind == "none" or (kind != "multi_choice" and len(ids) != 1):
         raise ChoiceInvalid(INVALID)
@@ -132,7 +171,7 @@ def choice_calls(field: str, ids: list[str], snapshot: RulesSnapshot) -> list[To
     def call(name: str, **args: Any) -> list[ToolCall]:
         return [ToolCall(name, args, f"choice_{name}")]
 
-    if field == "occupation":
+    if field in ("occupation", "opt_out_occupation"):
         return call("save_profile", occupation=first)
     if field == "group":
         return call("save_profile", eligibility_group=first)

@@ -13,7 +13,8 @@ from app.modules.rules.public import RulesStore
 
 from .conftest import CONFIG
 
-PROFILE_AFTER_OCCUPATION = ["18,500", "אין", "אין", "6", "2.5", "2.75"]
+# שאלות מקובצות (כמו בתרחיש הרשמי): Q1 תפקיד ושכר בסיס, Q2 רכיבי שכר, הפרשות וילדים
+Q2_ANSWER = "אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, {children} ילדים"
 
 
 def service(sessions, llm=None):
@@ -32,16 +33,19 @@ def talk(svc, messages, start=None):
 
 
 def profile(occupation="מנהלת מוצר", children="2"):
-    return [occupation, *PROFILE_AFTER_OCCUPATION, children]
+    return [f"{occupation}, שכר בסיס 18,500", Q2_ANSWER.format(children=children)]
 
 
 def test_commissions_must_be_answered_explicitly(sessions):
+    """"אין" כשהשאלה מקובצת (עמלות, בונוס, קרן השתלמות, ילדים) — לא מנחשים לאיזה שדה; שואלים שוב."""
     svc = service(sessions)
-    turn, _ = talk(svc, ["מנהלת מוצר", "18,500", "לא ברור לי"])
+    turn, token = talk(svc, ["מנהלת מוצר", "18,500", "לא ברור לי"])
     assert turn.stage == Stage.COLLECT_PROFILE
     assert "לא הצלחתי להבין" in turn.reply and "עמלות" in turn.reply
-    turn, _ = talk(svc, ["אין"], start=(turn, _))
-    assert "בונוס" in turn.reply
+    turn, _ = talk(svc, ["אין"], start=(turn, token))
+    p = svc.view(turn.conversation_id, token).state.profile
+    assert (p.commissions, p.bonus, p.study_fund_percent, p.children) == (None, None, None, None)
+    assert "עמלות, בונוסים" in turn.reply
 
 
 def test_llm_without_commissions_stays_in_profile(sessions):
@@ -103,7 +107,7 @@ def test_unknown_occupation_asks_group_and_opt_out_goes_to_rep(sessions):
     assert "לא מצאתי את \"אסטרונאוטית\" בטבלת העיסוקים. זה התפקיד שלך?" in turn.reply   # לא נשמר בלי אישור
     turn, _ = talk(svc, ["כן"], start=(turn, token))
     assert "קבוצת הזכאות" in turn.reply
-    turn, _ = talk(svc, ["ג", *PROFILE_AFTER_OCCUPATION, "2", "COROLLA CROSS", "300"], start=(turn, token))
+    turn, _ = talk(svc, ["ג", "18,500", Q2_ANSWER.format(children="2"), "COROLLA CROSS", "300"], start=(turn, token))
     assert turn.stage == Stage.CHOOSE_OPTIONS and "ויתור על רכב" in turn.reply
     turn, _ = talk(svc, ["ויתור"], start=(turn, token))
     assert turn.stage == Stage.WAITING_FOR_REP and turn.pending_rep == RepReason.OCCUPATION_OPT_OUT
@@ -211,7 +215,7 @@ CONFIRM_TAIL = "אם זה לא הרכב שלך, כתבו את הדגם המדו�
 def test_identified_car_is_confirmed_with_label_group_and_drive(sessions):
     turn, _ = talk(service(sessions), profile() + ["יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש"])
     assert turn.reply.startswith(f"זיהיתי: COROLLA CROSS (2025), קבוצה ג, היברידי. {CONFIRM_TAIL}")
-    assert turn.stage == Stage.CHOOSE_OPTIONS and "לאילו חלופות להשוות" in turn.reply   # ואז השאלה הבאה
+    assert turn.stage == Stage.CHOOSE_OPTIONS and "איזה רכב מעניין אותך" in turn.reply   # ואז השאלה הבאה
 
 
 def test_tax_file_car_confirmation_has_no_group(sessions):
@@ -254,7 +258,7 @@ def test_not_this_car_resets_and_asks_for_the_model(sessions):
     turn = svc.send(turn.conversation_id, token, "זה לא הרכב שלי")
     current = svc.view(turn.conversation_id, token).state.current
     assert current.catalog_code is None and current.source is None
-    assert "איזה רכב צמוד יש לך היום" in turn.reply
+    assert "מה הרכב היום (דגם ושנת רישום)" in turn.reply
 
 
 # ---------- ניסוח ניטרלי מגדרית ----------
