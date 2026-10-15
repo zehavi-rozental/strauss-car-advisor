@@ -162,31 +162,39 @@ def group_question(state: ConversationState, snapshot: RulesSnapshot) -> str:
 
 
 def _why(drivers: list[dict[str, Any]]) -> list[str]:
-    """"למה?" בשתי שורות לכל היותר: הגורמים הגדולים, עם הסכומים מהמנוע."""
+    """"למה?" בשתי שורות: הגורמים מהגדול לקטן, כל אחד עם השפעתו על הנטו מהמנוע. הסכומים המוצגים
+    מסתכמים בהפרש המוצג."""
     phrases = []
     for d in drivers:
         amount = Decimal(str(d["amount_display"]))
-        size = money(abs(amount))
+        effect = Decimal(str(d["net_effect_display"]))
+        size, net_size = money(abs(amount)), money(abs(effect))
+        net_moves = f"הנטו {'עולה' if effect > 0 else 'יורד'} ב-{net_size}"
         code = d["code"]
         if code == "USE_VALUE":
-            text = f"שווי השימוש {'נמוך' if amount < 0 else 'גבוה'} ב-{size}"
-            tax = Decimal(str(d["tax_change_display"] or 0))
-            if tax:
-                text += f" ולכן המס {'יורד' if tax < 0 else 'עולה'} ב-{money(abs(tax))}"
+            text = (f"שווי השימוש {'נמוך' if amount < 0 else 'גבוה'} ב-{size} "
+                    f"ולכן המס {'יורד' if effect > 0 else 'עולה'} ב-{net_size}")
         elif code in ("ELECTRIC_ADDED", "ELECTRIC_REMOVED"):
-            kind = "נטו" if d.get("net", True) else "ברוטו"
-            text = (f"מתווסף החזר חשמל של {size} {kind}" if code == "ELECTRIC_ADDED"
-                    else f"החזר החשמל של {size} {kind} יורד")
-        elif code == "COPAY":
-            text = f"ההשתתפות {'עולה' if amount > 0 else 'יורדת'} ב-{size}"
-        elif code == "FAMILY_SHARE":
-            text = f"חלק העובד במסלול המשפחתי {'עולה' if amount > 0 else 'יורד'} ב-{size}"
+            if d.get("net", True):
+                text = (f"מתווסף החזר חשמל של {net_size} נטו" if code == "ELECTRIC_ADDED"
+                        else f"החזר החשמל של {net_size} נטו יורד")
+            else:
+                text = (f"{'מתווסף' if code == 'ELECTRIC_ADDED' else 'יורד'} החזר חשמל של {size} ברוטו, "
+                        f"ולכן {net_moves}")
+        elif code == "MAINTENANCE":
+            text = f"אחזקת הרכב {'עולה' if amount > 0 else 'יורדת'} ב-{size}, ואחרי המס {net_moves}"
         else:
-            text = f"אחזקת הרכב {'עולה' if amount > 0 else 'יורדת'} ב-{size}"
+            what = "ההשתתפות" if code == "COPAY" else "חלק העובד במסלול המשפחתי"
+            verb = ("עולה" if amount > 0 else "יורדת") if code == "COPAY" else ("עולה" if amount > 0 else "יורד")
+            text = f"{what} {verb} ב-{size}"
+            if abs(effect) != abs(amount):
+                text += f" ({net_moves})"
         phrases.append(text)
-    lines = ["; ".join(phrases[i:i + 2]) + "." for i in (0, 2) if phrases[i:i + 2]]
-    if not lines:
+    if not phrases:
         return []
+    lines = ["; ".join(phrases[:2]) + "."]
+    if phrases[2:]:
+        lines.append("; ".join(phrases[2:]) + ".")
     return ["  למה? " + lines[0], *(f"  {line}" for line in lines[1:])]
 
 

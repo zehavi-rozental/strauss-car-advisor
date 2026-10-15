@@ -171,12 +171,15 @@ class CarCost(Frozen):
 
 
 class Driver(Frozen):
-    """גורם בהפרש בנטו, מהגדול לקטן. USE_VALUE כולל את השינוי במס (מס הכנסה, ביטוח לאומי ובריאות)."""
+    """גורם בהפרש בנטו, מהגדול לקטן. net_effect — ההשפעה על הנטו; סכום כל הגורמים שווה בדיוק להפרש
+    בנטו, וסכום ערכי התצוגה שווה להפרש המוצג (delta_display)."""
 
     code: str                                 # USE_VALUE | ELECTRIC_ADDED | ELECTRIC_REMOVED | COPAY | FAMILY_SHARE | MAINTENANCE
-    amount: Decimal
+    amount: Decimal                           # השינוי בקלט עצמו (שווי שימוש, השתתפות...; בחשמל — ההחזר)
     amount_display: Decimal
-    tax_change: Optional[Decimal] = None
+    net_effect: Decimal
+    net_effect_display: Decimal
+    tax_change: Optional[Decimal] = None      # USE_VALUE: השינוי במס בגלל שווי השימוש (= −net_effect)
     tax_change_display: Optional[Decimal] = None
     net: bool = True                          # החזר חשמל: נטו (מגולם) או ברוטו
 

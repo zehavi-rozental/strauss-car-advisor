@@ -47,11 +47,8 @@ def test_atto_3_is_explained_in_plain_lines(sessions):
         in reply
     assert "נטו משוער: היום 11,032 ₪, בחלופה 11,693 ₪ — שינוי של +661 ₪ בחודש." in reply
     assert "הנה ההשוואה (נטו משוער היום: 11,032 ₪):" in reply
-    use = next(d for d in r["drivers"] if d["code"] == "USE_VALUE")
-    electric = next(d for d in r["drivers"] if d["code"] == "ELECTRIC_ADDED")
-    why = (f"למה? מתווסף החזר חשמל של {money(electric['amount_display'])} נטו; "
-           f"שווי השימוש נמוך ב-{money(-D(use['amount']))} ולכן המס יורד ב-"
-           f"{money(-D(use['tax_change']))}.")
+    # מסתכם להפרש: 411 + 250 = 661 (המס על רכיב הגילום לא נספר פעמיים)
+    why = "למה? שווי השימוש נמוך ב-940 ₪ ולכן המס יורד ב-411 ₪; מתווסף החזר חשמל של 250 ₪ נטו."
     assert why in reply
     assert "החזר חשמל 250 ₪ נטו" in reply and r["copay_pending"] is True
 
@@ -88,3 +85,27 @@ def test_not_eligible_option_has_no_cost_or_why_lines():
     text = results_text(state)
     assert f"• {model3.label}: לא ניתן — {result.reason}" in text
     assert "עלות לחברה" not in text and "למה?" not in text
+
+
+def test_drivers_add_up_to_the_net_change_for_every_reference_employee_and_alternative():
+    """לכל אחד מששת העובדים לדוגמה ולכל חלופה: סכום הגורמים = ההפרש בנטו (בדיוק, Decimal),
+    וסכום ערכי התצוגה = ההפרש המוצג."""
+    from app.modules.calculation.public import OptOutState
+    from app.modules.rules.public import parse_reference_state
+
+    snap = load_snapshot(CONFIG)
+    checked = 0
+    for emp in snap.reference_employees:
+        current = parse_reference_state(snap, emp.current_car, current_copay=emp.current_copay, for_current=True)
+        occupation = occupation_rule(snap.occupations.get(emp.occupation))
+        alternatives = [car_state(c) for c in snap.catalog] + [OptOutState()]
+        for alternative in alternatives:
+            r = evaluate(reference_employee(emp), current, alternative, snap.calc, occupation)
+            if r.today is None or r.alternative is None:
+                continue
+            assert sum((d.net_effect for d in r.drivers), Decimal(0)) == r.alternative.net - r.today.net,                 (emp.employee_id, alternative.label)
+            assert sum((d.net_effect_display for d in r.drivers), Decimal(0)) == r.delta_display,                 (emp.employee_id, alternative.label)
+            assert [abs(d.net_effect) for d in r.drivers] == sorted((abs(d.net_effect) for d in r.drivers),
+                                                                    reverse=True)
+            checked += 1
+    assert checked >= 6 * 10

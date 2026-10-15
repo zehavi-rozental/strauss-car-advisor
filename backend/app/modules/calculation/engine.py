@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from dataclasses import replace
 from typing import Optional
 
 from app.shared.money import ZERO, to_shekel
@@ -33,7 +34,7 @@ from .models import (
 )
 from .tax import StateInputs, compute_net, solve_gross_up
 
-ENGINE_VERSION = "1.2.0"   # 1.2: הסבר לכל חלופה (עלות מול תקציב, גורמי ההפרש, ערכי תצוגה) — הנטו לא השתנה
+ENGINE_VERSION = "1.2.1"   # 1.2.1: גורמי ההסבר מסתכמים בדיוק להפרש בנטו — הנטו לא השתנה
 
 REASON_OWN_OR_LOWER = "הרכב מהקבוצה שלך או נמוכה ממנה"
 REASON_HIGHER_GROUP = "הרכב מקבוצה גבוהה מהקבוצה שלך"
@@ -184,31 +185,49 @@ def _line(code: str, label: str, before: Optional[Decimal], after: Optional[Deci
                 change_display=_display(change), note=note)
 
 
-def _taxes(b: Breakdown) -> Decimal:
-    return b.income_tax + b.national_insurance + b.health
+def _drivers(employee: Employee, today_state: State, alt_state: State, t_in: StateInputs, a_in: StateInputs,
+             today: Breakdown, alt: Breakdown, rules: CalcRules) -> list[Driver]:
+    """הגורמים להפרש בנטו, כל אחד לפי השפעתו על הנטו, מהגדול לקטן.
 
+    שווי שימוש, השתתפות, חלק משפחתי ואחזקה — כל אחד לבדו: הנטו של המצב היום כשרק הוא משתנה.
+    החזר חשמל (גילום) — הבונוס נטו כפי שהוגדר. מה שנשאר (השפעות הדדיות, דיוק הגילום) מתווסף לגורם
+    הגדול ביותר — לא כשורה נפרדת. כך סכום הגורמים שווה בדיוק להפרש בנטו."""
+    plain_today = compute_net(employee, t_in, rules).net
 
-def _drivers(today_state: State, alt_state: State, today: Breakdown, alt: Breakdown,
-             rules: CalcRules) -> list[Driver]:
-    """הגורמים להפרש בנטו, מהגדול לקטן (לפי השפעתם על הנטו)."""
-    found: list[tuple[Decimal, Driver]] = []
+    def alone(**change: Decimal) -> Decimal:
+        return compute_net(employee, replace(t_in, **change), rules).net - plain_today
 
-    def add(code: str, amount: Decimal, effect: Decimal, **extra) -> None:
-        if amount != ZERO:
-            found.append((abs(effect), Driver(code=code, amount=amount, amount_display=_display(amount), **extra)))
-
-    tax = _taxes(alt) - _taxes(today)
-    add("USE_VALUE", alt.use_value - today.use_value, tax, tax_change=tax, tax_change_display=_display(tax))
-    electric_now, electric_alt = _is_electric(today_state, rules), _is_electric(alt_state, rules)
-    net = rules.electric_method == "gross_up"
-    if electric_alt and not electric_now:
-        add("ELECTRIC_ADDED", rules.electric_net_bonus, rules.electric_net_bonus, net=net)
-    elif electric_now and not electric_alt:
-        add("ELECTRIC_REMOVED", rules.electric_net_bonus, rules.electric_net_bonus, net=net)
+    items: list[list] = []                    # [code, amount, net_effect, extra]
+    if a_in.use_value != t_in.use_value:
+        items.append(["USE_VALUE", a_in.use_value - t_in.use_value, alone(use_value=a_in.use_value), {}])
     for code, attr in (("COPAY", "copay"), ("FAMILY_SHARE", "family_share"), ("MAINTENANCE", "maintenance")):
-        change = getattr(alt, attr) - getattr(today, attr)
-        add(code, change, change)
-    return [d for _, d in sorted(found, key=lambda x: -x[0])]
+        before, after = getattr(t_in, attr), getattr(a_in, attr)
+        if before != after:
+            items.append([code, after - before, alone(**{attr: after}), {}])
+    electric_now, electric_alt = _is_electric(today_state, rules), _is_electric(alt_state, rules)
+    if electric_now != electric_alt:
+        net = rules.electric_method == "gross_up"
+        if net:
+            effect = rules.electric_net_bonus if electric_alt else -rules.electric_net_bonus
+        else:                                 # ברוטו: ההשפעה על הנטו מחושבת
+            effect = ((alt.net - compute_net(employee, a_in, rules).net)
+                      - (today.net - plain_today))
+        items.append(["ELECTRIC_ADDED" if electric_alt else "ELECTRIC_REMOVED", rules.electric_net_bonus,
+                      effect, {"net": net}])
+    if not items:
+        return []
+    largest = max(items, key=lambda i: abs(i[2]))
+    largest[2] += (alt.net - today.net) - sum((i[2] for i in items), ZERO)
+    items.sort(key=lambda i: -abs(i[2]))
+    shown = [to_shekel(i[2]) for i in items]
+    shown[0] += (alt.net_display - today.net_display) - sum(shown, ZERO)   # עיגול: הסכום המוצג = ההפרש המוצג
+    out = []
+    for (code, amount, effect, extra), display in zip(items, shown):
+        if code == "USE_VALUE":
+            extra = {"tax_change": -effect, "tax_change_display": -display}
+        out.append(Driver(code=code, amount=amount, amount_display=to_shekel(amount),
+                          net_effect=effect, net_effect_display=display, **extra))
+    return out
 
 
 def _cost(employee: Employee, alternative: State, rules: CalcRules) -> Optional[CarCost]:
@@ -268,7 +287,8 @@ def evaluate(employee: Employee, current: State, alternative: State, rules: Calc
         delta_display=delta,
         lines=_lines(current, alternative, today, alt, rules),
         cost=_cost(employee, alternative, rules),
-        drivers=_drivers(current, alternative, today, alt, rules) if (today and alt) else [],
+        drivers=(_drivers(employee, current, alternative, today_inputs, alt_inputs, today, alt, rules)
+                 if (today and alt) else []),
         electric_refund=rules.electric_net_bonus if _is_electric(alternative, rules) else None,
         copay_pending=isinstance(alternative, CarState)
         and alternative.copay_status == CopayStatus.CATALOG_DEFAULT_PENDING,
