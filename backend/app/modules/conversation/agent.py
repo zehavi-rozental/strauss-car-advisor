@@ -405,6 +405,7 @@ class Agent:
             understood = self._execute(ctx, plan.calls) or plan.notice is not None
             if plan.clarify is not None:
                 state.pending_clarification = plan.clarify     # "<רכב> הוא הרכב שלך היום, או חלופה?"
+                state.role_asked.append(plan.clarify.catalog_code)
                 understood = True
         else:
             # המודל קורא קודם. תוכנית הקורא חושבה לפני כל שינוי במצב: גיבוי, ובדיקה צולבת כשנקרא במלואו.
@@ -503,8 +504,11 @@ class Agent:
                 blocked = _role_conflict(ctx, call, text)
                 if blocked is not None:
                     log.info("tool %s blocked: the car's role contradicts the message", call.name)
+                    if blocked.catalog_code in ctx.state.role_asked:
+                        return understood    # כבר שאלנו על הרכב: לא שואלים שוב — הקורא פועל לפי המילים
                     ctx.state.pending_clarification = CarClarification(catalog_code=blocked.catalog_code,
                                                                        label=blocked.label)
+                    ctx.state.role_asked.append(blocked.catalog_code)
                     return understood        # לא ממשיכים עם ההודעה הזו: שואלים על הרכב
                 call = _cross_check(ctx, call, cross or {}, conflicts if conflicts is not None else [])
                 facts = self._run(ctx, call)

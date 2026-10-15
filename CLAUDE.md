@@ -68,6 +68,11 @@ A module, and `app/api`, imports another module **only** through that module's `
 - Copay for a new car: calculate immediately with the catalog default and mark it "pending representative approval" (`CATALOG_DEFAULT_CONFIRM_ASYNC`).
 - Current-car matching: company catalog first, then the tax file. Several matches with different use values → the employee chooses from up to 5.
 
+## Known limitations (מגבלות ידועות)
+
+- A model that is not in the company catalog ("טויוטה מיסטרי") is always taken as the current car: only catalog cars can be alternatives, so the Q3 role question is never asked for it.
+- In template mode, "לא" in the middle of a sentence ("זה לא קורולה קרוס") is not interpreted: the parser does not act and the bot asks again. Only a leading "לא" (a correction) is read.
+
 ## Conventions
 
 - UI text, error messages and eligibility reasons are in Hebrew. Code, identifiers and comments that explain code may be in English.

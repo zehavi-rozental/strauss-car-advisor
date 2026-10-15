@@ -189,3 +189,42 @@ def test_an_llm_calculate_for_the_current_car_is_blocked(sessions):
     turn = svc.send(turn.conversation_id, token, "יש לי ATTO 3")
     assert turn.reply == ASK_ATTO
     assert svc.view(turn.conversation_id, token).state.selected == []
+
+
+def test_a_stated_copay_makes_a_single_car_the_current_one(sessions):
+    svc = service(sessions)
+    turn, token = at_q3(svc)
+    turn = svc.send(turn.conversation_id, token, "קורולה קרוס, אין לי השתתפות")
+    s = svc.view(turn.conversation_id, token).state
+    assert (s.current.catalog_code, s.current.copay) == ("CAR-09", 0)
+    assert s.pending_clarification is None and "חלופה שתרצו לבדוק?" not in turn.reply
+
+
+def test_a_year_other_than_the_catalog_makes_a_single_car_the_current_one(sessions):
+    svc = service(sessions)
+    turn, token = at_q3(svc)
+    turn = svc.send(turn.conversation_id, token, "COROLLA CROSS 2023")
+    s = svc.view(turn.conversation_id, token).state
+    assert (s.current.source, s.current.label) == ("tax", "COROLLA CROSS (2023)")
+    assert s.pending_clarification is None and "חלופה שתרצו לבדוק?" not in turn.reply
+
+
+def test_the_my_car_today_button_sets_the_current_car(sessions):
+    svc = service(sessions)
+    turn, token = at_q3(svc)
+    svc.send(turn.conversation_id, token, "ATTO 3")
+    turn = svc.send_choice(turn.conversation_id, token, ["mine"])
+    s = svc.view(turn.conversation_id, token).state
+    assert s.current.catalog_code == "CAR-10" and s.selected == [] and s.pending_clarification is None
+
+
+def test_the_role_question_is_not_asked_twice_in_a_row(sessions):
+    """בלי תשובה ברורה בפעם השנייה: הבוט לא נתקע בלולאה — מניח שזה הרכב של היום, ואומר זאת."""
+    svc = service(sessions)
+    turn, token = at_q3(svc)
+    assert svc.send(turn.conversation_id, token, "ATTO 3").reply == ASK_ATTO
+    turn = svc.send(turn.conversation_id, token, "ATTO 3")
+    assert "חלופה שתרצו לבדוק?" not in turn.reply
+    assert "הנחתי שזה הרכב שלך היום" in turn.reply and "רוצה לבדוק ATTO 3" in turn.reply
+    s = svc.view(turn.conversation_id, token).state
+    assert s.current.catalog_code == "CAR-10" and s.pending_clarification is None

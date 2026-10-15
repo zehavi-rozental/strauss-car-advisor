@@ -147,6 +147,7 @@ class ConversationState(BaseModel):
     pending_occupation: Optional[PendingOccupation] = None
     queued_options: list[str] = Field(default_factory=list)     # חלופות לחישוב אחרי תשובת הנציג
     asked_groups: list[str] = Field(default_factory=list)       # שאלות מקובצות שכבר נשאלו ("Q2")
+    role_asked: list[str] = Field(default_factory=list)         # רכבים ששאלנו עליהם "של היום או חלופה?"
 
 
 # ---------- מה חסר ----------
