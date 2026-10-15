@@ -18,9 +18,11 @@ from .models import (
     FAMILY_GROUP,
     Breakdown,
     CalcRules,
+    CarCost,
     CarState,
     CopayStatus,
     Drive,
+    Driver,
     Employee,
     Line,
     OccupationRule,
@@ -31,7 +33,7 @@ from .models import (
 )
 from .tax import StateInputs, compute_net, solve_gross_up
 
-ENGINE_VERSION = "1.1.0"   # 1.1: השתתפות שמקטינה את שווי השימוש (לפי הכללים)
+ENGINE_VERSION = "1.2.0"   # 1.2: הסבר לכל חלופה (עלות מול תקציב, גורמי ההפרש, ערכי תצוגה) — הנטו לא השתנה
 
 REASON_OWN_OR_LOWER = "הרכב מהקבוצה שלך או נמוכה ממנה"
 REASON_HIGHER_GROUP = "הרכב מקבוצה גבוהה מהקבוצה שלך"
@@ -151,7 +153,7 @@ def _lines(today_state: State, alt_state: State, today: Optional[Breakdown],
         before, after = val(today, attr), val(alt, attr)
         if (before or ZERO) == (after or ZERO) and note is None:
             return
-        lines.append(Line(code=code, label=label, before=before, after=after, note=note))
+        lines.append(_line(code, label, before, after, note))
 
     add("USE_VALUE", "שווי שימוש", "use_value")
     add("MAINTENANCE", "אחזקת רכב (חייבת במס, לא פנסיונית)", "maintenance")
@@ -164,10 +166,60 @@ def _lines(today_state: State, alt_state: State, today: Optional[Breakdown],
                 else f"{int(rules.electric_net_bonus)} ₪ ברוטו החזר חשמל")
         add("ELECTRIC", "החזר חשמל — רכיב ברוטו", "electric_gross_up", note=note)
     add("INCOME_TAX", "מס הכנסה", "income_tax")
-    lines.append(Line(code="SOCIAL", label="ביטוח לאומי ובריאות",
-                      before=None if today is None else today.national_insurance + today.health,
-                      after=None if alt is None else alt.national_insurance + alt.health))
+    lines.append(_line("SOCIAL", "ביטוח לאומי ובריאות",
+                       None if today is None else today.national_insurance + today.health,
+                       None if alt is None else alt.national_insurance + alt.health))
     return lines
+
+
+def _display(v: Optional[Decimal]) -> Optional[Decimal]:
+    return None if v is None else to_shekel(v)
+
+
+def _line(code: str, label: str, before: Optional[Decimal], after: Optional[Decimal],
+          note: Optional[str] = None) -> Line:
+    change = after - before if before is not None and after is not None else None
+    return Line(code=code, label=label, before=before, after=after, change=change,
+                before_display=_display(before), after_display=_display(after),
+                change_display=_display(change), note=note)
+
+
+def _taxes(b: Breakdown) -> Decimal:
+    return b.income_tax + b.national_insurance + b.health
+
+
+def _drivers(today_state: State, alt_state: State, today: Breakdown, alt: Breakdown,
+             rules: CalcRules) -> list[Driver]:
+    """הגורמים להפרש בנטו, מהגדול לקטן (לפי השפעתם על הנטו)."""
+    found: list[tuple[Decimal, Driver]] = []
+
+    def add(code: str, amount: Decimal, effect: Decimal, **extra) -> None:
+        if amount != ZERO:
+            found.append((abs(effect), Driver(code=code, amount=amount, amount_display=_display(amount), **extra)))
+
+    tax = _taxes(alt) - _taxes(today)
+    add("USE_VALUE", alt.use_value - today.use_value, tax, tax_change=tax, tax_change_display=_display(tax))
+    electric_now, electric_alt = _is_electric(today_state, rules), _is_electric(alt_state, rules)
+    net = rules.electric_method == "gross_up"
+    if electric_alt and not electric_now:
+        add("ELECTRIC_ADDED", rules.electric_net_bonus, rules.electric_net_bonus, net=net)
+    elif electric_now and not electric_alt:
+        add("ELECTRIC_REMOVED", rules.electric_net_bonus, rules.electric_net_bonus, net=net)
+    for code, attr in (("COPAY", "copay"), ("FAMILY_SHARE", "family_share"), ("MAINTENANCE", "maintenance")):
+        change = getattr(alt, attr) - getattr(today, attr)
+        add(code, change, change)
+    return [d for _, d in sorted(found, key=lambda x: -x[0])]
+
+
+def _cost(employee: Employee, alternative: State, rules: CalcRules) -> Optional[CarCost]:
+    if not isinstance(alternative, CarState) or alternative.monthly_cost is None or employee.group is None:
+        return None
+    budget = rules.budgets.get(employee.group)
+    if budget is None:
+        return None
+    return CarCost(group=employee.group, monthly_cost=alternative.monthly_cost,
+                   monthly_cost_display=_display(alternative.monthly_cost), budget=budget,
+                   budget_display=_display(budget), under_budget=alternative.monthly_cost < budget)
 
 
 def evaluate(employee: Employee, current: State, alternative: State, rules: CalcRules,
@@ -215,6 +267,11 @@ def evaluate(employee: Employee, current: State, alternative: State, rules: Calc
         alternative=alt,
         delta_display=delta,
         lines=_lines(current, alternative, today, alt, rules),
+        cost=_cost(employee, alternative, rules),
+        drivers=_drivers(current, alternative, today, alt, rules) if (today and alt) else [],
+        electric_refund=rules.electric_net_bonus if _is_electric(alternative, rules) else None,
+        copay_pending=isinstance(alternative, CarState)
+        and alternative.copay_status == CopayStatus.CATALOG_DEFAULT_PENDING,
         assumptions=assumptions,
         **common,
     )

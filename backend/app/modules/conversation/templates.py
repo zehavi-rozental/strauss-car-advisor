@@ -161,24 +161,73 @@ def group_question(state: ConversationState, snapshot: RulesSnapshot) -> str:
     return "\n".join(lines)
 
 
+def _why(drivers: list[dict[str, Any]]) -> list[str]:
+    """"למה?" בשתי שורות לכל היותר: הגורמים הגדולים, עם הסכומים מהמנוע."""
+    phrases = []
+    for d in drivers:
+        amount = Decimal(str(d["amount_display"]))
+        size = money(abs(amount))
+        code = d["code"]
+        if code == "USE_VALUE":
+            text = f"שווי השימוש {'נמוך' if amount < 0 else 'גבוה'} ב-{size}"
+            tax = Decimal(str(d["tax_change_display"] or 0))
+            if tax:
+                text += f" ולכן המס {'יורד' if tax < 0 else 'עולה'} ב-{money(abs(tax))}"
+        elif code in ("ELECTRIC_ADDED", "ELECTRIC_REMOVED"):
+            kind = "נטו" if d.get("net", True) else "ברוטו"
+            text = (f"מתווסף החזר חשמל של {size} {kind}" if code == "ELECTRIC_ADDED"
+                    else f"החזר החשמל של {size} {kind} יורד")
+        elif code == "COPAY":
+            text = f"ההשתתפות {'עולה' if amount > 0 else 'יורדת'} ב-{size}"
+        elif code == "FAMILY_SHARE":
+            text = f"חלק העובד במסלול המשפחתי {'עולה' if amount > 0 else 'יורד'} ב-{size}"
+        else:
+            text = f"אחזקת הרכב {'עולה' if amount > 0 else 'יורדת'} ב-{size}"
+        phrases.append(text)
+    lines = ["; ".join(phrases[i:i + 2]) + "." for i in (0, 2) if phrases[i:i + 2]]
+    if not lines:
+        return []
+    return ["  למה? " + lines[0], *(f"  {line}" for line in lines[1:])]
+
+
+def _result_lines(label: str, r: dict[str, Any]) -> list[str]:
+    """חלופה אחת: זכאות, עלות מול תקציב, פרטים, נטו משוער והסבר. כל מספר — מתוצאת המנוע."""
+    if r["status"] == "NOT_ELIGIBLE":
+        return [f"• {label}: לא ניתן — {r['reason']}"]
+    if r["status"] != "OK":
+        return [f"• {label}: חסר מידע לחישוב — {r['reason']}"]
+    out = [f"• {label} — זכאי: {r['reason']}"]
+    cost = r.get("cost")
+    if cost:
+        line = (f"  עלות לחברה {money(cost['monthly_cost_display'])} מול תקציב קבוצה {cost['group']} "
+                f"{money(cost['budget_display'])}")
+        out.append(line + (" — ההפרש מהתקציב לא משולם בשכר" if cost["under_budget"] else ""))
+    t, a = r["today"], r["alternative"]
+    details = []
+    if Decimal(str(a["use_value"])) or Decimal(str(t["use_value"])):
+        details.append(f"שווי שימוש {money(a['use_value'])} (היום {money(t['use_value'])})")
+    details.append(f"השתתפות {money(a['copay'])} (היום {money(t['copay'])})")
+    if r.get("electric_refund"):
+        details.append(f"החזר חשמל {money(r['electric_refund'])} נטו")
+    if Decimal(str(a["maintenance"])):
+        details.append(f"אחזקת רכב {money(a['maintenance'])}")
+    out.append("  " + " · ".join(details))
+    out.append(f"  נטו משוער: היום {money(t['net_display'])}, בחלופה {money(a['net_display'])} — "
+               f"שינוי של {signed(r['delta_display'])} בחודש.")
+    return out + _why(r.get("drivers") or [])
+
+
 def results_text(state: ConversationState) -> str:
     out: list[str] = []
     assumptions: list[str] = []
     today: Optional[str] = None
     for item in state.results:
         r = item.result
-        label = item.label
         if r["today"] and today is None:
             today = money(r["today"]["net_display"])
-        if r["status"] == "OK":
-            out.append(f"• {label}: הנטו יהיה {money(r['alternative']['net_display'])} — "
-                       f"שינוי של {signed(r['delta_display'])} בחודש.")
-        elif r["status"] == "NOT_ELIGIBLE":
-            out.append(f"• {label}: לא ניתן — {r['reason']}")
-        else:
-            out.append(f"• {label}: חסר מידע לחישוב — {r['reason']}")
+        out += _result_lines(item.label, r)
         assumptions += [a for a in r.get("assumptions", []) if a not in assumptions]
-    head = f"הנה ההשוואה (הנטו שלך היום: {today}):" if today else "הנה ההשוואה:"
+    head = f"הנה ההשוואה (נטו משוער היום: {today}):" if today else "הנה ההשוואה:"
     text = head + "\n" + "\n".join(out)
     if assumptions:
         text += "\n\nהנחות:\n" + "\n".join(f"- {a}" for a in assumptions)
@@ -291,7 +340,7 @@ def rep_confirmed_text(label: str, effective: Optional[date]) -> str:
 def rep_changed_text(label: str, amount: Decimal, effective: Optional[date], old_delta: Any, new_delta: Any) -> str:
     """מספרים מהתשובה ומתוצאות המנוע בלבד. בלי חצים בטקסט בעברית."""
     return (f"נציג התחבורה עדכן את ההשתתפות ב-{label} ל-{money(amount)}{_effective(effective)}. "
-            f"השינוי בנטו היה {signed(old_delta)} ועכשיו {signed(new_delta)}.")
+            f"השינוי בנטו המשוער היה {signed(old_delta)} ועכשיו {signed(new_delta)}.")
 
 
 def rep_current_text(field: str, label: str, amount: Decimal) -> str:

@@ -146,11 +146,39 @@ class Breakdown(Frozen):
 
 
 class Line(Frozen):
+    """שורת השוואה. ערכים מדויקים, ולצידם ערך לתצוגה בשקלים שלמים (העיגול לתצוגה בלבד)."""
+
     code: str
     label: str
     before: Optional[Decimal] = None
     after: Optional[Decimal] = None
+    change: Optional[Decimal] = None          # after − before
+    before_display: Optional[Decimal] = None
+    after_display: Optional[Decimal] = None
+    change_display: Optional[Decimal] = None
     note: Optional[str] = None
+
+
+class CarCost(Frozen):
+    """עלות הרכב לחברה מול תקציב הקבוצה של העובד."""
+
+    group: str
+    monthly_cost: Decimal
+    monthly_cost_display: Decimal
+    budget: Decimal
+    budget_display: Decimal
+    under_budget: bool                        # ההפרש מהתקציב לא משולם בשכר
+
+
+class Driver(Frozen):
+    """גורם בהפרש בנטו, מהגדול לקטן. USE_VALUE כולל את השינוי במס (מס הכנסה, ביטוח לאומי ובריאות)."""
+
+    code: str                                 # USE_VALUE | ELECTRIC_ADDED | ELECTRIC_REMOVED | COPAY | FAMILY_SHARE | MAINTENANCE
+    amount: Decimal
+    amount_display: Decimal
+    tax_change: Optional[Decimal] = None
+    tax_change_display: Optional[Decimal] = None
+    net: bool = True                          # החזר חשמל: נטו (מגולם) או ברוטו
 
 
 class ScenarioResult(Frozen):
@@ -162,6 +190,10 @@ class ScenarioResult(Frozen):
     alternative: Optional[Breakdown] = None
     delta_display: Optional[Decimal] = None   # round(נטו חלופה) − round(נטו היום)
     lines: list[Line] = Field(default_factory=list)
+    cost: Optional[CarCost] = None            # רכב חלופי: עלות לחברה מול תקציב הקבוצה
+    drivers: list[Driver] = Field(default_factory=list)
+    electric_refund: Optional[Decimal] = None  # החזר החשמל בחלופה (נטו בשיטת gross_up)
+    copay_pending: bool = False               # ההשתתפות בחלופה לפי הקטלוג, ממתינה לאישור נציג
     assumptions: list[str] = Field(default_factory=list)
     rules_version: str
     extensions_version: str

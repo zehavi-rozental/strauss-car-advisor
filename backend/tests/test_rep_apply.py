@@ -84,7 +84,7 @@ def test_rep_changes_the_copay_and_the_option_is_recalculated(client, sessions):
     new_delta = engine_delta(350)
     assert rep["source"] == "rep" and new_delta != Decimal(661)
     assert rep["content"] == (f"נציג התחבורה עדכן את ההשתתפות ב-ATTO 3 (2025) ל-350 ₪ (בתוקף מ-01.01.2027). "
-                              f"השינוי בנטו היה +661 ₪ ועכשיו {new_delta:+,} ₪.")
+                              f"השינוי בנטו המשוער היה +661 ₪ ועכשיו {new_delta:+,} ₪.")
     assert "←" not in rep["content"] and "→" not in rep["content"]
     [result] = updates["results"]
     assert Decimal(result["result"]["delta_display"]) == new_delta
