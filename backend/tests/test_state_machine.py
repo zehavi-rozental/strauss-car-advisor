@@ -36,16 +36,18 @@ def profile(occupation="מנהלת מוצר", children="2"):
     return [f"{occupation}, שכר בסיס 18,500", Q2_ANSWER.format(children=children)]
 
 
-def test_commissions_must_be_answered_explicitly(sessions):
-    """"אין" כשהשאלה מקובצת (עמלות, בונוס, קרן השתלמות, ילדים) — לא מנחשים לאיזה שדה; שואלים שוב."""
+def test_a_bare_none_to_q2_fills_only_the_fields_where_zero_is_reasonable(sessions):
+    """"אין" לשאלה המקובצת: אפס בעמלות, בונוס, קרן השתלמות וילדים; פנסיה ונקודות זיכוי נשאלות שוב."""
     svc = service(sessions)
     turn, token = talk(svc, ["מנהלת מוצר", "18,500", "לא ברור לי"])
     assert turn.stage == Stage.COLLECT_PROFILE
     assert "לא הצלחתי להבין" in turn.reply and "עמלות" in turn.reply
     turn, _ = talk(svc, ["אין"], start=(turn, token))
     p = svc.view(turn.conversation_id, token).state.profile
-    assert (p.commissions, p.bonus, p.study_fund_percent, p.children) == (None, None, None, None)
-    assert "עמלות, בונוסים" in turn.reply
+    assert (p.commissions, p.bonus, p.study_fund_percent, p.children) == (0, 0, 0, 0)
+    assert p.pension_percent is None and p.credit_points is None
+    assert turn.reply.startswith("רשמתי: אין עמלות, אין בונוס, אין קרן השתלמות, אין ילדים.")
+    assert "פנסיה" in turn.reply and "נקודות זיכוי" in turn.reply
 
 
 def test_llm_without_commissions_stays_in_profile(sessions):

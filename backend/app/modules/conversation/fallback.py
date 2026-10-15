@@ -41,10 +41,10 @@ from .parsing import (
     unread_words,
     year_spans,
 )
-from .stage import CarClarification, ConversationState, current_group
+from .stage import Q2_FIELDS, CarClarification, ConversationState, current_group
 from .tools import OPT_OUT_WORDS, available_options
 
-_RANK_RE = re.compile(r"הכי\s*משתלם|הכי\s*טוב|תמליץ|המלצ|דרג", re.IGNORECASE)
+_RANK_RE = re.compile(r"(?:מה\s+)?הכי\s*(?:משתלם|כדאי|טוב)(?:\s+לי)?|תמליץ|המלצ|דרג", re.IGNORECASE)
 _NOT_THIS_CAR_RE = re.compile(r"לא\s+(?:זה\s+)?(?:הרכב|הדגם)|(?:זה|זו)\s+לא\s+(?:נכון|הוא|היא)")
 # בזמן שאוספים את פרטי הרכב הנוכחי, הודעה שמזכירה רכב אחר היא תיקון — לא תשובה לשאלה
 _CAR_DETAIL_QUESTIONS = {"copay", "use_value", "drive", "maintenance", "car_choice"}
@@ -57,7 +57,7 @@ _PROFILE_ARG = {"occupation": "occupation", "group": "eligibility_group", "base"
                 "commissions": "commissions", "bonus": "bonus", "pension_percent": "pension_percent",
                 "study_fund_percent": "study_fund_percent", "credit_points": "credit_points",
                 "children": "children_under_23"}
-_ZERO_ALLOWED = {"commissions", "bonus", "study_fund_percent", "children"}
+ZERO_ALLOWED = {"commissions", "bonus", "study_fund_percent", "children"}
 # מילים שמתארות רכב שכבר זוהה בשמו ("אטו 3 החשמלי") — מותרות לצד השם בשאלת החלופות
 _DRIVE_DESCRIPTORS = {
     Drive.ELECTRIC: ("חשמלי", "חשמלית", "electric", "ev"),
@@ -156,6 +156,10 @@ def _grouped_plan(state: ConversationState, snapshot: RulesSnapshot, group: Opti
     (2) ערכים מתויגים ("פנסיה 6%", "קבוצה ג") — כשההודעה נקראה במלואה; (3) אחרת ההודעה נקראת
     כתשובה לכל שדה בנפרד, ופועלים רק אם בדיוק שדה אחד קורא אותה במלואה ("300" כשחסרים רכב
     והשתתפות = השתתפות; "אין" כשחסרים עמלות ובונוס — שואלים שוב)."""
+    if group == "Q2":
+        plan = _bare_none_plan(snapshot, fields, t)
+        if plan is not None:
+            return plan
     car_guess = None
     if "car" in fields:
         cars = named_cars(t, snapshot.catalog)
@@ -170,7 +174,12 @@ def _grouped_plan(state: ConversationState, snapshot: RulesSnapshot, group: Opti
         plan = _profile_group_plan(snapshot, group, profile_fields, t)
         if plan is not None:
             return plan
-    candidates = [p for f in fields if f != "car" for p in [_field_plan(state, snapshot, f, t)] if p.calls]
+    # אחרי ש-Q3 הוצגה, מה שנשאר מ-Q2 כבר לא נשאל בהודעה (בלי זנב): ערך בלי תווית ("300") עונה על
+    # השאלה שמוצגת, ולא מתחרה בשדות שלא נשאלו. ערך מתויג ("פנסיה 6%") נקרא למעלה כרגיל.
+    hidden = (group == "Q3" and "Q3" in state.asked_groups
+              and any(f not in Q2_FIELDS for f in fields))
+    single = [f for f in fields if f != "car" and not (hidden and f in Q2_FIELDS)]
+    candidates = [p for f in single for p in [_field_plan(state, snapshot, f, t)] if p.calls]
     complete = [p for p in candidates if p.complete]
     if len(complete) == 1:
         return complete[0]
@@ -179,6 +188,22 @@ def _grouped_plan(state: ConversationState, snapshot: RulesSnapshot, group: Opti
     if not candidates and car_guess is not None:
         return car_guess
     return ParserPlan()
+
+
+def _bare_none_plan(snapshot: RulesSnapshot, fields: list[str], text: str) -> Optional[ParserPlan]:
+    """"אין" לבד כתשובה ל-Q2: אפס בשדות שבהם אפס הוא ערך סביר (עמלות, בונוס, קרן השתלמות, ילדים).
+    פנסיה ונקודות זיכוי לא מקבלות ערך — הן נשאלות שוב במפורש."""
+    span = none_span(text)
+    if not span or unread_words(text, [span], (), snapshot.extensions.answer_fillers):
+        return None
+    zero = [f for f in fields if f in ZERO_ALLOWED]
+    return none_plan(zero) if zero else None
+
+
+def none_plan(fields: Iterable[str]) -> ParserPlan:
+    """אפס בשדות הפרופיל שנאמר עליהם "אין", עם שורה שאומרת מה נרשם. תשובה לשאלה של הקוד (direct)."""
+    zero = {_PROFILE_ARG[f]: 0 for f in fields}
+    return ParserPlan(_call("save_profile", **zero), True, notice=f"רשמתי: {recorded_text(zero)}.", direct=True)
 
 
 _NUMERIC_ARGS = {"base_salary", "commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points"}
@@ -263,7 +288,7 @@ def _profile_plan(snapshot: RulesSnapshot, question: str, text: str) -> ParserPl
         if group and not unread_words(text, (), [group], ext.answer_fillers):
             return ParserPlan(_call("save_profile", eligibility_group=group), True)
         return ParserPlan()
-    if question in _ZERO_ALLOWED:
+    if question in ZERO_ALLOWED:
         span = none_span(text)
         if span and not unread_words(text, [span], (), ext.answer_fillers):
             return ParserPlan(_call("save_profile", **{asked: 0}), True)
@@ -283,10 +308,8 @@ _LABEL_ORDER = ("base_salary", "commissions", "bonus", "pension_percent", "study
                 "credit_points", "children_under_23")
 
 
-def _labelled_fallback(labelled: dict[str, object]) -> ParserPlan:
-    """רק ערכים מתויגים חד-משמעיים; התשובה אומרת מה נרשם (המספרים — מההודעה)."""
-    if not labelled:
-        return ParserPlan()
+def recorded_text(labelled: dict[str, object]) -> str:
+    """"אין עמלות, פנסיה 6%, 2 ילדים" — הערכים כפי שנרשמו (המספרים מההודעה), בסדר קבוע."""
     from .templates import money
 
     def text(f: str, v: object) -> str:
@@ -301,8 +324,14 @@ def _labelled_fallback(labelled: dict[str, object]) -> ParserPlan:
             "children_under_23": lambda: "אין ילדים" if zero else f"{v} ילדים",
         }[f]()
 
-    items = [text(f, labelled[f]) for f in _LABEL_ORDER if f in labelled]
-    notice = f"רשמתי: {', '.join(items)}. אם משהו לא נכון, כתבו את התיקון."
+    return ", ".join(text(f, labelled[f]) for f in _LABEL_ORDER if f in labelled)
+
+
+def _labelled_fallback(labelled: dict[str, object]) -> ParserPlan:
+    """רק ערכים מתויגים חד-משמעיים; התשובה אומרת מה נרשם (המספרים — מההודעה)."""
+    if not labelled:
+        return ParserPlan()
+    notice = f"רשמתי: {recorded_text(labelled)}. אם משהו לא נכון, כתבו את התיקון."
     return ParserPlan(_call("save_profile", **labelled), False, fallback_notice=notice)
 
 

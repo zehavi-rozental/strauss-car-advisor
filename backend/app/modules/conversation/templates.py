@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from app.modules.rules.public import RulesSnapshot
 from app.shared.money import to_shekel
@@ -155,9 +155,12 @@ def group_question(state: ConversationState, snapshot: RulesSnapshot) -> str:
         lines = [" ".join(first + [ask]), *_option_lines(state, snapshot), _choose_hint()]
     else:
         lines = [" ".join(first)] if first else []
+    # מה שנשאר מ-Q2: כזנב רק בפעם הראשונה ש-Q3 מוצגת; אחר כך לא חוזר, ונשאל לבד כשאין שאלה אחרת
     leftover = _leftovers(fields, snapshot)
-    if leftover:
-        lines.append(leftover if lines else leftover.removeprefix("ועוד: "))
+    if leftover and not lines:
+        lines.append(leftover.removeprefix("ועוד: "))
+    elif leftover and "Q3" not in state.asked_groups:
+        lines.append(leftover)
     return "\n".join(lines)
 
 
@@ -400,6 +403,19 @@ def asked_text(state: ConversationState) -> str:
     return f"שאלתי את נציג התחבורה {topics[state.pending_rep.reason]}. אעדכן כשתגיע תשובה."
 
 
+def confirm_group_text(occupation: str, group: str) -> str:
+    """שורת אישור לקבוצה שנקבעה לפי התפקיד — מהפרופיל שהכלי שמר."""
+    return f"זיהיתי: {occupation}, קבוצה {group}."
+
+
+def chosen_options_text(labels: list[str]) -> str:
+    return f"בחרת להשוות: {', '.join(labels)}."
+
+
+RANK_DEFERRED = "ביקשת את החלופות הכי משתלמות. אבחר אותן ואחשב ברגע שיהיו לי כל הפרטים."
+REP_DEFERRED = "רשמתי שזה לא ידוע. אשאל את נציג התחבורה אחרי שנשלים את שאר הפרטים."
+
+
 def confirm_car_text(state: ConversationState) -> str:
     """שורת אישור לרכב שזוהה — רק מתוצאת ההתאמה: דגם, קבוצה (לרכב מהקטלוג) והנעה."""
     c = state.current
@@ -413,9 +429,11 @@ def confirm_car_text(state: ConversationState) -> str:
 
 def render(state: ConversationState, snapshot: RulesSnapshot, *, understood: bool,
            just_calculated: bool, matched_car: bool = False, notice: Optional[str] = None,
-           rep_opened: bool = False, notice_asks: bool = False) -> str:
-    """ההודעה הבאה לפי מצב השיחה בלבד (ומשפט מהקורא, אם יש, לפני השאלה)."""
-    parts: list[str] = [confirm_car_text(state)] if matched_car else []
+           rep_opened: bool = False, notice_asks: bool = False, confirmations: Sequence[str] = ()) -> str:
+    """ההודעה הבאה לפי מצב השיחה בלבד (שורות אישור מתוצאות הכלים, ומשפט מהקורא, לפני השאלה)."""
+    parts: list[str] = [*confirmations]
+    if matched_car:
+        parts.append(confirm_car_text(state))
     if notice:
         parts.append(notice)
     waiting = state.stage == Stage.WAITING_FOR_REP

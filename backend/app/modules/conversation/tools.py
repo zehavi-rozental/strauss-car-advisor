@@ -40,8 +40,10 @@ from .stage import (
     CurrentCar,
     PendingConfirmation,
     PendingOccupation,
+    Stage,
     missing_current_car,
     missing_profile,
+    next_stage,
 )
 
 OPT_OUT_WORDS = ("ויתור", "לוותר", "opt out", "opt_out", "בלי רכב", "ללא רכב")
@@ -399,12 +401,18 @@ def calculate(ctx: ToolContext, args: CalculateArgs) -> dict[str, Any]:
     if not chosen:
         raise ToolError("אף חלופה לא זוהתה")
     ctx.state.selected = chosen[:MAX_OPTIONS]
+    ctx.state.rank_requested = False
     _invalidate_results(ctx.state)
     return {"selected": ctx.state.selected, "not_recognized": unknown,
             "note": "the system calculates now; do not compute anything yourself"}
 
 
 def rank_options(ctx: ToolContext, args: NoArgs) -> dict[str, Any]:
+    if next_stage(ctx.state) in (Stage.COLLECT_PROFILE, Stage.COLLECT_CURRENT_CAR):
+        # הדירוג צריך את הפרופיל ואת הרכב של היום: הבקשה נרשמת, והבחירה נעשית ברגע שהם ידועים
+        ctx.state.rank_requested = True
+        return {"deferred": True, "note": "ranked as soon as the profile and the current car are known"}
+    ctx.state.rank_requested = False
     options = available_options(ctx.snapshot, ctx.state)
     employee, current, occupation = engine_inputs(ctx.snapshot, ctx.state)
     states = {o.id: option_state(o) for o in options}

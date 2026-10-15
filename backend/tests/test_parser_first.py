@@ -387,7 +387,7 @@ def test_pension_60_is_rejected_and_the_problem_is_named(sessions, llm):
     turn, token = _send_all(svc, ["מנהלת מוצר, שכר בסיס 18,500",
                                   "אין עמלות ואין בונוס, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים",
                                   "יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש", "אטו 3"])
-    assert turn.reply == "כמה אחוזים מהשכר מופרשים ממך לפנסיה (חלק העובד)?"
+    assert turn.reply == "בחרת להשוות: ATTO 3 (2025).\n\nכמה אחוזים מהשכר מופרשים ממך לפנסיה (חלק העובד)?"
     if llm:
         fake.turn(call("save_profile", pension_percent=60))
         text = "ההפרשה שלי לפנסיה היא שישים"                       # הקורא לא מבין → המודל
@@ -410,4 +410,4 @@ def test_other_fields_in_the_same_message_are_still_saved(sessions):
     turn, token = _send_all(svc, ["מנהלת מוצר, שכר בסיס 18,500, פנסיה 60%"])
     p = svc.view(turn.conversation_id, token).state.profile
     assert p.base == 18500 and p.pension_percent is None and p.occupation == "מנהל/ת מוצר"
-    assert turn.reply.startswith("60% נראה גבוה מאוד להפרשה לפנסיה")
+    assert turn.reply.startswith("זיהיתי: מנהל/ת מוצר, קבוצה ג.\n\n60% נראה גבוה מאוד להפרשה לפנסיה")

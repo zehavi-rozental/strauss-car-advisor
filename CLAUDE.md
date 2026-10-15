@@ -67,11 +67,19 @@ A module, and `app/api`, imports another module **only** through that module's `
 - `extensions.yaml` keeps only what the rules file does not say (e.g. the employee's share of the family-track gap is added on top of the copay). A field that moved to the rules file fails loading if it is left there.
 - Copay for a new car: calculate immediately with the catalog default and mark it "pending representative approval" (`CATALOG_DEFAULT_CONFIRM_ASYNC`).
 - Current-car matching: company catalog first, then the tax file. Several matches with different use values → the employee chooses from up to 5.
+- Q2 leftovers (official scenario: car question in 3 bot turns): listed as a "ועוד: …" tail only on the first Q3 message, never repeated; asked on their own once the car and alternatives are done.
+- A bare "אין" to Q2 sets 0 for commissions, bonus, study fund and children, and says so ("רשמתי: …"). Pension and credit points are never assumed.
+- A representative question about the current car ("לא ידוע") opens only after the profile is complete; until then the answer is recorded.
+- "הכי משתלם" before the profile and current car are known is recorded (`rank_requested`) and resolved as soon as only the alternatives are missing.
+- Confirmation lines come from tool results, not the LLM: "זיהיתי: <תפקיד>, קבוצה X.", "בחרת להשוות: …", "זיהיתי: <רכב>".
 
 ## Known limitations (מגבלות ידועות)
 
 - A model that is not in the company catalog ("טויוטה מיסטרי") is always taken as the current car: only catalog cars can be alternatives, so the Q3 role question is never asked for it.
 - In template mode, "לא" in the middle of a sentence ("זה לא קורולה קרוס") is not interpreted: the parser does not act and the bot asks again. Only a leading "לא" (a correction) is read.
+- After the first Q3 message, a bare number answers only the question on screen; Q2 leftovers are read only when labelled ("פנסיה 6%").
+- A bare "אין" is read only as an answer to Q2. In Q3 it is ambiguous (car, copay, leftovers) and the bot asks again; the buttons name their field ("עמלות: אין").
+- The occupation confirmation shows the occupations-table name as is, including slash forms ("מנהל/ת אזור מכירות").
 
 ## Conventions
 

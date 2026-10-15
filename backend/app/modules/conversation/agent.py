@@ -18,7 +18,7 @@ from app.modules.rules.public import CatalogCar, RulesSnapshot, find_catalog_car
 
 
 from .expects import build_expects, choice_calls
-from .fallback import ParserPlan, car_roles, correction_plan, fallback_plan, named_cars
+from .fallback import ZERO_ALLOWED, ParserPlan, car_roles, correction_plan, fallback_plan, named_cars, none_plan
 from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
 from .parsing import match_occupation, redact_id_numbers
@@ -34,11 +34,16 @@ from .stage import (
     RepReason,
     Stage,
     blocking_rep_reason,
+    missing_profile,
     next_stage,
 )
 from .templates import (
     GREETING,
     OPT_OUT_DENIED,
+    RANK_DEFERRED,
+    REP_DEFERRED,
+    chosen_options_text,
+    confirm_group_text,
     approximate_assumptions,
     clarify_car_text,
     confirmed_assumption,
@@ -284,7 +289,7 @@ def _occupation_plan(ctx: ToolContext, answer: str) -> ParserPlan:
 
 def _plan_notice(plan: ParserPlan, path: str) -> Optional[str]:
     """משפט מהקורא: כשפעל (parser), או כשהקריאות שלו רצו כגיבוי (fallback / templates)."""
-    if path == "parser":
+    if path in ("parser", "choice"):
         return plan.notice
     if path in ("fallback", "templates"):
         return plan.fallback_notice
@@ -323,6 +328,34 @@ def _role_conflict(ctx: ToolContext, call: ToolCall, text: str) -> Optional[Cata
     return next((c for c in targets if roles.get(c.catalog_code) == wrong), None)
 
 
+@dataclass(frozen=True)
+class _Before:
+    """המצב לפני התור — כדי לאשר במשפט מה הכלים שמרו בתור הזה (לא מה שהמודל אמר)."""
+
+    occupation: tuple
+    selected: tuple
+    rank_requested: bool
+    rep_reason: Optional[RepReason]
+
+    @classmethod
+    def of(cls, state: ConversationState) -> "_Before":
+        p = state.profile
+        return cls((p.occupation, p.group), tuple(state.selected), state.rank_requested, blocking_rep_reason(state))
+
+    def confirmations(self, state: ConversationState, snapshot: RulesSnapshot, just_calculated: bool) -> list[str]:
+        p, lines = state.profile, []
+        if p.occupation and p.group and (p.occupation, p.group) != self.occupation:
+            lines.append(confirm_group_text(p.occupation, p.group))
+        if state.selected and tuple(state.selected) != self.selected and not just_calculated:
+            labels = {o.id: o.label for o in available_options(snapshot, state)}
+            lines.append(chosen_options_text([labels.get(i, i) for i in state.selected]))
+        if state.rank_requested and not self.rank_requested:
+            lines.append(RANK_DEFERRED)
+        if state.pending_rep is None and self.rep_reason is None and blocking_rep_reason(state) is not None:
+            lines.append(REP_DEFERRED)
+        return lines
+
+
 class Agent:
     def __init__(self, llm: LLMChain, mode: str = "llm_first"):
         self.llm = llm
@@ -351,6 +384,9 @@ class Agent:
             plan = _confirmation_plan(state, "כן" if ids[0] == "yes" else "לא") or ParserPlan(complete=True)
         elif field_ == "occupation_confirmation":
             plan = _occupation_plan(ctx, ids[0])
+        elif ids[0] == "none" and field_ in ZERO_ALLOWED:
+            state.pending_confirmation = None
+            plan = none_plan([field_])                 # "אין" על שדה בפרופיל — עם שורת "רשמתי"
         else:
             state.pending_confirmation = None
             plan = ParserPlan(choice_calls(field_, ids, snapshot), True, direct=True)
@@ -396,6 +432,7 @@ class Agent:
                 before: Stage, record_run: RecordRun, choice: bool = False) -> TurnOutcome:
         state, snapshot = ctx.state, ctx.snapshot
         car_before = _car_key(state)
+        before_turn = _Before.of(state)
         used_llm = False
         deadline = self.llm.turn_deadline()   # אחרי LLM_TURN_DEADLINE_S — תבניות, בלי ספקים נוספים
         conflicts: list[str] = []
@@ -426,12 +463,14 @@ class Agent:
                 understood = self._execute(ctx, plan.calls) or plan.notice is not None
 
         self._open_blocking_rep(ctx)
+        self._resolve_rank(ctx)
         just_calculated = False
         if next_stage(state) == Stage.CALCULATING:
             self._calculate(ctx, record_run)
             just_calculated = True
         state.stage = next_stage(state)
         understood = understood or state.stage != before
+        confirmations = before_turn.confirmations(state, snapshot, just_calculated)
 
         # רכב שזוהה בתור הזה (מהקורא, מהמודל או מהגיבוי) — אומרים איזה, כדי שטעות לא תעבור בשקט
         matched_car = state.current.source in ("catalog", "tax") and _car_key(state) != car_before
@@ -439,7 +478,7 @@ class Agent:
         problems = [conflict_text(c) for c in conflicts] + [range_problem_text(*p) for p in ctx.range_problems]
         draft = render(state, snapshot, understood=understood or bool(problems), just_calculated=just_calculated,
                        matched_car=matched_car, notice="\n".join(problems) or _plan_notice(plan, path),
-                       rep_opened=rep_opened, notice_asks=bool(problems))
+                       rep_opened=rep_opened, notice_asks=bool(problems), confirmations=confirmations)
         _mark_asked(state)
         requests = dict(question_requests=ctx.question_requests, cancel_question_ids=ctx.cancel_question_ids)
         # ניסוח במודל רק לתוצאות או להודעה שלא הובנה (שאלה חופשית). השאלה הבאה בפרופיל/ברכב
@@ -602,9 +641,18 @@ class Agent:
         clean = {k: v for k, v in context.items() if v is not None}
         ctx.question_requests.append(QuestionRequest(field, mode, answer_type, text, clean, suggested, option_id))
 
-    def _open_blocking_rep(self, ctx: ToolContext) -> None:
+    @staticmethod
+    def _resolve_rank(ctx: ToolContext) -> None:
+        """"הכי משתלם" שנרשם לפני שהפרטים היו ידועים: עכשיו, כשרק החלופות חסרות, הבחירה נעשית."""
         state = ctx.state
-        if state.pending_rep is not None:
+        if state.rank_requested and not state.selected and next_stage(state) == Stage.CHOOSE_OPTIONS:
+            if not run_tool(ctx, "rank_options", {}).get("ok"):
+                state.rank_requested = False     # אין חלופות זכאיות לדירוג — שואלים על החלופות
+
+    def _open_blocking_rep(self, ctx: ToolContext) -> None:
+        """שאלה לנציג רק אחרי שהפרופיל מלא: קודם משלימים את מה שהעובד יודע."""
+        state = ctx.state
+        if state.pending_rep is not None or missing_profile(state.profile):
             return
         reason = blocking_rep_reason(state)
         if reason is None:
@@ -679,6 +727,7 @@ class Agent:
             state.queued_options = []
             if queued:
                 state.selected, state.calculated_for = queued, []
+        self._resolve_rank(ctx)
         just_calculated = False
         if next_stage(state) == Stage.CALCULATING:
             self._calculate(ctx, record_run)

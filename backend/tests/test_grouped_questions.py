@@ -65,7 +65,7 @@ def test_noa_skips_q2_when_everything_was_given(sessions):
     turn, token = svc.start()
     turn = svc.send(turn.conversation_id, token, "אני מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, "
                                                  "פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים")
-    assert turn.reply.startswith(Q3)
+    assert turn.reply.startswith("זיהיתי: מנהל/ת מוצר, קבוצה ג.\n\n" + Q3)   # אישור התפקיד, ואז Q3
     turn = svc.send(turn.conversation_id, token, "יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש")
     assert "\n\nאיזה רכב מעניין אותך" in turn.reply and "מה ההשתתפות" not in turn.reply   # רק מה שחסר
     turn = svc.send(turn.conversation_id, token, "אני רוצה לבדוק את BYD אטו 3 החשמלי")
@@ -76,7 +76,7 @@ def test_each_group_names_only_what_is_missing(sessions):
     svc = service(sessions)
     turn, token = svc.start()
     turn = svc.send(turn.conversation_id, token, "מנהלת מוצר")
-    assert turn.reply == "מה שכר הבסיס החודשי שלך (ברוטו)?"                # Q1: רק השכר
+    assert turn.reply == "זיהיתי: מנהל/ת מוצר, קבוצה ג.\n\nמה שכר הבסיס החודשי שלך (ברוטו)?"   # Q1: רק השכר
     turn = svc.send(turn.conversation_id, token, "18,500, פנסיה 6%, 2 ילדים")
     assert turn.reply == ("יש רכיבי שכר נוספים — עמלות, בונוסים? ואילו הפרשות יורדות לך: "
                           "קרן השתלמות, נקודות זיכוי?")                     # Q2: בלי פנסיה וילדים
@@ -90,7 +90,7 @@ def test_group_only_asks_the_occupation_when_opting_out(sessions):
         turn = svc.send(turn.conversation_id, token, m)
     assert "ויתור על רכב" in turn.reply                                    # התפקיד לא נשאל עד עכשיו
     turn = svc.send(turn.conversation_id, token, "ויתור")
-    assert turn.reply == "כדי לבדוק אם אפשר לוותר על הרכב, מה התפקיד שלך?"
+    assert turn.reply == "בחרת להשוות: ויתור על רכב.\n\nכדי לבדוק אם אפשר לוותר על הרכב, מה התפקיד שלך?"
     turn = svc.send(turn.conversation_id, token, "מנהלת מוצר")
     assert turn.stage == Stage.PRESENTED and turn.results[0].result["status"] == "OK"
     assert svc.view(turn.conversation_id, token).state.profile.occupation == "מנהל/ת מוצר"
@@ -142,7 +142,7 @@ def test_the_alternative_button_selects_the_car(sessions):
     turn = svc.send_choice(turn.conversation_id, token, ["alternative"])
     s = svc.view(turn.conversation_id, token).state
     assert s.selected == ["CAR-10"] and s.current.source is None and s.pending_clarification is None
-    assert turn.reply.startswith("מה הרכב היום")                                # עכשיו רק הרכב של היום
+    assert turn.reply.startswith("בחרת להשוות: ATTO 3 (2025).\n\nמה הרכב היום")   # עכשיו רק הרכב של היום
 
 
 def test_an_alternative_cue_selects_the_car_as_an_alternative(sessions):

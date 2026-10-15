@@ -148,6 +148,8 @@ class ConversationState(BaseModel):
     queued_options: list[str] = Field(default_factory=list)     # חלופות לחישוב אחרי תשובת הנציג
     asked_groups: list[str] = Field(default_factory=list)       # שאלות מקובצות שכבר נשאלו ("Q2")
     role_asked: list[str] = Field(default_factory=list)         # רכבים ששאלנו עליהם "של היום או חלופה?"
+    # "הכי משתלם" לפני שהרכב של היום והפרופיל ידועים: נבחר ומחושב ברגע שכל הפרטים ידועים
+    rank_requested: bool = False
 
 
 # ---------- מה חסר ----------
@@ -239,7 +241,7 @@ def current_group(state: ConversationState) -> tuple[Optional[str], list[str]]:
     missing = missing_profile(p)
     q1 = [f for f in missing if f in Q1_FIELDS]
     q2 = [f for f in missing if f in Q2_FIELDS]
-    options = [] if state.selected else ["options"]
+    options = [] if state.selected or state.rank_requested else ["options"]
     if stage == Stage.COLLECT_PROFILE:
         if q1:
             return "Q1", q1

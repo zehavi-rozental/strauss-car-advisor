@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { api } from '../api/client'
 import type { CarSearchItem, Expects, ExpectsField, MessageIn } from '../api/types'
+import { fieldLabel } from './labels'
 
 type Send = (body: MessageIn, display: string) => Promise<boolean>
 
@@ -14,12 +15,29 @@ export function QuickReplies({ expects, disabled, onSend }: { expects: Expects |
   const grouped = fields.length > 1
   const visible = fields.filter((f) => f.choices.length > 0 || f.quick_replies.length > 0 || f.type === 'car_search')
   if (!visible.length) return null
+  // number fields offer only quick replies ("אין", "לא ידוע"); in a grouped question each one is named
+  // after its field, so "אין" never goes to a field the employee didn't mean
+  const numbers = grouped ? visible.filter((f) => f.type === 'number') : []
+  const others = visible.filter((f) => !numbers.includes(f))
   return (
     <div className="quick-replies">
-      {visible.map((f) => (
+      {others.map((f) => (
         <FieldReplies key={f.field ?? f.type} f={f} fieldParam={grouped ? f.field ?? undefined : undefined}
                       disabled={disabled} onSend={onSend} />
       ))}
+      {numbers.length > 0 && (
+        <div className="reply-row">
+          {numbers.flatMap((f) => f.quick_replies.map((q) => {
+            const label = `${fieldLabel(f.field ?? '')}: ${q.label}`
+            return (
+              <button key={`${f.field}:${q.id}`} type="button" className="chip chip-quiet" disabled={disabled}
+                      onClick={() => onSend({ choice: q.id, field: f.field ?? undefined }, label)}>
+                {label}
+              </button>
+            )
+          }))}
+        </div>
+      )}
     </div>
   )
 }
