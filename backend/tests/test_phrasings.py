@@ -40,6 +40,6 @@ def test_phrasings_in_template_mode(sessions):
     (PHRASINGS / "REPORT.txt").write_text(text, encoding="utf-8")
     print("\n" + text)
     counts = {name: t.total for name, t in tallies.items()}
-    assert len(counts) == 15 and min(counts.values()) >= 15, counts
+    assert len(counts) == 16 and min(counts.values()) >= 15, counts
     wrong = [w for t in tallies.values() for w in t.wrong]
     assert not wrong, "\n".join(wrong)

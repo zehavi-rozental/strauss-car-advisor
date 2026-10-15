@@ -94,3 +94,17 @@ def test_group_only_asks_the_occupation_when_opting_out(sessions):
     turn = svc.send(turn.conversation_id, token, "מנהלת מוצר")
     assert turn.stage == Stage.PRESENTED and turn.results[0].result["status"] == "OK"
     assert svc.view(turn.conversation_id, token).state.profile.occupation == "מנהל/ת מוצר"
+
+
+def test_a_full_q3_answer_is_read_with_the_q2_leftovers(sessions):
+    """תשובה ישירה ל-Q3 יחד עם מה שנשאר מ-Q2: הכול נשמר, ונשאלת רק החלופה."""
+    svc = service(sessions)
+    turn, token = svc.start()
+    for m in (SCENARIO_1, SCENARIO_2):
+        turn = svc.send(turn.conversation_id, token, m)
+    turn = svc.send(turn.conversation_id, token, "אין בונוס, 2 ילדים, יש לי קורולה קרוס ואני משתתפת ב-300")
+    s = svc.view(turn.conversation_id, token).state
+    assert (s.profile.bonus, s.profile.children, s.current.catalog_code, s.current.copay) == (0, 2, "CAR-09", 300)
+    assert turn.stage == Stage.CHOOSE_OPTIONS
+    assert "\n\nאיזה רכב מעניין אותך" in turn.reply
+    assert "לא זיהיתי" not in turn.reply and "מה ההשתתפות" not in turn.reply and "ועוד:" not in turn.reply

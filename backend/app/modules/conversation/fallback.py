@@ -37,6 +37,7 @@ from .parsing import (
     strip_year,
     unknown_span,
     unread_words,
+    year_spans,
 )
 from .stage import ConversationState, current_group
 from .tools import OPT_OUT_WORDS, available_options
@@ -147,7 +148,8 @@ def _field_plan(state: ConversationState, snapshot: RulesSnapshot, field_: str, 
 
 def _grouped_plan(state: ConversationState, snapshot: RulesSnapshot, group: Optional[str],
                   fields: list[str], t: str) -> ParserPlan:
-    """שאלה מקובצת. לא מנחשים: (1) ב-Q3 שם רכב לבד הוא הרכב של היום (השאלה שואלת עליו קודם);
+    """שאלה מקובצת. לא מנחשים: (1) ב-Q3 רכב בשמו הוא הרכב של היום (השאלה שואלת עליו קודם), וההודעה
+    נקראת יחד עם ההשתתפות וערכים מתויגים שנשארו מ-Q2;
     (2) ערכים מתויגים ("פנסיה 6%", "קבוצה ג") — כשההודעה נקראה במלואה; (3) אחרת ההודעה נקראת
     כתשובה לכל שדה בנפרד, ופועלים רק אם בדיוק שדה אחד קורא אותה במלואה ("300" כשחסרים רכב
     והשתתפות = השתתפות; "אין" כשחסרים עמלות ובונוס — שואלים שוב)."""
@@ -156,8 +158,10 @@ def _grouped_plan(state: ConversationState, snapshot: RulesSnapshot, group: Opti
         plan = _car_plan(snapshot, t)
         if plan.complete and plan.calls:
             return plan
-        if named_cars(t, snapshot.catalog):
-            return ParserPlan()           # רכב בשמו לפני שהרכב של היום ידוע — לא בוחרים אותו כחלופה
+        cars = named_cars(t, snapshot.catalog)
+        if cars:
+            # רכב בשמו לפני שהרכב של היום ידוע — לא בוחרים אותו כחלופה
+            return _q3_car_plan(snapshot, cars, t)
         car_guess = plan if plan.calls else None      # דגם קצר שלא בקטלוג — גיבוי, אם אף שדה אחר לא קורא
     profile_fields = [f for f in fields if f in _PROFILE_ARG]
     if profile_fields:
@@ -342,6 +346,30 @@ def _car_plan(snapshot: RulesSnapshot, text: str) -> ParserPlan:
     if copay is not None:
         calls += _call("save_profile", current_copay=str(copay))
     return ParserPlan(calls, complete, guess=not complete)
+
+
+def _q3_car_plan(snapshot: RulesSnapshot, cars: list[CatalogCar], text: str) -> ParserPlan:
+    """תשובה מלאה ל-Q3: הרכב של היום (+שנה, +השתתפות) יחד עם ערכים מתויגים שנשארו מ-Q2
+    ("אין בונוס, 2 ילדים, יש לי קורולה קרוס ואני משתתפת ב-300"). הכלל הוא של כל ההודעה:
+    פועלים רק כשלא נשאר בה דבר שלא נקרא."""
+    ext = snapshot.extensions
+    if len(cars) != 1 or negates(text):
+        return ParserPlan()
+    car = cars[0]
+    reading = read_profile(text, snapshot.occupations.keys(), ext.correction_cues, ext.value_qualifiers)
+    copay = parse_copay(text)
+    spans = [*reading.spans, *approx_spans(text), copay_span(text), *year_spans(text)]
+    phrases = [*reading.phrases, matched_name(text, car) or car.model_name]
+    fillers = [*ext.profile_fillers, *ext.car_message_fillers, *ext.correction_cues]
+    if unread_words(text, spans, phrases, fillers, leading_no=True):
+        return ParserPlan()
+    calls = _call("match_current_car", model=car.model_name, registration_year=find_year(text))
+    profile = dict(reading.fields)
+    if copay is not None:
+        profile["current_copay"] = str(copay)
+    if profile:
+        calls += _call("save_profile", **profile, approximate_fields=list(reading.approximate))
+    return ParserPlan(calls, True)
 
 
 def _car_detail_plan(snapshot: RulesSnapshot, question: str, text: str) -> ParserPlan:
