@@ -20,6 +20,9 @@ from app.modules.rules.public import CatalogCar, RulesSnapshot, catalog_names, m
 from .llm.port import ToolCall
 from .parsing import (
     NUMBER_RE,
+    approx_spans,
+    plain_decimal,
+    read_number,
     copay_span,
     drive_span,
     find_year,
@@ -90,6 +93,18 @@ def single_value(text: str, fillers: Iterable[str] = ()) -> Optional[str]:
     return m.group(0).replace(",", "")
 
 
+def read_value(text: str, fillers: Iterable[str] = ()) -> Optional[tuple[str, bool]]:
+    """תשובה מספרית לשאלה בודדת, גם כהערכה: (ערך, משוער?). מספר אחד בדיוק (עם יחידה כמו "אלף"),
+    ושום דבר נוסף מלבד סימני הערכה ומילות מילוי. "18" לשכר נשמר כ-18 — טווח הסבירות שואל אם התכוונו לאלפים."""
+    found = list(NUMBER_RE.finditer(text))
+    if len(found) != 1:
+        return None
+    number = read_number(text, found[0])
+    if unread_words(text, [number.span, *approx_spans(text)], (), fillers):
+        return None
+    return plain_decimal(number.value), number.approximate
+
+
 def named_cars(text: str, cars: Iterable[CatalogCar]) -> list[CatalogCar]:
     """רכבי הקטלוג שהטקסט מזכיר (שם, שם בלי BYD, כינויים מ-extensions.yaml), כמילים שלמות.
     השם הארוך קודם; שם שמוכל בשם ארוך יותר שנמצא ("קורולה" בתוך "קורולה קרוס") נזרק."""
@@ -127,8 +142,9 @@ def _profile_plan(snapshot: RulesSnapshot, question: str, text: str) -> ParserPl
     ext = snapshot.extensions
     reading = read_profile(text, snapshot.occupations.keys(), ext.correction_cues)
     if reading.fields:
-        if not unread_words(text, reading.spans, reading.phrases, ext.profile_fillers):
-            return ParserPlan(_call("save_profile", **reading.fields), True)
+        if not unread_words(text, reading.spans + approx_spans(text), reading.phrases, ext.profile_fillers):
+            return ParserPlan(_call("save_profile", **reading.fields,
+                                    approximate_fields=list(reading.approximate)), True)
         return _labelled_fallback(reading.labelled)      # לא נקרא במלואו: רק ערכים מתויגים, כגיבוי
     asked = _PROFILE_ARG[question]
     if question == "occupation":
@@ -145,12 +161,14 @@ def _profile_plan(snapshot: RulesSnapshot, question: str, text: str) -> ParserPl
         span = none_span(text)
         if span and not unread_words(text, [span], (), ext.answer_fillers):
             return ParserPlan(_call("save_profile", **{asked: 0}), True)
-    value = single_value(text, ext.answer_fillers)
-    if value is None:
+    read = read_value(text, ext.answer_fillers)
+    if read is None:
         return ParserPlan()
+    value, approximate = read
     if question == "children":
         return ParserPlan(_call("save_profile", children_under_23=int(Decimal(value))), True)
-    return ParserPlan(_call("save_profile", **{asked: value}), True)
+    return ParserPlan(_call("save_profile", **{asked: value},
+                            approximate_fields=[asked] if approximate else []), True)
 
 
 _LABEL_ORDER = ("base_salary", "commissions", "bonus", "pension_percent", "study_fund_percent",
@@ -250,8 +268,11 @@ def _car_detail_plan(snapshot: RulesSnapshot, question: str, text: str) -> Parse
         if only(none_span(text)):
             return ParserPlan(_call("save_profile", current_copay="0"), True)
     arg = {"use_value": "current_use_value", "copay": "current_copay", "maintenance": "current_maintenance"}[question]
-    value = single_value(text, fillers)
-    return ParserPlan(_call("save_profile", **{arg: value}), True) if value else ParserPlan()
+    read = read_value(text, fillers)
+    if read is None:
+        return ParserPlan()
+    value, approximate = read
+    return ParserPlan(_call("save_profile", **{arg: value}, approximate_fields=[arg] if approximate else []), True)
 
 
 # ---------- חלופות ----------

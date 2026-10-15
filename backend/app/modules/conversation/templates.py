@@ -99,6 +99,60 @@ def results_text(state: ConversationState) -> str:
 
 WAITING = "שאלתי את נציג התחבורה ואעדכן כשתגיע תשובה."
 
+# ---------- ערכים משוערים, סכומים מקוצרים וטווחי סבירות ----------
+
+# שדה ב-save_profile → (שם בתבנית, סוג תצוגה)
+_VALUE_LABELS = {
+    "base_salary": ("שכר בסיס", "money"), "commissions": ("עמלות", "money"), "bonus": ("בונוס", "money"),
+    "pension_percent": ("פנסיה", "percent"), "study_fund_percent": ("קרן השתלמות", "percent"),
+    "credit_points": ("נקודות זיכוי", "plain"), "children_under_23": ("ילדים", "plain"),
+    "current_use_value": ("שווי שימוש", "money"), "current_copay": ("השתתפות נוכחית", "money"),
+    "current_maintenance": ("אחזקת רכב", "money"),
+}
+# שדה → (למה זה לא סביר, שאלת המשך)
+_RANGE_TEXT = {
+    "base_salary": ("לשכר בסיס חודשי", "מה הסכום המלא מהתלוש?"),
+    "commissions": ("לעמלות חודשיות", "מה הסכום החודשי?"),
+    "bonus": ("לבונוס חודשי", "מה הסכום החודשי?"),
+    "pension_percent": ("להפרשה לפנסיה", "כמה אחוזים מופרשים ממך לפנסיה?"),
+    "study_fund_percent": ("להפרשה לקרן השתלמות", "כמה אחוזים מופרשים ממך לקרן השתלמות?"),
+    "credit_points": ("למספר נקודות זיכוי", "כמה נקודות זיכוי מופיעות בתלוש?"),
+    "children_under_23": ("למספר ילדים", "כמה ילדים עד גיל 23 יש לך?"),
+    "current_use_value": ("לשווי שימוש חודשי", "מה שווי השימוש שמופיע בתלוש?"),
+    "current_copay": ("להשתתפות חודשית ברכב", "מה ההשתתפות החודשית שלך?"),
+    "current_maintenance": ("לאחזקת רכב חודשית", "מה סכום האחזקה בתלוש?"),
+}
+
+
+def _show(field: str, value: Any) -> str:
+    kind = _VALUE_LABELS[field][1]
+    number = Decimal(str(value))
+    if kind == "money":
+        return money(number)
+    text = format(number.normalize(), "f")
+    return f"{text}%" if kind == "percent" else text
+
+
+def range_problem_text(field: str, value: Decimal, side: str) -> str:
+    """"18 ₪ נראה נמוך מאוד לשכר בסיס חודשי. מה הסכום המלא מהתלוש?" — המספר מההודעה."""
+    reason, follow_up = _RANGE_TEXT[field]
+    return f"{_show(field, value)} נראה {'נמוך' if side == 'low' else 'גבוה'} מאוד {reason}. {follow_up}"
+
+
+def confirm_value_text(field: str, value: Decimal) -> str:
+    return f"התכוונת ל-{_show(field, value)}?"
+
+
+def approximate_assumptions(state: ConversationState) -> list[str]:
+    """"עמלות: כ-1,000 ₪, לפי ההערכה שלך" — לכל ערך שהעובד אמר כהערכה."""
+    p, c = state.profile, state.current
+    values = {"base_salary": p.base, "commissions": p.commissions, "bonus": p.bonus,
+              "pension_percent": p.pension_percent, "study_fund_percent": p.study_fund_percent,
+              "credit_points": p.credit_points, "children_under_23": p.children,
+              "current_use_value": c.use_value, "current_copay": c.copay, "current_maintenance": c.maintenance}
+    return [f"{_VALUE_LABELS[f][0]}: כ-{_show(f, values[f])}, לפי ההערכה שלך"
+            for f in p.approximate_fields if values.get(f) is not None]
+
 
 def clarify_car_text(label: str) -> str:
     return (f"לא בטוח שהבנתי: {label} הוא הרכב שלך היום, או חלופה שתרצו לבדוק? "
@@ -171,7 +225,7 @@ def confirm_car_text(state: ConversationState) -> str:
 
 def render(state: ConversationState, snapshot: RulesSnapshot, *, understood: bool,
            just_calculated: bool, matched_car: bool = False, notice: Optional[str] = None,
-           rep_opened: bool = False) -> str:
+           rep_opened: bool = False, notice_asks: bool = False) -> str:
     """ההודעה הבאה לפי מצב השיחה בלבד (ומשפט מהקורא, אם יש, לפני השאלה)."""
     parts: list[str] = [confirm_car_text(state)] if matched_car else []
     if notice:
@@ -187,6 +241,12 @@ def render(state: ConversationState, snapshot: RulesSnapshot, *, understood: boo
     field = next_question(state)
     if not understood and field == "car":
         parts.append(CAR_AGAIN)
+        return "\n\n".join(parts)
+    if notice_asks:
+        return "\n\n".join(parts)                       # המשפט כבר שואל (בעיית סבירות)
+    if state.pending_confirmation is not None:
+        pending = state.pending_confirmation
+        parts.append(confirm_value_text(pending.field, pending.value))
         return "\n\n".join(parts)
     if not understood:
         parts.append("לא הצלחתי להבין את התשובה.")

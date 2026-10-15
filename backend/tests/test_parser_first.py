@@ -53,15 +53,17 @@ def test_free_car_sentence_goes_to_the_llm(sessions):
     assert turn.path == "llm" and fake.calls and "match_current_car" in fake.calls[0].tools
 
 
-def test_approximate_salary_goes_to_the_llm_and_is_not_saved(sessions):
+def test_shortened_salary_is_confirmed_not_expanded(sessions):
+    """"בערך 18 וחצי" לשכר: לא נשמר 18 ולא 18,500 — הבוט שואל אם התכוונו ל-18,500."""
     fake = FakeLLM()
     svc = service(sessions, LLMChain([fake]))
     turns, token = talk(svc, ["מנהלת מוצר"])                     # הקורא: עיסוק → שאלת שכר
     assert fake.calls == [] and "שכר הבסיס" in turns[0].reply
-    fake.turn(reply=None)                                       # המודל לא שומר כלום
     turn = svc.send(turns[0].conversation_id, token, "שכר הבסיס שלי בערך 18 וחצי")
-    assert turn.path == "llm" and fake.calls
-    assert svc.view(turn.conversation_id, token).state.profile.base is None   # לא נשמר 18
+    state = svc.view(turn.conversation_id, token).state
+    assert state.profile.base is None and fake.calls == []
+    assert turn.reply == "התכוונת ל-18,500 ₪?"
+    assert (state.pending_confirmation.field, state.pending_confirmation.value) == ("base_salary", 18500)
 
 
 def test_number_inside_a_sentence_is_not_an_option_choice(sessions):
@@ -85,7 +87,7 @@ def test_bare_numbers_are_list_choices(sessions):
 def test_template_mode_does_not_guess_from_those_sentences(sessions):
     svc = service(sessions, LLMChain())
     turns, token = talk(svc, ["מנהלת מוצר", "שכר הבסיס שלי בערך 18 וחצי"])
-    assert turns[-1].path == "templates" and "לא הצלחתי להבין" in turns[-1].reply
+    assert turns[-1].reply == "התכוונת ל-18,500 ₪?"                  # שואלים — לא מרחיבים בשקט
     assert svc.view(turns[-1].conversation_id, token).state.profile.base is None
 
     turns, token = talk(svc, NOA[:2] + ["אני רוצה לבדוק 2 רכבים"])
@@ -129,7 +131,7 @@ from decimal import Decimal  # noqa: E402
 
 @pytest.mark.parametrize("text, expected", [
     ("18,500", "18500"), ("6%", "6"), ("2.75", "2.75"), ("300 ש\"ח", "300"),
-    ("בערך 18 וחצי", None), ("כ-18,500", None), ("18 אלף", None), ("18k", None),
+    ("בערך 18 וחצי", None), ("כ-18,500", None), ("18 אלף", None), ("18k", None),   # single_value: רק מדויק
     ("שכר הבסיס שלי בערך 18 וחצי", None),            # גם משפט ארוך
     ("1 או 2", None),                                  # שני מספרים
 ])
@@ -138,11 +140,14 @@ def test_single_value_rejects_approximate_or_ambiguous_answers(text, expected):
     assert single_value(text, ["שח", "שקל"]) == expected
 
 
-def test_keyword_parser_skips_approximate_amounts(snapshot):
-    from app.modules.conversation.parsing import parse_profile_fields
+def test_keyword_parser_reads_approximate_amounts_and_flags_them(snapshot):
+    from app.modules.conversation.parsing import read_profile
     occ = snapshot.occupations.keys()
-    assert parse_profile_fields("שכר הבסיס שלי בערך 18 וחצי", occ) == {}
-    assert parse_profile_fields("שכר בסיס כ-18,500, פנסיה 6%", occ) == {"pension_percent": "6"}
+    r = read_profile("שכר הבסיס שלי בערך 18 וחצי", occ)
+    assert r.fields == {"base_salary": "18.5"} and r.approximate == ["base_salary"]
+    r = read_profile("שכר בסיס כ-18,500, פנסיה 6%", occ)
+    assert r.fields == {"base_salary": "18500", "pension_percent": "6"} and r.approximate == ["base_salary"]
+    assert read_profile("שכר בסיס 18 אלף", occ).fields == {"base_salary": "18000"}
 
 
 # ---------- הודעה על הרכב עם משמעות נוספת → מודל השפה ----------
@@ -317,3 +322,87 @@ def test_recognised_words_with_extra_meaning_are_not_acted_on(sessions, text):
     turns, token = talk(svc, [NOA[0], text])
     state = svc.view(turns[-1].conversation_id, token).state
     assert state.current.source is None and state.current.drive is None
+
+
+# ---------- ערכים משוערים, סכומים מקוצרים וטווחי סבירות (בקוד, לכל מקור) ----------
+
+def _send_all(svc, messages):
+    turn, token = svc.start()
+    for m in messages:
+        turn = svc.send(turn.conversation_id, token, m)
+    return turn, token
+
+
+def test_official_scenario_sentence_saves_an_approximate_commission(sessions):
+    """"עמלות משתנות כ-1,000 ₪" (מהתרחיש הרשמי) נשמר — ומסומן כהערכה, שמופיעה בתוצאה כהנחה."""
+    svc = service(sessions, LLMChain())
+    turn, token = _send_all(svc, ["מנהלת מוצר", "18,500",
+                                  "עמלות משתנות כ-1,000 ₪, פנסיה 6%, קרן השתלמות 2.5%, 2.25 נקודות זיכוי"])
+    p = svc.view(turn.conversation_id, token).state.profile
+    assert (p.commissions, p.pension_percent, p.study_fund_percent, p.credit_points) == (
+        1000, 6, Decimal("2.5"), Decimal("2.25"))
+    assert p.approximate_fields == ["commissions"]
+    for m in ["אין", "2", "קורולה קרוס", "300", "אטו 3"]:
+        turn = svc.send(turn.conversation_id, token, m)
+    assert turn.stage == Stage.PRESENTED
+    assert "עמלות: כ-1,000 ₪, לפי ההערכה שלך" in turn.results[0].result["assumptions"]
+    assert "עמלות: כ-1,000 ₪, לפי ההערכה שלך" in turn.reply
+
+
+def test_shortened_salary_needs_a_yes_before_it_is_saved(sessions):
+    svc = service(sessions, LLMChain())
+    turn, token = _send_all(svc, ["מנהלת מוצר", "בערך 18"])
+    assert turn.reply == "התכוונת ל-18,000 ₪?"
+    assert svc.view(turn.conversation_id, token).state.profile.base is None
+    turn = svc.send(turn.conversation_id, token, "כן")
+    p = svc.view(turn.conversation_id, token).state.profile
+    assert p.base == 18000 and p.approximate_fields == ["base_salary"]
+    assert "עמלות" in turn.reply                                    # השאלה הבאה
+
+
+def test_no_to_the_confirmation_asks_the_field_again(sessions):
+    svc = service(sessions, LLMChain())
+    turn, token = _send_all(svc, ["מנהלת מוצר", "18", "לא"])
+    s = svc.view(turn.conversation_id, token).state
+    assert s.profile.base is None and s.pending_confirmation is None
+    assert "מה שכר הבסיס החודשי שלך" in turn.reply
+
+
+def test_an_llm_that_saves_base_18_is_caught_by_the_range_check(sessions):
+    fake = FakeLLM()
+    svc = service(sessions, LLMChain([fake]))
+    turn, token = _send_all(svc, ["מנהלת מוצר"])
+    fake.turn(call("save_profile", base_salary=18))
+    turn = svc.send(turn.conversation_id, token, "השכר שלי שמונה עשר")   # הקורא לא מבין → המודל
+    assert fake.calls and svc.view(turn.conversation_id, token).state.profile.base is None
+    assert turn.reply == "התכוונת ל-18,000 ₪?" and turn.source == "template"
+
+
+@pytest.mark.parametrize("llm", [False, True])
+def test_pension_60_is_rejected_and_the_problem_is_named(sessions, llm):
+    fake = FakeLLM()
+    svc = service(sessions, LLMChain([fake]) if llm else LLMChain())
+    turn, token = _send_all(svc, ["מנהלת מוצר", "18,500", "אין", "אין"])
+    if llm:
+        fake.turn(call("save_profile", pension_percent=60))
+        text = "ההפרשה שלי לפנסיה היא שישים"                       # הקורא לא מבין → המודל
+    else:
+        text = "60%"
+    turn = svc.send(turn.conversation_id, token, text)
+    assert svc.view(turn.conversation_id, token).state.profile.pension_percent is None
+    assert turn.reply == "60% נראה גבוה מאוד להפרשה לפנסיה. כמה אחוזים מופרשים ממך לפנסיה?"
+
+
+def test_low_salary_outside_any_reading_names_the_problem(sessions):
+    svc = service(sessions, LLMChain())
+    turn, token = _send_all(svc, ["מנהלת מוצר", "500,000"])
+    assert turn.reply == "500,000 ₪ נראה גבוה מאוד לשכר בסיס חודשי. מה הסכום המלא מהתלוש?"
+    assert svc.view(turn.conversation_id, token).state.profile.base is None
+
+
+def test_other_fields_in_the_same_message_are_still_saved(sessions):
+    svc = service(sessions, LLMChain())
+    turn, token = _send_all(svc, ["מנהלת מוצר, שכר בסיס 18,500, פנסיה 60%"])
+    p = svc.view(turn.conversation_id, token).state.profile
+    assert p.base == 18500 and p.pension_percent is None and p.occupation == "מנהל/ת מוצר"
+    assert turn.reply.startswith("60% נראה גבוה מאוד להפרשה לפנסיה")

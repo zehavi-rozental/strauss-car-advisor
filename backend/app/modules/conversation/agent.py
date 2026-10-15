@@ -39,10 +39,12 @@ from .stage import (
 from .templates import (
     GREETING,
     OPT_OUT_DENIED,
+    approximate_assumptions,
     clarify_car_text,
     confirmed_assumption,
     question,
     queued_option_text,
+    range_problem_text,
     render,
     rep_changed_text,
     rep_confirmed_text,
@@ -74,7 +76,11 @@ Rules:
 - Percentages as plain numbers (6 for 6%). Money in shekels without separators (18,500 -> 18500).
 - Never fill a field the employee did not mention: leave it out, the system will ask for it.
 - If the employee does not know their current copay or use value, set the matching *_unknown flag.
-- Car models in Latin letters as on the tax-authority list (e.g. "קורולה קרוס" -> "COROLLA CROSS")."""
+- Car models in Latin letters as on the tax-authority list (e.g. "קורולה קרוס" -> "COROLLA CROSS").
+- Never guess. Never expand a shortened number: for a salary, "18" or "בערך 18" is NOT 18,000. Pass the number
+  exactly as written; the system checks it and asks the employee to confirm.
+- If the employee gives a value as an estimate (כ-, בערך, בסביבות, בממוצע, משתנות), pass it and list that
+  field's name in approximate_fields."""
 
 # תוצאות: המודל כותב רק פתיח בלי מספרים. שורות התוצאה (נטו היום, נטו בחלופה, ההפרש עם סימן)
 # תמיד מהתבנית — כך שהמודל לא יכול לטעות בכיוון ("ירד" כשהנטו עולה) או במספר.
@@ -136,6 +142,27 @@ def _clarification_answer(text: str) -> Optional[str]:
     return None
 
 
+_YES = {"כן", "נכון", "בדיוק", "אכן", "yes"}
+_NO = {"לא", "no"}
+
+
+def _confirmation_plan(state: ConversationState, text: str) -> Optional[ParserPlan]:
+    """תשובה ל"התכוונת ל-18,000 ₪?": כן → נשמר; לא → שואלים שוב את השדה; אחר → None."""
+    ws = words(text)
+    pending = state.pending_confirmation
+    if not ws or len(ws) > 3 or pending is None:
+        return None
+    if ws[0] in _YES:
+        state.pending_confirmation = None
+        args = {pending.field: str(pending.value),
+                "approximate_fields": [pending.field] if pending.approximate else []}
+        return ParserPlan([ToolCall("save_profile", args, "confirmed")], True)
+    if ws[0] in _NO:
+        state.pending_confirmation = None
+        return ParserPlan(complete=True)
+    return None
+
+
 def _plan_notice(plan: ParserPlan, path: str) -> Optional[str]:
     """משפט מהקורא: כשפעל (parser), או כשהקריאות שלו רצו כגיבוי (fallback / templates)."""
     if path == "parser":
@@ -179,7 +206,10 @@ class Agent:
             state.current.copay_unknown = state.current.use_value_unknown = False
             before = next_stage(state)
             plan = correction
+        elif state.pending_confirmation is not None and (confirmed := _confirmation_plan(state, text)) is not None:
+            plan = confirmed                     # "כן" / "לא" על "התכוונת ל-18,000 ₪?"
         else:
+            state.pending_confirmation = None    # תשובה אחרת: השאלה הקודמת כבר לא רלוונטית
             # הקורא הדטרמיניסטי קודם. מה שהוא קורא במלואו לא מגיע למודל בכלל — מהיר ובלי תלות בספק.
             plan = fallback_plan(state, snapshot, text)
         car_before = _car_key(state)
@@ -208,13 +238,15 @@ class Agent:
         # רכב שזוהה בתור הזה (מהקורא, מהמודל או מהגיבוי) — אומרים איזה, כדי שטעות לא תעבור בשקט
         matched_car = state.current.source in ("catalog", "tax") and _car_key(state) != car_before
         rep_opened = any(r.mode == Mode.REQUIRED for r in ctx.question_requests)
-        draft = render(state, snapshot, understood=understood, just_calculated=just_calculated,
-                       matched_car=matched_car, notice=_plan_notice(plan, path),
-                       rep_opened=rep_opened)
+        problems = [range_problem_text(*p) for p in ctx.range_problems]
+        draft = render(state, snapshot, understood=understood or bool(problems), just_calculated=just_calculated,
+                       matched_car=matched_car, notice="\n".join(problems) or _plan_notice(plan, path),
+                       rep_opened=rep_opened, notice_asks=bool(problems))
         requests = dict(question_requests=ctx.question_requests, cancel_question_ids=ctx.cancel_question_ids)
         # ניסוח במודל רק לתוצאות או להודעה שלא הובנה (שאלה חופשית). השאלה הבאה בפרופיל/ברכב
         # היא תבנית: מהירה, ובלי סיכון לשומר המספרים.
-        if not used_llm or not (just_calculated or not understood) or rep_opened:
+        checked = bool(problems) or state.pending_confirmation is not None   # בדיקת ערכים — תמיד תבנית
+        if not used_llm or not (just_calculated or not understood) or rep_opened or checked:
             return TurnOutcome(reply=draft, source="template", just_calculated=just_calculated, path=path,
                                **requests)
         if just_calculated:
@@ -485,6 +517,9 @@ class Agent:
             confirmed = state.confirmed_copays.get(option_id)
             alternative = option_state(option, policy, confirmed.value if confirmed else None)
             result = evaluate(employee, current, alternative, snap.calc, occupation)
+            approximate = approximate_assumptions(state)
+            if approximate:
+                result = result.model_copy(update={"assumptions": result.assumptions + approximate})
             if option.car is None and state.profile.rep_opt_out_allowed is False:
                 result = result.model_copy(update={"reason": OPT_OUT_DENIED})   # לפי תשובת הנציג
             inputs = {

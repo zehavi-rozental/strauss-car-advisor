@@ -131,6 +131,8 @@ class Extensions(_Strict):
     option_message_fillers: list[str] = Field(default_factory=list)
     # תחילת שם היצרן בקטלוג → מילים שמותר לכתוב לצד הדגם ("BYD אטו 3")
     manufacturer_brands: dict[str, list[str]] = Field(default_factory=dict)
+    # טווחים סבירים לכל ערך שנשמר בפרופיל (מכל מקור: הקורא, המודל, כפתורים). מחוץ לטווח — לא נשמר.
+    value_ranges: dict[str, tuple[Decimal, Decimal]] = Field(default_factory=dict)
 
 
 # ---------- strauss-data.xlsx ----------

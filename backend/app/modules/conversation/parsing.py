@@ -185,12 +185,44 @@ def parse_copay(text: str) -> Optional[Decimal]:
 
 
 # ערך משוער: "בערך", "כ-", "בסביבות"... לפני המספר, או "וחצי", "אלף"... אחריו. אסור לשמור אותו כמדויק.
-_APPROX_BEFORE_RE = re.compile(r"בערך|כמעט|בסביבות|משהו\s*כמו|לפחות|(?:^|\s)כ-?\s*\d|~")
+_APPROX_BEFORE_RE = re.compile(r"בערך|כמעט|בסביבות|משהו\s*כמו|לפחות|בממוצע|משתנ(?:ה|ות|ים)|(?:^|\s)כ-?\s*\d|~")
 _APPROX_AFTER_RE = re.compile(r"^\s*(?:ו?חצי|ורבע|ושלושת\s*רבעי|אלף|אלפים|[kK](?![a-zA-Z]))")
 
 
 def is_approximate(before: str, after: str = "") -> bool:
     return bool(_APPROX_BEFORE_RE.search(before) or _APPROX_AFTER_RE.search(after))
+
+
+_UNIT_RE = re.compile(r"^\s*(?:(?P<half>ו?חצי)|(?P<thousand>אלף|אלפים|[kK](?![a-zA-Z]))|ש\"?ח|₪)?")
+_APPROX_MARKER_RE = re.compile(r"בערך|כמעט|בסביבות|בממוצע|משתנ(?:ה|ות|ים)|(?:^|(?<=\s))כ-?(?=\s*\d)|~")
+
+
+@dataclass(frozen=True)
+class ReadNumber:
+    value: Decimal
+    span: Span            # המספר עם היחידה ("18 אלף", "18 וחצי")
+    approximate: bool     # נאמר כהערכה ("כ-1,000", "בערך 18,500", "משתנות")
+
+
+def read_number(text: str, match: "re.Match[str]", group: int = 0) -> ReadNumber:
+    """מספר עם יחידה: "18 אלף" = 18,000 (מפורש), "18 וחצי" = 18.5 (מקוצר; אישור יגיע מטווח הסבירות)."""
+    value = Decimal(match.group(group).replace(",", ""))
+    end = match.end(group)
+    unit = _UNIT_RE.match(text[end:])
+    if unit and unit.group("half"):
+        value += Decimal("0.5")
+    if unit and unit.group("thousand"):
+        value *= 1000
+    if unit:
+        end += unit.end()
+    # סימן הערכה שייך למספר רק באותו משפט-משנה: לא חוצים פסיק/נקודה ("כ-18,500, פנסיה 6" — רק השכר משוער)
+    clause = re.split(r"[,;\n]|\.(?!\d)", text[max(0, match.start() - 25):match.start(group)])[-1]
+    approximate = bool(_APPROX_MARKER_RE.search(clause) or _APPROX_MARKER_RE.search(match.group(0)))
+    return ReadNumber(value, (match.start(), end), approximate)
+
+
+def approx_spans(text: str) -> list[Span]:
+    return [m.span() for m in _APPROX_MARKER_RE.finditer(text)]
 
 
 def copay_span(text: str) -> Optional[tuple[int, int]]:
@@ -274,6 +306,7 @@ class ProfileReading:
     spans: list[Span]
     phrases: list[str]                        # צורת העיסוק שנמצאה בטקסט
     labelled: dict[str, object]               # רק ערכים מתויגים חד-משמעיים (לגיבוי)
+    approximate: list[str] = ()               # שדות שנאמרו כהערכה
 
 
 _SEP = r"\s*[:\-–]?\s*"
@@ -328,14 +361,16 @@ def read_profile(text: str, occupations: Iterable[str], cues: Iterable[str] = ()
     if hit:
         fields["occupation"], variant = hit
         phrases.append(variant)
+    approximate: list[str] = []
     for field, pattern in _PROFILE_PATTERNS:          # סכום מפורש קודם ל"אין"
         m = re.search(pattern, text)
-        if m and is_approximate(m.group(0), text[m.end(1):]):
-            continue                                   # "בערך 18 וחצי" — לא מנחשים; המודל יקרא
         if m and field not in fields:
-            value = m.group(1).replace(",", "")
-            fields[field] = int(value) if field == "children_under_23" else value
-            spans.append(m.span())
+            number = read_number(text, m, 1)
+            value = number.value
+            fields[field] = int(value) if field == "children_under_23" else plain_decimal(value)
+            spans += [m.span(), number.span]
+            if number.approximate:
+                approximate.append(field)
     for field, pattern in _ZERO_PATTERNS:
         m = re.search(pattern, text)
         if m and field not in fields:
@@ -343,7 +378,7 @@ def read_profile(text: str, occupations: Iterable[str], cues: Iterable[str] = ()
             spans.append(m.span())
         elif m and fields.get(field) == 0:
             spans.append(m.span())
-    return ProfileReading(fields, spans, phrases, _labelled_values(text, cues))
+    return ProfileReading(fields, spans, phrases, _labelled_values(text, cues), approximate)
 
 
 def parse_profile_fields(text: str, occupations: Iterable[str]) -> dict[str, object]:
@@ -364,3 +399,9 @@ def match_drive(text: str) -> Optional[Drive]:
         if any(re.search(rf"(?<![a-zא-ת]){re.escape(w)}", t) for w in words):
             return drive
     return None
+
+
+def plain_decimal(value: Decimal) -> str:
+    """"18500", "2.5" — בלי אפסים מיותרים ובלי כתיב מדעי."""
+    text = format(value, "f")
+    return text.rstrip("0").rstrip(".") if "." in text else text

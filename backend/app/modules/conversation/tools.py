@@ -38,6 +38,7 @@ from .stage import (
     CarChoice,
     ConversationState,
     CurrentCar,
+    PendingConfirmation,
     missing_current_car,
     missing_profile,
 )
@@ -58,6 +59,8 @@ class ToolContext:
     # מה התור מבקש מהנציג / מבטל — נפתח ונכתב בשלב הכתיבה של התור, באותה טרנזקציה
     question_requests: list[Any] = field(default_factory=list)
     cancel_question_ids: list[str] = field(default_factory=list)
+    # ערכים שנדחו בבדיקת הסבירות: (שדה, ערך, "low" / "high")
+    range_problems: list[tuple[str, Decimal, str]] = field(default_factory=list)
 
 
 class ToolError(Exception):
@@ -85,19 +88,21 @@ class _Args(BaseModel):
 class SaveProfileArgs(_Args):
     occupation: Optional[str] = None
     eligibility_group: Optional[str] = None
-    base_salary: Num = Field(None, gt=0, le=1_000_000)
-    commissions: Num = Field(None, ge=0, le=1_000_000)
-    bonus: Num = Field(None, ge=0, le=1_000_000)
-    pension_percent: Num = Field(None, ge=0, le=30)
-    study_fund_percent: Num = Field(None, ge=0, le=20)
-    credit_points: Num = Field(None, ge=0, le=30)
-    children_under_23: Optional[int] = Field(None, ge=0, le=20)
-    current_copay: Num = Field(None, ge=0, le=50_000)
+    # הטווחים הסבירים נבדקים ב-save_profile מול extensions.yaml (value_ranges) — לכל מקור
+    base_salary: Num = None
+    commissions: Num = None
+    bonus: Num = None
+    pension_percent: Num = None
+    study_fund_percent: Num = None
+    credit_points: Num = None
+    children_under_23: Optional[int] = None
+    current_copay: Num = None
     current_copay_unknown: bool = False
-    current_use_value: Num = Field(None, gt=0, le=50_000)
+    current_use_value: Num = None
     current_use_value_unknown: bool = False
     current_drive: Optional[str] = None
-    current_maintenance: Num = Field(None, ge=0, le=50_000)
+    current_maintenance: Num = None
+    approximate_fields: list[str] = Field(default_factory=list)    # שדות שהעובד אמר כהערכה
 
 
 class MatchCarArgs(_Args):
@@ -118,10 +123,42 @@ class NoArgs(_Args):
 
 # ---------- save_profile ----------
 
+RANGED_FIELDS = ("base_salary", "commissions", "bonus", "pension_percent", "study_fund_percent",
+                 "credit_points", "children_under_23", "current_use_value", "current_copay",
+                 "current_maintenance")
+SHORTENED_FIELDS = ("base_salary", "commissions", "bonus", "current_use_value", "current_copay",
+                    "current_maintenance")
+
+
+def _check_ranges(ctx: ToolContext, args: SaveProfileArgs) -> tuple[SaveProfileArgs, list[dict[str, str]]]:
+    """בדיקת סבירות לכל ערך, מכל מקור. מחוץ לטווח — לא נשמר. סכום מקוצר ("18" לשכר, כש-18,000 בטווח)
+    לא מורחב בשקט: נשמר כ"ממתין לאישור" והבוט שואל."""
+    ranges = ctx.snapshot.extensions.value_ranges
+    drop: dict[str, None] = {}
+    rejected: list[dict[str, str]] = []
+    for arg in RANGED_FIELDS:
+        value = getattr(args, arg)
+        if value is None or arg not in ranges:
+            continue
+        low, high = ranges[arg]
+        if low <= Decimal(value) <= high:
+            continue
+        drop[arg] = None
+        thousands = Decimal(value) * 1000
+        if arg in SHORTENED_FIELDS and Decimal(value) < low and low <= thousands <= high:
+            ctx.state.pending_confirmation = PendingConfirmation(
+                field=arg, value=thousands, approximate=arg in args.approximate_fields)
+            rejected.append({"field": arg, "reason": "shortened; the employee is asked to confirm"})
+        else:
+            ctx.range_problems.append((arg, Decimal(value), "low" if Decimal(value) < low else "high"))
+            rejected.append({"field": arg, "reason": f"outside the plausible range {low}–{high}"})
+    return (args.model_copy(update=drop) if drop else args), rejected
+
+
 def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
     p, c, snap = ctx.state.profile, ctx.state.current, ctx.snapshot
     saved: list[str] = []
-    ignored: list[dict[str, str]] = []
+    args, ignored = _check_ranges(ctx, args)
 
     if args.occupation:
         name = match_occupation(snap.occupations.keys(), args.occupation)
@@ -187,6 +224,13 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
         else:
             ignored.append({"field": "current_maintenance", "reason": "רלוונטי רק למי שאין לו רכב היום"})
 
+    # הערכה: השדות שנשמרו עכשיו מסומנים (או מנוקים, אם נאמרו עכשיו במדויק)
+    for arg in RANGED_FIELDS:
+        if arg in saved:
+            if arg in args.approximate_fields and arg not in p.approximate_fields:
+                p.approximate_fields.append(arg)
+            elif arg not in args.approximate_fields and arg in p.approximate_fields:
+                p.approximate_fields.remove(arg)
     _invalidate_results(ctx.state)
     return {"saved": saved, "ignored": ignored,
             "missing": missing_profile(p) + missing_current_car(c)}
@@ -425,6 +469,9 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             "current_drive": {"type": "string", "description": "PETROL, HYBRID, PLUG_IN or ELECTRIC"},
             "current_maintenance": {"type": "number", "description": "car maintenance on the payslip, "
                                     "only for employees without a car today"},
+            "approximate_fields": {"type": "array", "items": {"type": "string"},
+                                   "description": "names of the fields above that the employee stated as an "
+                                   "estimate (כ-, בערך, בסביבות, בממוצע, משתנות)"},
         })),
     "match_current_car": ToolSpec(
         "match_current_car",

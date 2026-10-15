@@ -54,6 +54,7 @@ class Profile(BaseModel):
     # תשובות הנציג לעיסוק שאינו בטבלה: מותר לוותר? ובאיזה סכום אחזקה
     rep_opt_out_allowed: Optional[bool] = None
     rep_opt_out_maintenance: Optional[Decimal] = None
+    approximate_fields: list[str] = Field(default_factory=list)   # שדות שנאמרו כהערכה ("כ-1,000")
 
 
 class CarChoice(BaseModel):
@@ -106,6 +107,14 @@ class ConfirmedCopay(BaseModel):
     effective_date: Optional[date] = None
 
 
+class PendingConfirmation(BaseModel):
+    """סכום מקוצר ("18" לשכר): לא מרחיבים בשקט — שואלים "התכוונת ל-18,000 ₪?" ושומרים רק אחרי "כן"."""
+
+    field: str              # שם הארגומנט ב-save_profile
+    value: Decimal
+    approximate: bool = False
+
+
 class CarClarification(BaseModel):
     """בזמן המתנה לנציג העובד הזכיר רכב — לא ברור אם זה הרכב שלו או חלופה. שאלנו; זו התשובה שמחכה."""
 
@@ -124,6 +133,7 @@ class ConversationState(BaseModel):
     confirmed_copays: dict[str, ConfirmedCopay] = Field(default_factory=dict)
     applied_answers: list[str] = Field(default_factory=list)    # תשובות נציג שכבר יושמו (פעם אחת בלבד)
     pending_clarification: Optional[CarClarification] = None
+    pending_confirmation: Optional[PendingConfirmation] = None
     queued_options: list[str] = Field(default_factory=list)     # חלופות לחישוב אחרי תשובת הנציג
 
 
