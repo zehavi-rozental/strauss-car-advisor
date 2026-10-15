@@ -28,7 +28,7 @@ from app.modules.rules.public import (
     find_catalog_car,
     occupation_rule,
 )
-from app.modules.vehicles.public import CurrentCarMatch
+from app.modules.vehicles.public import CurrentCarMatch, VehicleInfo, VehicleKey
 
 from .llm.port import ToolSpec
 from .parsing import match_drive, match_group, match_occupation, parse_decimal
@@ -49,6 +49,8 @@ OPT_OUT_WORDS = ("ויתור", "לוותר", "opt out", "opt_out", "בלי רכ�
 # חיפוש במאגר רשות המסים: (דגם, שנת רישום) → התאמה. כל קריאה פותחת סשן קריאה קצר משלה,
 # כך שאין טרנזקציה פתוחה בזמן שהסוכן מחכה למודל השפה.
 VehicleLookup = Callable[[str, Optional[int]], CurrentCarMatch]
+# רכב מסוים לפי המפתח שלו (בחירה מובנית "tax:..." מתוצאות החיפוש)
+VehicleGetter = Callable[[VehicleKey], Optional[VehicleInfo]]
 
 
 @dataclass
@@ -61,6 +63,7 @@ class ToolContext:
     cancel_question_ids: list[str] = field(default_factory=list)
     # ערכים שנדחו בבדיקת הסבירות: (שדה, ערך, "low" / "high")
     range_problems: list[tuple[str, Decimal, str]] = field(default_factory=list)
+    get_vehicle: Optional[VehicleGetter] = None
 
 
 class ToolError(Exception):
@@ -111,6 +114,7 @@ class MatchCarArgs(_Args):
     choice_number: Optional[int] = Field(None, ge=1, le=5)
     no_car: bool = False
     reset: bool = False          # "זה לא הרכב שלי" בלי דגם: מוחקים את ההתאמה ושואלים שוב
+    vehicle_key: Optional[str] = None   # "tax:<שנת מס>:<שנת רישום>:<סוג>:<יצרן>:<דגם>" — רק מבחירה מובנית
 
 
 class CalculateArgs(_Args):
@@ -263,6 +267,18 @@ def match_current_car(ctx: ToolContext, args: MatchCarArgs) -> dict[str, Any]:
         ctx.state.current = CurrentCar(source="none", label="ללא רכב")
         _invalidate_results(ctx.state)
         return {"status": "NO_CAR"}
+
+    if args.vehicle_key:
+        parts = args.vehicle_key.strip().split(":")
+        info = None
+        if len(parts) == 6 and parts[0] == "tax" and parts[1].isdigit() and parts[2].isdigit() and ctx.get_vehicle:
+            info = ctx.get_vehicle(VehicleKey(int(parts[1]), int(parts[2]), parts[3], parts[4], parts[5]))
+        if info is None:
+            raise ToolError("הרכב לא נמצא במאגר")
+        ctx.state.current = CurrentCar(query=info.commercial_name, reg_year=info.key.reg_year, source="tax",
+                                       label=info.label, drive=Drive(info.drive), use_value=info.use_value, **keep)
+        _invalidate_results(ctx.state)
+        return {"status": "FOUND", "source": "tax", "label": info.label, "use_value": str(info.use_value)}
 
     if args.choice_number is not None and old.choices and not args.model:
         if args.choice_number > len(old.choices):

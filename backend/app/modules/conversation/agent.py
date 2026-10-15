@@ -17,6 +17,7 @@ from app.modules.cases.public import AnswerType, MissingField, Mode, QuestionAns
 from app.modules.rules.public import RulesSnapshot, find_catalog_car, words
 
 
+from .expects import build_expects, choice_calls
 from .fallback import ParserPlan, correction_plan, fallback_plan, named_cars
 from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
@@ -58,6 +59,7 @@ from .templates import (
 from .tools import (
     TOOL_SPECS,
     ToolContext,
+    VehicleGetter,
     VehicleLookup,
     available_options,
     engine_inputs,
@@ -270,6 +272,25 @@ class Agent:
     def greeting(self, state: ConversationState, snapshot: RulesSnapshot) -> str:
         return GREETING + question("occupation", state, snapshot)
 
+    def run_choice(self, snapshot: RulesSnapshot, find_vehicle: VehicleLookup, get_vehicle: VehicleGetter,
+                   state: ConversationState, ids: list[str], label: str, record_run: RecordRun) -> TurnOutcome:
+        """בחירה מובנית (כפתור) שכבר נבדקה מול expects: הקוד מיישם אותה ישירות — בלי הקורא ובלי מודל
+        השפה. הערכים עוברים את אותם כלים ואותן בדיקות (טווחים, זכאות) כמו כל מקור אחר."""
+        ctx = ToolContext(snapshot=snapshot, find_vehicle=find_vehicle, state=state, get_vehicle=get_vehicle)
+        before = next_stage(state)
+        field_ = build_expects(state, snapshot)["field"]
+        if field_ == "clarification":
+            plan, reply = self._clarified(state, snapshot, ids[0])
+            if plan is None:
+                return TurnOutcome(reply=reply, source="template", path="choice")
+            before = self._start_correction(ctx)
+        elif field_ == "confirmation":
+            plan = _confirmation_plan(state, "כן" if ids[0] == "yes" else "לא") or ParserPlan(complete=True)
+        else:
+            state.pending_confirmation = None
+            plan = ParserPlan(choice_calls(field_, ids, snapshot), True, direct=True)
+        return self._finish(ctx, (), label, plan, before, record_run, choice=True)
+
     def run_turn(self, snapshot: RulesSnapshot, find_vehicle: VehicleLookup, state: ConversationState,
                  history: Sequence[ChatMessage], text: str, record_run: RecordRun) -> TurnOutcome:
         text = redact_id_numbers(text)
@@ -281,11 +302,7 @@ class Agent:
             if correction is None:
                 # ממתינים לנציג: תשובה קצרה (או שאלת הבהרה), בלי שינוי בשלב, ברכב או בשאלות
                 return TurnOutcome(reply=reply, source="template", path="waiting")
-            # העובד מתקן את הרכב: השאלות על הרכב הקודם מתבטלות, ונשאל שוב על הרכב החדש
-            ctx.cancel_question_ids.extend(state.pending_rep.question_ids)
-            state.pending_rep = None
-            state.current.copay_unknown = state.current.use_value_unknown = False
-            before = next_stage(state)
+            before = self._start_correction(ctx)
             plan = correction
         elif state.pending_confirmation is not None and (confirmed := _confirmation_plan(state, text)) is not None:
             plan = confirmed                     # "כן" / "לא" על "התכוונת ל-18,000 ₪?"
@@ -293,13 +310,27 @@ class Agent:
             state.pending_confirmation = None    # תשובה אחרת: השאלה הקודמת כבר לא רלוונטית
             # הקורא הדטרמיניסטי קודם. מה שהוא קורא במלואו לא מגיע למודל בכלל — מהיר ובלי תלות בספק.
             plan = fallback_plan(state, snapshot, text)
+        return self._finish(ctx, history, text, plan, before, record_run)
+
+    @staticmethod
+    def _start_correction(ctx: ToolContext) -> Stage:
+        """העובד מתקן את הרכב בזמן המתנה: השאלות על הרכב הקודם מתבטלות, ונשאל שוב על הרכב החדש."""
+        state = ctx.state
+        ctx.cancel_question_ids.extend(state.pending_rep.question_ids)
+        state.pending_rep = None
+        state.current.copay_unknown = state.current.use_value_unknown = False
+        return next_stage(state)
+
+    def _finish(self, ctx: ToolContext, history: Sequence[ChatMessage], text: str, plan: ParserPlan,
+                before: Stage, record_run: RecordRun, choice: bool = False) -> TurnOutcome:
+        state, snapshot = ctx.state, ctx.snapshot
         car_before = _car_key(state)
         used_llm = False
         deadline = self.llm.turn_deadline()   # אחרי LLM_TURN_DEADLINE_S — תבניות, בלי ספקים נוספים
         conflicts: list[str] = []
         parser_decides = plan.complete and (self.mode == "parser_first" or plan.calls == [] or plan.direct)
         if parser_decides or not self.llm.available:
-            path = "parser" if plan.complete else "templates"
+            path = "choice" if choice else "parser" if plan.complete else "templates"
             understood = self._execute(ctx, plan.calls) or plan.notice is not None
         else:
             # המודל קורא קודם. תוכנית הקורא חושבה לפני כל שינוי במצב: גיבוי, ובדיקה צולבת כשנקרא במלואו.
@@ -423,19 +454,10 @@ class Agent:
         if pending is None or pending.reason not in (RepReason.CURRENT_COPAY, RepReason.CURRENT_USE_VALUE):
             return None, waiting_reply
 
-        clarification = state.pending_clarification
-        if clarification is not None:
+        if state.pending_clarification is not None:
             answer = _clarification_answer(text)
-            if answer == "mine":
-                state.pending_clarification = None
-                car = next(c for c in snapshot.catalog if c.catalog_code == clarification.catalog_code)
-                call = ToolCall("match_current_car", {"model": car.model_name}, "clarified")
-                return ParserPlan([call], True, direct=True), ""
-            if answer == "alternative":
-                state.pending_clarification = None
-                if clarification.catalog_code not in state.queued_options:
-                    state.queued_options.append(clarification.catalog_code)
-                return None, queued_option_text(clarification.label)
+            if answer is not None:
+                return self._clarified(state, snapshot, answer)
 
         if _has_cue(text, snapshot.extensions.correction_cues):
             plan = correction_plan(state, snapshot, text)
@@ -452,6 +474,20 @@ class Agent:
         # בלי מודל, או שהמודל לא בטוח: לא מנחשים — שואלים, וזוכרים על איזה רכב
         state.pending_clarification = CarClarification(catalog_code=others[0].catalog_code, label=others[0].label)
         return None, clarify_car_text(others[0].label)
+
+    @staticmethod
+    def _clarified(state: ConversationState, snapshot: RulesSnapshot,
+                   answer: str) -> tuple[Optional[ParserPlan], str]:
+        """תשובה ל"הוא הרכב שלך היום, או חלופה?": mine → התאמה מחדש; alternative → בתור לחישוב."""
+        clarification = state.pending_clarification
+        state.pending_clarification = None
+        if answer == "mine":
+            car = next(c for c in snapshot.catalog if c.catalog_code == clarification.catalog_code)
+            call = ToolCall("match_current_car", {"model": car.model_name}, "clarified")
+            return ParserPlan([call], True, direct=True), ""
+        if clarification.catalog_code not in state.queued_options:
+            state.queued_options.append(clarification.catalog_code)
+        return None, queued_option_text(clarification.label)
 
     def _llm_waiting_correction(self, state: ConversationState, text: str) -> Optional[tuple[ToolCall, ...]]:
         """המודל מקבל רק את match_current_car: יקרא לו רק אם ההודעה מתקנת את הרכב של היום."""

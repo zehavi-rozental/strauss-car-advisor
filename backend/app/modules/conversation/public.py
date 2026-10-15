@@ -23,12 +23,19 @@ from app.modules.calculation.public import (
     State,
     evaluate,
 )
-from app.modules.rules.public import RulesSnapshot, RulesStore, load_snapshot
-from app.modules.vehicles.public import CurrentCarMatch, VehicleRepository, match_current_car
+from app.modules.rules.public import RulesSnapshot, RulesStore, catalog_names, find_catalog_car, load_snapshot
+from app.modules.vehicles.public import (
+    CurrentCarMatch,
+    VehicleInfo,
+    VehicleKey,
+    VehicleRepository,
+    match_current_car,
+)
 from app.shared.db import new_id
 
 from app.modules.cases.public import CasesService, Mode, QuestionAnswered, Status as QuestionStatus
 
+from .expects import ChoiceInvalid, build_expects, tax_label, validate_choice, vehicle_id
 from .agent import Agent
 from .llm.factory import build_llm_chain
 from .llm.port import ChatMessage, LLMChain, LLMError, LLMPort
@@ -67,7 +74,8 @@ class TurnResult:
     source: str
     results: list[OptionResult] = field(default_factory=list)
     pending_rep: Optional[RepReason] = None
-    path: str = ""            # parser / llm / fallback / templates / waiting (ללוג; לא נשלח ב-API)
+    path: str = ""            # parser / llm / fallback / templates / waiting / choice (ללוג; לא נשלח ב-API)
+    expects: dict[str, Any] = field(default_factory=dict)   # מה השאלה הבאה מצפה לקבל (כפתורים, סוג)
 
 
 @dataclass
@@ -76,6 +84,7 @@ class ConversationView:
     stage: Stage
     state: ConversationState
     messages: list[dict[str, Any]]
+    expects: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -162,6 +171,31 @@ class ConversationService:
         with self.sessions() as session:
             return match_current_car(VehicleRepository(session), model, reg_year)
 
+    def _get_vehicle(self, key: VehicleKey) -> Optional[VehicleInfo]:
+        with self.sessions() as session:
+            return VehicleRepository(session).get(key)
+
+    SEARCH_LIMIT = 10
+
+    def search_cars(self, query: str) -> list[dict[str, Any]]:
+        """חיפוש רכב לבחירה מובנית: הקטלוג קודם, אחר כך מאגר רשות המסים. עד 10 תוצאות."""
+        query = query.strip()
+        if len(query) < 2:
+            return []
+        snapshot = self.rules.current
+        key = query.lower()
+        cars = find_catalog_car(snapshot, query)               # התאמה מדויקת קודם, אחר כך כל שם שמכיל את החיפוש
+        cars += [c for c in snapshot.catalog if c not in cars
+                 and any(key in n.lower() for n in (c.catalog_code, c.label, *catalog_names(c)))]
+        out = [{"id": c.catalog_code, "label": c.label, "source": "catalog", "group": c.group,
+                "drive": c.drive.value} for c in cars]
+        if len(out) < self.SEARCH_LIMIT:
+            with self.sessions() as session:
+                found = VehicleRepository(session).search(query, limit=self.SEARCH_LIMIT)
+            out += [{"id": vehicle_id(v.key), "label": tax_label(v), "source": "tax", "group": None,
+                     "drive": v.drive} for v in found]
+        return out[:self.SEARCH_LIMIT]
+
     # ---------- שיחה חדשה ----------
 
     def start(self) -> tuple[TurnResult, str]:
@@ -175,22 +209,29 @@ class ConversationService:
             repo.add_message(row.id, "assistant", greeting, "template")
             conversation_id = str(row.id)
         return TurnResult(conversation_id=conversation_id, stage=state.stage, reply=greeting,
-                          source="template"), token
+                          source="template", expects=build_expects(state, self.rules.current)), token
 
     # ---------- תור ----------
 
     def send(self, conversation_id: str, token: str, text: str) -> TurnResult:
+        return self._timed(conversation_id, token, text, None)
+
+    def send_choice(self, conversation_id: str, token: str, ids: list[str]) -> TurnResult:
+        """בחירה מובנית (כפתור): נבדקת מול expects (ChoiceInvalid) ומיושמת בקוד, בלי מודל השפה."""
+        return self._timed(conversation_id, token, "", list(ids))
+
+    def _timed(self, conversation_id: str, token: str, text: str, choice: Optional[list[str]]) -> TurnResult:
         started = time.monotonic()
         path = "error"
         try:
             self._apply_pending(self._authorized(conversation_id, token))
-            result = self._send(conversation_id, token, text)
+            result = self._send(conversation_id, token, text, choice)
             path = result.path
             return result
         finally:
             log.info("turn path=%s total=%.0fms", path, (time.monotonic() - started) * 1000)
 
-    def _send(self, conversation_id: str, token: str, text: str) -> TurnResult:
+    def _send(self, conversation_id: str, token: str, text: str, choice: Optional[list[str]] = None) -> TurnResult:
         """שלושה שלבים, כדי שאף טרנזקציה לא תהיה פתוחה בזמן קריאות למודל השפה:
         (א) קריאה קצרה, (ב) הסוכן בלי סשן פתוח, (ג) כתיבה קצרה של כל התור."""
         snapshot = self.rules.current
@@ -207,10 +248,17 @@ class ConversationService:
             state = ConversationState.model_validate(row.state)
             history = [ChatMessage("user" if m.role == "user" else "assistant", m.content)
                        for m in repo.messages(row.id)]
+        if choice is not None:
+            # הבחירה נבדקת מול מה שהוצע במצב שנקרא; ההודעה שנשמרת — התווית בעברית
+            text = validate_choice(build_expects(state, snapshot), choice, snapshot, self._get_vehicle)
 
         # (ב) הסוכן — הרצות החישוב נאספות בזיכרון
         pending: list[_PendingRun] = []
-        outcome = self.agent.run_turn(snapshot, self._find_vehicle, state, history, text, _collector(pending))
+        if choice is not None:
+            outcome = self.agent.run_choice(snapshot, self._find_vehicle, self._get_vehicle, state, choice, text,
+                                            _collector(pending))
+        else:
+            outcome = self.agent.run_turn(snapshot, self._find_vehicle, state, history, text, _collector(pending))
 
         # (ג) כתיבה — רק אם הגרסה לא השתנתה מאז (א); אחרת התור כולו מבוטל
         with self.sessions() as session, session.begin():
@@ -230,7 +278,7 @@ class ConversationService:
                           source=outcome.source,
                           results=state.results if outcome.just_calculated else [],
                           pending_rep=state.pending_rep.reason if state.pending_rep else None,
-                          path=outcome.path)
+                          path=outcome.path, expects=build_expects(state, snapshot))
 
     def _store_questions(self, session, repo: ConversationRepository, conv_id: uuid.UUID,
                          state: ConversationState, outcome) -> None:
@@ -306,7 +354,7 @@ class ConversationService:
                     "option_id": q.option_id or None}
                    for q in self.cases.list_for_conversation(str(conv_id), QuestionStatus.OPEN)]
         return {"conversation_id": str(conv_id), "stage": state.stage.value, "messages": messages,
-                "pending_questions": pending,
+                "pending_questions": pending, "expects": build_expects(state, self.rules.current),
                 "results": [r.model_dump(mode="json") for r in state.results]}
 
     def view(self, conversation_id: str, token: str) -> ConversationView:
@@ -317,7 +365,7 @@ class ConversationService:
             state = ConversationState.model_validate(row.state)
             messages = [_message_json(m) for m in repo.messages(row.id)]
             return ConversationView(conversation_id=str(row.id), stage=state.stage, state=state,
-                                    messages=messages)
+                                    messages=messages, expects=build_expects(state, self.rules.current))
 
     def _load(self, repo: ConversationRepository, conversation_id: str, token: str):
         row = repo.get(_uuid(conversation_id))
@@ -358,5 +406,5 @@ __all__ = [
     "ConversationConflict", "ConversationLimitReached", "ConversationNotFound", "ConversationService",
     "ConversationState",
     "ConversationView", "LLMChain", "LLMPort", "OptionResult", "RepReason", "Stage",
-    "TurnResult", "build_llm_chain", "reproduce_run",
+    "TurnResult", "build_llm_chain", "reproduce_run", "ChoiceInvalid",
 ]

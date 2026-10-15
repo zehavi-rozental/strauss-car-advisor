@@ -1,7 +1,7 @@
 """נקודות הקצה. כאן רק HTTP: עוגייה, הגבלת קצב, סריאליזציה. ההיגיון במודולים."""
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
@@ -9,6 +9,7 @@ from sqlalchemy import text as sql
 
 from app.modules.calculation.public import ENGINE_VERSION
 from app.modules.conversation.public import (
+    ChoiceInvalid,
     ConversationConflict,
     ConversationLimitReached,
     ConversationNotFound,
@@ -25,7 +26,10 @@ NOT_FOUND = "השיחה לא נמצאה"
 
 
 class MessageIn(BaseModel):
-    text: str
+    """בדיוק אחד מהשלושה: טקסט חופשי, בחירה אחת, או כמה בחירות (חלופות)."""
+    text: Optional[str] = None
+    choice: Optional[str] = None
+    choices: Optional[list[str]] = None
 
 
 def _turn(t: TurnResult) -> dict[str, Any]:
@@ -37,6 +41,7 @@ def _turn(t: TurnResult) -> dict[str, Any]:
         "results": [{"option_id": r.option_id, "label": r.label, "run_id": r.run_id, **r.result}
                     for r in t.results],
         "pending_rep": t.pending_rep.value if t.pending_rep else None,
+        "expects": t.expects,
     }
 
 
@@ -67,6 +72,12 @@ def catalog(request: Request) -> list[dict[str, Any]]:
             for c in context(request).rules.current.catalog]
 
 
+@router.get("/catalog/search")
+def catalog_search(request: Request, q: str = "") -> list[dict[str, Any]]:
+    """לבחירת הרכב הנוכחי: הקטלוג קודם, אחר כך מאגר רשות המסים. עד 10; פחות מ-2 תווים → []."""
+    return context(request).service.search_cars(q[:80])
+
+
 @router.get("/occupations")
 def occupations(request: Request) -> list[dict[str, Any]]:
     return [{"name": o.name, "group": o.group, "car_mandatory": o.car_mandatory,
@@ -90,16 +101,26 @@ def create_conversation(request: Request, response: Response) -> dict[str, Any]:
 def send_message(conversation_id: str, body: MessageIn, request: Request) -> dict[str, Any]:
     conversation_id = conversation_id.strip()
     ctx = context(request)
-    text = body.text.strip()
-    if not text:
+    given = [x for x in (body.text, body.choice, body.choices) if x is not None]
+    if len(given) != 1:
+        raise HTTPException(422, "יש לשלוח אחד מהשדות: text, choice או choices")
+    choice = [body.choice] if body.choice is not None else body.choices
+    text = (body.text or "").strip()
+    if choice is None and not text:
         raise HTTPException(422, "ההודעה ריקה")
     if len(text) > ctx.settings.max_message_chars:
         raise HTTPException(422, f"ההודעה ארוכה מדי (עד {ctx.settings.max_message_chars} תווים)")
+    if choice is not None and (not choice or len(choice) > 20 or any(len(c) > 80 for c in choice)):
+        raise HTTPException(422, "הבחירה אינה מהאפשרויות שהוצעו")
     token = request.cookies.get(COOKIE, "")
     if not ctx.message_limiter.allow(conversation_id):
         raise HTTPException(429, "יותר מדי הודעות בדקה. נסו שוב עוד מעט.")
     try:
+        if choice is not None:
+            return _turn(ctx.service.send_choice(conversation_id, token, choice))
         return _turn(ctx.service.send(conversation_id, token, text))
+    except ChoiceInvalid as exc:
+        raise HTTPException(422, str(exc)) from None
     except ConversationNotFound:
         raise HTTPException(404, NOT_FOUND) from None
     except ConversationLimitReached:
@@ -130,5 +151,5 @@ def get_conversation(conversation_id: str, request: Request) -> dict[str, Any]:
             "current_car": {k: v for k, v in state["current"].items() if k != "choices"},
             "selected": state["selected"], "results": state["results"],
             "pending_rep": state["pending_rep"]["reason"] if state["pending_rep"] else None,
-            "messages": view.messages}
+            "expects": view.expects, "messages": view.messages}
 
