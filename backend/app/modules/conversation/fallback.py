@@ -206,6 +206,11 @@ def none_plan(fields: Iterable[str]) -> ParserPlan:
     return ParserPlan(_call("save_profile", **zero), True, notice=f"רשמתי: {recorded_text(zero)}.", direct=True)
 
 
+def fields_plan(values: dict[str, object]) -> ParserPlan:
+    """הטופס המובנה: שורת "רשמתי" לערכים (שכבר נבדקו ונשמרו). הכלי רץ ב-Agent.run_fields, לא כאן."""
+    return ParserPlan([], True, notice=f"רשמתי: {recorded_text(values)}.", direct=True)
+
+
 _NUMERIC_ARGS = {"base_salary", "commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points"}
 
 

@@ -18,7 +18,7 @@ from app.modules.rules.public import CatalogCar, RulesSnapshot, find_catalog_car
 
 
 from .expects import build_expects, choice_calls
-from .fallback import (ZERO_ALLOWED, ParserPlan, car_roles, correction_plan, fallback_plan, named_cars, none_plan,
+from .fallback import (ZERO_ALLOWED, fields_plan, ParserPlan, car_roles, correction_plan, fallback_plan, named_cars, none_plan,
                        recorded_text)
 from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
@@ -414,6 +414,18 @@ class Agent:
             state.pending_confirmation = None
             plan = ParserPlan(choice_calls(field_, ids, snapshot), True, direct=True)
         return self._finish(ctx, (), label, plan, before, record_run, choice=True)
+
+    def run_fields(self, snapshot: RulesSnapshot, find_vehicle: VehicleLookup, get_vehicle: VehicleGetter,
+                   state: ConversationState, values: dict[str, Any], label: str, record_run: RecordRun) -> TurnOutcome:
+        """הטופס המובנה (שדות הפרופיל, כבר נבדקו): נשמרים ישירות בכלי save_profile — בלי הקורא ובלי מודל
+        השפה. אחרי תיקון, השלב נגזר מהנתונים: תוצאה קיימת מחושבת מחדש."""
+        ctx = ToolContext(snapshot=snapshot, find_vehicle=find_vehicle, state=state, get_vehicle=get_vehicle)
+        before = next_stage(state)
+        state.pending_confirmation = None
+        # הטופס הוא פעולה מפורשת של העובד (גם תיקון אחרי תוצאה), לכן לא עובר דרך _run ומגבלת הכלים של
+        # השלב; run_tool נשאר השער היחיד לשמירה. השלב נגזר מהנתונים: calculated_for מתאפס ← חישוב מחדש.
+        run_tool(ctx, "save_profile", values)
+        return self._finish(ctx, (), label, fields_plan(values), before, record_run, choice=True)
 
     def run_turn(self, snapshot: RulesSnapshot, find_vehicle: VehicleLookup, state: ConversationState,
                  history: Sequence[ChatMessage], text: str, record_run: RecordRun) -> TurnOutcome:

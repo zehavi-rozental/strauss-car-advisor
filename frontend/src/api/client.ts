@@ -4,6 +4,9 @@ import type {
   CarSearchItem,
   ConversationView,
   MessageIn,
+  QuestionStatus,
+  RepAnswerIn,
+  RepQuestion,
   TurnResponse,
   UpdatesResponse,
 } from './types'
@@ -54,4 +57,14 @@ export const api = {
     request<TurnResponse>(`${conv(id)}/messages`, { method: 'POST', body: JSON.stringify(body) }),
   getUpdates: (id: string, after: number) => request<UpdatesResponse>(`${conv(id)}/updates?after=${after}`),
   searchCars: (q: string) => request<CarSearchItem[]>(`/api/catalog/search?q=${encodeURIComponent(q)}`),
+}
+
+/** Representative API: the token goes in X-Rep-Token on every call. A 401 means the token is wrong. */
+export const repApi = {
+  listQuestions: (token: string, status: QuestionStatus) =>
+    request<RepQuestion[]>(`/api/rep/questions?status=${status}`, { headers: { 'X-Rep-Token': token } }),
+  answer: (token: string, id: string, body: RepAnswerIn) =>
+    request<RepQuestion>(`/api/rep/questions/${encodeURIComponent(id)}/answer`, {
+      method: 'POST', headers: { 'X-Rep-Token': token }, body: JSON.stringify(body),
+    }),
 }

@@ -10,7 +10,7 @@ function headline(label: string, delta: number): string {
   return `עם ${label}, הנטו שלך לא ישתנה`
 }
 
-export function ResultCard({ item }: { item: OptionResult }) {
+export function ResultCard({ item, onOpenTable }: { item: OptionResult; onOpenTable?: () => void }) {
   const r = item.result
   return (
     <article className="result-card" aria-label={`תוצאה: ${item.label}`}>
@@ -32,7 +32,7 @@ export function ResultCard({ item }: { item: OptionResult }) {
           <p className="result-reason">{r.reason}</p>
         </>
       )}
-      <button type="button" className="table-button" disabled title="בקרוב">טבלת ההשוואה המלאה</button>
+      <button type="button" className="table-button" disabled={!onOpenTable} onClick={onOpenTable}>טבלת ההשוואה המלאה</button>
     </article>
   )
 }

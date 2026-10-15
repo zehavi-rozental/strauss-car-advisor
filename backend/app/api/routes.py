@@ -1,10 +1,11 @@
 """נקודות הקצה. כאן רק HTTP: עוגייה, הגבלת קצב, סריאליזציה. ההיגיון במודולים."""
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text as sql
 
 from app.modules.calculation.public import ENGINE_VERSION
@@ -25,11 +26,23 @@ COOKIE = "sca_session"
 NOT_FOUND = "השיחה לא נמצאה"
 
 
+class ProfileFieldsIn(BaseModel):
+    """טופס Q2 / תיקון נתונים: רק מה שנשלח נשמר. הטווחים נבדקים בשירות מול extensions.yaml."""
+    model_config = ConfigDict(extra="forbid")
+    commissions: Optional[Decimal] = None
+    bonus: Optional[Decimal] = None
+    pension_percent: Optional[Decimal] = None
+    study_fund_percent: Optional[Decimal] = None
+    credit_points: Optional[Decimal] = None
+    children_under_23: Optional[int] = None
+
+
 class MessageIn(BaseModel):
-    """בדיוק אחד מהשלושה: טקסט חופשי, בחירה אחת, או כמה בחירות (חלופות)."""
+    """בדיוק אחד מהארבעה: טקסט חופשי, בחירה אחת, כמה בחירות (חלופות), או טופס שדות פרופיל."""
     text: Optional[str] = None
     choice: Optional[str] = None
     choices: Optional[list[str]] = None
+    fields: Optional[ProfileFieldsIn] = None
     field: Optional[str] = None      # בשאלה מקובצת: לאיזה שדה הבחירה (כשכמה שדות מציעים אותו מזהה)
 
 
@@ -102,12 +115,13 @@ def create_conversation(request: Request, response: Response) -> dict[str, Any]:
 def send_message(conversation_id: str, body: MessageIn, request: Request) -> dict[str, Any]:
     conversation_id = conversation_id.strip()
     ctx = context(request)
-    given = [x for x in (body.text, body.choice, body.choices) if x is not None]
+    given = [x for x in (body.text, body.choice, body.choices, body.fields) if x is not None]
     if len(given) != 1:
-        raise HTTPException(422, "יש לשלוח אחד מהשדות: text, choice או choices")
+        raise HTTPException(422, "יש לשלוח אחד מהשדות: text, choice, choices או fields")
+    form = body.fields.model_dump(exclude_none=True) if body.fields is not None else None
     choice = [body.choice] if body.choice is not None else body.choices
     text = (body.text or "").strip()
-    if choice is None and not text:
+    if choice is None and form is None and not text:
         raise HTTPException(422, "ההודעה ריקה")
     if len(text) > ctx.settings.max_message_chars:
         raise HTTPException(422, f"ההודעה ארוכה מדי (עד {ctx.settings.max_message_chars} תווים)")
@@ -117,6 +131,8 @@ def send_message(conversation_id: str, body: MessageIn, request: Request) -> dic
     if not ctx.message_limiter.allow(conversation_id):
         raise HTTPException(429, "יותר מדי הודעות בדקה. נסו שוב עוד מעט.")
     try:
+        if form is not None:
+            return _turn(ctx.service.send_fields(conversation_id, token, form))
         if choice is not None:
             return _turn(ctx.service.send_choice(conversation_id, token, choice, body.field))
         return _turn(ctx.service.send(conversation_id, token, text))

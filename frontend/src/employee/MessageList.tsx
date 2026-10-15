@@ -9,9 +9,10 @@ interface Props {
   results: OptionResult[]
   resultsAnchor: number | null
   typing: boolean
+  onOpenTable?: () => void
 }
 
-export function MessageList({ messages, results, resultsAnchor, typing }: Props) {
+export function MessageList({ messages, results, resultsAnchor, typing, onOpenTable }: Props) {
   const end = useRef<HTMLDivElement>(null)
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
@@ -20,7 +21,7 @@ export function MessageList({ messages, results, resultsAnchor, typing }: Props)
   const anchored = resultsAnchor != null && messages.some((m) => m.seq === resultsAnchor)
   const cards = results.length > 0 && (
     <div className="result-cards">
-      {results.map((r) => <ResultCard key={`${r.option_id}:${r.run_id}`} item={r} />)}
+      {results.map((r) => <ResultCard key={`${r.option_id}:${r.run_id}`} item={r} onOpenTable={onOpenTable} />)}
     </div>
   )
 

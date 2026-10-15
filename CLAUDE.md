@@ -38,6 +38,7 @@ Modular monolith (ports & adapters). Every module can later be extracted into a 
 
 Endpoints:
 - Employee (session cookie): `POST /api/conversations`, `POST /api/conversations/{id}/messages`, `GET /api/conversations/{id}`, `GET /api/conversations/{id}/updates?after=<seq>` (polling), plus `GET /api/catalog`, `/api/occupations`, `/api/health`.
+- `POST .../messages` body is exactly one of `{text}` | `{choice, field?}` | `{choices, field?}` | `{fields: {commissions?, bonus?, pension_percent?, study_fund_percent?, credit_points?, children_under_23?}}`. `fields` is the Q2 form / "תיקון נתונים": validated against `value_ranges` (422, nothing saved), saved by `save_profile` directly (no reader, no LLM, at any stage, a result is recalculated), reply = "רשמתי: …" + the next question.
 - Transport representative (header `X-Rep-Token` = `REP_ACCESS_TOKEN`, optional `X-Rep-Name`): `GET /api/rep/questions?status=OPEN`, `GET /api/rep/questions/{id}`, `POST /api/rep/questions/{id}/answer` (200 / 401 / 404 / 409 / 422). The rep sees only the question context, never salary or profile data; answer values and notes are never logged.
 
 A module, and `app/api`, imports another module **only** through that module's `public.py`.

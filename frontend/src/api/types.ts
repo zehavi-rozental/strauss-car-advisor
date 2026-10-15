@@ -199,10 +199,52 @@ export interface CarSearchItem {
   drive: Drive | string | null
 }
 
+/** The structured profile form (Q2 / "תיקון נתונים"). Only the fields that are sent are saved;
+ *  the server checks the ranges (422) and saves without the LLM. Keys are the server's names. */
+export interface ProfileFields {
+  commissions?: number
+  bonus?: number
+  pension_percent?: number
+  study_fund_percent?: number
+  credit_points?: number
+  children_under_23?: number
+}
+
 export type MessageIn =
   | { text: string }
   | { choice: string; field?: string }
   | { choices: string[]; field?: string }
+  | { fields: ProfileFields }
+
+// ---------- representative (backend/app/api/rep_routes.py: question_json) ----------
+
+export type AnswerType = 'MONEY' | 'BOOLEAN' | 'DATE' | 'TEXT'
+export type QuestionStatus = 'OPEN' | 'ANSWERED' | 'CANCELLED'
+
+export interface RepQuestion {
+  id: string
+  missing_field: RepReason
+  mode: 'CONFIRM' | 'REQUIRED'
+  option_id: string | null
+  question_text: string
+  answer_type: AnswerType
+  suggested_value: string | null
+  /** group, car_label, catalog_code, suggested_amount, occupation_text; never salary or profile data */
+  context: Record<string, string | null>
+  status: QuestionStatus
+  created_at: string
+  answered_at: string | null
+  answer_value: string | null
+  effective_date: string | null
+  answer_note: string | null
+  answered_by: string | null
+}
+
+export interface RepAnswerIn {
+  value: string
+  effective_date?: string
+  note?: string
+}
 
 // ---------- errors ----------
 

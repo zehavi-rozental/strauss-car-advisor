@@ -166,6 +166,43 @@ export function useConversation() {
     }
   }, [sending, sync, reload])
 
+  /** The profile as the server holds it, for prefilling the form (the updates feed does not carry it). */
+  const loadProfile = useCallback(async (): Promise<Record<string, unknown>> => {
+    const id = idRef.current
+    return id ? (await api.getConversation(id)).profile : {}
+  }, [])
+
+  /** "שיחה חדשה": forget the stored id and open a new conversation (the server replaces the cookie). */
+  const newConversation = useCallback(async () => {
+    try {
+      localStorage.removeItem(STORAGE_KEY)
+    } catch {
+      // private mode: nothing stored
+    }
+    setError(null)
+    setLoading(true)
+    try {
+      const turn = await api.createConversation()
+      storeId(turn.conversation_id)
+      idRef.current = turn.conversation_id
+      lastSeqRef.current = 0
+      lastAssistantRef.current = null
+      runKeyRef.current = ''
+      setConversationId(turn.conversation_id)
+      setMessages([])
+      setResults([])
+      setResultsAnchor(null)
+      setPendingQuestions([])
+      setStage(turn.stage)
+      setExpects(turn.expects)
+      await sync()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message_he : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [sync])
+
   // polling: only while a rep question is open and the tab is visible
   const waitingForRep = pendingQuestions.length > 0 || stage === 'WAITING_FOR_REP'
   useEffect(() => {
@@ -197,6 +234,6 @@ export function useConversation() {
 
   return {
     messages, stage, expects, results, resultsAnchor, pendingQuestions, waitingForRep,
-    sending, loading, error, send, dismissError: () => setError(null),
+    sending, loading, error, send, loadProfile, newConversation, dismissError: () => setError(null),
   }
 }

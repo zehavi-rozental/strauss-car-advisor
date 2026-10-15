@@ -4,12 +4,14 @@ import type { ReactNode } from 'react'
 import { api } from '../api/client'
 import type { CarSearchItem, Expects, ExpectsField, MessageIn } from '../api/types'
 import { fieldLabel } from './labels'
+import { Q2_FIELD_NAMES } from './formFields'
 
 type Send = (body: MessageIn, display: string) => Promise<boolean>
 
 const SELECT_THRESHOLD = 8
 
-export function QuickReplies({ expects, disabled, onSend }: { expects: Expects | null; disabled: boolean; onSend: Send }) {
+export function QuickReplies({ expects, disabled, onSend, hideNumbers }:
+  { expects: Expects | null; disabled: boolean; onSend: Send; hideNumbers?: boolean }) {
   if (!expects) return null
   const fields = expects.fields.length ? expects.fields : expects.type !== 'none' ? [expects] : []
   const grouped = fields.length > 1
@@ -17,8 +19,10 @@ export function QuickReplies({ expects, disabled, onSend }: { expects: Expects |
   if (!visible.length) return null
   // number fields offer only quick replies ("אין", "לא ידוע"); in a grouped question each one is named
   // after its field, so "אין" never goes to a field the employee didn't mean
-  const numbers = grouped ? visible.filter((f) => f.type === 'number') : []
-  const others = visible.filter((f) => !numbers.includes(f))
+  const inForm = (f: ExpectsField) => !!hideNumbers && f.field !== null && Q2_FIELD_NAMES.has(f.field)
+  const numbers = grouped ? visible.filter((f) => f.type === 'number' && !inForm(f)) : []
+  // with the profile form on screen, its own "אין" buttons replace these chips
+  const others = visible.filter((f) => !numbers.includes(f) && !inForm(f))
   return (
     <div className="quick-replies">
       {others.map((f) => (

@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any, Callable, Optional
 
 from app.modules.rules.public import RulesSnapshot
@@ -67,6 +68,26 @@ def _pick_field(expects: dict[str, Any], ids: list[str], field: Optional[str]) -
     if len(offering) > 1:
         raise ChoiceInvalid(FIELD_NEEDED)
     raise ChoiceInvalid(INVALID)
+
+
+FORM_FIELDS = ("commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points", "children_under_23")
+_FORM_LABELS = {"commissions": "עמלות", "bonus": "בונוס", "pension_percent": "פנסיה",
+                "study_fund_percent": "קרן השתלמות", "credit_points": "נקודות זיכוי", "children_under_23": "ילדים"}
+
+
+def validate_fields(snapshot: RulesSnapshot, values: dict[str, Any]) -> dict[str, Any]:
+    """הטופס המובנה: לפחות שדה אחד, ורק שדות הטופס; כל ערך בטווח של extensions.yaml (אותם טווחים
+    כמו save_profile). מחוץ לטווח — ChoiceInvalid (422) והמצב לא משתנה."""
+    values = {k: v for k, v in values.items() if v is not None}
+    if not values or any(k not in FORM_FIELDS for k in values):
+        raise ChoiceInvalid(INVALID)
+    ranges = snapshot.extensions.value_ranges
+    for key, value in values.items():
+        if key in ranges:
+            low, high = ranges[key]
+            if not Decimal(low) <= Decimal(value) <= Decimal(high):
+                raise ChoiceInvalid(f"{_FORM_LABELS[key]}: הערך מחוץ לטווח ({low}–{high})")
+    return values
 
 
 def vehicle_id(key: VehicleKey) -> str:
