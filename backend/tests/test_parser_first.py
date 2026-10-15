@@ -19,7 +19,8 @@ NOA = [
 
 
 def service(sessions, llm):
-    return ConversationService(sessions, RulesStore(CONFIG), llm)
+    """הבדיקות כאן על הקורא-קודם (parser_first). llm_first נבדק ב-test_llm_first.py."""
+    return ConversationService(sessions, RulesStore(CONFIG), llm, llm_mode="parser_first")
 
 
 def talk(svc, messages):

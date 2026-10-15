@@ -7,20 +7,20 @@ from __future__ import annotations
 import json
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from typing import Any, Callable, Optional, Sequence
 
 from app.modules.calculation.public import CopayStatus, ScenarioResult, evaluate
 from app.modules.calculation.public import Status as CalcStatus
 from app.modules.cases.public import AnswerType, MissingField, Mode, QuestionAnswered, QuestionRequest
-from app.modules.rules.public import RulesSnapshot, words
+from app.modules.rules.public import RulesSnapshot, find_catalog_car, words
 
 
 from .fallback import ParserPlan, correction_plan, fallback_plan, named_cars
 from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
-from .parsing import redact_id_numbers
+from .parsing import match_occupation, redact_id_numbers
 from .stage import (
     ALLOWED_TOOLS,
     MAX_OPTIONS,
@@ -43,6 +43,7 @@ from .templates import (
     clarify_car_text,
     confirmed_assumption,
     question,
+    conflict_text,
     queued_option_text,
     range_problem_text,
     render,
@@ -53,7 +54,16 @@ from .templates import (
     rep_opt_out_text,
     results_text,
 )
-from .tools import TOOL_SPECS, ToolContext, VehicleLookup, available_options, engine_inputs, option_state, run_tool
+from .tools import (
+    TOOL_SPECS,
+    ToolContext,
+    VehicleLookup,
+    available_options,
+    engine_inputs,
+    option_state,
+    resolve_option,
+    run_tool,
+)
 
 log = logging.getLogger(__name__)
 
@@ -156,11 +166,70 @@ def _confirmation_plan(state: ConversationState, text: str) -> Optional[ParserPl
         state.pending_confirmation = None
         args = {pending.field: str(pending.value),
                 "approximate_fields": [pending.field] if pending.approximate else []}
-        return ParserPlan([ToolCall("save_profile", args, "confirmed")], True)
+        return ParserPlan([ToolCall("save_profile", args, "confirmed")], True, direct=True)
     if ws[0] in _NO:
         state.pending_confirmation = None
-        return ParserPlan(complete=True)
+        return ParserPlan(complete=True, direct=True)
     return None
+
+
+# ---------- בדיקה צולבת: מודל השפה מול מה שהקורא קרא במלואו ----------
+
+def _expected_values(snapshot: RulesSnapshot, plan: ParserPlan) -> dict[str, Any]:
+    """מה הקורא קרא (רק כשקרא במלואו): ערכי save_profile, הרכב הנוכחי, החלופות."""
+    expected: dict[str, Any] = {}
+    for call in plan.calls:
+        if call.name == "save_profile":
+            expected.update({f"profile:{k}": v for k, v in call.args.items()
+                             if k != "approximate_fields" and v is not None})
+        elif call.name == "match_current_car" and call.args.get("model"):
+            cars = find_catalog_car(snapshot, call.args["model"])
+            if cars:
+                expected["car"] = cars[0].catalog_code
+        elif call.name == "calculate":
+            expected["options"] = sorted(call.args.get("options", []))
+    return expected
+
+
+def _same(a: Any, b: Any) -> bool:
+    try:
+        return Decimal(str(a)) == Decimal(str(b))
+    except Exception:  # noqa: BLE001 — לא מספר
+        return str(a).strip() == str(b).strip()
+
+
+def _cross_check(ctx: ToolContext, call: ToolCall, expected: dict[str, Any], conflicts: list[str]) -> ToolCall:
+    """ערך של המודל שסותר ערך שהקורא קרא במלואו לאותו שדה — לא נשמר אף אחד מהם, ושואלים."""
+    if not expected:
+        return call
+    snapshot = ctx.snapshot
+    if call.name == "save_profile":
+        args = dict(call.args)
+        for key, value in call.args.items():
+            mine = expected.get(f"profile:{key}")
+            if mine is None or value is None or key == "approximate_fields":
+                continue
+            if key == "occupation":
+                agree = match_occupation(snapshot.occupations.keys(), str(value)) == mine
+            else:
+                agree = _same(value, mine)
+            if not agree:
+                args.pop(key)
+                conflicts.append(key)
+        return ToolCall(call.name, args, call.id)
+    if call.name == "match_current_car" and "car" in expected and call.args.get("model"):
+        cars = find_catalog_car(snapshot, call.args["model"])
+        if not cars or cars[0].catalog_code != expected["car"]:
+            conflicts.append("current_car")
+            return ToolCall(call.name, {}, call.id)          # ריק — לא מתאים דבר
+    if call.name == "calculate" and "options" in expected:
+        # שמות שהמודל שלח → מזהי חלופות, כמו שהכלי עצמו מפרש אותם
+        options = available_options(snapshot, ctx.state)
+        resolved = [resolve_option(snapshot, options, str(t)) for t in call.args.get("options", [])]
+        if None in resolved or sorted({o.id for o in resolved if o}) != sorted(set(expected["options"])):
+            conflicts.append("options")
+            return ToolCall(call.name, {"options": []}, call.id)
+    return call
 
 
 def _plan_notice(plan: ParserPlan, path: str) -> Optional[str]:
@@ -183,8 +252,9 @@ def _recorded(facts: dict[str, Any]) -> bool:
 
 
 class Agent:
-    def __init__(self, llm: LLMChain):
+    def __init__(self, llm: LLMChain, mode: str = "llm_first"):
         self.llm = llm
+        self.mode = mode          # llm_first | parser_first
 
     def greeting(self, state: ConversationState, snapshot: RulesSnapshot) -> str:
         return GREETING + question("occupation", state, snapshot)
@@ -215,17 +285,27 @@ class Agent:
         car_before = _car_key(state)
         used_llm = False
         deadline = self.llm.turn_deadline()   # אחרי LLM_TURN_DEADLINE_S — תבניות, בלי ספקים נוספים
-        if plan.complete or not self.llm.available:
+        conflicts: list[str] = []
+        parser_decides = plan.complete and (self.mode == "parser_first" or plan.calls == [] or plan.direct)
+        if parser_decides or not self.llm.available:
             path = "parser" if plan.complete else "templates"
             understood = self._execute(ctx, plan.calls) or plan.notice is not None
         else:
+            # המודל קורא קודם. תוכנית הקורא חושבה לפני כל שינוי במצב: גיבוי, ובדיקה צולבת כשנקרא במלואו.
+            cross = _expected_values(snapshot, plan) if plan.complete else {}
             try:
-                understood = self._extract_llm(ctx, history, text, deadline)
+                understood = self._extract_llm(ctx, history, text, deadline, cross, conflicts)
                 used_llm, path = True, "llm"
             except LLMError:
                 log.warning("llm extraction failed; falling back to the parser")
-                path = "fallback"
-                understood = self._execute(ctx, plan.calls)   # התוכנית חושבה לפני כל שינוי במצב
+                understood, path = False, "fallback"
+            # המודל לא קרא לכלי, נכשל או בהמתנה: הקורא (מלא, או רק הגיבוי הבטוח שלו). ניחוש "כל ההודעה
+            # היא הערך" רץ רק כשהמודל לא זמין — אם המודל קרא את ההודעה ולא רשם דבר, לא מנחשים.
+            declined = path == "llm"
+            if not understood and not conflicts and not (declined and plan.guess):
+                if plan.calls or plan.notice is not None or not declined:
+                    path = "fallback"            # הקורא פעל, או שהמודל נכשל
+                understood = self._execute(ctx, plan.calls) or plan.notice is not None
 
         self._open_blocking_rep(ctx)
         just_calculated = False
@@ -238,7 +318,7 @@ class Agent:
         # רכב שזוהה בתור הזה (מהקורא, מהמודל או מהגיבוי) — אומרים איזה, כדי שטעות לא תעבור בשקט
         matched_car = state.current.source in ("catalog", "tax") and _car_key(state) != car_before
         rep_opened = any(r.mode == Mode.REQUIRED for r in ctx.question_requests)
-        problems = [range_problem_text(*p) for p in ctx.range_problems]
+        problems = [conflict_text(c) for c in conflicts] + [range_problem_text(*p) for p in ctx.range_problems]
         draft = render(state, snapshot, understood=understood or bool(problems), just_calculated=just_calculated,
                        matched_car=matched_car, notice="\n".join(problems) or _plan_notice(plan, path),
                        rep_opened=rep_opened, notice_asks=bool(problems))
@@ -274,7 +354,8 @@ class Agent:
                                                            context=context))
 
     def _extract_llm(self, ctx: ToolContext, history: Sequence[ChatMessage], text: str,
-                     deadline: Optional[float] = None) -> bool:
+                     deadline: Optional[float] = None, cross: Optional[dict[str, Any]] = None,
+                     conflicts: Optional[list[str]] = None) -> bool:
         messages: list[ChatMessage] = [self._system(ctx), *history[-HISTORY_MESSAGES:], ChatMessage("user", text)]
         understood = False
         for round_no in range(MAX_TOOL_ROUNDS):
@@ -299,6 +380,7 @@ class Agent:
             messages.append(ChatMessage("assistant", response.text, tool_calls=response.tool_calls,
                                         raw=response.raw))
             for call in response.tool_calls:
+                call = _cross_check(ctx, call, cross or {}, conflicts if conflicts is not None else [])
                 facts = self._run(ctx, call)
                 understood = understood or _recorded(facts)
                 messages.append(ChatMessage("tool", json.dumps(facts, ensure_ascii=False, default=str),
@@ -337,7 +419,7 @@ class Agent:
                 state.pending_clarification = None
                 car = next(c for c in snapshot.catalog if c.catalog_code == clarification.catalog_code)
                 call = ToolCall("match_current_car", {"model": car.model_name}, "clarified")
-                return ParserPlan([call], True), ""
+                return ParserPlan([call], True, direct=True), ""
             if answer == "alternative":
                 state.pending_clarification = None
                 if clarification.catalog_code not in state.queued_options:
@@ -347,7 +429,7 @@ class Agent:
         if _has_cue(text, snapshot.extensions.correction_cues):
             plan = correction_plan(state, snapshot, text)
             if plan is not None and plan.complete and plan.calls:
-                return plan, ""
+                return replace(plan, direct=True), ""
             return None, waiting_reply
 
         others = [c for c in named_cars(text, snapshot.catalog) if c.catalog_code != state.current.catalog_code]
@@ -355,7 +437,7 @@ class Agent:
             return None, waiting_reply
         calls = self._llm_waiting_correction(state, text)
         if calls:
-            return ParserPlan(list(calls), True), ""
+            return ParserPlan(list(calls), True, direct=True), ""
         # בלי מודל, או שהמודל לא בטוח: לא מנחשים — שואלים, וזוכרים על איזה רכב
         state.pending_clarification = CarClarification(catalog_code=others[0].catalog_code, label=others[0].label)
         return None, clarify_car_text(others[0].label)

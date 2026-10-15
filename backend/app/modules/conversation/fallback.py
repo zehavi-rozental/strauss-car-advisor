@@ -70,6 +70,8 @@ class ParserPlan:
     complete: bool = False                   # ההודעה נקראה במלואה — הקורא פועל, בלי מודל
     notice: Optional[str] = None             # משפט לפני השאלה הבאה, כשהקורא פועל
     fallback_notice: Optional[str] = None    # משפט לפני השאלה הבאה, כשהקריאות רצו כגיבוי
+    direct: bool = False                     # תשובה לשאלה של הקוד (אישור, הבהרה, כפתור) — לא עוברת למודל
+    guess: bool = False                      # "כל ההודעה היא הערך" (תפקיד/דגם קצר) — רק כשהמודל לא זמין
 
 
 def _key(text: str) -> str:
@@ -150,7 +152,7 @@ def _profile_plan(snapshot: RulesSnapshot, question: str, text: str) -> ParserPl
     if question == "occupation":
         # תפקיד שאינו בטבלה: כל התשובה הקצרה היא שם התפקיד — גיבוי בלבד (המודל קודם)
         if len(words(text)) <= SHORT_TITLE_WORDS and not any(ch.isdigit() for ch in text):
-            return ParserPlan(_call("save_profile", occupation=text), False)
+            return ParserPlan(_call("save_profile", occupation=text), False, guess=True)
         return ParserPlan()
     if question == "group":
         group = match_group(snapshot.calc.group_order, text)
@@ -239,7 +241,7 @@ def _car_plan(snapshot: RulesSnapshot, text: str) -> ParserPlan:
         calls, complete = _call("match_current_car", model=model, registration_year=year), False
     if copay is not None:
         calls += _call("save_profile", current_copay=str(copay))
-    return ParserPlan(calls, complete)
+    return ParserPlan(calls, complete, guess=not complete)
 
 
 def _car_detail_plan(snapshot: RulesSnapshot, question: str, text: str) -> ParserPlan:

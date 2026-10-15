@@ -133,6 +133,18 @@ def _show(field: str, value: Any) -> str:
     return f"{text}%" if kind == "percent" else text
 
 
+_CONFLICT_LABELS = {
+    "occupation": "התפקיד", "eligibility_group": "קבוצת הזכאות", "current_car": "הרכב הנוכחי",
+    "options": "החלופות להשוואה", "current_drive": "סוג ההנעה",
+}
+
+
+def conflict_text(field: str) -> str:
+    """המודל והקורא הבינו שני ערכים שונים לאותו שדה — לא שומרים אף אחד מהם."""
+    label = _CONFLICT_LABELS.get(field) or _VALUE_LABELS.get(field, (field, ""))[0]
+    return f"קיבלתי שני ערכים שונים ל{label}. מה הערך הנכון?"
+
+
 def range_problem_text(field: str, value: Decimal, side: str) -> str:
     """"18 ₪ נראה נמוך מאוד לשכר בסיס חודשי. מה הסכום המלא מהתלוש?" — המספר מההודעה."""
     reason, follow_up = _RANGE_TEXT[field]

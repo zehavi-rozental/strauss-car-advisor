@@ -58,8 +58,9 @@ def test_waiting_makes_no_llm_call(sessions):
     svc = service(sessions, LLMChain([fake]))
     turn, token = talk(svc, [NOA[0], "קורולה קרוס", "לא יודעת"])
     assert turn.stage == Stage.WAITING_FOR_REP
+    before = len(fake.calls)
     turn = svc.send(turn.conversation_id, token, "נו, יש תשובה?")
-    assert turn.path == "waiting" and fake.calls == []
+    assert turn.path == "waiting" and len(fake.calls) == before
     assert turn.reply == "שאלתי את נציג התחבורה ואעדכן כשתגיע תשובה."
 
 
@@ -132,7 +133,8 @@ class ChooseAtTheBarrier(FakeLLM):
 
 def test_a_discarded_turn_leaves_no_question(tmp_path):
     sessions = file_db(tmp_path)
-    svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([ChooseAtTheBarrier(threading.Barrier(2))]))
+    svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([ChooseAtTheBarrier(threading.Barrier(2))]),
+                              llm_mode="parser_first")       # ההכנה בקורא; רק שתי ההודעות המתחרות במודל
     turn, token = talk(svc, NOA[:2])                      # הקורא — בלי מודל
     assert turn.stage == Stage.CHOOSE_OPTIONS
     outcomes = {}

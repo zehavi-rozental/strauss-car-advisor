@@ -52,7 +52,8 @@ def create_app(settings: Optional[Settings] = None, *, engine: Optional[Engine] 
     app = FastAPI(title="Strauss Car Advisor")
     app.state.ctx = AppContext(
         settings=settings, sessions=sessions, rules=rules,
-        service=ConversationService(sessions, rules, llm, cases, settings.max_messages_per_conversation),
+        service=ConversationService(sessions, rules, llm, cases, settings.max_messages_per_conversation,
+                                    settings.llm_mode),
         cases=cases,
         message_limiter=RateLimiter(settings.rate_limit_per_minute),
         create_limiter=RateLimiter(settings.create_rate_limit_per_minute),

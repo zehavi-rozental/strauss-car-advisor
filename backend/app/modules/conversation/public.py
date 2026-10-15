@@ -117,11 +117,11 @@ def _uuid(value: str) -> uuid.UUID:
 
 class ConversationService:
     def __init__(self, sessions: sessionmaker, rules: RulesStore, llm: LLMChain,
-                 cases: Optional[CasesService] = None, max_messages: int = 80):
+                 cases: Optional[CasesService] = None, max_messages: int = 80, llm_mode: str = "llm_first"):
         self.sessions = sessions
         self.rules = rules
         self.llm = llm
-        self.agent = Agent(llm)
+        self.agent = Agent(llm, llm_mode)
         self.cases = cases or CasesService(sessions)
         self.cases.subscribe(self.apply_answer)   # תשובת נציג → מיושמת על השיחה
         self.max_messages = max_messages

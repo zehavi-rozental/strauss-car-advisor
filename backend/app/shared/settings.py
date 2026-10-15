@@ -35,6 +35,8 @@ class Settings(BaseSettings):
 
     # שרשרת ספקים לפי סדר: "gemini:<model>,gemini:<model>,groq:<model>". ריקה = LLM_PROVIDER + LLM_FALLBACK_*.
     llm_chain: str = ""
+    # llm_first: כל הודעה עוברת קודם למודל (הקורא — גיבוי ובדיקה צולבת). parser_first: הקורא קודם (חוסך מכסה).
+    llm_mode: Literal["llm_first", "parser_first"] = "llm_first"
     gemini_api_key: str = ""
     groq_api_key: str = ""
     openrouter_api_key: str = ""

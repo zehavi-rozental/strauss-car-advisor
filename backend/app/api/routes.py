@@ -56,7 +56,7 @@ def health(request: Request) -> dict[str, Any]:
     calc = ctx.rules.current.calc
     return {"status": "ok" if db_ok else "degraded", "db": db_ok, "rules_version": calc.rules_version,
             "extensions_version": calc.extensions_version, "engine_version": ENGINE_VERSION,
-            "config_error": ctx.rules.last_error, "llm": ctx.service.llm.mode,
+            "config_error": ctx.rules.last_error, "llm": ctx.service.llm.mode, "llm_mode": ctx.service.agent.mode,
             "llm_chain": ctx.service.llm.status()}
 
 
