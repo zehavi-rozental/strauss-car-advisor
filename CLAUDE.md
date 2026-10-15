@@ -71,6 +71,9 @@ A module, and `app/api`, imports another module **only** through that module's `
 - A bare "אין" to Q2 sets 0 for commissions, bonus, study fund and children, and says so ("רשמתי: …"). Pension and credit points are never assumed.
 - A representative question about the current car ("לא ידוע") opens only after the profile is complete; until then the answer is recorded.
 - "הכי משתלם" before the profile and current car are known is recorded (`rank_requested`) and resolved as soon as only the alternatives are missing.
+- No dead ends: the same question asked right after a not-understood answer keeps its text and adds "buttons + an exact example" (`templates.retry_hint`, `EXAMPLES`). Every bot reply that is not a result and not "waiting for the representative" carries a non-`none` `expects` (`tests/test_no_dead_ends.py`).
+- A value saved for a field that is not on screen (e.g. "עמלות 2,400" while the alternatives are asked) is confirmed in a "רשמתי: …" line, never saved silently.
+- `tests/scenarios/test_styles.py`: the six reference employees in three styles (buttons, short, free), 18 conversations through the API, net equal to the reference. Live provider: `STYLES_LLM=live STYLES_TURN_PAUSE_S=30 pytest tests/scenarios` (slow, free-tier quota).
 - Confirmation lines come from tool results, not the LLM: "זיהיתי: <תפקיד>, קבוצה X.", "בחרת להשוות: …", "זיהיתי: <רכב>".
 
 ## Known limitations (מגבלות ידועות)
@@ -78,7 +81,9 @@ A module, and `app/api`, imports another module **only** through that module's `
 - A model that is not in the company catalog ("טויוטה מיסטרי") is always taken as the current car: only catalog cars can be alternatives, so the Q3 role question is never asked for it.
 - In template mode, "לא" in the middle of a sentence ("זה לא קורולה קרוס") is not interpreted: the parser does not act and the bot asks again. Only a leading "לא" (a correction) is read.
 - After the first Q3 message, a bare number answers only the question on screen; Q2 leftovers are read only when labelled ("פנסיה 6%").
-- A bare "אין" is read only as an answer to Q2. In Q3 it is ambiguous (car, copay, leftovers) and the bot asks again; the buttons name their field ("עמלות: אין").
+- A bare "אין" is read only as an answer to Q2, or when every pending field is a Q2 field. In Q3 with a car/options question on screen it is ambiguous (car, copay, leftovers) and the bot asks again; the buttons name their field ("עמלות: אין").
+- In template mode, a long mixed sentence ("אין לי רכב, אני מקבלת אחזקה 1,500, אני רוצה לבדוק את אם ג'י 4", or a current car plus opt-out in one message) is not read: the bot asks the car question again, with the example. With an LLM these are read. Found by `tests/scenarios/test_styles.py` (the free style falls back to short answers after one failed attempt).
+- A family-track car (Carnival, Santa Fe) is offered only once the number of children is known (4+). If the employee names it before that, the options list does not contain it and the bot asks again; the child count is asked as a leftover.
 - The occupation confirmation shows the occupations-table name as is, including slash forms ("מנהל/ת אזור מכירות").
 
 ## Conventions

@@ -156,7 +156,7 @@ def _grouped_plan(state: ConversationState, snapshot: RulesSnapshot, group: Opti
     (2) ערכים מתויגים ("פנסיה 6%", "קבוצה ג") — כשההודעה נקראה במלואה; (3) אחרת ההודעה נקראת
     כתשובה לכל שדה בנפרד, ופועלים רק אם בדיוק שדה אחד קורא אותה במלואה ("300" כשחסרים רכב
     והשתתפות = השתתפות; "אין" כשחסרים עמלות ובונוס — שואלים שוב)."""
-    if group == "Q2":
+    if group == "Q2" or all(f in Q2_FIELDS for f in fields):    # גם כשכל מה שנשאר הוא מ-Q2 (אחרי הרכב והחלופות)
         plan = _bare_none_plan(snapshot, fields, t)
         if plan is not None:
             return plan

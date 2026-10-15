@@ -150,6 +150,7 @@ class ConversationState(BaseModel):
     role_asked: list[str] = Field(default_factory=list)         # רכבים ששאלנו עליהם "של היום או חלופה?"
     # "הכי משתלם" לפני שהרכב של היום והפרופיל ידועים: נבחר ומחושב ברגע שכל הפרטים ידועים
     rank_requested: bool = False
+    last_asked: list[str] = Field(default_factory=list)         # שדות השאלה האחרונה שהוצגה (לזיהוי שאלה חוזרת)
 
 
 # ---------- מה חסר ----------

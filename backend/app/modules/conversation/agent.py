@@ -18,7 +18,8 @@ from app.modules.rules.public import CatalogCar, RulesSnapshot, find_catalog_car
 
 
 from .expects import build_expects, choice_calls
-from .fallback import ZERO_ALLOWED, ParserPlan, car_roles, correction_plan, fallback_plan, named_cars, none_plan
+from .fallback import (ZERO_ALLOWED, ParserPlan, car_roles, correction_plan, fallback_plan, named_cars, none_plan,
+                       recorded_text)
 from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
 from .parsing import match_occupation, redact_id_numbers
@@ -36,6 +37,7 @@ from .stage import (
     blocking_rep_reason,
     missing_profile,
     next_stage,
+    Q2_FIELDS,
 )
 from .templates import (
     GREETING,
@@ -328,6 +330,12 @@ def _role_conflict(ctx: ToolContext, call: ToolCall, text: str) -> Optional[Cata
     return next((c for c in targets if roles.get(c.catalog_code) == wrong), None)
 
 
+# שדות Q2 בפרופיל → שם הארגומנט ב-save_profile (כפי ש-recorded_text מצפה)
+_HIDDEN_ARGS = {"commissions": "commissions", "bonus": "bonus", "pension_percent": "pension_percent",
+                "study_fund_percent": "study_fund_percent", "credit_points": "credit_points",
+                "children": "children_under_23"}
+
+
 @dataclass(frozen=True)
 class _Before:
     """המצב לפני התור — כדי לאשר במשפט מה הכלים שמרו בתור הזה (לא מה שהמודל אמר)."""
@@ -336,14 +344,29 @@ class _Before:
     selected: tuple
     rank_requested: bool
     rep_reason: Optional[RepReason]
+    hidden: dict          # שדות Q2 שלא הוצגו בשאלה ושכבר נשמרו: field → ערך
 
     @classmethod
     def of(cls, state: ConversationState) -> "_Before":
         p = state.profile
-        return cls((p.occupation, p.group), tuple(state.selected), state.rank_requested, blocking_rep_reason(state))
+        group, fields = current_group(state)
+        # אחרי שהזנב נעלם (Q3 כבר הוצגה), שדות Q2 שנשארו אינם מוצגים
+        tail_hidden = group == "Q3" and "Q3" in state.asked_groups and any(f not in Q2_FIELDS for f in fields)
+        shown = {f for f in fields if not (tail_hidden and f in Q2_FIELDS)}
+        # רק כשהשאלה על המסך היא רכב / חלופות: שם ערך Q2 שנקלט הוא "בשקט" מנקודת מבטו של העובד
+        hidden = ({f: getattr(p, f) for f in _HIDDEN_ARGS if f not in shown}
+                  if group in ("Q3", "car_detail") else {})
+        return cls((p.occupation, p.group), tuple(state.selected), state.rank_requested, blocking_rep_reason(state),
+                   hidden)
 
-    def confirmations(self, state: ConversationState, snapshot: RulesSnapshot, just_calculated: bool) -> list[str]:
+    def confirmations(self, state: ConversationState, snapshot: RulesSnapshot, just_calculated: bool,
+                      recorded_said: bool = False) -> list[str]:
         p, lines = state.profile, []
+        # ערך שנקלט לשדה שלא הוצג עכשיו ("עמלות 2,400" בשאלת החלופות): אומרים מה נרשם, לא שומרים בשקט
+        new = {_HIDDEN_ARGS[f]: getattr(p, f) for f, old in self.hidden.items()
+               if getattr(p, f) is not None and getattr(p, f) != old}
+        if new and not recorded_said:
+            lines.append(f"רשמתי: {recorded_text(new)}.")
         if p.occupation and p.group and (p.occupation, p.group) != self.occupation:
             lines.append(confirm_group_text(p.occupation, p.group))
         if state.selected and tuple(state.selected) != self.selected and not just_calculated:
@@ -470,7 +493,8 @@ class Agent:
             just_calculated = True
         state.stage = next_stage(state)
         understood = understood or state.stage != before
-        confirmations = before_turn.confirmations(state, snapshot, just_calculated)
+        said = (_plan_notice(plan, path) or "").startswith("רשמתי")
+        confirmations = before_turn.confirmations(state, snapshot, just_calculated, said)
 
         # רכב שזוהה בתור הזה (מהקורא, מהמודל או מהגיבוי) — אומרים איזה, כדי שטעות לא תעבור בשקט
         matched_car = state.current.source in ("catalog", "tax") and _car_key(state) != car_before
@@ -480,6 +504,7 @@ class Agent:
                        matched_car=matched_car, notice="\n".join(problems) or _plan_notice(plan, path),
                        rep_opened=rep_opened, notice_asks=bool(problems), confirmations=confirmations)
         _mark_asked(state)
+        state.last_asked = [] if just_calculated else list(current_group(state)[1])
         requests = dict(question_requests=ctx.question_requests, cancel_question_ids=ctx.cancel_question_ids)
         # ניסוח במודל רק לתוצאות או להודעה שלא הובנה (שאלה חופשית). השאלה הבאה בפרופיל/ברכב
         # היא תבנית: מהירה, ובלי סיכון לשומר המספרים.

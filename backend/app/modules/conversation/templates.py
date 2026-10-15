@@ -412,7 +412,31 @@ def chosen_options_text(labels: list[str]) -> str:
     return f"בחרת להשוות: {', '.join(labels)}."
 
 
-RANK_DEFERRED = "ביקשת את החלופות הכי משתלמות. אבחר אותן ואחשב ברגע שיהיו לי כל הפרטים."
+# דוגמה מדויקת לכל שדה — מצורפת כשאותה שאלה נשאלת פעם שנייה ברצף (במקום אותו ניסוח)
+EXAMPLES = {
+    "occupation": "מנהלת מוצר, או: קבוצה ג", "group": "ג", "opt_out_occupation": "מנהלת מוצר",
+    "base": "18500", "commissions": "1000, או: אין", "bonus": "500, או: אין",
+    "pension_percent": "6", "study_fund_percent": "2.5, או: אין", "credit_points": "2.75",
+    "children": "2, או: אין", "car": "קורולה קרוס 2023, או: אין רכב",
+    "use_value": "4000, או: לא ידוע", "drive": "חשמלי", "copay": "300, או: לא ידוע",
+    "maintenance": "1500", "car_choice": "1", "options": "אטו 3, או: הכי משתלם",
+}
+_EXAMPLE_NAMES = {"commissions": "עמלות", "bonus": "בונוס", "pension_percent": "פנסיה",
+                  "study_fund_percent": "קרן השתלמות", "credit_points": "נקודות זיכוי", "children": "ילדים",
+                  "copay": "השתתפות", "options": "חלופה"}
+
+
+def retry_hint(fields: list[str]) -> str:
+    """שאלה שחוזרת פעם שנייה: לא באותו ניסוח — כפתורי ההצעה, ודוגמה מדויקת לכתיבה."""
+    known = [f for f in fields if f in EXAMPLES]
+    if not known:
+        return "אפשר ללחוץ על אחד הכפתורים."
+    example = EXAMPLES[known[0]] if len(known) == 1 else ", ".join(
+        f"{_EXAMPLE_NAMES.get(f, f)} {EXAMPLES[f].split(',')[0]}" for f in known[:3])
+    return f"אפשר ללחוץ על אחד הכפתורים, או לכתוב. לדוגמה: {example}"
+
+
+RANK_DEFERRED ="ביקשת את החלופות הכי משתלמות. אבחר אותן ואחשב ברגע שיהיו לי כל הפרטים."
 REP_DEFERRED = "רשמתי שזה לא ידוע. אשאל את נציג התחבורה אחרי שנשלים את שאר הפרטים."
 
 
@@ -450,6 +474,8 @@ def render(state: ConversationState, snapshot: RulesSnapshot, *, understood: boo
     fields = current_group(state)[1]
     if not understood and fields[:1] == ["car"]:
         parts.append(CAR_AGAIN)
+        if fields == state.last_asked:               # פעם שנייה: גם כפתורים ודוגמה, לא אותה הודעה
+            parts.append(retry_hint(fields))
         return "\n\n".join(parts)
     if notice_asks:
         return "\n\n".join(parts)                       # המשפט כבר שואל (בעיית סבירות)
@@ -465,5 +491,8 @@ def render(state: ConversationState, snapshot: RulesSnapshot, *, understood: boo
     if state.stage == Stage.PRESENTED and just_calculated:
         parts.append("אפשר להשוות חלופה נוספת: כתבו את שם הרכב.")
     elif fields:
+        # אותה שאלה פעם שנייה ברצף: לא באותו ניסוח, אלא כפתורים ודוגמה מדויקת
         parts.append(group_question(state, snapshot))
+        if not understood and fields == state.last_asked:
+            parts[-1] += "\n" + retry_hint(fields)   # אותה שאלה פעם שנייה: עוד כפתורים ודוגמה, לא אותה הודעה
     return "\n\n".join(parts)
