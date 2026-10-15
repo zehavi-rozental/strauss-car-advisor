@@ -124,6 +124,7 @@ def test_slow_intro_is_cut_at_its_budget_and_the_template_result_is_shown(sessio
 
 
 import pytest  # noqa: E402
+from decimal import Decimal  # noqa: E402
 
 
 @pytest.mark.parametrize("text, expected", [
@@ -134,7 +135,7 @@ import pytest  # noqa: E402
 ])
 def test_single_value_rejects_approximate_or_ambiguous_answers(text, expected):
     from app.modules.conversation.fallback import single_value
-    assert single_value(text) == expected
+    assert single_value(text, ["שח", "שקל"]) == expected
 
 
 def test_keyword_parser_skips_approximate_amounts(snapshot):
@@ -165,13 +166,15 @@ def test_car_sentence_with_extra_words_goes_to_the_llm(sessions):
     assert svc.view(cid, token).state.current.catalog_code == "CAR-09"      # המודל הבין
 
 
-def test_crossover_sentence_falls_back_to_the_parser_match_if_the_llm_fails(sessions):
+def test_crossover_sentence_is_not_matched_when_the_llm_fails(sessions):
+    """קריאה חלקית ("קורולה" בתוך משפט על קרוסאובר) — לא פועלים עליה, גם לא כגיבוי: שואלים שוב."""
     from app.modules.conversation.llm.fake import FailingLLM
     svc = service(sessions, LLMChain([FailingLLM()]))
     cid, token = _at_car_question(svc)
     turn = svc.send(cid, token, CROSSOVER)
     assert turn.path == "fallback"
-    assert svc.view(cid, token).state.current.catalog_code == "CAR-07"      # הגיבוי — כמו קודם
+    assert svc.view(cid, token).state.current.catalog_code is None
+    assert "לא זיהיתי את דגם הרכב" in turn.reply
 
 
 @pytest.mark.parametrize("text", [NOA[1], "קורולה קרוס 2023", "יש לי טוסון"])
@@ -247,3 +250,70 @@ def test_in_range_number_still_selects_the_option(sessions):
     turns, _ = talk(service(sessions, LLMChain([fake])), NOA[:2] + ["2"])
     assert fake.calls == [] and turns[-1].stage == Stage.PRESENTED
     assert [r.label for r in turns[-1].results] == ["YARIS CROSS HSD (2025)"]
+
+
+# ---------- הכלל: פועלים רק על קריאה מלאה ----------
+
+REPEATED_CAR = "יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש"
+
+
+@pytest.mark.parametrize("chain", ["none", "fake"])
+def test_repeated_car_sentence_at_the_options_question_selects_nothing(sessions, chain):
+    """"קורולה קרוס" הוא הרכב הנוכחי — לא נבחר "קורולה" שבתוכו, ולא נפתחת שאלה לנציג."""
+    fake = FakeLLM()
+    svc = service(sessions, LLMChain([fake]) if chain == "fake" else LLMChain())
+    turns, token = talk(svc, NOA[:2])
+    if chain == "fake":
+        fake.turn(reply=None)                         # המודל לא קורא לכלי
+    turn = svc.send(turns[0].conversation_id, token, REPEATED_CAR)
+    state = svc.view(turn.conversation_id, token).state
+    assert turn.stage == Stage.CHOOSE_OPTIONS and state.selected == [] and turn.results == []
+    assert svc.cases.list_open() == []
+    assert "לאילו חלופות להשוות" in turn.reply
+
+
+@pytest.mark.parametrize("text, code", [("אני רוצה לבדוק את אטו 3", "CAR-10"), ("קורולה", "CAR-07"),
+                                        ("BYD אטו 3 החשמלי בבקשה", "CAR-10")])
+def test_options_read_in_full_select_without_the_llm(sessions, text, code):
+    fake = FakeLLM()
+    turns, _ = talk(service(sessions, LLMChain([fake])), NOA[:2] + [text])
+    assert fake.calls == [] and turns[-1].path == "parser"
+    assert [r.option_id for r in turns[-1].results] == [code]
+
+
+@pytest.mark.parametrize("text", ["MODEL 3",                         # קבוצה ד — לא זמין לנועה (ג)
+                                  "אני רוצה לבדוק את אטו 3 הלבן",     # מילה נוספת
+                                  "אטו 3 או משהו דומה"])
+def test_option_messages_not_read_in_full_select_nothing_without_an_llm(sessions, text):
+    svc = service(sessions, LLMChain())
+    turns, token = talk(svc, NOA[:2] + [text])
+    assert turns[-1].path == "templates" and svc.view(turns[-1].conversation_id, token).state.selected == []
+
+
+def test_full_profile_with_an_unknown_word_saves_only_labelled_values(sessions):
+    svc = service(sessions, LLMChain())
+    turns, token = talk(svc, [NOA[0] + ", ואני גם בהריון"])
+    turn = turns[-1]
+    p = svc.view(turn.conversation_id, token).state.profile
+    assert p.occupation is None                       # העיסוק אינו ערך מתויג
+    assert (p.base, p.commissions, p.bonus, p.pension_percent) == (18500, 0, 0, 6)
+    assert (p.study_fund_percent, p.credit_points, p.children) == (Decimal("2.5"), Decimal("2.75"), 2)
+    assert turn.reply.startswith("רשמתי: שכר בסיס 18,500 ₪, אין עמלות, אין בונוס, פנסיה 6%, "
+                                 "קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים. אם משהו לא נכון, כתבו את התיקון.")
+    assert "מה התפקיד שלך" in turn.reply
+
+
+@pytest.mark.parametrize("text", ["פנסיה בערך 6, ואני גם בהריון", "פנסיה 6 או 7, ואני גם בהריון",
+                                  "לא פנסיה 6, ואני גם בהריון"])
+def test_unclear_labelled_values_are_not_saved(sessions, text):
+    svc = service(sessions, LLMChain())
+    turns, token = talk(svc, ["מנהלת מוצר", text])
+    assert svc.view(turns[-1].conversation_id, token).state.profile.pension_percent is None
+
+
+@pytest.mark.parametrize("text", ["אין לי רכב צמוד אבל יש לי רכב פרטי", "היברידי אבל אולי חשמלי"])
+def test_recognised_words_with_extra_meaning_are_not_acted_on(sessions, text):
+    svc = service(sessions, LLMChain())
+    turns, token = talk(svc, [NOA[0], text])
+    state = svc.view(turns[-1].conversation_id, token).state
+    assert state.current.source is None and state.current.drive is None

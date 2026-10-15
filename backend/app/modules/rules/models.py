@@ -125,6 +125,12 @@ class Extensions(_Strict):
     car_message_fillers: list[str] = Field(default_factory=list)
     # מילים שמסמנות תיקון של הרכב הנוכחי (באחת משלוש המילים הראשונות)
     correction_cues: list[str] = Field(default_factory=list)
+    # מילות מילוי לכל סוג שאלה: הקורא פועל רק כשלא נשאר בהודעה דבר מעבר למה שזיהה ולמילים האלה
+    profile_fillers: list[str] = Field(default_factory=list)
+    answer_fillers: list[str] = Field(default_factory=list)
+    option_message_fillers: list[str] = Field(default_factory=list)
+    # תחילת שם היצרן בקטלוג → מילים שמותר לכתוב לצד הדגם ("BYD אטו 3")
+    manufacturer_brands: dict[str, list[str]] = Field(default_factory=dict)
 
 
 # ---------- strauss-data.xlsx ----------

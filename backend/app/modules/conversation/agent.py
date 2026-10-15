@@ -136,6 +136,15 @@ def _clarification_answer(text: str) -> Optional[str]:
     return None
 
 
+def _plan_notice(plan: ParserPlan, path: str) -> Optional[str]:
+    """משפט מהקורא: כשפעל (parser), או כשהקריאות שלו רצו כגיבוי (fallback / templates)."""
+    if path == "parser":
+        return plan.notice
+    if path in ("fallback", "templates"):
+        return plan.fallback_notice
+    return None
+
+
 def _car_key(state: ConversationState) -> tuple:
     c = state.current
     return (c.source, c.catalog_code, c.label, c.use_value)
@@ -200,7 +209,7 @@ class Agent:
         matched_car = state.current.source in ("catalog", "tax") and _car_key(state) != car_before
         rep_opened = any(r.mode == Mode.REQUIRED for r in ctx.question_requests)
         draft = render(state, snapshot, understood=understood, just_calculated=just_calculated,
-                       matched_car=matched_car, notice=plan.notice if path == "parser" else None,
+                       matched_car=matched_car, notice=_plan_notice(plan, path),
                        rep_opened=rep_opened)
         requests = dict(question_requests=ctx.question_requests, cancel_question_ids=ctx.cancel_question_ids)
         # ניסוח במודל רק לתוצאות או להודעה שלא הובנה (שאלה חופשית). השאלה הבאה בפרופיל/ברכב

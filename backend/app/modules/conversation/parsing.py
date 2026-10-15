@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import itertools
 import re
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Iterable, Optional
 
@@ -61,6 +62,34 @@ def first_number(text: str) -> Optional[Decimal]:
     return found[0] if found else None
 
 
+Span = tuple[int, int]
+
+
+def unknown_span(text: str) -> Optional[Span]:
+    m = _UNKNOWN_RE.search(text)
+    return m.span() if m else None
+
+
+def none_span(text: str) -> Optional[Span]:
+    m = _NONE_RE.search(text)
+    return m.span() if m else None
+
+
+def no_car_span(text: str) -> Optional[Span]:
+    m = _NO_CAR_RE.search(text)
+    return m.span() if m else None
+
+
+def drive_span(text: str) -> Optional[tuple[Drive, Span]]:
+    t = text.lower()
+    for drive, words_ in _DRIVE_WORDS.items():
+        for w in words_:
+            m = re.search(rf"(?<![a-zא-ת]){re.escape(w)}", t)
+            if m:
+                return drive, m.span()
+    return None
+
+
 def is_unknown(text: str) -> bool:
     return bool(_UNKNOWN_RE.search(text))
 
@@ -98,17 +127,23 @@ def occupation_variants(name: str) -> set[str]:
     return {" ".join(combo) for combo in itertools.product(*options)}
 
 
-def match_occupation(names: Iterable[str], text: str) -> Optional[str]:
-    """השם מטבלת העיסוקים שמתאים לטקסט; ההתאמה הארוכה ביותר מנצחת."""
+def occupation_match(names: Iterable[str], text: str) -> Optional[tuple[str, str]]:
+    """(השם מטבלת העיסוקים, הצורה שנמצאה בטקסט); ההתאמה הארוכה ביותר מנצחת."""
     t = _norm(text).replace("/", " ")
-    best: Optional[tuple[int, str]] = None
+    best: Optional[tuple[str, str]] = None
     for name in names:
         if _norm(name) == _norm(text):
-            return name
+            return name, text
         for variant in occupation_variants(name):
-            if variant in t and (best is None or len(variant) > best[0]):
-                best = (len(variant), name)
-    return best[1] if best else None
+            if variant in t and (best is None or len(variant) > len(best[1])):
+                best = (name, variant)
+    return best
+
+
+def match_occupation(names: Iterable[str], text: str) -> Optional[str]:
+    """השם מטבלת העיסוקים שמתאים לטקסט; ההתאמה הארוכה ביותר מנצחת."""
+    hit = occupation_match(names, text)
+    return hit[0] if hit else None
 
 
 _NUM = r"(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)"
@@ -174,46 +209,146 @@ def negates(text: str) -> bool:
     return any(w == "לא" or (len(w) == 3 and w[0] in "וש" and w[1:] == "לא") for w in words(text)[1:])
 
 
-def leftover_words(text: str, name: str, fillers: Iterable[str]) -> list[str]:
-    """מה נשאר בהודעה על הרכב אחרי: ההשתתפות, השנה, שם הדגם, מילות מילוי ו"לא" פותח.
-    כל מילה שנשארה ("קרוסאובר", "הגבוהה", "של טויוטה") אומרת שיש בהודעה משמעות שהקורא לא מבין."""
-    span = copay_span(text)
-    if span:
-        text = text[:span[0]] + " " + text[span[1]:]
-    ws = words(YEAR_RE.sub(" ", text))
-    if ws and ws[0] == "לא":
-        ws = ws[1:]
-    target = "".join(words(name))
+def _widen(text: str, start: int, end: int) -> Span:
+    """טווח שזוהה מורחב למילים שלמות ("ובונוסים" כולו, לא רק "בונוס")."""
+    while start > 0 and text[start - 1].isalnum():
+        start -= 1
+    while end < len(text) and text[end].isalnum():
+        end += 1
+    return start, end
+
+
+def _remove_phrase(ws: list[str], phrase: str) -> list[str]:
+    target = "".join(words(phrase))
+    if not target:
+        return ws
     for i in range(len(ws)):
         for j in range(i + 1, len(ws) + 1):
             joined = "".join(ws[i:j])
             if joined == target or (joined[0] in NAME_PREFIX_LETTERS and joined[1:] == target):
-                ws = ws[:i] + ws[j:]
+                return ws[:i] + ws[j:]
+            if len(joined) > len(target) + 1:
                 break
-        else:
+    return ws
+
+
+def unread_words(text: str, spans: Iterable[Optional[Span]] = (), phrases: Iterable[str] = (),
+                 fillers: Iterable[str] = (), list_numbers: int = 0, leading_no: bool = False) -> list[str]:
+    """הכלל המשותף לכל השאלות: מה נשאר בהודעה אחרי מה שהקורא זיהה.
+
+    מסירים: טווחים שזוהו (מורחבים למילים שלמות), ביטויים שזוהו (שם רכב, עיסוק; אות שימוש אחת),
+    מספרים מהרשימה (1..list_numbers), מילות מילוי של השאלה (אות שימוש אחת), ו"לא" פותח אם מותר.
+    כל מילה שנשארה היא משמעות שהקורא לא הבין — ואז הוא לא פועל."""
+    chars = list(text)
+    for span in spans:
+        if span is None:
             continue
-        break
+        a, b = _widen(text, *span)
+        chars[a:b] = " " * (b - a)
+    ws = words("".join(chars))
+    if leading_no and ws and ws[0] == "לא":
+        ws = ws[1:]
+    for phrase in phrases:
+        ws = _remove_phrase(ws, phrase)
+    if list_numbers:
+        ws = [w for w in ws if not (w.isdigit() and 1 <= int(w) <= list_numbers)]
     fill = {w for f in fillers for w in words(f)}
     return [w for w in ws if w not in fill and not (len(w) > 1 and w[0] in PREFIX_LETTERS and w[1:] in fill)]
 
 
-def parse_profile_fields(text: str, occupations: Iterable[str]) -> dict[str, object]:
-    """כמה שדות פרופיל מהודעה חופשית אחת. רק מה שנאמר במפורש; שום ברירת מחדל."""
-    found: dict[str, object] = {}
-    occupation = match_occupation(occupations, text)
-    if occupation:
-        found["occupation"] = occupation
+def leftover_words(text: str, name: str, fillers: Iterable[str]) -> list[str]:
+    """הודעה על הרכב: מה נשאר אחרי ההשתתפות, השנה, שם הדגם, מילות המילוי ו"לא" פותח."""
+    return unread_words(text, spans=[copay_span(text), *year_spans(text)], phrases=[name], fillers=fillers,
+                        leading_no=True)
+
+
+def year_spans(text: str) -> list[Span]:
+    return [m.span() for m in YEAR_RE.finditer(text)]
+
+
+# ---------- פרופיל: קריאה עם טווחים, וערכים מתויגים לגיבוי ----------
+
+@dataclass(frozen=True)
+class ProfileReading:
+    fields: dict[str, object]                 # כל מה שזוהה (לקריאה מלאה)
+    spans: list[Span]
+    phrases: list[str]                        # צורת העיסוק שנמצאה בטקסט
+    labelled: dict[str, object]               # רק ערכים מתויגים חד-משמעיים (לגיבוי)
+
+
+_SEP = r"\s*[:\-–]?\s*"
+# מילת מפתח ומיד אחריה מספר אחד בדיוק
+_LABELLED = (
+    ("base_salary", rf"(?:שכר\s*(?:ה)?בסיס|שכר|ברוטו|משכורת){_SEP}{_NUM}"),
+    ("commissions", rf"עמלות{_SEP}{_NUM}"),
+    ("bonus", rf"בונוס(?:ים)?{_SEP}{_NUM}"),
+    ("pension_percent", rf"פנסי(?:ה|ת){_SEP}{_NUM}"),
+    ("study_fund_percent", rf"(?:קרן\s*)?השתלמות{_SEP}{_NUM}"),
+    ("credit_points", rf"{_NUM}\s*נקוד(?:ות|ה)\s*(?:ה)?זיכוי"),
+    ("credit_points", rf"נקודות\s*(?:ה)?זיכוי{_SEP}{_NUM}"),
+    ("children_under_23", r"(\d+)\s*(?:ילדים|ילדות|ילד)(?![א-ת])"),
+)
+_LABELLED_ZERO = (
+    ("commissions", r"(?:אין|בלי|ללא)\s+(?:לי\s+)?עמלות"),
+    ("bonus", r"(?:אין|בלי|ללא)\s+(?:לי\s+)?בונוס"),
+    ("study_fund_percent", r"(?:אין|בלי|ללא)\s+(?:לי\s+)?(?:קרן\s+)?השתלמות"),
+    ("children_under_23", r"(?:אין|בלי|ללא)\s+(?:לי\s+)?ילדים"),
+)
+_SECOND_NUMBER_RE = re.compile(r"^\s*(?:או|עד|-|–|/)\s*\d")
+_NEGATIONS = {"לא"}
+
+
+def _labelled_values(text: str, cues: Iterable[str]) -> dict[str, object]:
+    """ערכים שאין ספק בהם: מילת מפתח + מספר אחד, בלי שלילה, תיקון, הערכה או מספר שני."""
+    stop = _NEGATIONS | {w for c in cues for w in words(c)}
+    found: dict[str, set] = {}
+    for field, pattern in _LABELLED:
+        for m in re.finditer(pattern, text):
+            before = words(text[:m.start()])[-1:]
+            after = text[m.end():]
+            if (before and before[0] in stop) or _SECOND_NUMBER_RE.match(after) \
+                    or is_approximate(text[max(0, m.start() - 15):m.end()], after):
+                found.setdefault(field, set()).add(None)        # לא חד-משמעי
+                continue
+            value = m.group(1).replace(",", "")
+            found.setdefault(field, set()).add(int(value) if field == "children_under_23" else value)
+    for field, pattern in _LABELLED_ZERO:
+        for m in re.finditer(pattern, text):
+            before = words(text[:m.start()])[-1:]
+            found.setdefault(field, set()).add(None if before and before[0] in stop else 0)
+    # שדה עם יותר מערך אחד, או עם מופע לא חד-משמעי — לא נשמר
+    return {f: next(iter(v)) for f, v in found.items() if len(v) == 1 and None not in v}
+
+
+def read_profile(text: str, occupations: Iterable[str], cues: Iterable[str] = ()) -> ProfileReading:
+    fields: dict[str, object] = {}
+    spans: list[Span] = []
+    phrases: list[str] = []
+    hit = occupation_match(occupations, text)
+    if hit:
+        fields["occupation"], variant = hit
+        phrases.append(variant)
     for field, pattern in _PROFILE_PATTERNS:          # סכום מפורש קודם ל"אין"
         m = re.search(pattern, text)
         if m and is_approximate(m.group(0), text[m.end(1):]):
             continue                                   # "בערך 18 וחצי" — לא מנחשים; המודל יקרא
-        if m and field not in found:
+        if m and field not in fields:
             value = m.group(1).replace(",", "")
-            found[field] = int(value) if field == "children_under_23" else value
+            fields[field] = int(value) if field == "children_under_23" else value
+            spans.append(m.span())
     for field, pattern in _ZERO_PATTERNS:
-        if field not in found and re.search(pattern, text):
-            found[field] = 0
-    return found
+        m = re.search(pattern, text)
+        if m and field not in fields:
+            fields[field] = 0
+            spans.append(m.span())
+        elif m and fields.get(field) == 0:
+            spans.append(m.span())
+    return ProfileReading(fields, spans, phrases, _labelled_values(text, cues))
+
+
+def parse_profile_fields(text: str, occupations: Iterable[str]) -> dict[str, object]:
+    """כמה שדות פרופיל מהודעה חופשית אחת. רק מה שנאמר במפורש; שום ברירת מחדל."""
+    return read_profile(text, occupations).fields
 
 
 def match_group(groups: Iterable[str], text: str) -> Optional[str]:

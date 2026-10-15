@@ -15,7 +15,8 @@ from .conftest import CONFIG, make_client
 NOA_PROFILE = ("אני מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, "
                "2.75 נקודות זיכוי, 2 ילדים")
 # הקורא מבין שכר ופנסיה, אבל השאלה (עיסוק) לא נענתה → לא "מלא" → המודל; בכישלון — הגיבוי
-PARTIAL_PROFILE = "שכר בסיס 18,500 ופנסיה 6%"
+# שכר ופנסיה מתויגים, ועוד מילה שהקורא לא מבין → לא נקרא במלואו → המודל; בגיבוי — רק המתויגים
+PARTIAL_PROFILE = "שכר בסיס 18,500 ופנסיה 6%, ואני במשמרות"
 NOA_SAVE = call("save_profile", occupation="מנהלת מוצר", base_salary=18500, commissions=0, bonus=0,
                 pension_percent=6, study_fund_percent=2.5, credit_points=2.75, children_under_23=2)
 
@@ -131,6 +132,7 @@ def test_provider_failure_on_first_round_uses_fallback_parser(sessions):
     assert turn.path == "fallback" and turn.source == "template"
     profile = svc.view(turn.conversation_id, token).state.profile
     assert (profile.base, profile.pension_percent) == (18500, 6)
+    assert turn.reply.startswith("רשמתי: שכר בסיס 18,500 ₪, פנסיה 6%. אם משהו לא נכון, כתבו את התיקון.")
 
 
 def test_found_car_does_not_trigger_a_second_round(sessions):
