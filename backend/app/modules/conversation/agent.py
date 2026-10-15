@@ -661,6 +661,7 @@ class Agent:
             item.result["assumptions"] = [
                 confirmed_assumption(item.label, event.effective_date) if a == pending_text else a
                 for a in item.result.get("assumptions", [])]
+            item.result["copay_pending"] = False
             return rep_confirmed_text(item.label, event.effective_date)
         option = next((o for o in available_options(snap, state) if o.id == event.option_id), None)
         if option is None:

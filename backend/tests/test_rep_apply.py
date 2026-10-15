@@ -284,3 +284,24 @@ def test_padded_ids_are_trimmed(client):
     assert answer(client, f"%20{q['id']}%20", "350").status_code == 200
     assert client.get(f"/api/conversations/%20{cid}%20/updates").status_code == 200
     assert client.get(f"/api/conversations/%20{cid}%20").status_code == 200
+
+
+# ---------- נוסח ההמתנה מהתרחיש הרשמי ----------
+
+PENDING_SENTENCE = ("חסר לי אישור לסכום ההשתתפות שלך ב-ATTO 3 (2025). חישבתי לפי הסכום בקטלוג (300 ₪) "
+                    "ושלחתי שאלה לנציג התחבורה — החלופה תתעדכן כשתגיע תשובה.")
+
+
+def test_pending_copay_uses_the_scenario_wording_until_the_rep_confirms(client):
+    cid, body = start(client, *NOA)
+    assert PENDING_SENTENCE in body["reply"]
+    assert "לפי הקטלוג — ממתינה לאישור נציג" not in body["reply"]      # במקום שורת ההנחה הכללית
+    assert body["results"][0]["copay_pending"] is True
+    assert "השתתפות ב-ATTO 3 (2025) לפי הקטלוג — ממתינה לאישור נציג" in body["results"][0]["assumptions"]
+    [q] = open_questions(client)
+    answer(client, q["id"], q["suggested_value"])
+    updates = client.get(f"/api/conversations/{cid}/updates").json()
+    assert updates["results"][0]["result"]["copay_pending"] is False
+    body = say(client, cid, "אטו 3")                                   # חישוב מאוחר יותר
+    assert PENDING_SENTENCE not in body["reply"]
+    assert "השתתפות ב-ATTO 3 (2025) — אושר על ידי נציג התחבורה" in body["reply"]

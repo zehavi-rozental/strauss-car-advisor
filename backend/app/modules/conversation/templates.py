@@ -217,18 +217,32 @@ def _result_lines(label: str, r: dict[str, Any]) -> list[str]:
     return out + _why(r.get("drivers") or [])
 
 
+def pending_copay_text(label: str, amount: Any) -> str:
+    """נוסח התרחיש הרשמי, כשההשתתפות בחלופה לפי הקטלוג ממתינה לנציג. הסכום — מתוצאת המנוע."""
+    return (f"חסר לי אישור לסכום ההשתתפות שלך ב-{label}. חישבתי לפי הסכום בקטלוג ({money(amount)}) "
+            "ושלחתי שאלה לנציג התחבורה — החלופה תתעדכן כשתגיע תשובה.")
+
+
 def results_text(state: ConversationState) -> str:
     out: list[str] = []
     assumptions: list[str] = []
+    pending: list[str] = []
     today: Optional[str] = None
     for item in state.results:
         r = item.result
         if r["today"] and today is None:
             today = money(r["today"]["net_display"])
         out += _result_lines(item.label, r)
-        assumptions += [a for a in r.get("assumptions", []) if a not in assumptions]
+        shown = r.get("assumptions", [])
+        if r.get("copay_pending") and r["status"] == "OK" and r.get("alternative"):
+            # במקום שורת ההנחה הכללית — המשפט מהתרחיש (ההנחה עצמה נשארת בתוצאה, לאישור הנציג)
+            pending.append(pending_copay_text(item.label, r["alternative"]["copay"]))
+            shown = [a for a in shown if a != f"השתתפות ב-{item.label} לפי הקטלוג — ממתינה לאישור נציג"]
+        assumptions += [a for a in shown if a not in assumptions]
     head = f"הנה ההשוואה (נטו משוער היום: {today}):" if today else "הנה ההשוואה:"
     text = head + "\n" + "\n".join(out)
+    if pending:
+        text += "\n\n" + "\n".join(pending)
     if assumptions:
         text += "\n\nהנחות:\n" + "\n".join(f"- {a}" for a in assumptions)
     return text
