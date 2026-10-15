@@ -88,6 +88,7 @@ def create_conversation(request: Request, response: Response) -> dict[str, Any]:
 
 @router.post("/conversations/{conversation_id}/messages")
 def send_message(conversation_id: str, body: MessageIn, request: Request) -> dict[str, Any]:
+    conversation_id = conversation_id.strip()
     ctx = context(request)
     text = body.text.strip()
     if not text:
@@ -110,6 +111,7 @@ def send_message(conversation_id: str, body: MessageIn, request: Request) -> dic
 @router.get("/conversations/{conversation_id}/updates")
 def get_updates(conversation_id: str, request: Request, after: int = 0) -> dict[str, Any]:
     """לתשאול כל כמה שניות: הודעות אחרי seq, שלב, שאלות לנציג שעדיין פתוחות ותוצאות אחרונות."""
+    conversation_id = conversation_id.strip()
     try:
         return _service(request).updates(conversation_id, request.cookies.get(COOKIE, ""), after)
     except ConversationNotFound:
@@ -118,6 +120,7 @@ def get_updates(conversation_id: str, request: Request, after: int = 0) -> dict[
 
 @router.get("/conversations/{conversation_id}")
 def get_conversation(conversation_id: str, request: Request) -> dict[str, Any]:
+    conversation_id = conversation_id.strip()
     try:
         view = _service(request).view(conversation_id, request.cookies.get(COOKIE, ""))
     except ConversationNotFound:

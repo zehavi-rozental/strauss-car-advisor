@@ -48,6 +48,7 @@ from .templates import (
     range_problem_text,
     render,
     rep_changed_text,
+    rep_amount_assumption,
     rep_confirmed_text,
     rep_current_text,
     rep_maintenance_text,
@@ -150,6 +151,16 @@ def _clarification_answer(text: str) -> Optional[str]:
     if ws == ["לא"] or "חלופה" in ws:
         return "alternative"
     return None
+
+
+def _with_assumptions(result: Any, state: ConversationState, option_id: str, label: str) -> Any:
+    """הנחות שהמנוע לא יודע עליהן: ערכים משוערים, והשתתפות שהנציג אישר או קבע."""
+    extra = approximate_assumptions(state)
+    confirmed = state.confirmed_copays.get(option_id)
+    if confirmed is not None:
+        extra.append(rep_amount_assumption(label, confirmed.value, confirmed.effective_date) if confirmed.changed
+                     else confirmed_assumption(label, confirmed.effective_date))
+    return result.model_copy(update={"assumptions": result.assumptions + extra}) if extra else result
 
 
 _YES = {"כן", "נכון", "בדיוק", "אכן", "yes"}
@@ -505,7 +516,9 @@ class Agent:
         amount = Decimal(event.value) if field != MissingField.OCCUPATION_OPT_OUT else None
 
         if field == MissingField.NEW_CAR_COPAY:
-            state.confirmed_copays[event.option_id] = ConfirmedCopay(value=amount, effective_date=event.effective_date)
+            default = next((c.default_copay for c in snapshot.catalog if c.catalog_code == event.option_id), None)
+            state.confirmed_copays[event.option_id] = ConfirmedCopay(
+                value=amount, effective_date=event.effective_date, changed=default is None or amount != default)
             line = self._apply_new_car_copay(ctx, event, amount, record_run)
             if line:
                 lines.append(line)
@@ -571,7 +584,8 @@ class Agent:
             return None
         employee, current, occupation = engine_inputs(snap, state)
         alternative = option_state(option, snap.extensions.copay_policy, amount)
-        result = evaluate(employee, current, alternative, snap.calc, occupation)
+        result = _with_assumptions(evaluate(employee, current, alternative, snap.calc, occupation), state,
+                                   option.id, option.label)
         inputs = {"employee": employee.model_dump(mode="json"), "current": current.model_dump(mode="json"),
                   "alternative": alternative.model_dump(mode="json"),
                   "occupation": occupation.model_dump(mode="json") if occupation else None}
@@ -598,10 +612,8 @@ class Agent:
                 continue
             confirmed = state.confirmed_copays.get(option_id)
             alternative = option_state(option, policy, confirmed.value if confirmed else None)
-            result = evaluate(employee, current, alternative, snap.calc, occupation)
-            approximate = approximate_assumptions(state)
-            if approximate:
-                result = result.model_copy(update={"assumptions": result.assumptions + approximate})
+            result = _with_assumptions(evaluate(employee, current, alternative, snap.calc, occupation), state,
+                                       option_id, option.label)
             if option.car is None and state.profile.rep_opt_out_allowed is False:
                 result = result.model_copy(update={"reason": OPT_OUT_DENIED})   # לפי תשובת הנציג
             inputs = {

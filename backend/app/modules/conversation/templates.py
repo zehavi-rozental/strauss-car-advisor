@@ -184,6 +184,11 @@ def confirmed_assumption(label: str, effective: Optional[date]) -> str:
     return f"השתתפות ב-{label} — אושר על ידי נציג התחבורה{_effective(effective)}"
 
 
+def rep_amount_assumption(label: str, amount: Decimal, effective: Optional[date]) -> str:
+    """הסכום שהנציג קבע (שונה מהקטלוג) — מופיע בהנחות של כל חישוב של החלופה."""
+    return f"השתתפות ב-{label}: {money(amount)} לפי נציג התחבורה{_effective(effective)}"
+
+
 def rep_confirmed_text(label: str, effective: Optional[date]) -> str:
     return f"נציג התחבורה אישר את ההשתתפות ב-{label}{_effective(effective)}."
 

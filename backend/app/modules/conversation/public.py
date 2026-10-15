@@ -110,7 +110,7 @@ def _message_json(m: Any) -> dict[str, Any]:
 
 def _uuid(value: str) -> uuid.UUID:
     try:
-        return uuid.UUID(str(value))
+        return uuid.UUID(str(value).strip())
     except ValueError as exc:
         raise ConversationNotFound() from exc
 

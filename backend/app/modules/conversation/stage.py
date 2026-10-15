@@ -105,6 +105,7 @@ class ConfirmedCopay(BaseModel):
 
     value: Decimal
     effective_date: Optional[date] = None
+    changed: bool = False       # הנציג קבע סכום שונה מהקטלוג
 
 
 class PendingConfirmation(BaseModel):

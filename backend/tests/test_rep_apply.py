@@ -238,3 +238,47 @@ def test_two_answers_at_once_exactly_one_succeeds(tmp_path):
         t.join(timeout=20)
     assert sorted(outcomes) == ["conflict", "ok"]
     assert cases.get(q.id).answer_value in ("350", "400")
+
+
+# ---------- הסכום של הנציג כהנחה, ומזהים עם רווחים ----------
+
+def test_rep_amount_is_an_assumption_now_and_in_later_calculations(client):
+    cid, _ = start(client, *NOA)
+    [q] = open_questions(client)
+    seq = last_seq(client, cid)
+    answer(client, q["id"], "350", effective_date="2027-01-01")
+    expected = "השתתפות ב-ATTO 3 (2025): 350 ₪ לפי נציג התחבורה (בתוקף מ-01.01.2027)"
+    updates = client.get(f"/api/conversations/{cid}/updates?after={seq}").json()
+    assert expected in updates["results"][0]["result"]["assumptions"]
+    body = say(client, cid, "אטו 3")                                  # חישוב מאוחר יותר
+    assert expected in body["results"][0]["assumptions"]
+    assert expected in body["reply"]
+
+
+def test_rep_amount_without_a_date_has_no_date_part(client):
+    cid, _ = start(client, *NOA)
+    [q] = open_questions(client)
+    seq = last_seq(client, cid)
+    answer(client, q["id"], "350")
+    assumptions = client.get(f"/api/conversations/{cid}/updates?after={seq}").json()["results"][0]["result"]["assumptions"]
+    assert "השתתפות ב-ATTO 3 (2025): 350 ₪ לפי נציג התחבורה" in assumptions
+    assert not any("בתוקף" in a for a in assumptions)
+
+
+def test_a_confirmation_keeps_its_wording_in_later_calculations(client):
+    cid, _ = start(client, *NOA)
+    [q] = open_questions(client)
+    answer(client, q["id"], q["suggested_value"])
+    body = say(client, cid, "אטו 3")
+    assumptions = body["results"][0]["assumptions"]
+    assert "השתתפות ב-ATTO 3 (2025) — אושר על ידי נציג התחבורה" in assumptions
+    assert not any("לפי נציג התחבורה" in a for a in assumptions)
+
+
+def test_padded_ids_are_trimmed(client):
+    cid, _ = start(client, *NOA)
+    [q] = open_questions(client)
+    assert client.get(f"/api/rep/questions/%20{q['id']}%20", headers=AUTH).status_code == 200
+    assert answer(client, f"%20{q['id']}%20", "350").status_code == 200
+    assert client.get(f"/api/conversations/%20{cid}%20/updates").status_code == 200
+    assert client.get(f"/api/conversations/%20{cid}%20").status_code == 200

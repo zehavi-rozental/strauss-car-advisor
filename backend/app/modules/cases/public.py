@@ -125,7 +125,7 @@ def _view(row: RepQuestionRow) -> QuestionView:
 
 def _uuid(value: str) -> uuid.UUID:
     try:
-        return uuid.UUID(str(value))
+        return uuid.UUID(str(value).strip())
     except ValueError as exc:
         raise QuestionNotFound() from exc
 

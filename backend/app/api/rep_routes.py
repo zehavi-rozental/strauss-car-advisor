@@ -84,6 +84,7 @@ def list_questions(request: Request, status: str = "OPEN", _: str = Depends(rep_
 
 @router.get("/questions/{question_id}")
 def get_question(question_id: str, request: Request, _: str = Depends(rep_name)) -> dict[str, Any]:
+    question_id = question_id.strip()
     try:
         return question_json(context(request).cases.get(question_id))
     except QuestionNotFound:
@@ -93,6 +94,7 @@ def get_question(question_id: str, request: Request, _: str = Depends(rep_name))
 @router.post("/questions/{question_id}/answer")
 def answer_question(question_id: str, body: AnswerIn, request: Request,
                     name: str = Depends(rep_name)) -> dict[str, Any]:
+    question_id = question_id.strip()
     effective: Optional[date] = None
     if body.effective_date:
         try:
