@@ -90,6 +90,8 @@ Rules:
 - Never fill a field the employee did not mention: leave it out, the system will ask for it.
 - If the employee does not know their current copay or use value, set the matching *_unknown flag.
 - Car models in Latin letters as on the tax-authority list (e.g. "קורולה קרוס" -> "COROLLA CROSS").
+- occupation: only a job title the employee names (e.g. "מנהלת מוצר"). Never a work pattern, place or
+  description ("במשמרות", "במפעל", "מהבית") — leave occupation out.
 - Never guess. Never expand a shortened number: for a salary, "18" or "בערך 18" is NOT 18,000. Pass the number
   exactly as written; the system checks it and asks the employee to confirm.
 - If the employee gives a value as an estimate (כ-, בערך, בסביבות, בממוצע, משתנות), pass it and list that
@@ -245,6 +247,35 @@ def _cross_check(ctx: ToolContext, call: ToolCall, expected: dict[str, Any], con
     return call
 
 
+def _occupation_answer(state: ConversationState, text: str) -> Optional[str]:
+    """תשובה ל"לא מצאתי את ... בטבלה": "yes", שם הצעה (לפי מספרה), "no", או None (תשובה אחרת — נקראת כרגיל)."""
+    ws = words(text)
+    pending = state.pending_occupation
+    if not ws or len(ws) > 5 or pending is None:
+        return None
+    if ws[0] in _YES:
+        return "yes"
+    if len(ws) == 1 and ws[0].isdigit() and 1 <= int(ws[0]) <= len(pending.suggestions):
+        return pending.suggestions[int(ws[0]) - 1]
+    if ws == ["לא"]:
+        return "no"
+    return None
+
+
+def _occupation_plan(ctx: ToolContext, answer: str) -> ParserPlan:
+    """yes → נשמר כתפקיד שאינו בטבלה (קבוצת הזכאות נשאלת אחר כך); הצעה → התפקיד מהטבלה וקבוצתו;
+    no → שואלים שוב על התפקיד."""
+    pending = ctx.state.pending_occupation
+    ctx.state.pending_occupation = None
+    if answer == "no" or pending is None:
+        return ParserPlan(complete=True, direct=True)
+    if answer == "yes":
+        ctx.allow_unknown_occupation = True
+        return ParserPlan([ToolCall("save_profile", {"occupation": pending.text}, "occupation_confirmed")],
+                          True, direct=True)
+    return ParserPlan([ToolCall("save_profile", {"occupation": answer}, "occupation_suggested")], True, direct=True)
+
+
 def _plan_notice(plan: ParserPlan, path: str) -> Optional[str]:
     """משפט מהקורא: כשפעל (parser), או כשהקריאות שלו רצו כגיבוי (fallback / templates)."""
     if path == "parser":
@@ -286,6 +317,8 @@ class Agent:
             before = self._start_correction(ctx)
         elif field_ == "confirmation":
             plan = _confirmation_plan(state, "כן" if ids[0] == "yes" else "לא") or ParserPlan(complete=True)
+        elif field_ == "occupation_confirmation":
+            plan = _occupation_plan(ctx, ids[0])
         else:
             state.pending_confirmation = None
             plan = ParserPlan(choice_calls(field_, ids, snapshot), True, direct=True)
@@ -306,8 +339,11 @@ class Agent:
             plan = correction
         elif state.pending_confirmation is not None and (confirmed := _confirmation_plan(state, text)) is not None:
             plan = confirmed                     # "כן" / "לא" על "התכוונת ל-18,000 ₪?"
+        elif state.pending_occupation is not None and (answer := _occupation_answer(state, text)) is not None:
+            plan = _occupation_plan(ctx, answer)  # "כן" / מספר הצעה / "לא" על "לא מצאתי את ... בטבלה"
         else:
             state.pending_confirmation = None    # תשובה אחרת: השאלה הקודמת כבר לא רלוונטית
+            state.pending_occupation = None
             # הקורא הדטרמיניסטי קודם. מה שהוא קורא במלואו לא מגיע למודל בכלל — מהיר ובלי תלות בספק.
             plan = fallback_plan(state, snapshot, text)
         return self._finish(ctx, history, text, plan, before, record_run)
@@ -367,7 +403,8 @@ class Agent:
         requests = dict(question_requests=ctx.question_requests, cancel_question_ids=ctx.cancel_question_ids)
         # ניסוח במודל רק לתוצאות או להודעה שלא הובנה (שאלה חופשית). השאלה הבאה בפרופיל/ברכב
         # היא תבנית: מהירה, ובלי סיכון לשומר המספרים.
-        checked = bool(problems) or state.pending_confirmation is not None   # בדיקת ערכים — תמיד תבנית
+        checked = (bool(problems) or state.pending_confirmation is not None     # בדיקת ערכים — תמיד תבנית
+                   or state.pending_occupation is not None)
         if not used_llm or not (just_calculated or not understood) or rep_opened or checked:
             return TurnOutcome(reply=draft, source="template", just_calculated=just_calculated, path=path,
                                **requests)

@@ -151,6 +151,13 @@ def range_problem_text(field: str, value: Decimal, side: str) -> str:
     return f"{_show(field, value)} נראה {'נמוך' if side == 'low' else 'גבוה'} מאוד {reason}. {follow_up}"
 
 
+def confirm_occupation_text(text: str, suggestions: list[str]) -> str:
+    if suggestions:
+        return (f"לא מצאתי את \"{text}\" בטבלת העיסוקים. התכוונת לאחד מאלה: {', '.join(suggestions)}? "
+                f"או כתבו את התפקיד שלך.")
+    return f"לא מצאתי את \"{text}\" בטבלת העיסוקים. זה התפקיד שלך? אם לא, כתבו את התפקיד שלך."
+
+
 def confirm_value_text(field: str, value: Decimal) -> str:
     return f"התכוונת ל-{_show(field, value)}?"
 
@@ -264,6 +271,9 @@ def render(state: ConversationState, snapshot: RulesSnapshot, *, understood: boo
     if state.pending_confirmation is not None:
         pending = state.pending_confirmation
         parts.append(confirm_value_text(pending.field, pending.value))
+        return "\n\n".join(parts)
+    if state.pending_occupation is not None:
+        parts.append(confirm_occupation_text(state.pending_occupation.text, state.pending_occupation.suggestions))
         return "\n\n".join(parts)
     if not understood:
         parts.append("לא הצלחתי להבין את התשובה.")

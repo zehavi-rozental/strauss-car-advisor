@@ -27,6 +27,7 @@ _QUICK = {"none": "אין", "unknown": "לא ידוע", "no_car": "אין רכב
 _NONE_ALLOWED = {"commissions", "bonus", "study_fund_percent", "children", "copay"}
 _UNKNOWN_ALLOWED = {"use_value", "copay"}
 _UNKNOWN_FLAGS = {"use_value": "current_use_value_unknown", "copay": "current_copay_unknown"}
+OCCUPATION_YES = {"id": "yes", "label": "כן, זה התפקיד שלי"}
 YES_NO = [{"id": "yes", "label": "כן"}, {"id": "no", "label": "לא"}]
 CLARIFY = [{"id": "mine", "label": "זה הרכב שלי"}, {"id": "alternative", "label": "חלופה לבדיקה"}]
 INVALID = "הבחירה אינה מהאפשרויות שהוצעו"
@@ -65,6 +66,10 @@ def build_expects(state: ConversationState, snapshot: RulesSnapshot) -> dict[str
     stage = next_stage(state)
     if state.pending_confirmation is not None:
         return _expects("confirmation", "choice", YES_NO)
+    if state.pending_occupation is not None:
+        pending = state.pending_occupation
+        return _expects("occupation_confirmation", "choice",
+                        [{"id": n, "label": n} for n in pending.suggestions] + [OCCUPATION_YES])
     if stage == Stage.WAITING_FOR_REP:
         if state.pending_clarification is not None:
             return _expects("clarification", "choice", CLARIFY)

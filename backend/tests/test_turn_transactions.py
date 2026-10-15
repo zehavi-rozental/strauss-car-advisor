@@ -136,7 +136,7 @@ def test_concurrent_turns_one_wins_one_conflicts(tmp_path):
         contents = [m.content for m in s.scalars(select(MessageRow).order_by(MessageRow.seq))]
     assert (row.version, row.message_count) == (1, 1)
     assert len(contents) == 3 and contents[1] == winners[0] and losers[0] not in contents
-    assert row.state["profile"]["occupation_text"] == winners[0]
+    assert row.state["pending_occupation"]["text"] == winners[0]       # לא בטבלה — ממתין לאישור
 
     # השיחה ממשיכה רגיל אחרי ההתנגשות
     svc.llm = LLMChain()

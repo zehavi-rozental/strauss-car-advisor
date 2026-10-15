@@ -24,11 +24,13 @@ cases:
   - text: "מהנדסת תהליך במפעל"
     allowed: [{occupation: "מהנדס/ת תהליך"}]
   - text: "מנהלת מוצרר"                       # שגיאת הקלדה
-    allowed: [{occupation: "מנהל/ת מוצר"}, {occupation_text: "מנהלת מוצרר", occupation_unknown: true}]
-  - text: "קופאית"                            # לא בטבלה → נשאלת קבוצת הזכאות
-    allowed: [{occupation_text: "קופאית", occupation_unknown: true}]
+    allowed: [{occupation: "מנהל/ת מוצר"}, {confirm_occupation: "מנהלת מוצרר"}]
+  - text: "קופאית"                            # לא בטבלה → לא נשמר; שואלים אם זה התפקיד
+    allowed: [{confirm_occupation: "קופאית"}]
+  - text: "מנהלת מוצרים"                      # כמעט בטבלה → מציעים את "מנהל/ת מוצר", לא מנחשים
+    allowed: [{confirm_occupation: "מנהלת מוצרים"}]
   - text: "עובדת במשאבי אנוש"                 # לא "מנהלת" — אסור להתאים למנהל/ת משאבי אנוש
-    allowed: [{occupation_text: "עובדת במשאבי אנוש", occupation_unknown: true}]
+    allowed: [{confirm_occupation: "עובדת במשאבי אנוש"}]
   - text: "לא יודעת"
     allowed: []
   - text: "אני לא מנהלת מוצר"

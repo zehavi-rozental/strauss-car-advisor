@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import difflib
 import itertools
 import re
 from dataclasses import dataclass
@@ -135,9 +136,25 @@ def occupation_match(names: Iterable[str], text: str) -> Optional[tuple[str, str
         if _norm(name) == _norm(text):
             return name, text
         for variant in occupation_variants(name):
-            if variant in t and (best is None or len(variant) > len(best[1])):
+            # מילים שלמות (אות שימוש אחת מותרת): "מנהלת מוצרים" אינה "מנהל/ת מוצר" — מציעים, לא מנחשים
+            whole = re.search(rf"(?<![0-9a-zא-ת])[והבלכש]?{re.escape(variant)}(?![0-9a-zא-ת])", t)
+            if whole and (best is None or len(variant) > len(best[1])):
                 best = (name, variant)
     return best
+
+
+SIMILAR_OCCUPATION_RATIO = 0.7
+
+
+def similar_occupations(names: Iterable[str], text: str, limit: int = 3) -> list[str]:
+    """עד 3 שמות מהטבלה שדומים לטקסט (דמיון פשוט על המילים המנורמלות), הדומה ביותר קודם."""
+    t = _norm(text).replace("/", " ")
+    scored = []
+    for name in names:
+        score = max(difflib.SequenceMatcher(None, t, v).ratio() for v in occupation_variants(name))
+        if score >= SIMILAR_OCCUPATION_RATIO:
+            scored.append((score, name))
+    return [name for _, name in sorted(scored, key=lambda x: -x[0])[:limit]]
 
 
 def match_occupation(names: Iterable[str], text: str) -> Optional[str]:

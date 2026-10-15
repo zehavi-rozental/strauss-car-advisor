@@ -100,6 +100,8 @@ def test_car_not_found_and_use_value_unknown_opens_rep_question(sessions):
 def test_unknown_occupation_asks_group_and_opt_out_goes_to_rep(sessions):
     svc = service(sessions)
     turn, token = talk(svc, ["אסטרונאוטית"])
+    assert "לא מצאתי את \"אסטרונאוטית\" בטבלת העיסוקים. זה התפקיד שלך?" in turn.reply   # לא נשמר בלי אישור
+    turn, _ = talk(svc, ["כן"], start=(turn, token))
     assert "קבוצת הזכאות" in turn.reply
     turn, _ = talk(svc, ["ג", *PROFILE_AFTER_OCCUPATION, "2", "COROLLA CROSS", "300"], start=(turn, token))
     assert turn.stage == Stage.CHOOSE_OPTIONS and "ויתור על רכב" in turn.reply

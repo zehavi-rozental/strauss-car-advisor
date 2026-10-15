@@ -108,6 +108,13 @@ class ConfirmedCopay(BaseModel):
     changed: bool = False       # הנציג קבע סכום שונה מהקטלוג
 
 
+class PendingOccupation(BaseModel):
+    """תפקיד שאינו בטבלת העיסוקים: לא נשמר עד שהעובד מאשר, או בוחר אחת מההצעות הדומות."""
+
+    text: str
+    suggestions: list[str] = Field(default_factory=list)   # עד 3 שמות מהטבלה
+
+
 class PendingConfirmation(BaseModel):
     """סכום מקוצר ("18" לשכר): לא מרחיבים בשקט — שואלים "התכוונת ל-18,000 ₪?" ושומרים רק אחרי "כן"."""
 
@@ -135,6 +142,7 @@ class ConversationState(BaseModel):
     applied_answers: list[str] = Field(default_factory=list)    # תשובות נציג שכבר יושמו (פעם אחת בלבד)
     pending_clarification: Optional[CarClarification] = None
     pending_confirmation: Optional[PendingConfirmation] = None
+    pending_occupation: Optional[PendingOccupation] = None
     queued_options: list[str] = Field(default_factory=list)     # חלופות לחישוב אחרי תשובת הנציג
 
 

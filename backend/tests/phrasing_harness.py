@@ -96,6 +96,7 @@ def project(state: ConversationState) -> dict[str, Any]:
         "selected": state.selected or None,
         "queued": state.queued_options or None,
         "confirm": f"{pending.field}={norm(pending.value)}" if pending else None,
+        "confirm_occupation": state.pending_occupation.text if state.pending_occupation else None,
         "waiting": state.pending_rep is not None or None,
         "clarify": state.pending_clarification.catalog_code if state.pending_clarification else None,
     }

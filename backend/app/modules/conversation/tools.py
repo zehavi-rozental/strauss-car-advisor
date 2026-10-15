@@ -31,7 +31,7 @@ from app.modules.rules.public import (
 from app.modules.vehicles.public import CurrentCarMatch, VehicleInfo, VehicleKey
 
 from .llm.port import ToolSpec
-from .parsing import match_drive, match_group, match_occupation, parse_decimal
+from .parsing import match_drive, match_group, match_occupation, parse_decimal, similar_occupations
 from .stage import (
     MAX_OPTIONS,
     OPT_OUT_ID,
@@ -39,6 +39,7 @@ from .stage import (
     ConversationState,
     CurrentCar,
     PendingConfirmation,
+    PendingOccupation,
     missing_current_car,
     missing_profile,
 )
@@ -64,6 +65,8 @@ class ToolContext:
     # ערכים שנדחו בבדיקת הסבירות: (שדה, ערך, "low" / "high")
     range_problems: list[tuple[str, Decimal, str]] = field(default_factory=list)
     get_vehicle: Optional[VehicleGetter] = None
+    # העובד אישר תפקיד שאינו בטבלה ("כן, זה התפקיד שלי") — רק הקוד מדליק את זה, לא המודל
+    allow_unknown_occupation: bool = False
 
 
 class ToolError(Exception):
@@ -170,10 +173,17 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
             p.occupation, p.occupation_text, p.occupation_unknown = name, None, False
             p.group = snap.occupations[name].group
             saved.append("occupation")
-        else:
+        elif ctx.allow_unknown_occupation:
             p.occupation, p.occupation_text, p.occupation_unknown = None, args.occupation.strip()[:80], True
             p.group = None
+            ctx.state.pending_occupation = None
             saved.append("occupation_unknown")
+        else:
+            # לא בטבלה: לא נשמר. שואלים — עם עד 3 הצעות דומות מהטבלה
+            text = args.occupation.strip()[:80]
+            ctx.state.pending_occupation = PendingOccupation(
+                text=text, suggestions=similar_occupations(snap.occupations.keys(), text))
+            ignored.append({"field": "occupation", "reason": "not in the occupations table; the employee is asked"})
 
     if args.eligibility_group:
         group = match_group(snap.calc.group_order, args.eligibility_group)

@@ -12,7 +12,7 @@ cases:
          credit_points: 2.25, approximate: [commissions]}
   # מילה שהקורא לא מכיר → גיבוי: רק ערכים מתויגים
   - text: "שכר בסיס 18,500 ופנסיה 6%, ואני במשמרות"
-    allowed: [{base: 18500, pension: 6}]
+    allowed: [{base: 18500, pension: 6}, {base: 18500, pension: 6, confirm_occupation: "במשמרות"}]
   - text: "מנהלת מוצר, שכר בסיס 18,500, ואני גם בהריון"
     allowed: [{base: 18500}, {occupation: "מנהל/ת מוצר", base: 18500}]
   - text: "מפתח תוכנה, שכר 22,000, פנסיה 7%, קרן השתלמות 2.5%"
