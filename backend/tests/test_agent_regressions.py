@@ -194,9 +194,9 @@ def test_an_uncovered_question_offers_the_rep_and_shows_the_text_before_sending(
     turn, token = talk(svc, ["מנהלת מוצר"])
     cid = turn.conversation_id
     turn = svc.send(cid, token, UNCOVERED)
-    assert turn.reply.startswith("על זה אין לי מידע מדויק") and "שכר בסיס" in turn.reply
+    assert turn.reply.startswith("על זה אין לי מידע מדויק") and "שכר בסיס" not in turn.reply   # the offer only
     ask = [f for f in turn.expects["fields"] if f["field"] == "ask_rep"]
-    assert ask and ask[0]["choices"][0]["label"] == "לשאול את נציג התחבורה"
+    assert ask and [c["label"] for c in ask[0]["choices"]] == ["לשאול את הנציג", "להמשיך בלי"]
     turn = svc.send_choice(cid, token, ["ask_rep"], field="ask_rep")
     assert f"אשלח לנציג התחבורה: \"{UNCOVERED}\". לשלוח?" in turn.reply
     assert turn.expects["field"] == "rep_question" and svc.cases.list_open() == []    # nothing sent yet

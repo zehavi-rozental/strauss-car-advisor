@@ -403,6 +403,18 @@ def _send_answer(text: str) -> Optional[bool]:
     return True if ws[0] in _SEND else False if ws[0] in _CANCEL else None
 
 
+_ASK = {"לשאול", "תשאל", "שאל", "תשאלו", "כן", "בבקשה"}
+_SKIP = {"להמשיך", "המשך", "תמשיך", "נמשיך", "לא", "בלי", "דלג"}
+
+
+def _rep_offer_answer(text: str) -> Optional[bool]:
+    """Typed answer to "רוצים שאשאל את נציג התחבורה?": True / False / None (something else: read normally)."""
+    ws = words(text)
+    if not ws or len(ws) > 4:
+        return None
+    return True if ws[0] in _ASK else False if ws[0] in _SKIP else None
+
+
 def _ambiguity_answer(text: str) -> Optional[str]:
     """Typed answer to "אין לכם רכב, או שיש רכב וההשתתפות 0?"."""
     if no_car_span(text):
@@ -527,6 +539,10 @@ class Agent:
         before = next_stage(state)
         field_ = field or build_expects(state, snapshot)["field"]
         if field_ == "ask_rep":
+            if ids[0] == "skip":                     # "להמשיך בלי": back to the flow question
+                state.unanswered_question = None
+                return self._finish(ctx, (), label, ParserPlan(complete=True, direct=True), before, record_run,
+                                    choice=True)
             return self._prepare_rep_question(ctx)
         if field_ == "rep_question":
             return self._rep_question_decision(ctx, ids[0] == "send", record_run)
@@ -588,6 +604,11 @@ class Agent:
             plan = correction
         elif state.pending_rep_question is not None and (send := _send_answer(text)) is not None:
             return self._rep_question_decision(ctx, send, record_run)
+        elif state.unanswered_question is not None and (ask := _rep_offer_answer(text)) is not None:
+            if ask:
+                return self._prepare_rep_question(ctx)
+            state.unanswered_question = None
+            plan = ParserPlan(complete=True, direct=True)        # "להמשיך": the flow question
         elif state.pending_ambiguity is not None and (choice := _ambiguity_answer(text)) is not None:
             plan = _ambiguity_plan(state, choice)
         elif und.question_only and und.anything and und.ambiguity is None:
@@ -686,7 +707,7 @@ class Agent:
         rep_opened = any(r.mode == Mode.REQUIRED for r in ctx.question_requests)
         problems = [conflict_text(c) for c in conflicts] + [range_problem_text(*p) for p in ctx.range_problems]
         answers, terms = self._answers(snapshot, und)
-        lines = [*extra, *([UNANSWERED] if und.unanswered else []), *([snapshot.faq.redirect] if und.redirect else [])]
+        lines = [*extra, *([snapshot.faq.redirect] if und.redirect else [])]   # the rep offer is the ask (plan_reply)
         # a request the bot cannot do yet ("תשווה ביניהם" before the profile is complete): what is needed
         if (und.compare and not just_calculated and state.stage not in (Stage.PRESENTED, Stage.WAITING_FOR_REP)
                 and RANK_DEFERRED not in confirmations):

@@ -107,7 +107,7 @@ def tax_label(v: VehicleInfo) -> str:
     return v.label if v.model_description in ("", v.commercial_name) else f"{v.label} {v.model_description}"
 
 
-ASK_REP = {"id": "ask_rep", "label": "לשאול את נציג התחבורה"}
+ASK_REP = [{"id": "ask_rep", "label": "לשאול את הנציג"}, {"id": "skip", "label": "להמשיך בלי"}]
 REP_SEND = [{"id": "send", "label": "לשלוח"}, {"id": "cancel", "label": "לבטל"}]
 AMBIGUITY = [{"id": "no_car", "label": "אין לי רכב צמוד היום"}, {"id": "zero_copay", "label": "יש רכב, ההשתתפות 0"}]
 # questions with a closed set of answers: the client shows buttons for these only. Every other
@@ -123,7 +123,7 @@ def build_expects(state: ConversationState, snapshot: RulesSnapshot) -> dict[str
     for f in fields:
         f["closed"] = f["field"] in CLOSED or only_group
     if state.unanswered_question is not None and state.pending_rep_question is None:
-        fields.append({"field": "ask_rep", "type": "choice", "choices": [ASK_REP], "quick_replies": [],
+        fields.append({"field": "ask_rep", "type": "choice", "choices": ASK_REP, "quick_replies": [],
                        "max": None, "closed": True})
         expects["fields"] = fields
     expects["closed"] = bool(fields) and fields[0].get("closed", False)

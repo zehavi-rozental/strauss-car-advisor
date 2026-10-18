@@ -81,3 +81,62 @@ def test_rank_says_how_many_cars_were_ranked(sessions):
     turn, _, _ = talk(service(sessions), PROFILE + ["מה הכי משתלם לי?"])
     assert turn.results and turn.reply.startswith("בדקתי את כל ")
     assert "הרכבים שאתם זכאים להם. אלה 3 המשתלמים ביותר:" in turn.reply
+
+
+# ---------- 7. an FAQ answer only when the entry answers the question ----------
+
+SUNROOF = "יש אפשרות לרכב עם גג נפתח?"
+
+
+def test_an_unrelated_faq_entry_is_not_used(sessions):
+    """Live: the model mapped the sunroof question to "options" and the bot prefixed "אפשר להשוות עד 3…"."""
+    from app.modules.conversation.llm.fake import call
+
+    fake = FakeLLM().turn(call("note_message", questions=[{"text": SUNROOF, "faq_id": "options"}]))
+    svc = service(sessions, LLMChain([fake]))
+    turn, token = svc.start()
+    turn = svc.send(turn.conversation_id, token, SUNROOF)
+    assert "אפשר להשוות עד" not in turn.reply
+    assert turn.reply.startswith("על זה אין לי מידע מדויק. רוצים שאשאל את נציג התחבורה? התשובה תגיע לכאן.")
+    # and without an LLM: the same honest line, no FAQ entry
+    turn, _, _ = talk(service(sessions), [SUNROOF])
+    assert turn.reply.startswith("על זה אין לי מידע מדויק") and "אפשר להשוות עד" not in turn.reply
+
+
+def test_a_related_faq_id_from_the_llm_is_kept(sessions):
+    from app.modules.conversation.llm.fake import call
+
+    fake = FakeLLM().turn(call("note_message", questions=[{"text": "x", "faq_id": "credit_points"}]))
+    svc = service(sessions, LLMChain([fake]))
+    turn, token = svc.start()
+    turn = svc.send(turn.conversation_id, token, "ומה בעצם עושות נקודות הזיכוי במשכורת?")
+    assert "242" in turn.reply
+
+
+# ---------- 8. the rep offer is the turn's one call to action ----------
+
+def test_the_rep_offer_is_the_only_call_to_action(sessions):
+    turn, token, _ = talk(service(sessions), ["מנהלת מוצר", SUNROOF])
+    paragraphs = turn.reply.split("\n\n")
+    assert paragraphs[-1] == 'בחרו "לשאול את הנציג" או "להמשיך בלי".'
+    assert sum(p.startswith(("כתבו", "בחרו", "אפשר לכתוב")) for p in paragraphs) == 1
+    assert "שכר הבסיס" not in turn.reply and turn.expects["link"] is None          # no flow question, no link
+    ask = [f for f in turn.expects["fields"] if f["field"] == "ask_rep"][0]
+    assert ask["closed"] and [c["id"] for c in ask["choices"]] == ["ask_rep", "skip"]
+
+
+def test_continue_without_brings_the_flow_question(sessions):
+    svc = service(sessions)
+    turn, token, _ = talk(svc, ["מנהלת מוצר", SUNROOF])
+    turn = svc.send_choice(turn.conversation_id, token, ["skip"], field="ask_rep")
+    assert "שכר הבסיס" in turn.reply and svc.cases.list_open() == []
+    turn, token, _ = talk(svc, ["מנהלת מוצר", SUNROOF, "להמשיך"])           # typed
+    assert "שכר הבסיס" in turn.reply
+    turn, token, _ = talk(svc, ["מנהלת מוצר", SUNROOF, "18,500"])          # or just the answer
+    assert svc.view(turn.conversation_id, token).state.profile.base == 18500
+
+
+def test_ask_the_rep_typed(sessions):
+    svc = service(sessions)
+    turn, token, _ = talk(svc, ["מנהלת מוצר", SUNROOF, "לשאול"])
+    assert f"אשלח לנציג התחבורה: \"{SUNROOF}\". לשלוח?" in turn.reply

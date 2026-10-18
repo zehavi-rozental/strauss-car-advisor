@@ -541,7 +541,9 @@ def unknown_text(state: ConversationState, snapshot: RulesSnapshot, fields: Sequ
             lines.append(f"{_LEFTOVER_NAMES[f]}: {entry.where}")
     return "\n".join(lines)
 FIRST_LINE = "אפשר לכתוב כמו שמדברים, הכול בהודעה אחת או בכמה."
-UNANSWERED = "על זה אין לי מידע מדויק. אפשר לשאול את נציג התחבורה, והתשובה תגיע לכאן."
+UNANSWERED = "על זה אין לי מידע מדויק. רוצים שאשאל את נציג התחבורה? התשובה תגיע לכאן."
+# the offer is the turn's one call to action; the next question comes after the choice
+REP_OFFER_CTA = "בחרו \"לשאול את הנציג\" או \"להמשיך בלי\"."
 NOT_UNDERSTOOD = "לא הצלחתי להבין את התשובה."
 # examples are built only from fields that are still missing (never "פנסיה 6%" when the pension is known)
 _FIELD_EXAMPLE = {"commissions": "אין עמלות", "bonus": "בונוס 2,000", "pension_percent": "פנסיה 6%",
@@ -613,6 +615,8 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
     """The one call to action that ends a reply, and the one link it names (or None)."""
     if state.pending_rep_question is not None:
         return "בחרו \"לשלוח\" או \"לבטל\".", None
+    if state.unanswered_question is not None:
+        return REP_OFFER_CTA, None
     if state.pending_ambiguity is not None:
         return "בחרו אחת מהאפשרויות, או כתבו \"אין רכב\" או את דגם הרכב.", None
     if state.pending_confirmation is not None:
@@ -670,6 +674,8 @@ def placeholder_text(state: ConversationState, snapshot: RulesSnapshot) -> str:
     """The composer hint: mirrors the question on screen with an example."""
     if state.pending_rep_question is not None:
         return "למשל: לשלוח"
+    if state.unanswered_question is not None:
+        return "למשל: לשאול את הנציג"
     if state.pending_ambiguity is not None:
         return "למשל: אין רכב"
     if state.pending_confirmation is not None or state.pending_clarification is not None:
@@ -758,6 +764,9 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
     plan.cta = cta
     if state.pending_rep_question is not None:
         plan.ask.append(f"אשלח לנציג התחבורה: \"{state.pending_rep_question}\". לשלוח?")
+        return plan
+    if state.unanswered_question is not None:
+        plan.ask.append(UNANSWERED)            # one call to action: the offer; no flow question this turn
         return plan
     if state.pending_ambiguity is not None:
         plan.ask.append("לא בטוח שהבנתי: אין לכם רכב צמוד היום, או שיש רכב וההשתתפות שלכם היא 0?")

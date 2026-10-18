@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from typing import Any, Iterable, Optional
 
-from app.modules.rules.public import Faq, RulesSnapshot, words
+from app.modules.rules.public import Faq, FaqEntry, RulesSnapshot, words
 
 from .fallback import _RANK_RE, named_cars
 from .llm.port import ToolSpec
@@ -81,8 +81,19 @@ def _word_match(alias_word: str, word: str) -> bool:
 
 
 def _alias_hits(text: str, alias: str) -> bool:
-    ws = words(text)
-    return all(any(_word_match(a, w) for w in ws) for a in words(alias))
+    """Every word of the alias is in the text. Typos are tolerated only in a phrase ("סכם מדויק"); a single
+    word must be the word itself ("אפשרות" is not "אפשרויות")."""
+    ws, aw = words(text), words(alias)
+    if len(aw) == 1:
+        a = aw[0]
+        return any(w == a or (len(w) > 1 and w[0] in _PREFIX and w[1:] == a) for w in ws)
+    return all(any(_word_match(a, w) for w in ws) for a in aw)
+
+
+def entry_answers(entry: FaqEntry, text: str) -> bool:
+    """Relevance check for an FAQ id the LLM proposed: the question names the entry's topic (one of its
+    aliases or its term). Otherwise the entry does not answer it — no FAQ answer, only the honest line."""
+    return any(_alias_hits(text, a) for a in (*entry.aliases, entry.term))
 
 
 def match_faq(faq: Faq, text: str) -> Optional[str]:
@@ -240,7 +251,8 @@ def merge_note(u: Understanding, args: dict[str, Any], faq: Faq, text: str = "")
         if not isinstance(q, dict):
             continue
         fid = q.get("faq_id")
-        if fid in faq.ids:
+        entry = faq.get(fid) if isinstance(fid, str) else None
+        if entry is not None and entry_answers(entry, text or str(q.get("text") or "")):
             if fid not in u.faq_ids:
                 u.faq_ids.append(fid)
         elif not found_any and q.get("text") and str(q["text"]).strip() not in u.unanswered:

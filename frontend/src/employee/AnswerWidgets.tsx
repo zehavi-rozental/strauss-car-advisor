@@ -47,7 +47,7 @@ function WidgetBody({ w, fieldParam, disabled, onSend }:
   return (
     <div className="reply-row">
       {f.choices.map((c) => (
-        <button key={c.id} type="button" className={f.field === 'ask_rep' ? 'chip chip-quiet' : 'chip'}
+        <button key={c.id} type="button" className={c.id === 'skip' ? 'chip chip-quiet' : 'chip'}
                 disabled={disabled} onClick={() => one(c.id, c.label)}>
           {c.label}
         </button>
