@@ -90,7 +90,7 @@ def test_llm_recognises_a_free_worded_correction(sessions):
     svc, cid, token, old = waiting(sessions, LLMChain([fake]))
     fake.turn(call("match_current_car", model="COROLLA CROSS"))
     turn = svc.send(cid, token, "הרכב שלי זה קורולה קרוס הגבוהה")
-    assert fake.calls[-1].tools == ["match_current_car"]
+    assert [c.tools for c in fake.calls if c.tools][-1] == ["match_current_car"]
     assert state(svc, cid, token).current.catalog_code == "CAR-09"
     assert svc.cases.get(old.id).status == Status.CANCELLED
     assert turn.reply.startswith("זיהיתי: COROLLA CROSS (2025)")

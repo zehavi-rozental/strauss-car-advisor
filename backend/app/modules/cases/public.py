@@ -31,6 +31,7 @@ class MissingField(str, Enum):
     CURRENT_USE_VALUE = "CURRENT_USE_VALUE"
     OCCUPATION_OPT_OUT = "OCCUPATION_OPT_OUT"
     MAINTENANCE_AMOUNT = "MAINTENANCE_AMOUNT"
+    GENERAL_QUESTION = "GENERAL_QUESTION"   # a question the FAQ does not cover (TEXT, non-blocking)
 
 
 class Mode(str, Enum):

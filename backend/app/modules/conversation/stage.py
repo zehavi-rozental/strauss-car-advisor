@@ -153,6 +153,13 @@ class ConversationState(BaseModel):
     # "הכי משתלם" לפני שהרכב של היום והפרופיל ידועים: נבחר ומחושב ברגע שכל הפרטים ידועים
     rank_requested: bool = False
     last_asked: list[str] = Field(default_factory=list)         # שדות השאלה האחרונה שהוצגה (לזיהוי שאלה חוזרת)
+    # Q2 was answered in part (a later turn saved a Q2 field): only then its leftovers move to Q3.
+    # A turn that only asked a question ("מה זה נקודות זיכוי?") does not move on.
+    q2_answered: bool = False
+    misses: int = 0          # answers in a row that were not understood (never the same reply twice)
+    unanswered_question: Optional[str] = None    # a question the FAQ does not cover: "לשאול את נציג התחבורה"
+    pending_rep_question: Optional[str] = None   # the privacy-checked text shown before sending to the rep
+    pending_ambiguity: Optional[str] = None      # "no_car_or_zero_copay": asked with two buttons, never guessed
 
 
 # ---------- מה חסר ----------
@@ -207,7 +214,7 @@ CAR_DETAILS = ("car_choice", "use_value", "drive", "maintenance")   # שאלות
 def _q2_deferred(state: ConversationState) -> bool:
     """Q2 נשאלה ונענתה בחלקה: מה שחסר ממנה עובר ל-Q3 (לא שואלים את Q2 שוב)."""
     p = state.profile
-    return "Q2" in state.asked_groups and any(getattr(p, f) is not None for f in Q2_FIELDS)
+    return "Q2" in state.asked_groups and state.q2_answered and any(getattr(p, f) is not None for f in Q2_FIELDS)
 
 
 def needs_opt_out_occupation(state: ConversationState) -> bool:

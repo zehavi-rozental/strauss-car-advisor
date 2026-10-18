@@ -13,7 +13,7 @@ from app.modules.vehicles.public import VehicleInfo, VehicleKey
 
 from .llm.port import ToolCall
 from .stage import MAX_OPTIONS, ConversationState, Stage, next_stage, question_fields
-from .templates import DRIVE_HE, money
+from .templates import DRIVE_HE, LINK_LABELS, call_to_action, money, placeholder_text
 from .tools import available_options
 
 VehicleGetter = Callable[[VehicleKey], Optional[VehicleInfo]]
@@ -107,8 +107,38 @@ def tax_label(v: VehicleInfo) -> str:
     return v.label if v.model_description in ("", v.commercial_name) else f"{v.label} {v.model_description}"
 
 
+ASK_REP = {"id": "ask_rep", "label": "לשאול את נציג התחבורה"}
+REP_SEND = [{"id": "send", "label": "לשלוח"}, {"id": "cancel", "label": "לבטל"}]
+AMBIGUITY = [{"id": "no_car", "label": "אין לי רכב צמוד היום"}, {"id": "zero_copay", "label": "יש רכב, ההשתתפות 0"}]
+# questions with a closed set of answers: the client shows buttons for these only. Every other
+# question is answered by typing (free text first); the server still accepts a structured choice.
+CLOSED = {"confirmation", "occupation_confirmation", "clarification", "car_choice", "drive", "rep_question",
+          "ambiguity", "ask_rep"}
+
+
 def build_expects(state: ConversationState, snapshot: RulesSnapshot) -> dict[str, Any]:
+    expects = _build(state, snapshot)
+    fields = expects.get("fields") or []
+    only_group = [f["field"] for f in fields] == ["group"]
+    for f in fields:
+        f["closed"] = f["field"] in CLOSED or only_group
+    if state.unanswered_question is not None and state.pending_rep_question is None:
+        fields.append({"field": "ask_rep", "type": "choice", "choices": [ASK_REP], "quick_replies": [],
+                       "max": None, "closed": True})
+        expects["fields"] = fields
+    expects["closed"] = bool(fields) and fields[0].get("closed", False)
+    cta, link = call_to_action(state, snapshot) if next_stage(state) != Stage.WAITING_FOR_REP else ("", None)
+    expects["link"] = {"kind": link, "label": LINK_LABELS[link]} if link else None
+    expects["placeholder"] = placeholder_text(state, snapshot)
+    return expects
+
+
+def _build(state: ConversationState, snapshot: RulesSnapshot) -> dict[str, Any]:
     stage = next_stage(state)
+    if state.pending_rep_question is not None:
+        return _expects("rep_question", "choice", REP_SEND)
+    if state.pending_ambiguity is not None:
+        return _expects("ambiguity", "choice", AMBIGUITY)
     if state.pending_confirmation is not None:
         unusual = state.pending_confirmation.unusual
         return _expects("confirmation", "choice", CONFIRM_FIX if unusual else YES_NO)
@@ -128,7 +158,6 @@ def build_expects(state: ConversationState, snapshot: RulesSnapshot) -> dict[str
     if not items:
         return _expects(None, "none")
     return {**items[0], "fields": items}
-
 
 def _field_expects(question: str, state: ConversationState, snapshot: RulesSnapshot) -> dict[str, Any]:
     if question in ("occupation", "opt_out_occupation"):

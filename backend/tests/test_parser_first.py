@@ -8,7 +8,7 @@ from app.modules.conversation.llm.port import LLMError, LLMResponse
 from app.modules.conversation.public import ConversationService, LLMChain, Stage
 from app.modules.rules.public import RulesStore
 
-from .conftest import CONFIG
+from .conftest import CONFIG, without_cta
 from .test_llm_chain import Clock
 
 NOA = [
@@ -63,7 +63,7 @@ def test_shortened_salary_is_confirmed_not_expanded(sessions):
     turn = svc.send(turns[0].conversation_id, token, "שכר הבסיס שלי בערך 18 וחצי")
     state = svc.view(turn.conversation_id, token).state
     assert state.profile.base is None and fake.calls == []
-    assert turn.reply == "התכוונת ל-18,500 ₪?"
+    assert without_cta(turn.reply) == "התכוונת ל-18,500 ₪?"
     assert (state.pending_confirmation.field, state.pending_confirmation.value) == ("base_salary", 18500)
 
 
@@ -88,7 +88,7 @@ def test_bare_numbers_are_list_choices(sessions):
 def test_template_mode_does_not_guess_from_those_sentences(sessions):
     svc = service(sessions, LLMChain())
     turns, token = talk(svc, ["מנהלת מוצר", "שכר הבסיס שלי בערך 18 וחצי"])
-    assert turns[-1].reply == "התכוונת ל-18,500 ₪?"                  # שואלים — לא מרחיבים בשקט
+    assert without_cta(turns[-1].reply) == "התכוונת ל-18,500 ₪?"                  # שואלים — לא מרחיבים בשקט
     assert svc.view(turns[-1].conversation_id, token).state.profile.base is None
 
     turns, token = talk(svc, NOA[:2] + ["אני רוצה לבדוק 2 רכבים"])
@@ -245,7 +245,7 @@ def test_repeated_car_sentence_at_the_options_question_selects_nothing(sessions,
     state = svc.view(turn.conversation_id, token).state
     assert turn.stage == Stage.CHOOSE_OPTIONS and state.selected == [] and turn.results == []
     assert svc.cases.list_open() == []
-    assert "איזה רכבים להשוות" in turn.reply
+    assert "במילים פשוטות" in turn.reply and "הכי משתלם" in turn.reply      # not understood: simpler words
 
 
 @pytest.mark.parametrize("text, code", [("אני רוצה לבדוק את אטו 3", "CAR-10"), ("קורולה", "CAR-07"),
@@ -322,7 +322,7 @@ def test_official_scenario_sentence_saves_an_approximate_commission(sessions):
 def test_shortened_salary_needs_a_yes_before_it_is_saved(sessions):
     svc = service(sessions, LLMChain())
     turn, token = _send_all(svc, ["מנהלת מוצר", "בערך 18"])
-    assert turn.reply == "התכוונת ל-18,000 ₪?"
+    assert without_cta(turn.reply) == "התכוונת ל-18,000 ₪?"
     assert svc.view(turn.conversation_id, token).state.profile.base is None
     turn = svc.send(turn.conversation_id, token, "כן")
     p = svc.view(turn.conversation_id, token).state.profile
@@ -345,7 +345,7 @@ def test_an_llm_that_saves_base_18_is_caught_by_the_range_check(sessions):
     fake.turn(call("save_profile", base_salary=18))
     turn = svc.send(turn.conversation_id, token, "השכר שלי שמונה עשר")   # הקורא לא מבין → המודל
     assert fake.calls and svc.view(turn.conversation_id, token).state.profile.base is None
-    assert turn.reply == "התכוונת ל-18,000 ₪?" and turn.source == "template"
+    assert without_cta(turn.reply) == "התכוונת ל-18,000 ₪?" and turn.source == "template"
 
 
 @pytest.mark.parametrize("llm", [False, True])
@@ -356,7 +356,7 @@ def test_pension_60_is_rejected_and_the_problem_is_named(sessions, llm):
     turn, token = _send_all(svc, ["מנהלת מוצר, שכר בסיס 18,500",
                                   "אין עמלות ואין בונוס, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים",
                                   "יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש", "אטו 3"])
-    assert turn.reply == "בחרת להשוות: ATTO 3 (2025).\n\nכמה אחוזים מהשכר מופרשים ממך לפנסיה (חלק העובד)?"
+    assert without_cta(turn.reply) == "בחרת להשוות: ATTO 3 (2025).\n\nכמה אחוזים מהשכר מופרשים ממך לפנסיה (חלק העובד)?"
     if llm:
         fake.turn(call("save_profile", pension_percent=60))
         text = "ההפרשה שלי לפנסיה היא שישים"                       # הקורא לא מבין → המודל
@@ -364,13 +364,13 @@ def test_pension_60_is_rejected_and_the_problem_is_named(sessions, llm):
         text = "60%"
     turn = svc.send(turn.conversation_id, token, text)
     assert svc.view(turn.conversation_id, token).state.profile.pension_percent is None
-    assert turn.reply == "60% נראה גבוה מאוד להפרשה לפנסיה. כמה אחוזים מופרשים ממך לפנסיה?"
+    assert without_cta(turn.reply) == "60% נראה גבוה מאוד להפרשה לפנסיה. כמה אחוזים מופרשים ממך לפנסיה?"
 
 
 def test_low_salary_outside_any_reading_names_the_problem(sessions):
     svc = service(sessions, LLMChain())
     turn, token = _send_all(svc, ["מנהלת מוצר", "500,000"])
-    assert turn.reply == "500,000 ₪ נראה גבוה מאוד לשכר בסיס חודשי. מה הסכום המלא מהתלוש?"
+    assert without_cta(turn.reply) == "500,000 ₪ נראה גבוה מאוד לשכר בסיס חודשי. מה הסכום המלא מהתלוש?"
     assert svc.view(turn.conversation_id, token).state.profile.base is None
 
 
@@ -379,4 +379,4 @@ def test_other_fields_in_the_same_message_are_still_saved(sessions):
     turn, token = _send_all(svc, ["מנהלת מוצר, שכר בסיס 18,500, פנסיה 60%"])
     p = svc.view(turn.conversation_id, token).state.profile
     assert p.base == 18500 and p.pension_percent is None and p.occupation == "מנהל/ת מוצר"
-    assert turn.reply.startswith("זיהיתי: מנהל/ת מוצר, קבוצה ג.\n\n60% נראה גבוה מאוד להפרשה לפנסיה")
+    assert "זיהיתי: מנהל/ת מוצר, קבוצה ג.\n\n60% נראה גבוה מאוד להפרשה לפנסיה" in turn.reply

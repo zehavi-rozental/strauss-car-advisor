@@ -87,7 +87,7 @@ button:disabled { cursor: not-allowed; }
 .message-group { display: flex; flex-direction: column; gap: 10px; }
 
 .bubble {
-  max-inline-size: min(80%, 560px);
+  max-inline-size: min(75%, 560px);
   padding-block: 8px 4px;
   padding-inline: 12px;
   border-radius: var(--radius);
@@ -258,7 +258,8 @@ button:disabled { cursor: not-allowed; }
 
 @media (max-width: 520px) {
   .chat-header { padding-inline-end: 16px; padding-block-start: 44px; }
-  .bubble { max-inline-size: 88%; }
+  .bubble { max-inline-size: 85%; }
+  .progress { font-size: 11px; gap: 4px; }
   .delta { font-size: 28px; }
 }
 
@@ -383,3 +384,17 @@ table.compare tbody th { font-weight: 500; color: var(--muted); }
 .delta-headline { margin: 4px 0 2px; font-size: 22px; font-weight: 700; line-height: 1.25; }
 p.annual { margin: 0; }
 .swap-box h4 { margin: 0 0 6px; font-size: 14px; }
+
+/* ---------- free text first: the bot asks in words; few, quiet controls ---------- */
+.chat-header { flex-wrap: wrap; }
+.progress { list-style: none; display: flex; gap: 6px; margin: 0; padding: 0; flex-basis: 100%; font-size: 12px;
+  color: var(--muted); }
+.progress li { padding-block: 2px; padding-inline: 8px; border-radius: 999px; }
+.progress li + li::before { content: "·"; margin-inline-end: 6px; color: var(--line); }
+.progress li.is-done { color: var(--ink); }
+.progress li.is-current { color: var(--brand); font-weight: 700; background: color-mix(in srgb, var(--brand) 10%, transparent); }
+.chat-body { gap: 14px; }
+.reply-buttons { display: flex; flex-direction: column; gap: 8px; }
+.link-button { align-self: flex-start; background: none; border: none; padding: 2px 4px; color: var(--brand);
+  font-size: 14px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.link-button:disabled { opacity: 0.5; cursor: default; }

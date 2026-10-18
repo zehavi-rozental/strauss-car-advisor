@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
-// The backend's settings.max_message_chars (not exposed by the API); the server still enforces it.
+// Free text is the primary input: the box is always enabled (typing never waits); only sending waits for
+// the previous turn. The backend's settings.max_message_chars (not exposed by the API); the server still enforces it.
 export const MAX_MESSAGE_CHARS = 1000
 
 export function Composer({ disabled, onSend, placeholder = 'כתבו הודעה…' }:
@@ -19,7 +20,6 @@ export function Composer({ disabled, onSend, placeholder = 'כתבו הודעה�
         value={text}
         rows={1}
         maxLength={MAX_MESSAGE_CHARS}
-        disabled={disabled}
         placeholder={placeholder}
         aria-label="הודעה"
         onChange={(e) => setText(e.target.value)}

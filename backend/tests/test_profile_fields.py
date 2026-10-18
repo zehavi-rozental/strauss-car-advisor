@@ -10,7 +10,7 @@ from app.modules.conversation.llm.fake import FakeLLM
 from app.modules.conversation.public import ConversationService, LLMChain, Stage
 from app.modules.rules.public import RulesStore
 
-from .conftest import CONFIG, make_client
+from .conftest import CONFIG, make_client, without_cta
 
 Q1 = "אני מנהלת מוצר, שכר בסיס 18,500"
 Q2_FORM = {"commissions": 0, "bonus": 0, "pension_percent": 6, "study_fund_percent": "2.5",
@@ -55,7 +55,7 @@ def test_partial_form_saves_only_what_was_sent(sessions):
     assert (p.commissions, p.pension_percent) == (2400, 6)
     assert p.bonus is None and p.study_fund_percent is None and p.credit_points is None and p.children is None
     # השדות שלא נשלחו נשארים חסרים (הם לא הומצאו); הזרימה ממשיכה כמו אחרי תשובה חלקית ב-Q2
-    assert turn.reply.startswith("רשמתי:") and "חסר עוד" in turn.reply
+    assert turn.reply.startswith("רשמתי:") and "בונוס" in turn.reply and "נקודות זיכוי" in turn.reply
 
 
 @pytest.mark.parametrize("values", [{"pension_percent": 60}, {"children_under_23": 40}, {"commissions": -1},

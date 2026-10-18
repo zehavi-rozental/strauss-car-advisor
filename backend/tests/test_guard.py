@@ -31,43 +31,61 @@ def test_invented_number_is_blocked():
     assert not is_safe("כ-11,700 ₪", allowed)              # עיגול שהמודל המציא
 
 
-def _free_form_turn(sessions, user_text, reply):
-    """שאלה חופשית שלא מתאימה לאף שדה: אין שמירה, ולכן המודל מנסח (מקרה שבו עדיין יש ניסוח)."""
+CREDIT_Q = "מה זה נקודות זיכוי?"
+Q1_CTA = 'כתבו כאן, למשל: "קבוצה ג, שכר בסיס 18,500".'
+
+
+def _question_turn(sessions, reply, text=CREDIT_Q):
+    """A question at the first step: the plan holds the FAQ answer, the question and the call to action;
+    SAY (the scripted reply) writes it, or the template does."""
     fake = FakeLLM().turn(reply=reply)
     svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([fake]))
     turn, token = svc.start()
-    return svc.send(turn.conversation_id, token, user_text)
+    return svc.send(turn.conversation_id, token, text)
+
+
+def test_a_reply_that_covers_the_plan_is_used(sessions):
+    reply = ("נקודות זיכוי מקטינות את מס ההכנסה, וכל נקודה שווה 242 ₪ בחודש.\n"
+             "ועכשיו: מה הקבוצה או התפקיד שלך, ומה שכר הבסיס?\n" + Q1_CTA)
+    turn = _question_turn(sessions, reply)
+    assert turn.source == "llm" and turn.reply == reply
 
 
 def test_blocked_reply_is_replaced_by_template(sessions):
-    turn = _free_form_turn(sessions, "כמה בערך ארוויח?", "לפי הניסיון תרוויחי בערך 700 ₪ יותר. מה התפקיד שלך?")
+    turn = _question_turn(sessions, "כל נקודה שווה 250 ₪, אז תרוויחי בערך 700 ₪.\n" + Q1_CTA)
     assert turn.stage == Stage.COLLECT_PROFILE
     assert turn.source == "template" and "700" not in turn.reply
-    assert "לא הצלחתי להבין" in turn.reply and "התפקיד" in turn.reply
+    assert "242" in turn.reply and "התפקיד" in turn.reply and turn.reply.endswith(Q1_CTA)
     with sessions() as s:
         last = s.scalars(select(MessageRow).order_by(MessageRow.seq.desc())).first()
         assert last.guard_blocked is True and last.content == turn.reply
 
 
-def test_numbers_from_the_employees_own_message_are_allowed(sessions):
-    turn = _free_form_turn(sessions, "אני בחברה 7 שנים, זה משנה משהו?",
-                           "7 שנים — יפה! הוותק לא משפיע על החישוב. מה התפקיד שלך?")
-    assert turn.source == "llm" and "7 שנים" in turn.reply
+def test_numbers_only_from_the_plan_even_the_employees_own(sessions):
+    """SAY may use only the plan's numbers; a number from the employee's message that is not in the
+    plan is blocked too (the plan already says everything that was saved)."""
+    turn = _question_turn(sessions, "7 שנים, יפה! נקודות זיכוי שוות 242 ₪.\nמה הקבוצה?\n" + Q1_CTA,
+                          text="אני בחברה 7 שנים. מה זה נקודות זיכוי?")
+    assert turn.source == "template" and "7 שנים" not in turn.reply
 
 
-def test_other_numbers_are_still_blocked(sessions):
-    turn = _free_form_turn(sessions, "אני בחברה 7 שנים, זה משנה משהו?",
-                           "8 שנים — יפה! הוותק לא משפיע על החישוב. מה התפקיד שלך?")
-    assert turn.source == "template" and "8" not in turn.reply
+def test_a_reply_without_the_call_to_action_is_not_used(sessions):
+    turn = _question_turn(sessions, "נקודות זיכוי שוות 242 ₪ כל אחת. מה הקבוצה שלך?")
+    assert turn.source == "template" and turn.reply.endswith(Q1_CTA)
 
 
-def test_plain_next_question_is_not_phrased(sessions):
-    fake = FakeLLM().turn(call("save_profile", occupation="מנהלת מוצר"), reply="לא אמור להישלח")
+def test_a_reply_that_drops_the_answer_is_not_used(sessions):
+    turn = _question_turn(sessions, "מה הקבוצה שלך ושכר הבסיס, 18,500?\n" + Q1_CTA)
+    assert turn.source == "template" and "נקודות זיכוי" in turn.reply
+
+
+def test_a_button_reply_is_not_phrased(sessions):
+    fake = FakeLLM().turn(reply="לא אמור להישלח")
     svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([fake]))
     turn, token = svc.start()
-    turn = svc.send(turn.conversation_id, token, "מנהלת מוצר")
+    turn = svc.send_choice(turn.conversation_id, token, ["ג"], field="group")
     assert turn.source == "template" and "שכר הבסיס" in turn.reply
-    assert all(c.tools for c in fake.calls)            # אף קריאת ניסוח (בלי כלים)
+    assert fake.calls == []                                 # a button: no LLM at all
 
 
 # ---------- results message: always the short template, the LLM is not asked ----------
@@ -84,4 +102,12 @@ def test_results_text_is_the_template_and_the_llm_is_not_asked(sessions):
         turn = svc.send(turn.conversation_id, token, text)
     assert turn.source == "template" and "חבל" not in turn.reply
     assert "הנטו שלך יגדל ב-661 ₪ בחודש" in turn.reply and len(turn.reply.splitlines()) <= 2
-    assert all(c.tools for c in fake.calls)            # no phrasing call
+    assert fake.calls[-1].tools                        # the results turn made no phrasing call
+
+def test_a_reply_that_is_only_the_call_to_action_is_not_used(sessions):
+    """From the live run: Gemini answered "מה?" with the CTA line alone; the explanation was dropped."""
+    fake = FakeLLM().turn(reply=Q1_CTA)
+    svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([fake]))
+    turn, token = svc.start()
+    turn = svc.send(turn.conversation_id, token, "מה?")
+    assert turn.source == "template" and "במילים פשוטות" in turn.reply and turn.reply.endswith(Q1_CTA)

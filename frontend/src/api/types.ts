@@ -17,6 +17,7 @@ export type RepReason =
   | 'CURRENT_USE_VALUE'
   | 'OCCUPATION_OPT_OUT'
   | 'MAINTENANCE_AMOUNT'
+  | 'GENERAL_QUESTION'
 
 export type Drive = 'PETROL' | 'HYBRID' | 'PLUG_IN' | 'ELECTRIC'
 
@@ -42,10 +43,18 @@ export interface ExpectsField {
   choices: Choice[]
   quick_replies: QuickReply[]
   max: number | null
+  closed?: boolean           // a closed question: the client shows buttons; open questions are typed
+}
+
+export interface ExpectsLink {
+  kind: 'profile_form' | 'selection'
+  label: string
 }
 
 export interface Expects extends ExpectsField {
   fields: ExpectsField[]
+  link?: ExpectsLink | null   // the one secondary link the reply names ("או למלא בטופס")
+  placeholder?: string       // the composer hint, with an example
 }
 
 // ---------- ScenarioResult ----------

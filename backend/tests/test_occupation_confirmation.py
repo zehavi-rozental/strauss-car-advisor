@@ -5,7 +5,7 @@ from app.modules.conversation.llm.fake import FakeLLM, call
 from app.modules.conversation.public import ConversationService, LLMChain, Stage
 from app.modules.rules.public import RulesStore
 
-from .conftest import CONFIG, make_client
+from .conftest import CONFIG, make_client, without_cta
 
 
 def service(sessions, llm=None):
@@ -26,7 +26,8 @@ def test_llm_work_pattern_is_not_saved_and_the_bot_asks(sessions):
     assert (s.profile.occupation, s.profile.occupation_text, s.profile.occupation_unknown) == (None, None, False)
     assert (s.profile.base, s.profile.pension_percent) == (18500, 6)
     assert s.pending_occupation.text == "במשמרות" and s.pending_occupation.suggestions == []
-    assert turn.reply.endswith('לא מצאתי את "במשמרות" בטבלת העיסוקים. זה התפקיד שלך? אם לא, כתבו את התפקיד שלך.')
+    assert without_cta(turn.reply).endswith('לא מצאתי את "במשמרות" בטבלת העיסוקים. זה התפקיד שלך?')
+    assert turn.reply.endswith("בחרו תפקיד מהרשימה, או כתבו את התפקיד שלך.")
     assert turn.source == "template"
     assert turn.expects["field"] == "occupation_confirmation"
     assert [c["id"] for c in turn.expects["choices"]] == ["yes"]
@@ -36,8 +37,8 @@ def test_near_miss_suggests_the_table_occupation(sessions):
     svc = service(sessions)
     turn, token = svc.start()
     turn = svc.send(turn.conversation_id, token, "מנהלת מוצרים")
-    assert turn.reply.endswith('לא מצאתי את "מנהלת מוצרים" בטבלת העיסוקים. התכוונת לאחד מאלה: מנהל/ת מוצר? '
-                               "או כתבו את התפקיד שלך.")
+    assert without_cta(turn.reply).endswith('לא מצאתי את "מנהלת מוצרים" בטבלת העיסוקים. התכוונת לאחד מאלה: '
+                                            "מנהל/ת מוצר?")
     assert [c["id"] for c in turn.expects["choices"]] == ["מנהל/ת מוצר", "yes"]
     assert turn.expects["choices"][-1]["label"] == "כן, זה התפקיד שלי"
     assert profile(svc, turn.conversation_id, token).profile.occupation is None
@@ -93,7 +94,7 @@ def test_the_llm_cannot_confirm_an_unknown_occupation_itself(sessions):
     svc = service(sessions, LLMChain([fake]))
     turn, token = svc.start()
     turn = svc.send(turn.conversation_id, token, "אני אסטרונאוטית")
-    before = len(fake.calls)
+    before = len([c for c in fake.calls if c.tools])
     turn = svc.send(turn.conversation_id, token, "כן")
-    assert len(fake.calls) == before                                  # האישור — בלי המודל
+    assert len([c for c in fake.calls if c.tools]) == before          # האישור — בלי חילוץ במודל
     assert profile(svc, turn.conversation_id, token).profile.occupation_text == "אסטרונאוטית"

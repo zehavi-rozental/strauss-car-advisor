@@ -1,10 +1,12 @@
-// Which input the current question gets, derived from `expects` only. Pure, so it is unit-tested.
-import type { Expects, ExpectsField } from '../api/types'
-import { Q2_FIELD_NAMES } from './formFields'
-import { fieldLabel } from './labels'
+// What the current question shows, derived from `expects` only. Pure, so it is unit-tested.
+// Free text is the primary input: open questions (group, salary, profile numbers, the car, the copay)
+// get no widget at all — the bot asks in words and the employee types. Buttons appear only for closed
+// questions (`closed` from the server: confirmations, clarifications, the car version, the drive,
+// "לשאול את נציג התחבורה"). The car selection and the profile form open only from the reply's one link.
+import type { Expects, ExpectsField, ExpectsLink, Stage } from '../api/types'
 
 export const SELECT_THRESHOLD = 8
-export type WidgetKind = 'profile_form' | 'car_search' | 'selection' | 'buttons' | 'select' | 'quick'
+export type WidgetKind = 'buttons' | 'select'
 
 export interface Widget {
   kind: WidgetKind
@@ -16,37 +18,21 @@ export function fieldsOf(expects: Expects | null): ExpectsField[] {
   return expects.fields.length ? expects.fields : expects.type !== 'none' ? [expects] : []
 }
 
-const isQ2 = (f: ExpectsField) => f.type === 'number' && f.field !== null && Q2_FIELD_NAMES.has(f.field)
-
-/** Q2 itself: every field on screen is a profile number field (two or more) -> the form. */
-export function isQ2Question(expects: Expects | null): boolean {
-  const fields = fieldsOf(expects)
-  return fields.length >= 2 && fields.every(isQ2)
-}
-
-/** Q2 fields still open next to another question (Q3 leftovers): shown as a compact row. */
-export function leftoverFields(expects: Expects | null): string[] {
-  const fields = fieldsOf(expects)
-  if (!fields.some((f) => !isQ2(f))) return []
-  return fields.filter(isQ2).map((f) => f.field as string)
-}
-
-export const leftoverText = (names: string[]) => `חסר עוד: ${names.map(fieldLabel).join(' · ')}`
-
-/** One primary widget per field on screen. */
+/** Buttons only for closed questions; an open question is answered by typing. */
 export function widgetsFor(expects: Expects | null): Widget[] {
-  const fields = fieldsOf(expects)
-  if (isQ2Question(expects)) return [{ kind: 'profile_form', field: fields[0] }]
-  const out: Widget[] = []
-  for (const f of fields) {
-    if (isQ2(f)) continue                                   // leftovers: the compact row
-    if (f.type === 'multi_choice') out.push({ kind: 'selection', field: f })
-    else if (f.type === 'car_search') out.push({ kind: 'car_search', field: f })
-    else if (f.type === 'choice' && f.choices.length > SELECT_THRESHOLD) out.push({ kind: 'select', field: f })
-    else if (f.type === 'choice' && f.choices.length > 0) out.push({ kind: 'buttons', field: f })
-    else if (f.quick_replies.length > 0) out.push({ kind: 'quick', field: f })
-  }
-  return out
+  return fieldsOf(expects)
+    .filter((f) => f.closed && f.type === 'choice' && f.choices.length > 0)
+    .map((f) => ({ kind: f.choices.length > SELECT_THRESHOLD ? 'select' : 'buttons', field: f }))
+}
+
+/** The one secondary link under the reply ("או למלא בטופס", "להציג את הרכבים בקבוצה שלך"), or null. */
+export function linkFor(expects: Expects | null): ExpectsLink | null {
+  return expects?.link ?? null
+}
+
+/** The options field, for the selection card the link opens. */
+export function optionsField(expects: Expects | null): ExpectsField | null {
+  return fieldsOf(expects).find((f) => f.field === 'options' && f.type === 'multi_choice') ?? null
 }
 
 // ---------- selection counter ----------
@@ -64,28 +50,29 @@ export const isBlocked = (picked: string[], id: string, max: number) => !picked.
 
 // ---------- composer placeholder ----------
 
-const EXAMPLES: Record<string, string> = {
-  occupation: 'מנהלת מוצר, או: קבוצה ג',
-  group: 'ג',
-  base: '18500',
-  commissions: 'עמלות 1,000, או: אין',
-  bonus: 'בונוס 500, או: אין',
-  pension_percent: 'פנסיה 6%',
-  study_fund_percent: 'קרן השתלמות 2.5%, או: אין',
-  credit_points: 'נקודות זיכוי 2.75',
-  children: '2, או: אין',
-  car: 'קורולה קרוס 2023',
-  use_value: '4000, או: לא ידוע',
-  copay: '300, או: לא ידוע',
-  maintenance: '1500',
-  options: '1, 3, או: הכי משתלם',
+/** The server mirrors the question on screen with an example ("למשל: קורולה קרוס 2025, משלמת 300"). */
+export function placeholderFor(expects: Expects | null): string {
+  return expects?.placeholder || 'כתבו הודעה…'
 }
 
-export function placeholderFor(expects: Expects | null): string {
-  const fields = fieldsOf(expects)
-  if (!fields.length) return 'כתבו הודעה…'
-  const example = isQ2Question(expects) ? EXAMPLES.pension_percent
-    : fields.map((f) => (f.field ? EXAMPLES[f.field] : undefined)).find((x) => x !== undefined)
-  if (!example) return 'כתבו הודעה…'
-  return widgetsFor(expects).length || isQ2Question(expects) ? `או כתבו כאן, למשל: ${example}` : `כתבו כאן, למשל: ${example}`
+// ---------- progress ----------
+
+export const PROGRESS_STEPS = ['פרטים', 'רכב היום', 'חלופות', 'תוצאה'] as const
+
+/** The highlighted step, from the conversation stage. Waiting for the representative stays on the step
+ *  it waits in: the result (a new car's copay) when results exist, otherwise the car today. */
+export function progressStep(stage: Stage | null, hasResults = false): number {
+  switch (stage) {
+    case 'COLLECT_CURRENT_CAR':
+      return 1
+    case 'CHOOSE_OPTIONS':
+    case 'CALCULATING':
+      return 2
+    case 'PRESENTED':
+      return 3
+    case 'WAITING_FOR_REP':
+      return hasResults ? 3 : 1
+    default:
+      return 0
+  }
 }

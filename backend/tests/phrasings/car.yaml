@@ -1,12 +1,12 @@
 # שאלת הרכב הנוכחי (Q3: יחד עם החלופות). שם רכב לבד — שואלים אם הוא של היום או חלופה.
 setup: ["אני מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים"]
 cases:
-  - {text: "קורולה קרוס", allowed: [{clarify: CAR-09}]}
+  - {text: "קורולה קרוס", allowed: [{car: CAR-09}, {clarify: CAR-09}]}
   - {text: "יש לי קורולה קרוס", allowed: [{car: CAR-09}]}
-  - {text: "COROLLA CROSS", allowed: [{clarify: CAR-09}]}
+  - {text: "COROLLA CROSS", allowed: [{car: CAR-09}, {clarify: CAR-09}]}
   - {text: "טויוטה קורולה קרוס", allowed: [{car: CAR-09}]}
-  - {text: "קורולה", allowed: [{clarify: CAR-07}]}
-  - {text: "אטו 3", allowed: [{clarify: CAR-10}]}
+  - {text: "קורולה", allowed: [{car: CAR-07}, {clarify: CAR-07}]}
+  - {text: "אטו 3", allowed: [{car: CAR-10}, {clarify: CAR-10}]}
   - {text: "BYD ATTO 3", allowed: [{car: CAR-10}]}
   - {text: "קיה נירו", allowed: [{car: CAR-05}]}
   - {text: "טסלה מודל 3", allowed: [{car: CAR-14}]}

@@ -1,14 +1,15 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ComparisonPanel } from './ComparisonPanel'
 import { Composer } from './Composer'
 import { MessageList } from './MessageList'
 import { ProfileForm } from './ProfileForm'
 import { AnswerWidgets } from './AnswerWidgets'
+import { Progress } from './Progress'
+import { SelectionCard } from './SelectionCard'
 import { profileFormText } from './formFields'
 import { SelectedBar } from './SummaryCard'
-import { isQ2Question, leftoverFields, leftoverText, placeholderFor, widgetsFor } from './widgets'
+import { linkFor, optionsField, placeholderFor } from './widgets'
 import { useConversation } from './useConversation'
-
 function CarIcon() {
   return (
     <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
@@ -23,50 +24,51 @@ export function EmployeePage() {
   const busy = c.sending || c.loading
   const [tableOpen, setTableOpen] = useState(false)
   const [correcting, setCorrecting] = useState(false)
-  const [changing, setChanging] = useState(false)
-  const showQ2 = isQ2Question(c.expects) && !correcting
-  const widgets = widgetsFor(c.expects)
-  const leftovers = leftoverFields(c.expects)
-  // once results are shown the selection collapses into one line; "לשנות בחירה" reopens it
-  const collapsed = c.results.length > 0 && widgets.some((w) => w.kind === 'selection') && !changing
-  const openForm = (c.expects && correcting) || showQ2
+  // the selection card and the profile form open only from the reply's link (never automatically)
+  const [opened, setOpened] = useState<'selection' | 'profile_form' | null>(null)
+  useEffect(() => setOpened(null), [c.expects])        // a new question closes what the last one opened
+  const link = linkFor(c.expects)
+  const options = optionsField(c.expects)
+  const formOpen = correcting || opened === 'profile_form'
   const newChat = () => {
     if (window.confirm('להתחיל שיחה חדשה?')) {
       setTableOpen(false)
       setCorrecting(false)
-      setChanging(false)
+      setOpened(null)
       void c.newConversation()
     }
   }
   const profileForm = (
     <ProfileForm mode={correcting ? 'correction' : 'q2'} loadProfile={c.loadProfile} disabled={busy}
-                 onCancel={correcting ? () => setCorrecting(false) : undefined}
+                 onCancel={() => { setCorrecting(false); setOpened(null) }}
                  onSubmit={async (fields) => {
                    const ok = await c.send({ fields }, profileFormText(fields))
-                   if (ok) setCorrecting(false)
+                   if (ok) { setCorrecting(false); setOpened(null) }
                    return ok
                  }} />
   )
-  const tail = (
-    <div className="answer-tail">
-      {openForm ? profileForm : (
-        <>
-          {leftovers.length > 0 && (
-            <div className="leftover-row">
-              <span>{leftoverText(leftovers)}</span>
-              <button type="button" className="chip chip-quiet" disabled={busy} onClick={() => setCorrecting(true)}>
-                השלמה
-              </button>
-            </div>
-          )}
-          {collapsed
-            ? <SelectedBar items={c.results} disabled={busy} onChange={() => setChanging(true)} />
-            : <AnswerWidgets expects={c.expects} disabled={busy} onSend={c.send}
-                             selected={c.results.map((r) => r.option_id)} onDone={() => setChanging(false)} />}
-        </>
-      )}
-    </div>
-  )
+  // only one interactive area at a time: the open form / selection, or the closed question's buttons,
+  // or after results the collapsed selection line
+  let area = null
+  if (formOpen) area = profileForm
+  else if (opened === 'selection' && options) {
+    area = <SelectionCard f={options} disabled={busy} onSend={c.send} initial={c.results.map((r) => r.option_id)}
+                          onDone={() => setOpened(null)} />
+  } else if (c.results.length > 0 && options) {
+    area = <SelectedBar items={c.results} disabled={busy} onChange={() => setOpened('selection')} />
+  } else {
+    area = (
+      <>
+        <AnswerWidgets expects={c.expects} disabled={busy} onSend={c.send} />
+        {link && (
+          <button type="button" className="link-button" disabled={busy} onClick={() => setOpened(link.kind)}>
+            {link.label}
+          </button>
+        )}
+      </>
+    )
+  }
+  const tail = <div className="answer-tail">{area}</div>
 
   return (
     <div className="chat">
@@ -78,6 +80,7 @@ export function EmployeePage() {
         </div>
         <button type="button" className="new-chat" onClick={newChat} disabled={c.sending}>שיחה חדשה</button>
         {c.waitingForRep && <span className="tag tag-pending header-tag">ממתין לתשובת נציג</span>}
+        <Progress stage={c.stage} hasResults={c.results.length > 0} />
       </header>
 
       <main className="chat-body">

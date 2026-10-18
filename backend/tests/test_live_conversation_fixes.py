@@ -9,7 +9,7 @@ from app.modules.conversation.public import ConversationService, LLMChain, Stage
 from app.modules.conversation.templates import CAR_AGAIN
 from app.modules.rules.public import RulesStore
 
-from .conftest import CONFIG
+from .conftest import CONFIG, without_cta
 
 OCCUPATION = "מנהל/ת אזור מכירות"          # קבוצה ג בטבלת העיסוקים
 PROFILE_REST = "פנסיה 6%, 2.25 נקודות זיכוי"
@@ -58,7 +58,7 @@ def test_a_bare_none_answers_the_zero_fields_and_asks_the_rest(sessions):
     p = svc.view(cid, token).state.profile
     assert (p.commissions, p.bonus, p.study_fund_percent, p.children) == (0, 0, 0, 0)
     assert p.pension_percent is None and p.credit_points is None      # לא מניחים 0
-    rest = turn.reply.split("\n")[-1]
+    rest = without_cta(turn.reply).split("\n")[-1]
     assert "פנסיה" in rest and "נקודות זיכוי" in rest
     assert "עמלות" not in rest and "בונוס" not in rest and "ילדים" not in rest   # רק מה שנשאר
 

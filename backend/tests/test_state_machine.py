@@ -11,7 +11,7 @@ from app.modules.conversation.stage import ConversationState
 from app.modules.conversation.tools import available_options
 from app.modules.rules.public import RulesStore
 
-from .conftest import CONFIG
+from .conftest import CONFIG, without_cta
 
 # שאלות מקובצות (כמו בתרחיש הרשמי): Q1 תפקיד ושכר בסיס, Q2 רכיבי שכר, הפרשות וילדים
 Q2_ANSWER = "אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, {children} ילדים"
@@ -211,12 +211,13 @@ def test_parse_copay(text, expected):
 
 # ---------- אישור הרכב שזוהה, ותיקון שלו ----------
 
-CONFIRM_TAIL = "אם זה לא הרכב שלך, כתבו את הדגם המדויק."
+CONFIRM_TAIL = "אם זה לא הרכב שלך, אפשר לתקן."
 
 
 def test_identified_car_is_confirmed_with_label_group_and_drive(sessions):
     turn, _ = talk(service(sessions), profile() + ["יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש"])
-    assert turn.reply.startswith(f"זיהיתי: COROLLA CROSS (2025), קבוצה ג, היברידי. {CONFIRM_TAIL}")
+    assert f"זיהיתי: COROLLA CROSS (2025), קבוצה ג, היברידי. {CONFIRM_TAIL}" in turn.reply
+    assert turn.reply.startswith("רשמתי: השתתפות 300 ₪.")              # the copay said with the car is acknowledged
     assert turn.stage == Stage.CHOOSE_OPTIONS and "איזה רכבים להשוות" in turn.reply   # ואז השאלה הבאה
 
 
@@ -260,7 +261,7 @@ def test_not_this_car_resets_and_asks_for_the_model(sessions):
     turn = svc.send(turn.conversation_id, token, "זה לא הרכב שלי")
     current = svc.view(turn.conversation_id, token).state.current
     assert current.catalog_code is None and current.source is None
-    assert "מה הרכב היום (דגם ושנת רישום)" in turn.reply
+    assert "איזה רכב צמוד יש לך היום" in turn.reply
 
 
 # ---------- ניסוח ניטרלי מגדרית ----------

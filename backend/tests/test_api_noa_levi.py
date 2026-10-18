@@ -56,9 +56,10 @@ def test_noa_levi_with_llm(engine, sessions):
     _assert_noa_result(body, sessions)
     assert body["source"] == "template" and "הנטו שלך יגדל ב-661 ₪ בחודש" in body["reply"]   # results: template only
 
-    # הכלים שהוצעו למודל תלויים בשלב
+    # UNDERSTAND: one call per turn with every data tool and note_message (nothing said early is dropped)
     tool_sets = [c.tools for c in fake.calls if c.tools]
-    assert tool_sets[0] == ["save_profile"]
+    assert len(tool_sets) == 3
+    assert all("note_message" in s and "save_profile" in s and "match_current_car" in s for s in tool_sets)
     assert "calculate" in tool_sets[-1]
 
     state = client.get(f"/api/conversations/{cid}").json()

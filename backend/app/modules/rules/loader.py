@@ -19,6 +19,7 @@ from pydantic import ValidationError
 
 from app.modules.calculation.public import FAMILY_GROUP, Bracket, CalcRules, TwoTier
 
+from .faq import Faq, faq_values, load_faq
 from .models import (
     DRIVE_FROM_HEBREW,
     MOVED_TO_RULES,
@@ -35,6 +36,8 @@ log = logging.getLogger(__name__)
 RULES_FILE = "strauss-rules.json"
 EXTENSIONS_FILE = "extensions.yaml"
 DATA_FILE = "strauss-data.xlsx"
+
+MAX_COMPARE = 3          # alternatives compared at once (conversation.stage.MAX_OPTIONS)
 
 SHEET_CATALOG = "קטלוג רכבים"
 SHEET_OCCUPATIONS = "עיסוקים"
@@ -105,6 +108,7 @@ class RulesSnapshot:
     file_hashes: dict[str, str]
     file_contents: dict[str, bytes] = field(repr=False, default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    faq: Faq = field(default_factory=Faq)          # faq.yaml (answers only; not part of the calculation)
 
 
 def _sha(data: bytes) -> str:
@@ -251,6 +255,7 @@ def load_snapshot(config_dir: Path) -> RulesSnapshot:
         ext = _parse_extensions(yaml.safe_load(contents[EXTENSIONS_FILE].decode("utf-8")))
         catalog, occupations, employees, results = _load_workbook(paths[DATA_FILE], ext, strauss)
         calc = build_calc_rules(strauss, ext)
+        faq = load_faq(config_dir, faq_values(strauss, MAX_COMPARE))
     except ConfigError:
         raise
     except Exception as exc:  # שגיאות סכמה/פענוח → הודעה אחידה
@@ -259,7 +264,7 @@ def load_snapshot(config_dir: Path) -> RulesSnapshot:
     return RulesSnapshot(
         strauss=strauss, extensions=ext, calc=calc, catalog=catalog, occupations=occupations,
         reference_employees=employees, reference_results=results,
-        file_hashes={n: _sha(b) for n, b in contents.items()}, file_contents=contents,
+        file_hashes={n: _sha(b) for n, b in contents.items()}, file_contents=contents, faq=faq,
     )
 
 

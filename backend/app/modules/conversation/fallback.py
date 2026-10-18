@@ -448,7 +448,9 @@ def _q3_car_plan(state: ConversationState, snapshot: RulesSnapshot, fields: list
     if len(cars) == 1 and roles[cars[0].catalog_code] is None and (
             copay is not None or (year is not None and year != cars[0].reg_year)):
         roles[cars[0].catalog_code] = "current"
-    if "options" not in fields:           # כבר נבחרה חלופה: השאלה שואלת רק על הרכב של היום
+    # the question on screen asks only about the car today (the alternatives come after it), so a car
+    # named without a role word is the answer to it; a role word ("רוצה לבדוק") still makes it an alternative
+    if "options" not in fields or "car" in fields:
         roles = {code: role or "current" for code, role in roles.items()}
     current = [c for c in cars if roles[c.catalog_code] == "current"]
     alternatives = [c for c in cars if roles[c.catalog_code] == "alternative"]

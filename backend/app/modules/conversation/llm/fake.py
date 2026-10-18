@@ -12,6 +12,8 @@ from typing import Optional, Sequence
 
 from .port import ChatMessage, LLMError, LLMResponse, ToolCall, ToolSpec
 
+SAY_MARK = "You write the next chat message"   # the agent's SAY prompt (phrasing a reply plan)
+
 
 @dataclass
 class _Turn:
@@ -65,6 +67,11 @@ class FakeLLM:
             return LLMResponse()
         if not self.script:
             raise LLMError("FakeLLM: התסריט נגמר")
+        is_say = bool(messages) and messages[0].role == "system" and messages[0].content.startswith(SAY_MARK)
+        if is_say and self.script[0].user_turn is None and self.script[0].rounds:
+            # the phrasing (SAY) of a turn the parser handled alone: the next scripted turn belongs to a later
+            # message — not consumed here
+            raise LLMError("FakeLLM: no phrasing scripted for this turn")
         reply = self.script.popleft().reply
         if reply is None:
             raise LLMError("FakeLLM: ניסוח נכשל")

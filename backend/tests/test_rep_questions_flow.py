@@ -62,7 +62,9 @@ def test_waiting_makes_no_llm_call(sessions):
     before = len(fake.calls)
     turn = svc.send(turn.conversation_id, token, "נו, יש תשובה?")
     assert turn.path == "waiting" and len(fake.calls) == before
-    assert turn.reply == "שאלתי את נציג התחבורה ואעדכן כשתגיע תשובה."
+    # the question is answered from the FAQ, then the waiting line (unchanged)
+    assert turn.reply.startswith("התשובה של נציג התחבורה תופיע כאן")
+    assert turn.reply.endswith("שאלתי את נציג התחבורה ואעדכן כשתגיע תשובה.")
 
 
 def test_correcting_the_car_cancels_its_questions(engine):

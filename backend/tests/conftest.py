@@ -69,3 +69,12 @@ def make_client(engine, llm=None, **overrides) -> TestClient:
     settings = Settings(_env_file=None, llm_provider="none", **overrides)
     app = create_app(settings, engine=engine, llm=llm if llm is not None else LLMChain())
     return TestClient(app)
+
+
+CTA_STARTS = ("כתבו", "בחרו", "אפשר לכתוב")
+
+
+def without_cta(reply: str) -> str:
+    """The reply without its last line, the call to action (every non-result reply ends with one)."""
+    head, _, last = reply.rpartition("\n\n")
+    return head if head and last.startswith(CTA_STARTS) else reply

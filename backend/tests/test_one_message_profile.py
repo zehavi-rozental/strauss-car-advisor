@@ -10,7 +10,7 @@ from app.modules.conversation.parsing import parse_profile_fields
 from app.modules.conversation.public import ConversationService, LLMChain, Stage
 from app.modules.rules.public import RulesStore
 
-from .conftest import CONFIG, make_client
+from .conftest import CONFIG, make_client, without_cta
 
 NOA_PROFILE = ("אני מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, "
                "2.75 נקודות זיכוי, 2 ילדים")
@@ -28,7 +28,7 @@ def test_forced_tool_mode_saves_profile_when_model_prefers_text(sessions):
     turn, token = svc.start()
     turn = svc.send(turn.conversation_id, token, "הנה הפרטים שלי")      # הקורא לא מבין → המודל
 
-    assert fake.calls[0].require_tool is True and fake.calls[0].tools == ["save_profile"]
+    assert fake.calls[0].require_tool is True and {"save_profile", "note_message"} <= set(fake.calls[0].tools)
     assert turn.stage == Stage.COLLECT_CURRENT_CAR
     assert "לא הצלחתי להבין" not in turn.reply
     p = svc.view(turn.conversation_id, token).state.profile
@@ -37,27 +37,27 @@ def test_forced_tool_mode_saves_profile_when_model_prefers_text(sessions):
                                                                                       Decimal("2.75"), 2)
 
 
-def test_only_first_round_of_collecting_stages_is_forced(sessions):
+def test_understand_is_one_forced_call_per_turn(sessions):
     fake = FakeLLM().turn(NOA_SAVE, reply=None)
     svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([fake]))
     turn, token = svc.start()
     svc.send(turn.conversation_id, token, "הנה הפרטים שלי")
     extraction = [c for c in fake.calls if c.tools]
-    assert [c.require_tool for c in extraction] == [True, False]   # הסבב השני חופשי לסיים
+    assert [c.require_tool for c in extraction] == [True]          # one UNDERSTAND call, no second round
 
     fake.turn(call("match_current_car", model="COROLLA CROSS"), call("save_profile", current_copay=300))
     svc.send(turn.conversation_id, token, "זה הרכב שלי, אותו אחד כמו תמיד")
     fake.turn(call("calculate", options=["ATTO 3"]))
     svc.send(turn.conversation_id, token, "את החשמלי הסיני בבקשה")
     choose = [c for c in fake.calls if c.tools][-1]                 # התור השלישי: בחירת חלופות
-    assert "calculate" in choose.tools and not choose.require_tool  # בחירת חלופות לא כפויה
+    assert "calculate" in choose.tools and choose.require_tool      # note_message is always there to call
 
 
 def test_empty_forced_call_is_not_understood(sessions):
     fake = FakeLLM().turn(call("save_profile"), reply=None)
     svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([fake]))
     turn, token = svc.start()
-    turn = svc.send(turn.conversation_id, token, "מה זה בכלל?")
+    turn = svc.send(turn.conversation_id, token, "בלה בלה בלה")
     assert turn.stage == Stage.COLLECT_PROFILE and "לא הצלחתי להבין" in turn.reply
 
 
@@ -114,7 +114,7 @@ class _FailsFromCall:
 
 
 def test_provider_failure_after_first_round_keeps_profile(sessions):
-    """סבב 1 שמר את הפרופיל, סבב 2 נכשל: אסור שהגיבוי יפרש את אותה הודעה כשם רכב."""
+    """UNDERSTAND saved the profile, SAY failed: the template; the fallback never reads the same message as a car."""
     fake = FakeLLM().turn(NOA_SAVE, reply=None)
     svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([_FailsFromCall(fake, fail_from=2)]))
     turn, token = svc.start()
@@ -122,7 +122,7 @@ def test_provider_failure_after_first_round_keeps_profile(sessions):
     assert turn.stage == Stage.COLLECT_CURRENT_CAR and turn.source == "template"
     current = svc.view(turn.conversation_id, token).state.current
     assert current.query is None and current.source is None        # לא חיפשו "רכב" בשם הפרופיל
-    assert "מה הרכב היום (דגם ושנת רישום)" in turn.reply
+    assert "איזה רכב צמוד יש לך היום" in turn.reply
 
 
 def test_provider_failure_on_first_round_uses_fallback_parser(sessions):
