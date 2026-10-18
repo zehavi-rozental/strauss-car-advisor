@@ -55,7 +55,7 @@ def test_partial_form_saves_only_what_was_sent(sessions):
     assert (p.commissions, p.pension_percent) == (2400, 6)
     assert p.bonus is None and p.study_fund_percent is None and p.credit_points is None and p.children is None
     # השדות שלא נשלחו נשארים חסרים (הם לא הומצאו); הזרימה ממשיכה כמו אחרי תשובה חלקית ב-Q2
-    assert turn.reply.startswith("רשמתי:") and "ועוד" in turn.reply
+    assert turn.reply.startswith("רשמתי:") and "חסר עוד" in turn.reply
 
 
 @pytest.mark.parametrize("values", [{"pension_percent": 60}, {"children_under_23": 40}, {"commissions": -1},

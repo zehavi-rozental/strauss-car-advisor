@@ -30,6 +30,7 @@ _UNKNOWN_ALLOWED = {"use_value", "copay"}
 _UNKNOWN_FLAGS = {"use_value": "current_use_value_unknown", "copay": "current_copay_unknown"}
 OCCUPATION_YES = {"id": "yes", "label": "כן, זה התפקיד שלי"}
 YES_NO = [{"id": "yes", "label": "כן"}, {"id": "no", "label": "לא"}]
+CONFIRM_FIX = [{"id": "yes", "label": "לאשר"}, {"id": "no", "label": "לתקן"}]
 CLARIFY = [{"id": "mine", "label": "זה הרכב שלי"}, {"id": "alternative", "label": "חלופה לבדיקה"}]
 CLARIFY_ROLE = [{"id": "mine", "label": "הרכב שלי היום"}, {"id": "alternative", "label": "חלופה לבדוק"}]
 INVALID = "הבחירה אינה מהאפשרויות שהוצעו"
@@ -109,7 +110,8 @@ def tax_label(v: VehicleInfo) -> str:
 def build_expects(state: ConversationState, snapshot: RulesSnapshot) -> dict[str, Any]:
     stage = next_stage(state)
     if state.pending_confirmation is not None:
-        return _expects("confirmation", "choice", YES_NO)
+        unusual = state.pending_confirmation.unusual
+        return _expects("confirmation", "choice", CONFIRM_FIX if unusual else YES_NO)
     if state.pending_occupation is not None:
         pending = state.pending_occupation
         return _expects("occupation_confirmation", "choice",

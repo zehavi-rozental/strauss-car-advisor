@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from typing import Any, Callable, Optional, Sequence
@@ -61,6 +60,8 @@ from .templates import (
     rep_maintenance_text,
     rep_opt_out_text,
     results_text,
+    unusual_fix_text,
+    why_sentence,
 )
 from .tools import (
     TOOL_SPECS,
@@ -103,21 +104,13 @@ Rules:
 - If the employee gives a value as an estimate (כ-, בערך, בסביבות, בממוצע, משתנות), pass it and list that
   field's name in approximate_fields."""
 
-# תוצאות: המודל כותב רק פתיח בלי מספרים. שורות התוצאה (נטו היום, נטו בחלופה, ההפרש עם סימן)
-# תמיד מהתבנית — כך שהמודל לא יכול לטעות בכיוון ("ירד" כשהנטו עולה) או במספר.
-INTRO_PROMPT = """Write one or two short, warm sentences in Hebrew to an employee. The system shows a
-comparison of their monthly net pay right after your text.
-Do not write any digits, amounts, percentages or car model names.
-Do not say whether the net pay goes up or down, or whether the change is good or bad.
-Address the employee in gender-neutral Hebrew (plural forms such as כתבו, or neutral phrasing); never assume their gender.
-Return only the sentences."""
-
-DIGIT_RE = re.compile(r"\d")
-
 PHRASE_PROMPT = """Rewrite the draft below as one friendly reply in Hebrew to the employee.
 Keep every number, amount and list item exactly as in the draft.
 Do not add numbers, estimates, calculations or advice that are not in the draft.
 Address the employee in gender-neutral Hebrew (plural forms such as כתבו, or neutral phrasing); never assume their gender.
+Style: short sentences, one idea per line, at most 3 lines. No chains of "·", no formulas, no
+parenthetical comparisons. Say directions in words ("יגדל ב-X ₪" / "יקטן ב-X ₪"), never "שינוי של -X".
+Use friendly second-person plural forms (כתבו, בחרו). Keep **bold** and line breaks as in the draft.
 Return only the reply text."""
 
 
@@ -163,6 +156,14 @@ def _clarification_answer(text: str) -> Optional[str]:
     return None
 
 
+def _dump(result: Any) -> dict[str, Any]:
+    """The stored result: the engine's fields plus `why`, one plain sentence about the main cause
+    (built from the drivers, so the client never builds text from numbers)."""
+    out = result.model_dump(mode="json")
+    out["why"] = why_sentence(out.get("drivers") or [])
+    return out
+
+
 def _with_assumptions(result: Any, state: ConversationState, option_id: str, label: str) -> Any:
     """הנחות שהמנוע לא יודע עליהן: ערכים משוערים, והשתתפות שהנציג אישר או קבע."""
     extra = approximate_assumptions(state)
@@ -173,8 +174,8 @@ def _with_assumptions(result: Any, state: ConversationState, option_id: str, lab
     return result.model_copy(update={"assumptions": result.assumptions + extra}) if extra else result
 
 
-_YES = {"כן", "נכון", "בדיוק", "אכן", "yes"}
-_NO = {"לא", "no"}
+_YES = {"כן", "נכון", "בדיוק", "אכן", "yes", "לאשר", "אשר"}
+_NO = {"לא", "no", "לתקן", "תקן"}
 
 
 def _confirmation_plan(state: ConversationState, text: str) -> Optional[ParserPlan]:
@@ -185,12 +186,15 @@ def _confirmation_plan(state: ConversationState, text: str) -> Optional[ParserPl
         return None
     if ws[0] in _YES:
         state.pending_confirmation = None
+        if pending.unusual and pending.field not in state.confirmed_unusual:
+            state.confirmed_unusual.append(pending.field)
         args = {pending.field: str(pending.value),
                 "approximate_fields": [pending.field] if pending.approximate else []}
         return ParserPlan([ToolCall("save_profile", args, "confirmed")], True, direct=True)
     if ws[0] in _NO:
         state.pending_confirmation = None
-        return ParserPlan(complete=True, direct=True)
+        notice = unusual_fix_text(pending.field) if pending.unusual else None
+        return ParserPlan(complete=True, notice=notice, direct=True)
     return None
 
 
@@ -425,7 +429,10 @@ class Agent:
         # הטופס הוא פעולה מפורשת של העובד (גם תיקון אחרי תוצאה), לכן לא עובר דרך _run ומגבלת הכלים של
         # השלב; run_tool נשאר השער היחיד לשמירה. השלב נגזר מהנתונים: calculated_for מתאפס ← חישוב מחדש.
         run_tool(ctx, "save_profile", values)
-        return self._finish(ctx, (), label, fields_plan(values), before, record_run, choice=True)
+        held = state.pending_confirmation.field if state.pending_confirmation is not None else None
+        saved = {k: v for k, v in values.items() if k != held}      # a rare value waits for "לאשר"
+        plan = fields_plan(saved) if saved else ParserPlan([], True, direct=True)
+        return self._finish(ctx, (), label, plan, before, record_run, choice=True)
 
     def run_turn(self, snapshot: RulesSnapshot, find_vehicle: VehicleLookup, state: ConversationState,
                  history: Sequence[ChatMessage], text: str, record_run: RecordRun) -> TurnOutcome:
@@ -522,14 +529,11 @@ class Agent:
         # היא תבנית: מהירה, ובלי סיכון לשומר המספרים.
         checked = (bool(problems) or state.pending_confirmation is not None     # בדיקת ערכים — תמיד תבנית
                    or state.pending_occupation is not None or state.pending_clarification is not None)
-        if not used_llm or not (just_calculated or not understood) or rep_opened or checked:
+        # results are always the short template text: the LLM does not touch them
+        if not used_llm or just_calculated or understood or rep_opened or checked:
             return TurnOutcome(reply=draft, source="template", just_calculated=just_calculated, path=path,
                                **requests)
-        if just_calculated:
-            # לפתיח יש תקציב קצר משלו: אם לא ענה בזמן — התוצאה מהתבנית מיד, בלי פתיח
-            reply, source, blocked = self._intro(draft, text, self.llm.intro_deadline(deadline))
-        else:
-            reply, source, blocked = self._phrase(state, draft, text, deadline)
+        reply, source, blocked = self._phrase(state, draft, text, deadline)
         return TurnOutcome(reply=reply, source=source, guard_blocked=blocked, just_calculated=just_calculated,
                            path=path, **requests)
 
@@ -807,10 +811,10 @@ class Agent:
                   "occupation": occupation.model_dump(mode="json") if occupation else None}
         old_delta = item.result.get("delta_display")
         item.run_id = record_run(option.label, inputs, result)
-        item.result = result.model_dump(mode="json")
+        item.result = _dump(result)
         if old_delta is None or result.delta_display is None:
             return rep_confirmed_text(item.label, event.effective_date)
-        return rep_changed_text(item.label, amount, event.effective_date, old_delta, result.delta_display)
+        return rep_changed_text(item.label, amount, event.effective_date, result.delta_display)
 
     # ---------- חישוב ----------
 
@@ -840,7 +844,7 @@ class Agent:
             }
             run_id = record_run(option.label, inputs, result)
             results.append(OptionResult(option_id=option_id, label=option.label, run_id=run_id,
-                                        result=result.model_dump(mode="json")))
+                                        result=_dump(result)))
             needs_opt_out = needs_opt_out or "OCCUPATION_OPT_OUT" in result.missing_fields
             pending_copay = getattr(alternative, "copay_status", None) == CopayStatus.CATALOG_DEFAULT_PENDING
             if option.car is not None and pending_copay and result.status != CalcStatus.NOT_ELIGIBLE:
@@ -875,21 +879,6 @@ class Agent:
                 state.pending_rep = PendingRep(reason=reason, resume_stage=Stage.PRESENTED)
 
     # ---------- ניסוח ----------
-
-    def _intro(self, draft: str, text: str, deadline: Optional[float]) -> tuple[str, str, bool]:
-        """פתיח מהמודל + שורות התוצאה מהתבנית. ספרה כלשהי בפתיח → בלי פתיח (נחסם)."""
-        try:
-            response = self.llm.complete([ChatMessage("system", INTRO_PROMPT),
-                                          ChatMessage("user", f"Employee's message:\n{text}")], deadline=deadline)
-        except LLMError:
-            return draft, "template", False
-        intro = response.text.strip()
-        if not intro:
-            return draft, "template", False
-        if DIGIT_RE.search(intro):
-            log.warning("number guard dropped an llm intro to results (digits)")
-            return draft, "template", True
-        return f"{intro}\n\n{draft}", "llm", False
 
     def _phrase(self, state: ConversationState, draft: str, text: str,
                 deadline: Optional[float] = None) -> tuple[str, str, bool]:

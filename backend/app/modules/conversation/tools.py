@@ -139,6 +139,14 @@ SHORTENED_FIELDS = ("base_salary", "commissions", "bonus", "current_use_value", 
                     "current_maintenance")
 
 
+def _unusual(ctx: ToolContext, field: str, value: Decimal) -> bool:
+    """A value inside the plausible range but beyond the thresholds in extensions.yaml, not yet confirmed."""
+    rule = ctx.snapshot.extensions.unusual_values.get(field)
+    if not rule or field in ctx.state.confirmed_unusual:
+        return False
+    return ("at_most" in rule and value <= rule["at_most"]) or ("at_least" in rule and value >= rule["at_least"])
+
+
 def _check_ranges(ctx: ToolContext, args: SaveProfileArgs) -> tuple[SaveProfileArgs, list[dict[str, str]]]:
     """בדיקת סבירות לכל ערך, מכל מקור. מחוץ לטווח — לא נשמר. סכום מקוצר ("18" לשכר, כש-18,000 בטווח)
     לא מורחב בשקט: נשמר כ"ממתין לאישור" והבוט שואל."""
@@ -151,6 +159,11 @@ def _check_ranges(ctx: ToolContext, args: SaveProfileArgs) -> tuple[SaveProfileA
             continue
         low, high = ranges[arg]
         if low <= Decimal(value) <= high:
+            if _unusual(ctx, arg, Decimal(value)):
+                drop[arg] = None
+                ctx.state.pending_confirmation = PendingConfirmation(
+                    field=arg, value=Decimal(value), approximate=arg in args.approximate_fields, unusual=True)
+                rejected.append({"field": arg, "reason": "unusual value; the employee is asked to confirm"})
             continue
         drop[arg] = None
         thousands = Decimal(value) * 1000

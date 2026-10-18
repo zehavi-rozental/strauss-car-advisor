@@ -54,8 +54,7 @@ def test_noa_levi_with_llm(engine, sessions):
               reply="הנה ההשוואה שביקשת, לפי כללי החברה.")
     body = client.post(f"/api/conversations/{cid}/messages", json={"text": "את החשמלי הסיני בבקשה"}).json()
     _assert_noa_result(body, sessions)
-    assert body["source"] == "llm" and body["reply"].startswith("הנה ההשוואה שביקשת")
-    assert "+661 ₪" in body["reply"] and "11,693 ₪" in body["reply"]     # שורות התוצאה מהתבנית
+    assert body["source"] == "template" and "הנטו שלך יגדל ב-661 ₪ בחודש" in body["reply"]   # results: template only
 
     # הכלים שהוצעו למודל תלויים בשלב
     tool_sets = [c.tools for c in fake.calls if c.tools]
@@ -78,9 +77,8 @@ def test_noa_levi_fallback_mode(engine, sessions):
         body = client.post(f"/api/conversations/{cid}/messages", json={"text": text}).json()
         assert body["source"] == "template"
     _assert_noa_result(body, sessions)
-    assert "+661 ₪" in body["reply"] and "11,693 ₪" in body["reply"]
+    assert "הנטו שלך יגדל ב-661 ₪ בחודש" in body["reply"]
     # גרסת קובץ הכללים לא מוצגת לעובד, אבל נשארת בתוצאה (מסך האימות)
-    assert "חישוב חודשי לפי כללי החברה ולוחות המס של 2025" in body["reply"]
     assert "mock-2026-10-12" not in body["reply"] and "קובץ כללים" not in body["reply"]
     assert body["results"][0]["rules_version"] == "mock-2026-10-12"
 

@@ -123,6 +123,8 @@ export interface ScenarioResult {
   electric_refund: Decimal | null
   copay_pending: boolean
   assumptions: string[]
+  /** one plain sentence about the main cause (built by the server from the drivers) */
+  why?: string
   rules_version: string
   extensions_version: string
   engine_version: string

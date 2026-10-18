@@ -41,16 +41,9 @@ def test_atto_3_is_explained_in_plain_lines(sessions):
     r = turn.results[0].result
     assert r["cost"]["monthly_cost"] == str(atto.monthly_cost) and r["cost"]["budget"] == str(budget)
     assert r["cost"]["under_budget"] is (atto.monthly_cost < budget)
-    reply = turn.reply
-    # מהתרחיש הרשמי: עלות לחברה מול תקציב הקבוצה, וההפרש לא משולם בשכר
-    assert f"עלות לחברה {money(atto.monthly_cost)} מול תקציב קבוצה ג {money(budget)} — ההפרש מהתקציב לא משולם בשכר" \
-        in reply
-    assert "נטו משוער: היום 11,032 ₪, בחלופה 11,693 ₪ — שינוי של +661 ₪ בחודש." in reply
-    assert "הנה ההשוואה (נטו משוער היום: 11,032 ₪):" in reply
-    # מסתכם להפרש: 411 + 250 = 661 (המס על רכיב הגילום לא נספר פעמיים)
-    why = "למה? שווי השימוש נמוך ב-940 ₪ ולכן המס יורד ב-411 ₪; מתווסף החזר חשמל של 250 ₪ נטו."
-    assert why in reply
-    assert "החזר חשמל 250 ₪ נטו" in reply and r["copay_pending"] is True
+    # the chat text is two short lines; the detail lives in the structured result
+    assert turn.reply == "בדקתי את ATTO 3 (2025). הנטו שלך יגדל ב-661 ₪ בחודש.\nממתין לאישור נציג על ההשתתפות."
+    assert r["why"] == "שווי השימוש נמוך יותר, ולכן המס יקטן." and r["copay_pending"] is True
 
 
 def test_every_line_has_whole_shekel_display_values(sessions):
@@ -66,9 +59,9 @@ def test_every_line_has_whole_shekel_display_values(sessions):
 def test_family_track_shows_the_family_share(sessions):
     turn = compare(sessions, "סנטה פה", children=4)
     r = turn.results[0].result
-    family = next(d for d in r["drivers"] if d["code"] == "FAMILY_SHARE")
-    assert f"חלק העובד במסלול המשפחתי עולה ב-{money(family['amount_display'])}" in turn.reply
-    assert r["cost"]["under_budget"] is False and "לא משולם בשכר" not in turn.reply
+    assert any(d["code"] == "FAMILY_SHARE" for d in r["drivers"])
+    assert r["cost"]["under_budget"] is False and r["why"].endswith(".")
+    assert "יקטן ב-1,047 ₪" in turn.reply
 
 
 def test_not_eligible_option_has_no_cost_or_why_lines():
@@ -83,8 +76,7 @@ def test_not_eligible_option_has_no_cost_or_why_lines():
     state = ConversationState(results=[OptionResult(option_id="CAR-14", label=model3.label,
                                                     result=result.model_dump(mode="json"))])
     text = results_text(state)
-    assert f"• {model3.label}: לא ניתן — {result.reason}" in text
-    assert "עלות לחברה" not in text and "למה?" not in text
+    assert text == f"{model3.label} לא זמין לך: {result.reason}"
 
 
 def test_drivers_add_up_to_the_net_change_for_every_reference_employee_and_alternative():

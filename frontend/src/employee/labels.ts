@@ -41,3 +41,6 @@ const FIELDS: Record<string, string> = {
 export const driverLabel = (code: string) => DRIVERS[code] ?? code
 export const fieldLabel = (field: string) => FIELDS[field] ?? field
 export const missingLabel = (code: string) => MISSING[code] ?? code
+
+const DRIVES: Record<string, string> = { ELECTRIC: 'חשמלי', HYBRID: 'היברידי', PLUG_IN: 'פלאג-אין', PETROL: 'בנזין' }
+export const driveLabel = (drive: string | null | undefined) => (drive ? DRIVES[drive] ?? drive : null)

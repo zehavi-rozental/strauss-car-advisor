@@ -3,7 +3,8 @@ import { useState } from 'react'
 // The backend's settings.max_message_chars (not exposed by the API); the server still enforces it.
 export const MAX_MESSAGE_CHARS = 1000
 
-export function Composer({ disabled, onSend }: { disabled: boolean; onSend: (text: string) => Promise<boolean> }) {
+export function Composer({ disabled, onSend, placeholder = 'כתבו הודעה…' }:
+  { disabled: boolean; onSend: (text: string) => Promise<boolean>; placeholder?: string }) {
   const [text, setText] = useState('')
   const submit = async () => {
     const value = text.trim()
@@ -19,7 +20,7 @@ export function Composer({ disabled, onSend }: { disabled: boolean; onSend: (tex
         rows={1}
         maxLength={MAX_MESSAGE_CHARS}
         disabled={disabled}
-        placeholder="כתבו הודעה…"
+        placeholder={placeholder}
         aria-label="הודעה"
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {

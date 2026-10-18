@@ -19,8 +19,7 @@ NOA = [
     "אטו 3",
 ]
 # נוסח התרחיש הרשמי בזמן המתנה לנציג על ההשתתפות ברכב החדש
-PENDING = ("חסר לי אישור לסכום ההשתתפות שלך ב-ATTO 3 (2025). חישבתי לפי הסכום בקטלוג (300 ₪) "
-           "ושלחתי שאלה לנציג התחבורה — החלופה תתעדכן כשתגיע תשובה.")
+PENDING = "ממתין לאישור נציג על ההשתתפות."
 
 
 def service(sessions, llm=None, config=CONFIG):
@@ -42,7 +41,7 @@ def test_new_car_copay_question_is_opened_once_and_the_result_is_shown(engine):
     cid = client.post("/api/conversations").json()["conversation_id"]
     for text in NOA:
         body = client.post(f"/api/conversations/{cid}/messages", json={"text": text}).json()
-    assert body["stage"] == "PRESENTED" and "+661 ₪" in body["reply"] and PENDING in body["reply"]
+    assert body["stage"] == "PRESENTED" and "יגדל ב-661 ₪" in body["reply"] and PENDING in body["reply"]
     [q] = cases.list_open()
     assert (q.missing_field, q.mode, q.option_id, q.suggested_value) == (
         MissingField.NEW_CAR_COPAY, Mode.CONFIRM, "CAR-10", "300")
@@ -100,7 +99,7 @@ def _policy(tmp_path, policy):
 def test_catalog_default_policy_opens_no_question(sessions, tmp_path):
     svc = service(sessions, config=_policy(tmp_path, "CATALOG_DEFAULT"))
     turn, _ = talk(svc, NOA)
-    assert turn.stage == Stage.PRESENTED and "+661 ₪" in turn.reply and PENDING not in turn.reply
+    assert turn.stage == Stage.PRESENTED and "יגדל ב-661 ₪" in turn.reply and PENDING not in turn.reply
     assert svc.cases.list_open() == []
 
 

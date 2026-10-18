@@ -143,6 +143,9 @@ class Extensions(_Strict):
     manufacturer_brands: dict[str, list[str]] = Field(default_factory=dict)
     # טווחים סבירים לכל ערך שנשמר בפרופיל (מכל מקור: הקורא, המודל, כפתורים). מחוץ לטווח — לא נשמר.
     value_ranges: dict[str, tuple[Decimal, Decimal]] = Field(default_factory=dict)
+    # legal but rare values that strongly move the net: asked once ("לאשר / לתקן"), never a default.
+    # field -> {at_most: N} and/or {at_least: N}
+    unusual_values: dict[str, dict[str, Decimal]] = Field(default_factory=dict)
 
 
 # ---------- strauss-data.xlsx ----------

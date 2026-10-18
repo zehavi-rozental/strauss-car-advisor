@@ -65,6 +65,14 @@ value_ranges:
   current_copay: [0, 10000]
   current_maintenance: [0, 10000]
 
+# ערכים חוקיים אבל נדירים שמשפיעים חזק על הנטו: נשאלים פעם אחת ("לאשר / לתקן"), אף פעם לא ברירת מחדל.
+# at_most: הערך הזה ומטה; at_least: הערך הזה ומעלה.
+unusual_values:
+  pension_percent: {at_most: 0}
+  credit_points: {at_most: 0}
+  base_salary: {at_most: 6000}
+  children_under_23: {at_least: 9}
+
 # כינויים בעברית לרכבי הקטלוג (לפי מזהה), לזיהוי הרכב הנוכחי ולבחירת חלופות.
 # כינוי חדש = שורה כאן, לא קוד. ההתאמה מתעלמת מרווחים ומסימנים.
 car_aliases:

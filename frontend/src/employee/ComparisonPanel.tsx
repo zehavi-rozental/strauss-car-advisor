@@ -1,11 +1,12 @@
 // Comparison table: side panel on desktop, full screen on a phone. Built from the same results the
 // card uses, so it updates with the same sync.
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import type { Expects, MessageIn, OptionResult } from '../api/types'
 import { Money } from '../format/Amount'
-import { OPT_OUT_ID, buildRows, optionIds } from './comparison'
+import { buildRows } from './comparison'
 import type { Cell } from './comparison'
 import { driverLabel } from './labels'
+import { SelectionCard } from './SelectionCard'
 
 interface Props {
   results: OptionResult[]
@@ -25,21 +26,9 @@ function CellView({ cell }: { cell: Cell }) {
 export function ComparisonPanel({ results, expects, disabled, onClose, onSend, onCorrect }: Props) {
   const shown = results.slice(0, 3)
   const rows = buildRows(shown)
-  const ids = optionIds(expects)
-  const canOptOut = ids.includes(OPT_OUT_ID)
-  const assumptions = [...new Set(shown.flatMap((i) => i.result.assumptions))]
+  // the pending-copay assumption is already the "ממתין לאישור" tag in the table
+  const assumptions = [...new Set(shown.flatMap((i) => i.result.assumptions))].filter((x) => !x.includes('ממתינה לאישור נציג'))
   const optionsField = expects?.fields.find((f) => f.field === 'options') ?? (expects?.field === 'options' ? expects : null)
-  const choices = (optionsField?.choices ?? []).filter((c) => c.id !== OPT_OUT_ID)
-  const max = optionsField?.max ?? 3
-  const alreadyOptOut = shown.some((i) => i.option_id === OPT_OUT_ID)
-  const [picked, setPicked] = useState<string[]>([])
-  const toggle = (id: string) =>
-    setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : p.length < max ? [...p, id] : p))
-  const labelOf = (id: string) => optionsField?.choices.find((c) => c.id === id)?.label ?? id
-  const recalc = async (selection: string[]) => {
-    const ok = await onSend({ choices: selection, field: 'options' }, selection.map(labelOf).join(', '))
-    if (ok) onClose()
-  }
   const why = shown.filter((i) => i.result.status === 'OK')
 
   useEffect(() => {
@@ -113,29 +102,11 @@ export function ComparisonPanel({ results, expects, disabled, onClose, onSend, o
         </div>
 
         <footer className="panel-actions">
-          {choices.length > 0 && (
+          {optionsField && optionsField.choices.length > 0 && (
             <div className="swap-box">
-              <div className="reply-hint">להחלפה: בוחרים עד {max} רכבים</div>
-              <div className="reply-row">
-                {choices.map((c) => (
-                  <button key={c.id} type="button" className={picked.includes(c.id) ? 'chip chip-on' : 'chip'}
-                          aria-pressed={picked.includes(c.id)} disabled={disabled} onClick={() => toggle(c.id)}>
-                    {c.label}
-                  </button>
-                ))}
-              </div>
-              <div className="reply-row">
-                <button type="button" className="chip chip-primary" disabled={disabled || !picked.length}
-                        onClick={() => recalc(picked)}>
-                  החלפת רכב וחישוב מחדש
-                </button>
-                {canOptOut && !alreadyOptOut && (
-                  <button type="button" className="chip" disabled={disabled}
-                          onClick={() => recalc([...shown.map((i) => i.option_id).slice(0, max - 1), OPT_OUT_ID])}>
-                    להוסיף: ויתור על רכב
-                  </button>
-                )}
-              </div>
+              <h4>לשנות בחירה</h4>
+              <SelectionCard f={optionsField} fieldParam="options" disabled={disabled} onSend={onSend}
+                             initial={shown.map((i) => i.option_id)} onDone={onClose} />
             </div>
           )}
           <button type="button" className="chip chip-quiet" disabled={disabled} onClick={onCorrect}>תיקון נתונים</button>

@@ -121,6 +121,7 @@ class PendingConfirmation(BaseModel):
     field: str              # שם הארגומנט ב-save_profile
     value: Decimal
     approximate: bool = False
+    unusual: bool = False   # a legal but rare value: asked "לאשר / לתקן" once
 
 
 class CarClarification(BaseModel):
@@ -141,6 +142,7 @@ class ConversationState(BaseModel):
     calculated_for: list[str] = Field(default_factory=list)
     pending_rep: Optional[PendingRep] = None
     confirmed_copays: dict[str, ConfirmedCopay] = Field(default_factory=dict)
+    confirmed_unusual: list[str] = Field(default_factory=list)   # fields whose rare value the employee confirmed
     applied_answers: list[str] = Field(default_factory=list)    # תשובות נציג שכבר יושמו (פעם אחת בלבד)
     pending_clarification: Optional[CarClarification] = None
     pending_confirmation: Optional[PendingConfirmation] = None

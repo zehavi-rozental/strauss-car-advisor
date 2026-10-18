@@ -110,7 +110,7 @@ def test_unknown_occupation_asks_group_and_opt_out_goes_to_rep(sessions):
     turn, _ = talk(svc, ["כן"], start=(turn, token))
     assert "קבוצת הזכאות" in turn.reply
     turn, _ = talk(svc, ["ג", "18,500", Q2_ANSWER.format(children="2"), "יש לי COROLLA CROSS", "300"], start=(turn, token))
-    assert turn.stage == Stage.CHOOSE_OPTIONS and "ויתור על רכב" in turn.reply
+    assert turn.stage == Stage.CHOOSE_OPTIONS and "איזה רכבים להשוות" in turn.reply
     turn, _ = talk(svc, ["ויתור"], start=(turn, token))
     assert turn.stage == Stage.WAITING_FOR_REP and turn.pending_rep == RepReason.OCCUPATION_OPT_OUT
     [q] = open_questions(svc)
@@ -217,7 +217,7 @@ CONFIRM_TAIL = "אם זה לא הרכב שלך, כתבו את הדגם המדו�
 def test_identified_car_is_confirmed_with_label_group_and_drive(sessions):
     turn, _ = talk(service(sessions), profile() + ["יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש"])
     assert turn.reply.startswith(f"זיהיתי: COROLLA CROSS (2025), קבוצה ג, היברידי. {CONFIRM_TAIL}")
-    assert turn.stage == Stage.CHOOSE_OPTIONS and "איזה רכב מעניין אותך" in turn.reply   # ואז השאלה הבאה
+    assert turn.stage == Stage.CHOOSE_OPTIONS and "איזה רכבים להשוות" in turn.reply   # ואז השאלה הבאה
 
 
 def test_tax_file_car_confirmation_has_no_group(sessions):

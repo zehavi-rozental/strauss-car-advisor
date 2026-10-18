@@ -4,10 +4,10 @@ import { Money } from '../format/Amount'
 import { annualFromMonthly } from '../format/money'
 import { driverLabel, missingLabel } from './labels'
 
-function headline(label: string, delta: number): string {
-  if (delta > 0) return `עם ${label}, הנטו שלך יעלה`
-  if (delta < 0) return `עם ${label}, הנטו שלך ירד`
-  return `עם ${label}, הנטו שלך לא ישתנה`
+/** "הנטו שלך יגדל ב-X ₪" / "יקטן ב-X ₪": future tense, readable without niqqud. */
+function Headline({ delta, value }: { delta: number; value: string }) {
+  if (delta === 0) return <>הנטו שלך לא ישתנה</>
+  return <>הנטו שלך {delta > 0 ? 'יגדל' : 'יקטן'} ב-<Money value={String(Math.abs(Number(value)))} /> בחודש</>
 }
 
 export function ResultCard({ item, onOpenTable }: { item: OptionResult; onOpenTable?: () => void }) {
@@ -32,7 +32,7 @@ export function ResultCard({ item, onOpenTable }: { item: OptionResult; onOpenTa
           <p className="result-reason">{r.reason}</p>
         </>
       )}
-      <button type="button" className="table-button" disabled={!onOpenTable} onClick={onOpenTable}>טבלת ההשוואה המלאה</button>
+      <button type="button" className="table-button" disabled={!onOpenTable} onClick={onOpenTable}>פירוט מלא</button>
     </article>
   )
 }
@@ -45,14 +45,12 @@ function OkBody({ item }: { item: OptionResult }) {
     (a, b) => Math.abs(Number(b.net_effect_display)) - Math.abs(Number(a.net_effect_display)))
   return (
     <>
-      <h3 className="result-title">{headline(item.label, delta)}</h3>
-      <div className="delta-row">
-        <Money value={r.delta_display!} signed className={`delta ${tone}`} />
-        <span className="delta-unit">בחודש</span>
-        <span className="annual">
-          <Money value={annualFromMonthly(r.delta_display!)} signed /> בשנה (לפי ×12)
-        </span>
-      </div>
+      <h3 className="result-title">{item.label}</h3>
+      <p className={`delta-headline ${tone}`}><Headline delta={delta} value={r.delta_display!} /></p>
+      <p className="annual">
+        <Money value={r.delta_display!} signed className={tone} /> בחודש,{' '}
+        <Money value={annualFromMonthly(r.delta_display!)} signed /> בשנה
+      </p>
       {r.today && r.alternative && (
         <p className="net-row">
           <span>נטו היום <Money value={r.today.net_display} /></span>
@@ -74,11 +72,8 @@ function OkBody({ item }: { item: OptionResult }) {
           </ul>
         </section>
       )}
-      {(r.copay_pending || r.assumptions.length > 0) && (
-        <div className="tags">
-          {r.copay_pending && <span className="tag tag-pending">לפי הקטלוג · ממתין לאישור נציג</span>}
-          {r.assumptions.map((a) => <span key={a} className="tag">{a}</span>)}
-        </div>
+      {r.copay_pending && (
+        <div className="tags"><span className="tag tag-pending">ההשתתפות לפי הקטלוג, ממתינה לאישור נציג</span></div>
       )}
       <p className="disclaimer">הערכה, לא תלוש</p>
     </>

@@ -21,11 +21,6 @@ def money(value: Any) -> str:
     return f"{to_shekel(Decimal(str(value))):,} ₪"
 
 
-def signed(value: Any) -> str:
-    v = to_shekel(Decimal(str(value)))
-    return f"{v:+,} ₪" if v != 0 else "0 ₪"
-
-
 CAR_AGAIN = "לא זיהיתי את דגם הרכב. כתבו רק את שם הדגם (ושנת רישום אם ידועה), למשל: קורולה קרוס 2023."
 
 GREETING = ("שלום! אני יועץ הרכב של שטראוס. אעזור לך לראות איך שינוי ברכב הצמוד ישפיע על הנטו "
@@ -65,7 +60,7 @@ def question(field: str, state: ConversationState, snapshot: RulesSnapshot) -> s
     return texts[field]
 
 
-OPTIONS_ASK = "איזה רכב מעניין אותך — הנה הקטלוג בקבוצה שלך, ואפשר גם מקבוצה נמוכה יותר."
+OPTIONS_ASK = f"איזה רכבים להשוות? אפשר לבחור עד {MAX_OPTIONS}."
 
 
 def _option_lines(state: ConversationState, snapshot: RulesSnapshot) -> list[str]:
@@ -77,11 +72,17 @@ def _option_lines(state: ConversationState, snapshot: RulesSnapshot) -> list[str
 
 
 def _choose_hint() -> str:
-    return f"אפשר לבחור עד {MAX_OPTIONS} (מספרים או שמות), או לכתוב \"הכי משתלם\"."
+    return "כתבו מספרים או שמות, או \"הכי משתלם\"."
 
 
-def options_text(state: ConversationState, snapshot: RulesSnapshot) -> str:
-    return "\n".join([OPTIONS_ASK, *_option_lines(state, snapshot), _choose_hint()])
+def _options_block(state: ConversationState, snapshot: RulesSnapshot, with_list: bool) -> list[str]:
+    """The options travel in `expects.choices` and the client draws them, so the text is the question
+    only. The numbered list is the fallback for a client that cannot show choices."""
+    return [*_option_lines(state, snapshot), _choose_hint()] if with_list else []
+
+
+def options_text(state: ConversationState, snapshot: RulesSnapshot, with_list: bool = False) -> str:
+    return "\n".join([OPTIONS_ASK, *_options_block(state, snapshot, with_list)])
 
 
 # ---------- שאלות מקובצות (נוסח התרחיש הרשמי; רק מה שעדיין חסר) ----------
@@ -100,6 +101,10 @@ _LEFTOVER = {"commissions": "יש לך עמלות חודשיות?", "bonus": "י
              "pension_percent": "כמה אחוזים מופרשים ממך לפנסיה?",
              "study_fund_percent": "כמה אחוזים מופרשים ממך לקרן השתלמות?",
              "credit_points": "כמה נקודות זיכוי יש לך?"}
+
+
+_LEFTOVER_NAMES = {"commissions": "עמלות", "bonus": "בונוס", "pension_percent": "פנסיה",
+                   "study_fund_percent": "קרן השתלמות", "credit_points": "נקודות זיכוי", "children": "ילדים"}
 
 
 def _q1(fields: list[str], state: ConversationState, snapshot: RulesSnapshot) -> str:
@@ -123,12 +128,17 @@ def _q2(fields: list[str], snapshot: RulesSnapshot) -> str:
     return text[1:] if text.startswith("ו") else text
 
 
-def _leftovers(fields: list[str], snapshot: RulesSnapshot) -> Optional[str]:
+def _leftover_asks(fields: list[str], snapshot: RulesSnapshot) -> list[str]:
     age = snapshot.strauss.family_track.child_max_age
     asks = [_LEFTOVER[f] for f in fields if f in _LEFTOVER]
     if "children" in fields:
         asks.append(f"כמה ילדים עד גיל {age} יש לך?")
-    return f"ועוד: {' '.join(asks)}" if asks else None
+    return asks
+
+
+def _leftover_tail(fields: list[str]) -> str:
+    """Q3's first message names what is still missing from Q2; the client draws the "השלמה" button."""
+    return "חסר עוד: " + ", ".join(_LEFTOVER_NAMES[f] for f in fields if f in _LEFTOVER_NAMES) + "."
 
 
 def group_question(state: ConversationState, snapshot: RulesSnapshot) -> str:
@@ -151,112 +161,91 @@ def group_question(state: ConversationState, snapshot: RulesSnapshot) -> str:
         first.append(question("opt_out_occupation", state, snapshot))
     lines: list[str] = []
     if "options" in fields:
-        ask = OPTIONS_ASK if not first else "ו" + OPTIONS_ASK
-        lines = [" ".join(first + [ask]), *_option_lines(state, snapshot), _choose_hint()]
+        lines = [*first, OPTIONS_ASK, *_options_block(state, snapshot, False)]
     else:
-        lines = [" ".join(first)] if first else []
+        lines = list(first)
     # מה שנשאר מ-Q2: כזנב רק בפעם הראשונה ש-Q3 מוצגת; אחר כך לא חוזר, ונשאל לבד כשאין שאלה אחרת
-    leftover = _leftovers(fields, snapshot)
-    if leftover and not lines:
-        lines.append(leftover.removeprefix("ועוד: "))
-    elif leftover and "Q3" not in state.asked_groups:
-        lines.append(leftover)
+    asks = _leftover_asks(fields, snapshot)
+    if asks and not lines:
+        lines.append(" ".join(asks))
+    elif asks and "Q3" not in state.asked_groups:
+        lines.append(_leftover_tail(fields))
     return "\n".join(lines)
 
 
-def _why(drivers: list[dict[str, Any]]) -> list[str]:
-    """"למה?" בשתי שורות: הגורמים מהגדול לקטן, כל אחד עם השפעתו על הנטו מהמנוע. הסכומים המוצגים
-    מסתכמים בהפרש המוצג."""
-    phrases = []
-    for d in drivers:
-        amount = Decimal(str(d["amount_display"]))
-        effect = Decimal(str(d["net_effect_display"]))
-        size, net_size = money(abs(amount)), money(abs(effect))
-        net_moves = f"הנטו {'עולה' if effect > 0 else 'יורד'} ב-{net_size}"
-        code = d["code"]
+def net_change(delta: Any) -> str:
+    """"הנטו שלך יגדל ב-250 ₪ בחודש". The same wording everywhere: future tense, never "ירד"/"עלה"."""
+    v = to_shekel(Decimal(str(delta)))
+    if v == 0:
+        return "הנטו שלך לא ישתנה"
+    return f"הנטו שלך {'יגדל' if v > 0 else 'יקטן'} ב-{money(abs(v))} בחודש"
+
+
+_WHY_COMPONENT = {
+    "USE_VALUE": ("שווי השימוש", "גבוה", "נמוך", "המס"),
+    "MAINTENANCE": ("אחזקת הרכב", "גבוהה", "נמוכה", "הנטו"),
+    "COPAY": ("ההשתתפות", "גבוהה", "נמוכה", "הנטו"),
+    "FAMILY_SHARE": ("חלק העובד במסלול המשפחתי", "גבוה", "נמוך", "הנטו"),
+}
+
+
+def why_sentence(drivers: list[dict[str, Any]]) -> str:
+    """One plain sentence about the main cause (the biggest driver). Words only, no amounts."""
+    if not drivers:
+        return ""
+    d = max(drivers, key=lambda x: abs(Decimal(str(x["net_effect_display"]))))
+    amount, effect = Decimal(str(d["amount_display"])), Decimal(str(d["net_effect_display"]))
+    code = d["code"]
+    grows = effect > 0
+    if code == "ELECTRIC_ADDED":
+        return "מתווסף החזר חשמל, ולכן הנטו יגדל."
+    if code == "ELECTRIC_REMOVED":
+        return "החזר החשמל מתבטל, ולכן הנטו יקטן."
+    if code in _WHY_COMPONENT:
+        name, high, low, target = _WHY_COMPONENT[code]
         if code == "USE_VALUE":
-            text = (f"שווי השימוש {'נמוך' if amount < 0 else 'גבוה'} ב-{size} "
-                    f"ולכן המס {'יורד' if effect > 0 else 'עולה'} ב-{net_size}")
-        elif code in ("ELECTRIC_ADDED", "ELECTRIC_REMOVED"):
-            if d.get("net", True):
-                text = (f"מתווסף החזר חשמל של {net_size} נטו" if code == "ELECTRIC_ADDED"
-                        else f"החזר החשמל של {net_size} נטו יורד")
-            else:
-                text = (f"{'מתווסף' if code == 'ELECTRIC_ADDED' else 'יורד'} החזר חשמל של {size} ברוטו, "
-                        f"ולכן {net_moves}")
-        elif code == "MAINTENANCE":
-            text = f"אחזקת הרכב {'עולה' if amount > 0 else 'יורדת'} ב-{size}, ואחרי המס {net_moves}"
+            result = "יקטן" if grows else "יגדל"
         else:
-            what = "ההשתתפות" if code == "COPAY" else "חלק העובד במסלול המשפחתי"
-            verb = ("עולה" if amount > 0 else "יורדת") if code == "COPAY" else ("עולה" if amount > 0 else "יורד")
-            text = f"{what} {verb} ב-{size}"
-            if abs(effect) != abs(amount):
-                text += f" ({net_moves})"
-        phrases.append(text)
-    if not phrases:
-        return []
-    lines = ["; ".join(phrases[:2]) + "."]
-    if phrases[2:]:
-        lines.append("; ".join(phrases[2:]) + ".")
-    return ["  למה? " + lines[0], *(f"  {line}" for line in lines[1:])]
-
-
-def _result_lines(label: str, r: dict[str, Any]) -> list[str]:
-    """חלופה אחת: זכאות, עלות מול תקציב, פרטים, נטו משוער והסבר. כל מספר — מתוצאת המנוע."""
-    if r["status"] == "NOT_ELIGIBLE":
-        return [f"• {label}: לא ניתן — {r['reason']}"]
-    if r["status"] != "OK":
-        return [f"• {label}: חסר מידע לחישוב — {r['reason']}"]
-    out = [f"• {label} — זכאי: {r['reason']}"]
-    cost = r.get("cost")
-    if cost:
-        line = (f"  עלות לחברה {money(cost['monthly_cost_display'])} מול תקציב קבוצה {cost['group']} "
-                f"{money(cost['budget_display'])}")
-        out.append(line + (" — ההפרש מהתקציב לא משולם בשכר" if cost["under_budget"] else ""))
-    t, a = r["today"], r["alternative"]
-    details = []
-    if Decimal(str(a["use_value"])) or Decimal(str(t["use_value"])):
-        details.append(f"שווי שימוש {money(a['use_value'])} (היום {money(t['use_value'])})")
-    details.append(f"השתתפות {money(a['copay'])} (היום {money(t['copay'])})")
-    if r.get("electric_refund"):
-        details.append(f"החזר חשמל {money(r['electric_refund'])} נטו")
-    if Decimal(str(a["maintenance"])):
-        details.append(f"אחזקת רכב {money(a['maintenance'])}")
-    out.append("  " + " · ".join(details))
-    out.append(f"  נטו משוער: היום {money(t['net_display'])}, בחלופה {money(a['net_display'])} — "
-               f"שינוי של {signed(r['delta_display'])} בחודש.")
-    return out + _why(r.get("drivers") or [])
+            result = "יגדל" if grows else "יקטן"
+        return f"{name} {high if amount > 0 else low} יותר, ולכן {target} {result}."
+    return ""
 
 
 def pending_copay_text(label: str, amount: Any) -> str:
-    """נוסח התרחיש הרשמי, כשההשתתפות בחלופה לפי הקטלוג ממתינה לנציג. הסכום — מתוצאת המנוע."""
-    return (f"חסר לי אישור לסכום ההשתתפות שלך ב-{label}. חישבתי לפי הסכום בקטלוג ({money(amount)}) "
-            "ושלחתי שאלה לנציג התחבורה — החלופה תתעדכן כשתגיע תשובה.")
+    return "ממתין לאישור נציג על ההשתתפות."
 
 
 def results_text(state: ConversationState) -> str:
-    out: list[str] = []
-    assumptions: list[str] = []
-    pending: list[str] = []
-    today: Optional[str] = None
+    """At most two short lines for a plain comparison: a summary, then what is waiting. The detail
+    lives only in the structured results (the summary card and the comparison panel)."""
+    ok, bad = [], []
     for item in state.results:
         r = item.result
-        if r["today"] and today is None:
-            today = money(r["today"]["net_display"])
-        out += _result_lines(item.label, r)
-        shown = r.get("assumptions", [])
-        if r.get("copay_pending") and r["status"] == "OK" and r.get("alternative"):
-            # במקום שורת ההנחה הכללית — המשפט מהתרחיש (ההנחה עצמה נשארת בתוצאה, לאישור הנציג)
-            pending.append(pending_copay_text(item.label, r["alternative"]["copay"]))
-            shown = [a for a in shown if a != f"השתתפות ב-{item.label} לפי הקטלוג — ממתינה לאישור נציג"]
-        assumptions += [a for a in shown if a not in assumptions]
-    head = f"הנה ההשוואה (נטו משוער היום: {today}):" if today else "הנה ההשוואה:"
-    text = head + "\n" + "\n".join(out)
-    if pending:
-        text += "\n\n" + "\n".join(pending)
-    if assumptions:
-        text += "\n\nהנחות:\n" + "\n".join(f"- {a}" for a in assumptions)
-    return text
+        (ok if r["status"] == "OK" and r.get("delta_display") is not None else bad).append(item)
+    lines: list[str] = []
+    if len(ok) == 1:
+        lines.append(f"בדקתי את {ok[0].label}. {net_change(ok[0].result['delta_display'])}.")
+    elif ok:
+        deltas = [Decimal(str(i.result["delta_display"])) for i in ok]
+        best = max(ok, key=lambda i: Decimal(str(i.result["delta_display"])))
+        head = f"בדקתי {len(ok)} רכבים."
+        if all(d > 0 for d in deltas):
+            lines.append(f"{head} בכולם הנטו שלך יגדל, הכי הרבה ב-{best.label}. {net_change(best.result['delta_display'])}.")
+        elif all(d < 0 for d in deltas):
+            lines.append(f"{head} בכולם הנטו שלך יקטן, הכי פחות ב-{best.label}. {net_change(best.result['delta_display'])}.")
+        elif all(d == 0 for d in deltas):
+            lines.append(f"{head} בכולם הנטו שלך לא ישתנה.")
+        else:
+            lines.append(f"{head} הכי משתלם {best.label}. {net_change(best.result['delta_display'])}.")
+    for item in bad:
+        r = item.result
+        if r["status"] == "NOT_ELIGIBLE":
+            lines.append(f"{item.label} לא זמין לך: {r['reason']}")
+        else:
+            lines.append(f"{item.label}: חסר מידע לחישוב. {r['reason']}")
+    if any(i.result.get("copay_pending") and i.result["status"] == "OK" for i in ok):
+        lines.append(pending_copay_text("", None))
+    return "\n".join(lines)
 
 
 WAITING = "שאלתי את נציג התחבורה ואעדכן כשתגיע תשובה."
@@ -320,7 +309,23 @@ def confirm_occupation_text(text: str, suggestions: list[str]) -> str:
     return f"לא מצאתי את \"{text}\" בטבלת העיסוקים. זה התפקיד שלך? אם לא, כתבו את התפקיד שלך."
 
 
-def confirm_value_text(field: str, value: Decimal) -> str:
+_UNUSUAL_ASK = {
+    "pension_percent": ("לאשר פנסיה של {v}?", "רוב השכירים מפרישים לפנסיה."),
+    "credit_points": ("לאשר {v} נקודות זיכוי?", "רוב השכירים מקבלים נקודות זיכוי."),
+    "base_salary": ("לאשר שכר בסיס של {v}?", "זה נמוך מהמקובל."),
+    "children_under_23": ("לאשר {v} ילדים?", "זה מספר גדול של ילדים."),
+}
+
+
+def unusual_fix_text(field: str) -> str:
+    """"לתקן" on a rare value: the field stays open and is asked again."""
+    return f"בסדר. {_RANGE_TEXT[field][1]}"
+
+
+def confirm_value_text(field: str, value: Decimal, unusual: bool = False) -> str:
+    if unusual:
+        ask, note = _UNUSUAL_ASK.get(field, (f"לאשר {_VALUE_LABELS[field][0]} {{v}}?", "הערך נדיר."))
+        return f"{ask.format(v=_show(field, value))} {note}"
     return f"התכוונת ל-{_show(field, value)}?"
 
 
@@ -367,10 +372,10 @@ def rep_confirmed_text(label: str, effective: Optional[date]) -> str:
     return f"נציג התחבורה אישר את ההשתתפות ב-{label}{_effective(effective)}."
 
 
-def rep_changed_text(label: str, amount: Decimal, effective: Optional[date], old_delta: Any, new_delta: Any) -> str:
-    """מספרים מהתשובה ומתוצאות המנוע בלבד. בלי חצים בטקסט בעברית."""
-    return (f"נציג התחבורה עדכן את ההשתתפות ב-{label} ל-{money(amount)}{_effective(effective)}. "
-            f"השינוי בנטו המשוער היה {signed(old_delta)} ועכשיו {signed(new_delta)}.")
+def rep_changed_text(label: str, amount: Decimal, effective: Optional[date], new_delta: Any) -> str:
+    """Numbers from the answer and the engine result only."""
+    return (f"נציג התחבורה עדכן את ההשתתפות ב-{label} ל-{money(amount)}{_effective(effective)}.\n"
+            f"עכשיו {net_change(new_delta)}.")
 
 
 def rep_current_text(field: str, label: str, amount: Decimal) -> str:
@@ -481,7 +486,7 @@ def render(state: ConversationState, snapshot: RulesSnapshot, *, understood: boo
         return "\n\n".join(parts)                       # המשפט כבר שואל (בעיית סבירות)
     if state.pending_confirmation is not None:
         pending = state.pending_confirmation
-        parts.append(confirm_value_text(pending.field, pending.value))
+        parts.append(confirm_value_text(pending.field, pending.value, pending.unusual))
         return "\n\n".join(parts)
     if state.pending_occupation is not None:
         parts.append(confirm_occupation_text(state.pending_occupation.text, state.pending_occupation.suggestions))
@@ -489,7 +494,7 @@ def render(state: ConversationState, snapshot: RulesSnapshot, *, understood: boo
     if not understood:
         parts.append("לא הצלחתי להבין את התשובה.")
     if state.stage == Stage.PRESENTED and just_calculated:
-        parts.append("אפשר להשוות חלופה נוספת: כתבו את שם הרכב.")
+        pass                      # the results card carries "לשנות בחירה"; the text stays at two lines
     elif fields:
         # אותה שאלה פעם שנייה ברצף: לא באותו ניסוח, אלא כפתורים ודוגמה מדויקת
         parts.append(group_question(state, snapshot))

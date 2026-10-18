@@ -42,7 +42,7 @@ def test_rank_before_the_current_car_is_kept_and_calculated_later(sessions, how)
     turn = (svc.send_choice(cid, token, ["rank"], "options") if how == "button" else svc.send(cid, token, how))
     assert CAR_AGAIN not in turn.reply and "לא הצלחתי" not in turn.reply
     assert "הכי משתלמות" in turn.reply                 # אישור: הבקשה נרשמה
-    assert "איזה רכב מעניין אותך" not in turn.reply    # לא שואלים שוב על החלופות
+    assert "איזה רכבים להשוות" not in turn.reply    # לא שואלים שוב על החלופות
     svc.send(cid, token, "יש לי קורולה קרוס")
     turn = svc.send(cid, token, "300")
     assert turn.stage == Stage.PRESENTED and turn.results
@@ -76,13 +76,13 @@ def test_the_leftover_tail_is_shown_once_and_then_asked_on_its_own(sessions):
     svc = service(sessions)
     cid, token = start_q2(svc)
     turn = svc.send(cid, token, "אין")
-    assert "ועוד:" in turn.reply                         # Q3 הראשונה: הרכב, החלופות, ומה שנשאר
+    assert "חסר עוד:" in turn.reply                         # Q3 הראשונה: הרכב, החלופות, ומה שנשאר
     turn = svc.send_choice(cid, token, ["CAR-09"], "car")
-    assert "ועוד" not in turn.reply and "פנסיה" not in turn.reply
+    assert "חסר עוד" not in turn.reply and "פנסיה" not in turn.reply
     turn = svc.send(cid, token, "300")
-    assert "ועוד" not in turn.reply and "פנסיה" not in turn.reply
+    assert "חסר עוד" not in turn.reply and "פנסיה" not in turn.reply
     turn = svc.send_choice(cid, token, ["CAR-10"], "options")
-    assert "ועוד" not in turn.reply
+    assert "חסר עוד" not in turn.reply
     assert "פנסיה" in turn.reply and "נקודות זיכוי" in turn.reply     # עכשיו זו השאלה הראשית
     turn = svc.send(cid, token, PROFILE_REST)
     assert turn.stage == Stage.PRESENTED and turn.results
@@ -114,7 +114,7 @@ def test_an_unknown_copay_waits_for_the_profile_before_asking_the_rep(sessions):
     svc.send_choice(cid, token, ["CAR-09"], "car")
     turn = svc.send_choice(cid, token, ["unknown"], "copay")
     assert turn.stage != Stage.WAITING_FOR_REP and not open_questions(svc, cid)
-    assert "נציג" in turn.reply and "איזה רכב מעניין אותך" in turn.reply   # נרשם; ממשיכים בשאלות
+    assert "נציג" in turn.reply and "איזה רכבים להשוות" in turn.reply   # נרשם; ממשיכים בשאלות
     turn = svc.send_choice(cid, token, ["CAR-10"], "options")
     assert not open_questions(svc, cid) and "פנסיה" in turn.reply           # קודם משלימים את הפרופיל
     turn = svc.send(cid, token, PROFILE_REST)
@@ -139,7 +139,7 @@ def test_the_live_conversation_reaches_a_result(sessions):
         svc.send(cid, token, PROFILE_REST).reply,
     ]
     assert all(CAR_AGAIN not in r and "לא הצלחתי" not in r for r in replies)
-    assert sum("ועוד:" in r for r in replies) == 1
+    assert sum("חסר עוד:" in r for r in replies) == 1
     [question] = open_questions(svc, cid)
     svc.cases.answer(question.id, "300")
     state = svc.view(cid, token).state

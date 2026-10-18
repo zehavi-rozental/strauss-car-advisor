@@ -3,8 +3,10 @@ import { ComparisonPanel } from './ComparisonPanel'
 import { Composer } from './Composer'
 import { MessageList } from './MessageList'
 import { ProfileForm } from './ProfileForm'
-import { Q2_FIELD_NAMES, profileFormText } from './formFields'
-import { QuickReplies } from './QuickReplies'
+import { AnswerWidgets } from './AnswerWidgets'
+import { profileFormText } from './formFields'
+import { SelectedBar } from './SummaryCard'
+import { isQ2Question, leftoverFields, leftoverText, placeholderFor, widgetsFor } from './widgets'
 import { useConversation } from './useConversation'
 
 function CarIcon() {
@@ -21,16 +23,51 @@ export function EmployeePage() {
   const busy = c.sending || c.loading
   const [tableOpen, setTableOpen] = useState(false)
   const [correcting, setCorrecting] = useState(false)
-  // Q2 arrives as several profile fields at once: show it as a form
-  const q2Fields = c.expects?.fields.filter((f) => f.type === 'number' && f.field !== null && Q2_FIELD_NAMES.has(f.field)) ?? []
-  const showQ2 = q2Fields.length >= 2 && !correcting
+  const [changing, setChanging] = useState(false)
+  const showQ2 = isQ2Question(c.expects) && !correcting
+  const widgets = widgetsFor(c.expects)
+  const leftovers = leftoverFields(c.expects)
+  // once results are shown the selection collapses into one line; "לשנות בחירה" reopens it
+  const collapsed = c.results.length > 0 && widgets.some((w) => w.kind === 'selection') && !changing
+  const openForm = (c.expects && correcting) || showQ2
   const newChat = () => {
     if (window.confirm('להתחיל שיחה חדשה?')) {
       setTableOpen(false)
       setCorrecting(false)
+      setChanging(false)
       void c.newConversation()
     }
   }
+  const profileForm = (
+    <ProfileForm mode={correcting ? 'correction' : 'q2'} loadProfile={c.loadProfile} disabled={busy}
+                 onCancel={correcting ? () => setCorrecting(false) : undefined}
+                 onSubmit={async (fields) => {
+                   const ok = await c.send({ fields }, profileFormText(fields))
+                   if (ok) setCorrecting(false)
+                   return ok
+                 }} />
+  )
+  const tail = (
+    <div className="answer-tail">
+      {openForm ? profileForm : (
+        <>
+          {leftovers.length > 0 && (
+            <div className="leftover-row">
+              <span>{leftoverText(leftovers)}</span>
+              <button type="button" className="chip chip-quiet" disabled={busy} onClick={() => setCorrecting(true)}>
+                השלמה
+              </button>
+            </div>
+          )}
+          {collapsed
+            ? <SelectedBar items={c.results} disabled={busy} onChange={() => setChanging(true)} />
+            : <AnswerWidgets expects={c.expects} disabled={busy} onSend={c.send}
+                             selected={c.results.map((r) => r.option_id)} onDone={() => setChanging(false)} />}
+        </>
+      )}
+    </div>
+  )
+
   return (
     <div className="chat">
       <header className="chat-header">
@@ -46,7 +83,8 @@ export function EmployeePage() {
       <main className="chat-body">
         {c.loading && <p className="loading">טוען את השיחה…</p>}
         <MessageList messages={c.messages} results={c.results} resultsAnchor={c.resultsAnchor} typing={c.sending}
-                     onOpenTable={() => setTableOpen(true)} />
+                     onOpenTable={() => setTableOpen(true)}
+                     tail={busy ? null : tail} />
       </main>
 
       <footer className="chat-footer">
@@ -56,17 +94,7 @@ export function EmployeePage() {
             <button type="button" onClick={c.dismissError} aria-label="סגירה">×</button>
           </div>
         )}
-        {(showQ2 || correcting) && (
-          <ProfileForm mode={correcting ? 'correction' : 'q2'} loadProfile={c.loadProfile} disabled={busy}
-                       onCancel={correcting ? () => setCorrecting(false) : undefined}
-                       onSubmit={async (fields) => {
-                         const ok = await c.send({ fields }, profileFormText(fields))
-                         if (ok) setCorrecting(false)
-                         return ok
-                       }} />
-        )}
-        <QuickReplies expects={c.expects} disabled={busy} onSend={c.send} hideNumbers={showQ2 || correcting} />
-        <Composer disabled={busy} onSend={(text) => c.send({ text }, text)} />
+        <Composer disabled={busy} placeholder={placeholderFor(c.expects)} onSend={(text) => c.send({ text }, text)} />
       </footer>
       {tableOpen && c.results.length > 0 && (
         <ComparisonPanel results={c.results} expects={c.expects} disabled={busy} onClose={() => setTableOpen(false)}

@@ -83,8 +83,8 @@ def test_rep_changes_the_copay_and_the_option_is_recalculated(client, sessions):
     [rep] = updates["messages"]
     new_delta = engine_delta(350)
     assert rep["source"] == "rep" and new_delta != Decimal(661)
-    assert rep["content"] == (f"נציג התחבורה עדכן את ההשתתפות ב-ATTO 3 (2025) ל-350 ₪ (בתוקף מ-01.01.2027). "
-                              f"השינוי בנטו המשוער היה +661 ₪ ועכשיו {new_delta:+,} ₪.")
+    assert rep["content"].startswith("נציג התחבורה עדכן את ההשתתפות ב-ATTO 3 (2025) ל-350 ₪ (בתוקף מ-01.01.2027).\nעכשיו הנטו שלך ")
+    assert f"ב-{abs(new_delta):,} ₪ בחודש." in rep["content"]
     assert "←" not in rep["content"] and "→" not in rep["content"]
     [result] = updates["results"]
     assert Decimal(result["result"]["delta_display"]) == new_delta
@@ -134,7 +134,7 @@ def test_rep_answer_unblocks_and_the_flow_continues(client):
     assert updates["stage"] == "CHOOSE_OPTIONS"
     [rep] = updates["messages"]
     assert rep["content"].startswith("נציג התחבורה השיב: ההשתתפות הנוכחית שלך ב-COROLLA CROSS (2025) היא 300 ₪.")
-    assert "איזה רכב מעניין אותך" in rep["content"]
+    assert "איזה רכבים להשוות" in rep["content"]
     body = say(client, cid, "אטו 3")                                  # ממשיכים כרגיל
     assert body["stage"] == "PRESENTED" and body["results"][0]["delta_display"] == "661"
 
@@ -254,7 +254,6 @@ def test_rep_amount_is_an_assumption_now_and_in_later_calculations(client):
     assert expected in updates["results"][0]["result"]["assumptions"]
     body = say(client, cid, "אטו 3")                                  # חישוב מאוחר יותר
     assert expected in body["results"][0]["assumptions"]
-    assert expected in body["reply"]
 
 
 def test_rep_amount_without_a_date_has_no_date_part(client):
@@ -288,8 +287,7 @@ def test_padded_ids_are_trimmed(client):
 
 # ---------- נוסח ההמתנה מהתרחיש הרשמי ----------
 
-PENDING_SENTENCE = ("חסר לי אישור לסכום ההשתתפות שלך ב-ATTO 3 (2025). חישבתי לפי הסכום בקטלוג (300 ₪) "
-                    "ושלחתי שאלה לנציג התחבורה — החלופה תתעדכן כשתגיע תשובה.")
+PENDING_SENTENCE = "ממתין לאישור נציג על ההשתתפות."
 
 
 def test_pending_copay_uses_the_scenario_wording_until_the_rep_confirms(client):
@@ -304,4 +302,4 @@ def test_pending_copay_uses_the_scenario_wording_until_the_rep_confirms(client):
     assert updates["results"][0]["result"]["copay_pending"] is False
     body = say(client, cid, "אטו 3")                                   # חישוב מאוחר יותר
     assert PENDING_SENTENCE not in body["reply"]
-    assert "השתתפות ב-ATTO 3 (2025) — אושר על ידי נציג התחבורה" in body["reply"]
+    assert "השתתפות ב-ATTO 3 (2025) — אושר על ידי נציג התחבורה" in body["results"][0]["assumptions"]

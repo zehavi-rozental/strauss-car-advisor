@@ -68,7 +68,7 @@ A module, and `app/api`, imports another module **only** through that module's `
 - `extensions.yaml` keeps only what the rules file does not say (e.g. the employee's share of the family-track gap is added on top of the copay). A field that moved to the rules file fails loading if it is left there.
 - Copay for a new car: calculate immediately with the catalog default and mark it "pending representative approval" (`CATALOG_DEFAULT_CONFIRM_ASYNC`).
 - Current-car matching: company catalog first, then the tax file. Several matches with different use values → the employee chooses from up to 5.
-- Q2 leftovers (official scenario: car question in 3 bot turns): listed as a "ועוד: …" tail only on the first Q3 message, never repeated; asked on their own once the car and alternatives are done.
+- Q2 leftovers (official scenario: car question in 3 bot turns): listed as a short "חסר עוד: עמלות, בונוס…" line only on the first Q3 message (the client hides that line and shows a compact row with a "השלמה" button that opens the profile form), never repeated; asked on their own once the car and alternatives are done.
 - A bare "אין" to Q2 sets 0 for commissions, bonus, study fund and children, and says so ("רשמתי: …"). Pension and credit points are never assumed.
 - A representative question about the current car ("לא ידוע") opens only after the profile is complete; until then the answer is recorded.
 - "הכי משתלם" before the profile and current car are known is recorded (`rank_requested`) and resolved as soon as only the alternatives are missing.
@@ -76,6 +76,23 @@ A module, and `app/api`, imports another module **only** through that module's `
 - A value saved for a field that is not on screen (e.g. "עמלות 2,400" while the alternatives are asked) is confirmed in a "רשמתי: …" line, never saved silently.
 - `tests/scenarios/test_styles.py`: the six reference employees in three styles (buttons, short, free), 18 conversations through the API, net equal to the reference. Live provider: `STYLES_LLM=live STYLES_TURN_PAUSE_S=30 pytest tests/scenarios` (slow, free-tier quota).
 - Confirmation lines come from tool results, not the LLM: "זיהיתי: <תפקיד>, קבוצה X.", "בחרת להשוות: …", "זיהיתי: <רכב>".
+
+### Interaction model and message style (session 1 of the UX pass)
+
+- **One primary input per question**, derived from `expects` only (`frontend/src/employee/widgets.ts`, `widgetsFor`): choice up to 8 -> buttons, more -> searchable select; Q2 (all fields are profile numbers) -> `ProfileForm`; `car_search` -> search box with result buttons; `multi_choice` -> `SelectionCard`. It is drawn under the latest bot message and disappears while a turn is sent (the user bubble is the read-only summary); older messages never carry widgets, so no stale button is clickable. Typing always stays possible; the composer placeholder is a short per-question hint.
+- **Q3 is partial-aware**: "הרכב שלך היום" (search) and "רכבים להשוואה" (SelectionCard) are two labelled sections of one card; each is shown only while its field is open in `expects`.
+- **SelectionCard**: toggle buttons (`aria-pressed`, keyboard operable), index number on each card = the number the employee may type (server order of `expects.choices`), live counter in an `aria-live` region ("נבחרו 2 מתוך 3"), a 4th card disabled with "אפשר עד 3", primary "השוואה", secondary "מה הכי משתלם לי?", opt-out as a dashed card only if `OPT_OUT` is offered.
+- **Options text**: when `expects` carries choices the server text is the short question only ("איזה רכבים להשוות? אפשר לבחור עד 3."). `options_text(..., with_list=True)` is the numbered-list fallback for a client without widgets (the API never uses it).
+- **Results**: the chat text is built from a template, never by the LLM (the intro call was removed): at most 2 plain lines ("בדקתי 3 רכבים. בכולם הנטו שלך יקטן, הכי פחות ב-X. הנטו שלך יקטן ב-923 ₪ בחודש." + "ממתין לאישור נציג על ההשתתפות."); not-eligible / incomplete options add one short line each. No breakdown, no assumptions, no "אפשר להשוות חלופה נוספת" line in the text. Detail lives in the structured result: `result.why` (one plain sentence about the main cause, built by `why_sentence` from the drivers, stored by `_dump`), the `SummaryCard` (ranked rows, signed delta, why; "פירוט מלא" opens `ComparisonPanel`; one option -> `ResultCard`), and the panel (where the assumptions live). After results the selection collapses into "הרכבים שנבחרו: … / לשנות בחירה" (reopens the SelectionCard with the current selection checked).
+- **One wording and one sign style**: "הנטו שלך יגדל ב-X ₪" / "יקטן ב-X ₪" / "לא ישתנה" everywhere (`templates.net_change`, `ResultCard`), never "ירד" / "עלה" / "שינוי של -X". On screen the minus is "−" left of the digits inside `<bdi>` (`format/money.ts`, `Money`, `richText.tsx`); `format/sign.test.tsx` asserts the same string in all components.
+- **Hebrew style guide** (templates and the LLM phrase prompt): short sentences, one idea per line, at most 2-3 lines per paragraph; no "·" chains, no parenthetical comparisons like "(היום 0 ₪)", no formulas; directions in words; friendly second-person plural ("כתבו", "בחרו"); "רשמתי" lines stay short; "למה?" is one plain sentence. Enforced by `tests/test_template_style.py` (line length, no "·", no "שינוי של", no raw negative amounts, every results case: all up / all down / mixed / zero / single / not eligible / incomplete / pending).
+- **Bubbles** render a safe markdown subset (`richText.tsx`): line breaks, `**bold**`, "- " bullets, no raw HTML; every amount is wrapped in `<bdi>` and bold.
+- **Unusual values** (legal but rare: pension 0%, credit points 0, base salary at most 6,000, 9+ children) are asked once with "לאשר" / "לתקן". Thresholds are in `extensions.yaml` (`unusual_values`, `at_most` / `at_least`), never hard-coded and never defaults. The value is held (not saved) in `pending_confirmation` (`unusual: true`) until "לאשר"; confirmed fields are remembered in `state.confirmed_unusual` so they are not asked twice; "לתקן" keeps the field open and asks it again. The profile form (`run_fields`) does not report a held value as "רשמתי".
+
+## NEXT (not done in this pass)
+
+- Run the browser checks (desktop + 375px) and the live LLM styles run (`STYLES_LLM=live STYLES_TURN_PAUSE_S=5`), deliberately skipped in session 1.
+- `llm.intro_deadline` / `intro_budget_s` in `LLMChain` are now unused (the results intro was removed); delete them in a cleanup.
 
 ## Known limitations (מגבלות ידועות)
 

@@ -96,36 +96,6 @@ def test_template_mode_does_not_guess_from_those_sentences(sessions):
     assert svc.view(turns[-1].conversation_id, token).state.selected == []
 
 
-class SlowIntro(ScriptedProvider):
-    """חילוץ מהיר (בוחר ATTO 3); הפתיח איטי — מקדם את השעון עד התקרה ונכשל ב-timeout."""
-
-    def __init__(self, clock):
-        super().__init__("gemini", "slow-intro")
-        self.clock = clock
-        self.intro_cap = None
-
-    def complete(self, messages, tools=(), require_tool=False, timeout_s=None):
-        self.calls += 1
-        if tools:
-            return LLMResponse(tool_calls=(call("calculate", options=["ATTO 3"]),))
-        self.intro_cap = timeout_s
-        self.clock.now += min(5, timeout_s) if timeout_s is not None else 5
-        raise LLMError("slow", timeout=True)
-
-
-def test_slow_intro_is_cut_at_its_budget_and_the_template_result_is_shown(sessions):
-    clock = Clock()
-    slow = SlowIntro(clock)
-    chain = LLMChain([slow], turn_deadline_s=6, intro_budget_s=2.5, clock=clock)
-    svc = service(sessions, chain)
-    turns, token = talk(svc, NOA[:2])                           # הקורא — בלי מודל
-    started = clock.now
-    turn = svc.send(turns[0].conversation_id, token, "את החשמלי הסיני בבקשה")   # הקורא לא מבין → המודל
-    assert turn.path == "llm" and turn.stage == Stage.PRESENTED
-    assert slow.intro_cap == 2.5 and clock.now - started == 2.5
-    assert turn.source == "template" and "+661 ₪" in turn.reply
-
-
 import pytest  # noqa: E402
 from decimal import Decimal  # noqa: E402
 
@@ -245,7 +215,7 @@ def test_out_of_range_option_number_is_answered_without_the_llm(sessions, text):
     turn = turns[-1]
     assert fake.calls == [] and turn.path == "parser"
     assert turn.reply.startswith(OUT_OF_RANGE)
-    assert "איזה רכב מעניין אותך" in turn.reply and "13. ויתור על רכב" in turn.reply
+    assert "איזה רכבים להשוות" in turn.reply
     assert "לא הצלחתי להבין" not in turn.reply
     assert turn.stage == Stage.CHOOSE_OPTIONS
     assert svc.view(turn.conversation_id, token).state.selected == []
@@ -275,7 +245,7 @@ def test_repeated_car_sentence_at_the_options_question_selects_nothing(sessions,
     state = svc.view(turn.conversation_id, token).state
     assert turn.stage == Stage.CHOOSE_OPTIONS and state.selected == [] and turn.results == []
     assert svc.cases.list_open() == []
-    assert "איזה רכב מעניין אותך" in turn.reply
+    assert "איזה רכבים להשוות" in turn.reply
 
 
 @pytest.mark.parametrize("text, code", [("אני רוצה לבדוק את אטו 3", "CAR-10"), ("קורולה", "CAR-07"),
@@ -347,7 +317,6 @@ def test_official_scenario_sentence_saves_an_approximate_commission(sessions):
         turn = svc.send(turn.conversation_id, token, m)
     assert turn.stage == Stage.PRESENTED
     assert "עמלות: כ-1,000 ₪, לפי ההערכה שלך" in turn.results[0].result["assumptions"]
-    assert "עמלות: כ-1,000 ₪, לפי ההערכה שלך" in turn.reply
 
 
 def test_shortened_salary_needs_a_yes_before_it_is_saved(sessions):

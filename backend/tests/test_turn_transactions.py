@@ -32,7 +32,7 @@ class WritingWhilePhrasing(FakeLLM):
         self.writes = 0
 
     def complete(self, messages, tools=(), require_tool=False, timeout_s=None):
-        if not tools:
+        if True:
             self.write()          # נכשל ב-"database is locked" אם התור מחזיק נעילת כתיבה
             self.writes += 1
         return super().complete(messages, tools, require_tool, timeout_s)
@@ -53,7 +53,7 @@ def test_no_write_lock_is_held_during_llm_calls(tmp_path):
     fake.turn(call("calculate", options=["ATTO 3"]), reply="הנה ההשוואה שביקשת.")
     turn = svc.send(turn.conversation_id, token, "את החשמלי הסיני בבקשה")
 
-    assert fake.writes == 1                               # הכתיבה המקבילה הצליחה
+    assert fake.writes >= 1                              # הכתיבה המקבילה הצליחה
     assert turn.stage == Stage.PRESENTED and turn.results[0].result["delta_display"] == "661"
     with sessions() as s:
         run = s.scalars(select(CalculationRunRow)).one()  # נכתבה בשלב (ג) עם המזהה שהוחזר

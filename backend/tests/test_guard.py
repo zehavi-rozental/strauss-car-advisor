@@ -70,42 +70,18 @@ def test_plain_next_question_is_not_phrased(sessions):
     assert all(c.tools for c in fake.calls)            # אף קריאת ניסוח (בלי כלים)
 
 
-# ---------- הודעת תוצאות: פתיח בלי מספרים + שורות מהתבנית ----------
+# ---------- results message: always the short template, the LLM is not asked ----------
 
-def _results_turn(sessions, intro):
+def test_results_text_is_the_template_and_the_llm_is_not_asked(sessions):
     noa = call("save_profile", occupation="מנהלת מוצר", base_salary=18500, commissions=0, bonus=0,
                pension_percent=6, study_fund_percent=2.5, credit_points=2.75, children_under_23=2)
     fake = FakeLLM().turn(noa)
     fake.turn(call("match_current_car", model="COROLLA CROSS"), call("save_profile", current_copay=300))
-    fake.turn(call("calculate", options=["ATTO 3"]), reply=intro)
+    fake.turn(call("calculate", options=["ATTO 3"]), reply="חבל, הנטו ירד.")
     svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([fake]))
     turn, token = svc.start()
-    for text in ("הנה הפרטים שלי", "זה הרכב שלי, אותו אחד כמו תמיד", "את החשמלי הסיני בבקשה"):   # הקורא לא מבין → המודל
+    for text in ("הנה הפרטים שלי", "זה הרכב שלי, אותו אחד כמו תמיד", "את החשמלי הסיני בבקשה"):
         turn = svc.send(turn.conversation_id, token, text)
-    return turn, fake
-
-
-def test_results_intro_with_digits_is_dropped(sessions):
-    """הנטו עולה ב-661, והמודל כותב שהוא ירד — עם ספרות. הפתיח נזרק; השורות מהתבנית."""
-    turn, _ = _results_turn(sessions, "חבל, הנטו ירד ב-661 ₪ בחודש.")
-    assert turn.source == "template"
-    assert "ירד" not in turn.reply and "חבל" not in turn.reply
-    assert "+661 ₪" in turn.reply and "11,032 ₪" in turn.reply and "11,693 ₪" in turn.reply
-    with sessions() as s:
-        last = s.scalars(select(MessageRow).order_by(MessageRow.seq.desc())).first()
-        assert last.guard_blocked is True
-
-
-def test_results_intro_without_digits_is_kept_and_lines_come_from_template(sessions):
-    turn, _ = _results_turn(sessions, "הנה ההשוואה שביקשת.")
-    assert turn.source == "llm" and turn.reply.startswith("הנה ההשוואה שביקשת.")
-    assert "+661 ₪" in turn.reply and "11,693 ₪" in turn.reply
-
-
-def test_results_intro_is_asked_without_numbers(sessions):
-    """הפתיח מקבל רק את הודעת העובד — לא את התוצאות — כך שאין לו מספרים להעתיק."""
-    turn, fake = _results_turn(sessions, "בבקשה.")
-    [intro_request] = [c for c in fake.calls if not c.tools]
-    sent = " ".join(m.content for m in intro_request.messages)
-    assert not any(n in sent for n in ("661", "11,032", "11032", "11,693", "11693"))
-    assert turn.source == "llm" and "+661 ₪" in turn.reply
+    assert turn.source == "template" and "חבל" not in turn.reply
+    assert "הנטו שלך יגדל ב-661 ₪ בחודש" in turn.reply and len(turn.reply.splitlines()) <= 2
+    assert all(c.tools for c in fake.calls)            # no phrasing call
