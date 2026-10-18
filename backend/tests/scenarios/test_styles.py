@@ -408,7 +408,8 @@ TRANSCRIPT = ["אני בקבוצה ג, מרוויחה 18 וחצי ברוטו, 6 
               "לא יודע"]
 
 
-def test_free_replay_of_the_live_transcript():
+def test_free_replay_of_the_live_transcript(caplog):
+    caplog.set_level("INFO", logger="app.modules.conversation.public")
     llm = build_llm_chain(Settings()) if LIVE else LLMChain()
     from ..conftest import build_engine
     client = make_client(build_engine(), llm=llm, rep_access_token=REP["X-Rep-Token"])
@@ -417,7 +418,8 @@ def test_free_replay_of_the_live_transcript():
     for text in TRANSCRIPT:
         body = client.post(f"/api/conversations/{body['conversation_id']}/messages", json={"text": text}).json()
         SOURCES[body.get("source", "?")] += 1
-        lines += [f"U: {text}", f"B [{body['source']}]: {body['reply']}"]
+        say = [r.getMessage() for r in caplog.records if r.getMessage().startswith("turn path=")][-1]
+        lines += [f"U: {text}", f"B [{body['source']}; {say.split(' total=')[0]}]: {body['reply']}"]
         if TURN_PAUSE_S:
             time.sleep(TURN_PAUSE_S)
         if not body.get("results") and body["stage"] != "WAITING_FOR_REP":

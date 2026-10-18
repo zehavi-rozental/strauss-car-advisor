@@ -55,6 +55,9 @@ class Profile(BaseModel):
     rep_opt_out_allowed: Optional[bool] = None
     rep_opt_out_maintenance: Optional[Decimal] = None
     approximate_fields: list[str] = Field(default_factory=list)   # שדות שנאמרו כהערכה ("כ-1,000")
+    # Q2 fields the employee said they do not know ("לא יודע"): never a default value. They wait until the
+    # end; the calculation does not run without them, and the bot says where to find them.
+    unknown_fields: list[str] = Field(default_factory=list)
 
 
 class CarChoice(BaseModel):
@@ -156,6 +159,7 @@ class ConversationState(BaseModel):
     # Q2 was answered in part (a later turn saved a Q2 field): only then its leftovers move to Q3.
     # A turn that only asked a question ("מה זה נקודות זיכוי?") does not move on.
     q2_answered: bool = False
+    unknown_told: int = 0    # replies about fields the employee does not know (the wording alternates)
     misses: int = 0          # answers in a row that were not understood (never the same reply twice)
     unanswered_question: Optional[str] = None    # a question the FAQ does not cover: "לשאול את נציג התחבורה"
     pending_rep_question: Optional[str] = None   # the privacy-checked text shown before sending to the rep
@@ -214,7 +218,18 @@ CAR_DETAILS = ("car_choice", "use_value", "drive", "maintenance")   # שאלות
 def _q2_deferred(state: ConversationState) -> bool:
     """Q2 נשאלה ונענתה בחלקה: מה שחסר ממנה עובר ל-Q3 (לא שואלים את Q2 שוב)."""
     p = state.profile
-    return "Q2" in state.asked_groups and state.q2_answered and any(getattr(p, f) is not None for f in Q2_FIELDS)
+    return "Q2" in state.asked_groups and (bool(p.unknown_fields) or (
+        state.q2_answered and any(getattr(p, f) is not None for f in Q2_FIELDS)))
+
+
+def unknown_missing(p: Profile) -> list[str]:
+    """Q2 fields still empty that the employee said they do not know."""
+    return [f for f in Q2_FIELDS if getattr(p, f) is None and f in p.unknown_fields]
+
+
+def open_profile(p: Profile) -> list[str]:
+    """What is still to be asked about the profile now (unknown fields wait for the end)."""
+    return [f for f in missing_profile(p) if f not in p.unknown_fields]
 
 
 def needs_opt_out_occupation(state: ConversationState) -> bool:
@@ -228,7 +243,7 @@ def next_stage(state: ConversationState) -> Stage:
     """השלב נגזר מהנתונים בלבד."""
     if state.pending_rep is not None:
         return Stage.WAITING_FOR_REP
-    missing = missing_profile(state.profile)
+    missing = open_profile(state.profile)
     q1 = [f for f in missing if f in Q1_FIELDS]
     q2 = [f for f in missing if f in Q2_FIELDS]
     if q1 or (q2 and not _q2_deferred(state)):
@@ -239,6 +254,8 @@ def next_stage(state: ConversationState) -> Stage:
         return Stage.COLLECT_PROFILE
     if not state.selected:
         return Stage.CHOOSE_OPTIONS
+    if unknown_missing(state.profile):
+        return Stage.COLLECT_PROFILE       # no calculation without them, and never a default
     if state.calculated_for != state.selected:
         return Stage.CALCULATING
     return Stage.PRESENTED
@@ -248,7 +265,7 @@ def current_group(state: ConversationState) -> tuple[Optional[str], list[str]]:
     """השאלה המקובצת הנוכחית ושדותיה החסרים: ("Q1" | "Q2" | "Q3" | "car_detail", [...])."""
     stage = next_stage(state)
     p, c = state.profile, state.current
-    missing = missing_profile(p)
+    missing = open_profile(p)
     q1 = [f for f in missing if f in Q1_FIELDS]
     q2 = [f for f in missing if f in Q2_FIELDS]
     options = [] if state.selected or state.rank_requested else ["options"]
@@ -257,7 +274,8 @@ def current_group(state: ConversationState) -> tuple[Optional[str], list[str]]:
             return "Q1", q1
         if q2 and not _q2_deferred(state):
             return "Q2", q2
-        return "Q3", q2 + (["opt_out_occupation"] if needs_opt_out_occupation(state) else []) + options
+        rest = q2 + (["opt_out_occupation"] if needs_opt_out_occupation(state) else []) + options
+        return ("Q3", rest) if rest else ("unknown", unknown_missing(p))
     if stage == Stage.COLLECT_CURRENT_CAR:
         car = missing_current_car(c)
         if car[0] in CAR_DETAILS:

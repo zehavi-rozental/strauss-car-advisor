@@ -124,6 +124,8 @@ class Extensions(_Strict):
     family_gap_adds_to_copay: bool
     copay_policy: Literal["CATALOG_DEFAULT_CONFIRM_ASYNC", "CATALOG_DEFAULT", "REP_REQUIRED"]
     plug_in_counts_as_electric: bool
+    # "להעלות תלוש": offered next to a field the employee does not know; empty = no link (no upload yet)
+    payslip_upload_url: str = ""
     child_age_inclusive: bool
     default_vehicle_type: str
     electric_fuel_codes: list[str]

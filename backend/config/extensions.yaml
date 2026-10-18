@@ -6,6 +6,9 @@ version: "ext-2026-10-18.1"
 family_gap_adds_to_copay: true          # חלק העובד בפער מתווסף להשתתפות הרכב
 copay_policy: CATALOG_DEFAULT_CONFIRM_ASYNC   # סעיף 8
 plug_in_counts_as_electric: false
+# Link offered with "where to find it on the payslip" when a value is unknown. Empty: no link (the app has no
+# payslip upload yet); a pilot sets the URL here, no code change.
+payslip_upload_url: ""
 child_age_inclusive: true               # "עד גיל 23" כולל 23
 default_vehicle_type: "1"               # בקטלוג אין עמודת סוג רכב
 electric_fuel_codes: ["4"]              # זיהוי חשמלי לרכב נוכחי שאינו בקטלוג

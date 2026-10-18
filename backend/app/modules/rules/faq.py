@@ -24,6 +24,7 @@ class FaqEntry(BaseModel):
     answer: str
     simple: Optional[str] = None               # the question again, in simpler words
     example: Optional[str] = None              # what to type
+    where: Optional[str] = None                # where to find the value on the payslip
 
 
 class Faq(BaseModel):
@@ -78,7 +79,7 @@ def load_faq(config_dir: Path, values: dict[str, str]) -> Faq:
     for e in faq.entries:
         try:
             filled = {k: (getattr(e, k).format(**values) if getattr(e, k) else getattr(e, k))
-                      for k in ("answer", "simple", "example")}
+                      for k in ("answer", "simple", "example", "where")}
         except KeyError as exc:
             raise ConfigError(f"{FAQ_FILE}: ערך לא מוכר {{{exc.args[0]}}} בשאלה {e.id}") from exc
         entries.append(e.model_copy(update=filled))

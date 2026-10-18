@@ -155,10 +155,14 @@ def group_question(state: ConversationState, snapshot: RulesSnapshot, skip: Sequ
     fields = [f for f in fields if f not in skip]
     if not fields:
         return ""
+    if group == "unknown":
+        return unknown_text(state, snapshot, fields)
     if len(fields) == 1:
         return question(fields[0], state, snapshot)
     if group == "Q1":
         return _q1(fields, state, snapshot)
+    if group == "unknown":
+        return unknown_text(state, snapshot, fields)
     if group == "Q2" or _is_q2(fields):
         return _q2(fields, snapshot)
     if "car" in fields:
@@ -493,7 +497,28 @@ class ReplyPlan:
 
 
 CTA_STARTS = ("כתבו", "בחרו", "אפשר לכתוב")
-LINK_LABELS = {"profile_form": "למלא בטופס", "selection": "להציג את הרכבים בקבוצה שלך"}
+LINK_LABELS = {"profile_form": "למלא בטופס", "selection": "להציג את הרכבים בקבוצה שלך",
+               "payslip_upload": "להעלות תלוש"}
+
+
+def _names(fields: Sequence[str]) -> str:
+    names = [_LEFTOVER_NAMES[f] for f in fields if f in _LEFTOVER_NAMES]
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " ו" + names[-1]
+
+
+def unknown_text(state: ConversationState, snapshot: RulesSnapshot, fields: Sequence[str]) -> str:
+    """Only fields the employee does not know are left: no calculation, never a default. Said once with
+    where to find each value; asked again ("לא יודע") in other words, never the same text twice in a row."""
+    names = _names(fields)
+    if state.unknown_told % 2:
+        return f"בסדר. החישוב מחכה רק ל{names}, ואני לא מניח ערך במקומם. אפשר לחזור לכאן בכל זמן ולכתוב את הערך."
+    these = "הערך הזה" if len(fields) == 1 else "הערכים האלה"
+    lines = [f"כדי לחשב חסר לי: {names}. בלי {these} אין חישוב, ואני לא מניח ערך במקום."]
+    for f in fields:
+        entry = snapshot.faq.get(f)
+        if entry is not None and entry.where:
+            lines.append(f"{_LEFTOVER_NAMES[f]}: {entry.where}")
+    return "\n".join(lines)
 FIRST_LINE = "אפשר לכתוב כמו שמדברים, הכול בהודעה אחת או בכמה."
 UNANSWERED = "על זה אין לי מידע מדויק. אפשר לשאול את נציג התחבורה, והתשובה תגיע לכאן."
 NOT_UNDERSTOOD = "לא הצלחתי להבין את התשובה."
@@ -506,7 +531,7 @@ _Q2_SIMPLE = ("במילים פשוטות: אני צריך לדעת כמה כסף
 
 def _faq_example(snapshot: RulesSnapshot, key: str) -> str:
     entry = snapshot.faq.get(key)
-    return entry.example if entry is not None and entry.example else EXAMPLES.get(key, "").split(",")[0]
+    return entry.example if entry is not None and entry.example else EXAMPLES.get(key, "").split(", ")[0]
 
 
 def _is_q2(fields: Sequence[str]) -> bool:
@@ -528,9 +553,15 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
         return "בחרו תפקיד מהרשימה, או כתבו את התפקיד שלך.", None
     if state.pending_clarification is not None:
         return "בחרו או כתבו: \"הרכב שלי\" או \"חלופה\".", None
+    group = current_group(state)[0]
     fields = list(current_group(state)[1] if fields is None else fields)
     if not fields:
         return "", None
+    if group == "unknown":
+        link = "payslip_upload" if snapshot.extensions.payslip_upload_url else None
+        example = _faq_example(snapshot, fields[0]).split(", ")[0]
+        return (f"כתבו את הערך כשתמצאו אותו בתלוש, למשל: \"{example}\"" + (", או העלו את התלוש." if link else "."),
+                link)
     # the field the question text asks (group_question's order), not just the first open one
     first = next((f for f in ("car", "copay", "opt_out_occupation", "options") if f in fields), fields[0])
     if _is_q2(fields):
@@ -687,7 +718,7 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
     if explain or repeat:
         plan.ask.append(explain_text(state, snapshot, fields))
         if repeat and state.misses >= 1:              # missed again: never the same reply twice
-            one = placeholder_text(state, snapshot).removeprefix("למשל: ").split(",")[0]
+            one = placeholder_text(state, snapshot).removeprefix("למשל: ").split(", ")[0]
             plan.ask.append(f"אפשר גם לענות על דבר אחד בכל פעם, למשל: {one}.")
     elif rest:
         plan.ask.append(group_question(state, snapshot, skip=present))
@@ -698,3 +729,8 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
 def render(state: ConversationState, snapshot: RulesSnapshot, **kwargs: Any) -> str:
     """ההודעה הבאה כטקסט תבנית (בלי מודל השפה)."""
     return plan_reply(state, snapshot, **kwargs).text()
+
+
+def unknown_ack_text(fields: Sequence[str]) -> str:
+    """"לא יודע" recorded per field: said once, with what it means (no default, asked again at the end)."""
+    return f"רשמתי שלא ידוע: {_names(fields)}. אני לא מניח ערך; נחזור לזה בסוף."

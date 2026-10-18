@@ -128,6 +128,40 @@ def fallback_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) 
     t = text.strip()
     if not t or not fields:
         return ParserPlan()
+    unknown = _unknown_plan(snapshot, fields, t)
+    if unknown is not None:
+        return unknown
+    return _fallback_plan_rest(state, snapshot, group, fields, t)
+
+
+# words that name a Q2 field ("לא יודעת כמה נקודות זיכוי")
+_FIELD_WORDS = {"עמלות": "commissions", "עמלה": "commissions", "בונוס": "bonus", "בונוסים": "bonus",
+                "פנסיה": "pension_percent", "השתלמות": "study_fund_percent", "זיכוי": "credit_points",
+                "ילדים": "children"}
+
+
+def _unknown_plan(snapshot: RulesSnapshot, fields: list[str], text: str) -> Optional[ParserPlan]:
+    """"לא יודע" when the question on screen asks only Q2 fields: recorded per field as unknown (never a
+    value). The fields the message names, or else every Q2 field on screen."""
+    if not fields or any(f not in Q2_FIELDS for f in fields):
+        return None
+    span = unknown_span(text)
+    if span is None:
+        return None
+    named: list[str] = []
+    for w in words(text):
+        f = _FIELD_WORDS.get(w) or (_FIELD_WORDS.get(w[1:]) if len(w) > 1 else None)
+        if f in fields and f not in named:
+            named.append(f)
+    ext = snapshot.extensions
+    fillers = [*ext.answer_fillers, *ext.profile_fillers, *_FIELD_WORDS, "כמה", "נקודות", "את", "מה", "שלי"]
+    if unread_words(text, [span], (), fillers):
+        return None
+    return ParserPlan(_call("save_profile", unknown_fields=named or [f for f in fields]), True, direct=True)
+
+
+def _fallback_plan_rest(state: ConversationState, snapshot: RulesSnapshot, group: Optional[str],
+                        fields: list[str], t: str) -> ParserPlan:
     if len(fields) == 1:
         return _field_plan(state, snapshot, fields[0], t)
     return _grouped_plan(state, snapshot, group, fields, t)

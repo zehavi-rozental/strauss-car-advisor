@@ -41,7 +41,7 @@ def test_noa_sentences_make_no_llm_calls(sessions, caplog):
     assert all(t.source == "template" and t.path == "parser" for t in turns)
     assert turns[-1].results[0].result["delta_display"] == "661"
     logged = [r.getMessage() for r in caplog.records if r.getMessage().startswith("turn path=")]
-    assert len(logged) == 3 and all(m.startswith("turn path=parser total=") for m in logged)
+    assert len(logged) == 3 and all(m.startswith("turn path=parser say=not_tried total=") for m in logged)
 
 
 def test_free_car_sentence_goes_to_the_llm(sessions):

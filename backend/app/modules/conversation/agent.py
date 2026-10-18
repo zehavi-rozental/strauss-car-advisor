@@ -42,12 +42,14 @@ from .stage import (
     Stage,
     blocking_rep_reason,
     missing_profile,
+    open_profile,
     next_stage,
     Q2_FIELDS,
 )
 from .templates import (
     FIRST_LINE,
     UNANSWERED,
+    unknown_ack_text,
     ReplyPlan,
     call_to_action,
     money,
@@ -120,7 +122,8 @@ Rules:
 SAY_PROMPT = """You write the next chat message of a Hebrew company-car advisor at Strauss, FROM A PLAN ONLY.
 The plan is JSON with, in this order: answers (to the employee's questions), ack (what was saved),
 follow_up, ask (the one question to ask now) and cta (the call to action).
-- Cover every plan item, in that order: answer the questions first. Add no facts, advice or estimates.
+- Cover every plan item, in that order, each on its own line or paragraph: answer the questions first.
+  Never reply with the cta alone. Add no facts, advice or estimates.
 - Use only the numbers that appear in the plan, written exactly as in the plan. Never calculate.
 - Warm, natural and concise Hebrew: short sentences, one idea per line, at most 2-3 lines per paragraph.
   No chains of "·", no formulas, no parenthetical comparisons.
@@ -146,6 +149,9 @@ class TurnOutcome:
     guard_blocked: bool = False
     just_calculated: bool = False
     path: str = "parser"      # parser / llm / fallback / templates / waiting — ללוג, בלי תוכן
+    # SAY: "llm", or why the template was used: deadline / outage / empty / guard / coverage:<what> /
+    # not_tried (results, rep messages, buttons, no LLM)
+    say: str = "not_tried"
     # לשלב הכתיבה של התור: שאלות לפתוח ושאלות לבטל, באותה טרנזקציה
     question_requests: list[QuestionRequest] = field(default_factory=list)
     cancel_question_ids: list[str] = field(default_factory=list)
@@ -459,12 +465,13 @@ class _Before:
     rep_reason: Optional[RepReason]
     values: dict          # profile and current-car values before the turn
     group: Optional[str] = None
+    unknown: tuple = ()   # fields the employee said they do not know, before the turn
 
     @classmethod
     def of(cls, state: ConversationState) -> "_Before":
         p = state.profile
         return cls((p.occupation, p.group), tuple(state.selected), state.rank_requested, blocking_rep_reason(state),
-                   _values(state), current_group(state)[0])
+                   _values(state), current_group(state)[0], tuple(p.unknown_fields))
 
     def changed(self, state: ConversationState) -> dict[str, Any]:
         return {f: v for f, v in _values(state).items() if v is not None and v != self.values.get(f)}
@@ -477,6 +484,9 @@ class _Before:
         line = ack_text(self.changed(state), new_group)
         if line and not recorded_said:
             lines.append(line)
+        unknown = [f for f in p.unknown_fields if f not in self.unknown]
+        if unknown:
+            lines.append(unknown_ack_text(unknown))
         if p.occupation and p.group and (p.occupation, p.group) != self.occupation:
             lines.append(confirm_group_text(p.occupation, p.group))
         if state.selected and tuple(state.selected) != self.selected and not just_calculated:
@@ -675,6 +685,8 @@ class Agent:
             notice_asks=bool(problems), confirmations=confirmations, answers=list(zip(answers, terms)),
             follow_up=und.presence, explain=und.help, extra=lines)
         _mark_asked(state)
+        # the reply about unknown fields alternates its wording: "לא יודע" twice never gets the same text
+        state.unknown_told = state.unknown_told + 1 if current_group(state)[0] == "unknown" else 0
         state.misses = 0 if (understood or problems or und.anything) else state.misses + 1
         state.last_asked = [] if just_calculated else list(current_group(state)[1])
         requests = dict(question_requests=ctx.question_requests, cancel_question_ids=ctx.cancel_question_ids)
@@ -683,9 +695,9 @@ class Agent:
         if choice or reply_plan.fixed or rep_opened or not self.llm.available or self.mode == "parser_first":
             return TurnOutcome(reply=draft, source="template", just_calculated=just_calculated, path=path,
                                **requests)
-        reply, source, blocked = self._say(reply_plan, deadline)
+        reply, source, blocked, say = self._say(reply_plan, deadline)
         return TurnOutcome(reply=reply, source=source, guard_blocked=blocked, just_calculated=just_calculated,
-                           path=path, **requests)
+                           path=path, say=say, **requests)
 
     @staticmethod
     def _answers(snapshot: RulesSnapshot, und: Understanding) -> tuple[list[str], list[str]]:
@@ -886,7 +898,7 @@ class Agent:
     def _open_blocking_rep(self, ctx: ToolContext) -> None:
         """שאלה לנציג רק אחרי שהפרופיל מלא: קודם משלימים את מה שהעובד יודע."""
         state = ctx.state
-        if state.pending_rep is not None or missing_profile(state.profile):
+        if state.pending_rep is not None or open_profile(state.profile):
             return
         reason = blocking_rep_reason(state)
         if reason is None:
@@ -1079,29 +1091,30 @@ class Agent:
 
     # ---------- ניסוח ----------
 
-    def _say(self, plan: ReplyPlan, deadline: Optional[float] = None) -> tuple[str, str, bool]:
+    def _say(self, plan: ReplyPlan, deadline: Optional[float] = None) -> tuple[str, str, bool, str]:
         """SAY: the LLM writes the plan in natural Hebrew. Rejected (→ the template of the same plan) when
         it adds a number that is not in the plan, drops a number or an answered term, or does not end with
         the call to action."""
         draft = plan.text()
         if deadline is not None and deadline - self.llm.clock() < SAY_RESERVE_S:
-            return draft, "template", False                 # no time left in the turn budget
+            return draft, "template", False, "deadline"     # no time left in the turn budget
         try:
             response = self.llm.complete([ChatMessage("system", SAY_PROMPT),
                                           ChatMessage("user", json.dumps(plan.as_json(), ensure_ascii=False))],
                                          deadline=deadline)
-        except LLMError:
-            return draft, "template", False
+        except LLMError as exc:
+            return draft, "template", False, "deadline" if getattr(exc, "timeout", False) or "זמן" in str(exc) else "outage"
         reply = response.text.strip()
         if not reply:
-            return draft, "template", False
+            return draft, "template", False, "empty"
         if violations(reply, collect_numbers(draft)):
             log.warning("number guard blocked an llm reply")
-            return draft, "template", True
-        if not covers(reply, plan):
-            log.warning("llm reply did not cover the plan; template used")
-            return draft, "template", False
-        return reply, "llm", False
+            return draft, "template", True, "guard"
+        missing = uncovered(reply, plan)
+        if missing:
+            log.warning("llm reply did not cover the plan (%s); template used", missing)
+            return draft, "template", False, f"coverage:{missing}"
+        return reply, "llm", False, "llm"
 
     # ---------- a question the FAQ does not cover → the transport representative ----------
 
@@ -1164,19 +1177,23 @@ def _norm_line(text: str) -> str:
     return re.sub(r"[\s\"'״׳“”*]+", "", text)
 
 
-def covers(reply: str, plan: ReplyPlan) -> bool:
-    """The phrased reply says everything the plan says: every number, every answered FAQ term, and the
-    call to action as its last line."""
+def uncovered(reply: str, plan: ReplyPlan) -> Optional[str]:
+    """What the phrased reply leaves out of the plan ("cta" / "items" / "terms" / "numbers"), or None: every
+    number, every answered FAQ term, a line for every plan item, and the call to action as its last line."""
     from .parsing import numbers_in
 
     lines = [line for line in reply.splitlines() if line.strip()]
     if plan.cta and (not lines or _norm_line(lines[-1]) != _norm_line(plan.cta)):
-        return False
+        return "cta"
     # every plan item (answer, ack, follow-up, the question) keeps at least one line before the CTA
     items = len(plan.answers) + len(plan.ack) + len(plan.follow_up) + len(plan.ask)
     if len(lines) - (1 if plan.cta else 0) < items:
-        return False
+        return "items"
     if any(term not in reply for term in plan.terms):
-        return False
+        return "terms"
     have = {abs(n) for n in numbers_in(reply)}
-    return all(abs(n) in have for n in numbers_in(plan.text()))
+    return None if all(abs(n) in have for n in numbers_in(plan.text())) else "numbers"
+
+
+def covers(reply: str, plan: ReplyPlan) -> bool:
+    return uncovered(reply, plan) is None

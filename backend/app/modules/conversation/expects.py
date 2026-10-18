@@ -129,6 +129,8 @@ def build_expects(state: ConversationState, snapshot: RulesSnapshot) -> dict[str
     expects["closed"] = bool(fields) and fields[0].get("closed", False)
     cta, link = call_to_action(state, snapshot) if next_stage(state) != Stage.WAITING_FOR_REP else ("", None)
     expects["link"] = {"kind": link, "label": LINK_LABELS[link]} if link else None
+    if link == "payslip_upload":
+        expects["link"]["url"] = snapshot.extensions.payslip_upload_url
     expects["placeholder"] = placeholder_text(state, snapshot)
     return expects
 

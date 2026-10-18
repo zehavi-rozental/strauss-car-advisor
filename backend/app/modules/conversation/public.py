@@ -76,6 +76,7 @@ class TurnResult:
     results: list[OptionResult] = field(default_factory=list)
     pending_rep: Optional[RepReason] = None
     path: str = ""            # parser / llm / fallback / templates / waiting / choice (ללוג; לא נשלח ב-API)
+    say: str = ""             # SAY: llm, or why the template was used (ללוג; לא נשלח ב-API)
     expects: dict[str, Any] = field(default_factory=dict)   # מה השאלה הבאה מצפה לקבל (כפתורים, סוג)
 
 
@@ -231,14 +232,14 @@ class ConversationService:
     def _timed(self, conversation_id: str, token: str, text: str, choice: Optional[list[str]],
                field: Optional[str] = None, fields: Optional[dict[str, Any]] = None) -> TurnResult:
         started = time.monotonic()
-        path = "error"
+        path, say = "error", ""
         try:
             self._apply_pending(self._authorized(conversation_id, token))
             result = self._send(conversation_id, token, text, choice, field, fields)
-            path = result.path
+            path, say = result.path, result.say
             return result
         finally:
-            log.info("turn path=%s total=%.0fms", path, (time.monotonic() - started) * 1000)
+            log.info("turn path=%s say=%s total=%.0fms", path, say, (time.monotonic() - started) * 1000)
 
     def _send(self, conversation_id: str, token: str, text: str, choice: Optional[list[str]] = None,
               field: Optional[str] = None, fields: Optional[dict[str, Any]] = None) -> TurnResult:
@@ -295,7 +296,7 @@ class ConversationService:
                           source=outcome.source,
                           results=state.results if outcome.just_calculated else [],
                           pending_rep=state.pending_rep.reason if state.pending_rep else None,
-                          path=outcome.path, expects=build_expects(state, snapshot))
+                          path=outcome.path, say=outcome.say, expects=build_expects(state, snapshot))
 
     def _store_questions(self, session, repo: ConversationRepository, conv_id: uuid.UUID,
                          state: ConversationState, outcome) -> None:

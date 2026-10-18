@@ -1,2 +1,1 @@
-llm: 55
-template: 10
+llm: 8

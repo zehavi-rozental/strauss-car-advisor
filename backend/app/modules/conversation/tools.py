@@ -34,6 +34,7 @@ from .llm.port import ToolSpec
 from .parsing import match_drive, match_group, match_occupation, parse_decimal, similar_occupations
 from .stage import (
     MAX_OPTIONS,
+    Q2_FIELDS,
     OPT_OUT_ID,
     CarChoice,
     ConversationState,
@@ -111,6 +112,7 @@ class SaveProfileArgs(_Args):
     current_drive: Optional[str] = None
     current_maintenance: Num = None
     approximate_fields: list[str] = Field(default_factory=list)    # שדות שהעובד אמר כהערכה
+    unknown_fields: list[str] = Field(default_factory=list)       # Q2 fields the employee does not know
 
 
 class MatchCarArgs(_Args):
@@ -217,6 +219,14 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
         if value is not None:
             setattr(p, attr, value)
             saved.append(arg)
+            if attr in p.unknown_fields:
+                p.unknown_fields.remove(attr)          # the value was found after all
+
+    # "לא יודע": recorded per field, never a value (only fields that are still empty)
+    for name in args.unknown_fields:
+        if name in Q2_FIELDS and getattr(p, name) is None and name not in p.unknown_fields:
+            p.unknown_fields.append(name)
+            saved.append(f"unknown:{name}")
 
     if args.current_copay is not None:
         c.copay, c.copay_unknown = args.current_copay, False
@@ -516,6 +526,9 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             "current_drive": {"type": "string", "description": "PETROL, HYBRID, PLUG_IN or ELECTRIC"},
             "current_maintenance": {"type": "number", "description": "car maintenance on the payslip, "
                                     "only for employees without a car today"},
+            "unknown_fields": {"type": "array", "items": {"type": "string", "enum": list(Q2_FIELDS)},
+                               "description": "fields the employee says they do not know (לא יודע / לא זוכרת). "
+                               "Never guess or fill a value for them."},
             "approximate_fields": {"type": "array", "items": {"type": "string"},
                                    "description": "names of the fields above that the employee stated as an "
                                    "estimate (כ-, בערך, בסביבות, בממוצע, משתנות)"},
