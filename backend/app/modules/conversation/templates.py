@@ -17,6 +17,12 @@ from .tools import available_options
 DRIVE_HE = {"PETROL": "בנזין", "HYBRID": "היברידי", "PLUG_IN": "פלאג-אין", "ELECTRIC": "חשמלי"}
 
 
+def signed(value: Any) -> str:
+    """"+611 ₪" / "-50 ₪" / "0 ₪": the sign is explicit; the client shows the minus as "−"."""
+    v = to_shekel(Decimal(str(value)))
+    return f"{v:+,} ₪" if v != 0 else "0 ₪"
+
+
 def money(value: Any) -> str:
     return f"{to_shekel(Decimal(str(value))):,} ₪"
 
@@ -211,8 +217,13 @@ def why_sentence(drivers: list[dict[str, Any]]) -> str:
     return ""
 
 
+WAITING_COPAY = ("תודה! חסר לי רק אישור לסכום ההשתתפות שלך ברכב החדש. "
+                 "שאלתי את נציג התחבורה, ואעדכן כאן ברגע שיענה.")
+
+
 def pending_copay_text(label: str, amount: Any) -> str:
-    return "ממתין לאישור נציג על ההשתתפות."
+    """Template only, no numbers (the official scenario wording)."""
+    return WAITING_COPAY
 
 
 def results_text(state: ConversationState) -> str:
@@ -372,10 +383,12 @@ def rep_confirmed_text(label: str, effective: Optional[date]) -> str:
     return f"נציג התחבורה אישר את ההשתתפות ב-{label}{_effective(effective)}."
 
 
-def rep_changed_text(label: str, amount: Decimal, effective: Optional[date], new_delta: Any) -> str:
-    """Numbers from the answer and the engine result only."""
-    return (f"נציג התחבורה עדכן את ההשתתפות ב-{label} ל-{money(amount)}{_effective(effective)}.\n"
-            f"עכשיו {net_change(new_delta)}.")
+def rep_changed_text(label: str, amount: Decimal, effective: Optional[date], old_delta: Any, new_delta: Any) -> str:
+    """The demo's key moment: before and after. Numbers come only from the rep's answer, the previous
+    result and the new result."""
+    since = f", מ-{effective.day}/{effective.month}" if effective else ""
+    return (f"הנציג עדכן: השתתפות {money(amount)} בחודש{since}. "
+            f"ההפרש עודכן: במקום {signed(old_delta)}, עכשיו {signed(new_delta)} בחודש.")
 
 
 def rep_current_text(field: str, label: str, amount: Decimal) -> str:
@@ -399,12 +412,14 @@ def asked_text(state: ConversationState) -> str:
     assert state.pending_rep is not None
     labels = " ו-".join(state.pending_rep.labels)
     topics = {
-        RepReason.NEW_CAR_COPAY: f"מה ההשתתפות החודשית ב-{labels}",
+        RepReason.NEW_CAR_COPAY: "",
         RepReason.CURRENT_COPAY: f"מה ההשתתפות הנוכחית שלך ב-{labels}",
         RepReason.CURRENT_USE_VALUE: f"מה שווי השימוש של {labels}",
         RepReason.OCCUPATION_OPT_OUT: "אם בעיסוק שלך מותר לוותר על הרכב",
         RepReason.MAINTENANCE_AMOUNT: "מה סכום אחזקת הרכב החודשי בוויתור",
     }
+    if state.pending_rep.reason == RepReason.NEW_CAR_COPAY:
+        return WAITING_COPAY
     return f"שאלתי את נציג התחבורה {topics[state.pending_rep.reason]}. אעדכן כשתגיע תשובה."
 
 

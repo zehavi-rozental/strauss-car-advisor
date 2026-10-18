@@ -42,7 +42,7 @@ def test_atto_3_is_explained_in_plain_lines(sessions):
     assert r["cost"]["monthly_cost"] == str(atto.monthly_cost) and r["cost"]["budget"] == str(budget)
     assert r["cost"]["under_budget"] is (atto.monthly_cost < budget)
     # the chat text is two short lines; the detail lives in the structured result
-    assert turn.reply == "בדקתי את ATTO 3 (2025). הנטו שלך יגדל ב-661 ₪ בחודש.\nממתין לאישור נציג על ההשתתפות."
+    assert turn.reply == "בדקתי את ATTO 3 (2025). הנטו שלך יגדל ב-661 ₪ בחודש.\nתודה! חסר לי רק אישור לסכום ההשתתפות שלך ברכב החדש. שאלתי את נציג התחבורה, ואעדכן כאן ברגע שיענה."
     assert r["why"] == "שווי השימוש נמוך יותר, ולכן המס יקטן." and r["copay_pending"] is True
 
 

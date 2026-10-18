@@ -57,7 +57,7 @@ def test_zero_and_single():
 
 def test_three_options_with_pending_copay_are_two_lines():
     t = text(_item("A", 100, pending=True), _item("B", -300, pending=True), _item("C", 5))
-    assert len(t.splitlines()) == 2 and t.splitlines()[1] == "ממתין לאישור נציג על ההשתתפות."
+    assert len(t.splitlines()) == 2 and t.splitlines()[1] == T.WAITING_COPAY and not re.search(r"\d", T.WAITING_COPAY)
     assert_style(t)
 
 

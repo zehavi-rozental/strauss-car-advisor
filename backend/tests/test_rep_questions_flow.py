@@ -19,7 +19,7 @@ NOA = [
     "אטו 3",
 ]
 # נוסח התרחיש הרשמי בזמן המתנה לנציג על ההשתתפות ברכב החדש
-PENDING = "ממתין לאישור נציג על ההשתתפות."
+PENDING = "תודה! חסר לי רק אישור לסכום ההשתתפות שלך ברכב החדש. שאלתי את נציג התחבורה, ואעדכן כאן ברגע שיענה."
 
 
 def service(sessions, llm=None, config=CONFIG):
@@ -107,7 +107,7 @@ def test_rep_required_policy_waits_and_hides_the_result(sessions, tmp_path):
     svc = service(sessions, config=_policy(tmp_path, "REP_REQUIRED"))
     turn, token = talk(svc, NOA)
     assert turn.stage == Stage.WAITING_FOR_REP and "661" not in turn.reply
-    assert "שאלתי את נציג התחבורה מה ההשתתפות החודשית ב-ATTO 3 (2025)" in turn.reply
+    assert PENDING in turn.reply
     [q] = svc.cases.list_open()
     assert (q.missing_field, q.mode) == (MissingField.NEW_CAR_COPAY, Mode.REQUIRED)
     assert svc.view(turn.conversation_id, token).state.pending_rep.question_ids == [q.id]

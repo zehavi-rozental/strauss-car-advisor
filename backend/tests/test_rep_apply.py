@@ -83,8 +83,8 @@ def test_rep_changes_the_copay_and_the_option_is_recalculated(client, sessions):
     [rep] = updates["messages"]
     new_delta = engine_delta(350)
     assert rep["source"] == "rep" and new_delta != Decimal(661)
-    assert rep["content"].startswith("נציג התחבורה עדכן את ההשתתפות ב-ATTO 3 (2025) ל-350 ₪ (בתוקף מ-01.01.2027).\nעכשיו הנטו שלך ")
-    assert f"ב-{abs(new_delta):,} ₪ בחודש." in rep["content"]
+    assert rep["content"] == (f"הנציג עדכן: השתתפות 350 ₪ בחודש, מ-1/1. "
+                              f"ההפרש עודכן: במקום +661 ₪, עכשיו {new_delta:+,} ₪ בחודש.")
     assert "←" not in rep["content"] and "→" not in rep["content"]
     [result] = updates["results"]
     assert Decimal(result["result"]["delta_display"]) == new_delta
@@ -287,7 +287,7 @@ def test_padded_ids_are_trimmed(client):
 
 # ---------- נוסח ההמתנה מהתרחיש הרשמי ----------
 
-PENDING_SENTENCE = "ממתין לאישור נציג על ההשתתפות."
+PENDING_SENTENCE = "תודה! חסר לי רק אישור לסכום ההשתתפות שלך ברכב החדש. שאלתי את נציג התחבורה, ואעדכן כאן ברגע שיענה."
 
 
 def test_pending_copay_uses_the_scenario_wording_until_the_rep_confirms(client):

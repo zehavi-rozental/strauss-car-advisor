@@ -814,7 +814,7 @@ class Agent:
         item.result = _dump(result)
         if old_delta is None or result.delta_display is None:
             return rep_confirmed_text(item.label, event.effective_date)
-        return rep_changed_text(item.label, amount, event.effective_date, result.delta_display)
+        return rep_changed_text(item.label, amount, event.effective_date, old_delta, result.delta_display)
 
     # ---------- חישוב ----------
 
