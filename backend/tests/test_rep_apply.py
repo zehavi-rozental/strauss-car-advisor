@@ -133,7 +133,7 @@ def test_rep_answer_unblocks_and_the_flow_continues(client):
     updates = client.get(f"/api/conversations/{cid}/updates?after={seq}").json()
     assert updates["stage"] == "CHOOSE_OPTIONS"
     [rep] = updates["messages"]
-    assert rep["content"].startswith("נציג התחבורה השיב: ההשתתפות הנוכחית שלך ב-COROLLA CROSS (2025) היא 300 ₪.")
+    assert rep["content"].startswith("נציג התחבורה השיב: ההשתתפות הנוכחית שלכם ב-COROLLA CROSS (2025) היא 300 ₪.")
     assert "איזה רכבים להשוות" in rep["content"]
     body = say(client, cid, "אטו 3")                                  # ממשיכים כרגיל
     assert body["stage"] == "PRESENTED" and body["results"][0]["delta_display"] == "661"
@@ -156,7 +156,7 @@ def test_opt_out_denied_by_the_rep(client):
     assert updates["stage"] == "PRESENTED"
     [result] = updates["results"]
     assert result["result"]["status"] == "NOT_ELIGIBLE"
-    assert result["result"]["reason"] == "לפי נציג התחבורה, בעיסוק שלך לא ניתן לוותר על הרכב"
+    assert result["result"]["reason"] == "לפי נציג התחבורה, בעיסוק שלכם לא ניתן לוותר על הרכב"
     assert open_questions(client) == []
 
 
@@ -287,7 +287,7 @@ def test_padded_ids_are_trimmed(client):
 
 # ---------- נוסח ההמתנה מהתרחיש הרשמי ----------
 
-PENDING_SENTENCE = "תודה! חסר לי רק אישור לסכום ההשתתפות שלך ברכב החדש. שאלתי את נציג התחבורה, ואעדכן כאן ברגע שיענה."
+PENDING_SENTENCE = "חסר לי רק אישור לסכום ההשתתפות שלכם ברכב החדש. שאלתי את נציג התחבורה, ואעדכן כאן ברגע שיענה."
 
 
 def test_pending_copay_uses_the_scenario_wording_until_the_rep_confirms(client):

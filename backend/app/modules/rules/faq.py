@@ -32,7 +32,7 @@ class Faq(BaseModel):
 
     version: str = ""
     entries: tuple[FaqEntry, ...] = ()
-    redirect: str = "אני כאן רק כדי לעזור עם הרכב הצמוד והנטו שלך."
+    redirect: str = "אני כאן רק כדי לעזור עם הרכב הצמוד והנטו שלכם."
     injection_patterns: tuple[str, ...] = ()
     off_topic_patterns: tuple[str, ...] = ()
 

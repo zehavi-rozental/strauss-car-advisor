@@ -523,7 +523,7 @@ def _q3_car_plan(state: ConversationState, snapshot: RulesSnapshot, fields: list
         # כבר שאלנו על הרכב הזה ולא קיבלנו תשובה ברורה: לא שואלים שוב בלולאה — מניחים שזה הרכב של היום,
         # ואומרים זאת במפורש (העובד יכול לתקן)
         calls = _call("match_current_car", model=car.model_name, registration_year=year) + calls
-        notice = (f"לא היה ברור אם {label} הוא הרכב שלך היום או חלופה, אז הנחתי שזה הרכב שלך היום. "
+        notice = (f"לא היה ברור אם {label} הוא הרכב שלכם היום או חלופה, אז הנחתי שזה הרכב שלכם היום. "
                   f"אם זו חלופה, כתבו \"רוצה לבדוק {car.model_name}\".")
         return ParserPlan(calls, True, notice=notice, direct=True)
     return ParserPlan(calls, True, direct=True,

@@ -4,7 +4,7 @@ const DRIVERS: Record<string, string> = {
   USE_VALUE: 'מס על שווי השימוש',
   ELECTRIC_ADDED: 'החזר רכב חשמלי',
   ELECTRIC_REMOVED: 'החזר רכב חשמלי שמתבטל',
-  COPAY: 'ההשתתפות שלך',
+  COPAY: 'ההשתתפות שלכם',
   FAMILY_SHARE: 'חלקך במסלול המשפחתי',
   MAINTENANCE: 'דמי אחזקה',
 }

@@ -49,6 +49,8 @@ from .stage import (
 from .templates import (
     FIRST_LINE,
     UNANSWERED,
+    to_plural,
+    compare_needs_text,
     unknown_ack_text,
     ReplyPlan,
     call_to_action,
@@ -127,7 +129,10 @@ follow_up, ask (the one question to ask now) and cta (the call to action).
 - Use only the numbers that appear in the plan, written exactly as in the plan. Never calculate.
 - Warm, natural and concise Hebrew: short sentences, one idea per line, at most 2-3 lines per paragraph.
   No chains of "·", no formulas, no parenthetical comparisons.
-- Gender-neutral: plural forms (כתבו, בחרו) or neutral phrasing; never assume the employee's gender.
+- Address the employee ONLY in second-person plural: שלכם, לכם, בחרתם, כתבתם, כתבו, בחרו. Never singular
+  (שלך, לך, בחרת, כתבת), never mixed; never assume the employee's gender.
+- Start directly with the first plan item. No openers ("בשמחה", "שמנו לב ש", "איזה יופי", "רשמנו לפנינו").
+  Acknowledgements start with "רשמתי:" exactly as in the plan.
 - The LAST line must be the cta, copied exactly, character for character.
 Return only the message text."""
 
@@ -173,7 +178,7 @@ def _has_cue(text: str, cues: list[str]) -> bool:
 
 
 def _clarification_answer(text: str) -> Optional[str]:
-    """תשובה לשאלה "הרכב שלך או חלופה?": mine / alternative / None (משהו אחר)."""
+    """תשובה לשאלה "הרכב שלכם או חלופה?": mine / alternative / None (משהו אחר)."""
     ws = words(text)
     if not ws or len(ws) > 4:
         return None
@@ -189,6 +194,8 @@ def _dump(result: Any) -> dict[str, Any]:
     (built from the drivers, so the client never builds text from numbers)."""
     out = result.model_dump(mode="json")
     out["why"] = why_sentence(out.get("drivers") or [])
+    if out.get("reason"):
+        out["reason"] = to_plural(out["reason"])     # the engine keeps the reference wording
     return out
 
 
@@ -207,7 +214,7 @@ _NO = {"לא", "no", "לתקן", "תקן"}
 
 
 def _confirmation_plan(state: ConversationState, text: str) -> Optional[ParserPlan]:
-    """תשובה ל"התכוונת ל-18,000 ₪?": כן → נשמר; לא → שואלים שוב את השדה; אחר → None."""
+    """תשובה ל"התכוונתם ל-18,000 ₪?": כן → נשמר; לא → שואלים שוב את השדה; אחר → None."""
     ws = words(text)
     pending = state.pending_confirmation
     if not ws or len(ws) > 3 or pending is None:
@@ -356,7 +363,7 @@ def _role_conflict(ctx: ToolContext, call: ToolCall, text: str) -> Optional[Cata
         c = ctx.state.current
         if c.source in ("catalog", "tax", "stated") and not _has_cue(text, snapshot.extensions.correction_cues):
             # the car today is known: another car without "יש לי" / a correction word is not replacing it
-            # (it is probably an alternative) — ask, never confirm it with "אם זה לא הרכב שלך"
+            # (it is probably an alternative) — ask, never confirm it with "אם זה לא הרכב שלכם"
             other = next((t for t in targets if t.catalog_code != c.catalog_code
                           and roles.get(t.catalog_code) != "current"), None)
             if other is not None:
@@ -397,7 +404,7 @@ def _send_answer(text: str) -> Optional[bool]:
 
 
 def _ambiguity_answer(text: str) -> Optional[str]:
-    """Typed answer to "אין לך רכב, או שיש רכב וההשתתפות 0?"."""
+    """Typed answer to "אין לכם רכב, או שיש רכב וההשתתפות 0?"."""
     if no_car_span(text):
         return "no_car"
     ws = words(text)
@@ -507,6 +514,7 @@ class Agent:
     def greeting(self, state: ConversationState, snapshot: RulesSnapshot) -> str:
         _mark_asked(state)
         state.last_asked = list(current_group(state)[1])
+        state.last_ask = group_question(state, snapshot)
         return "\n\n".join([GREETING.strip(), group_question(state, snapshot) + "\n" + FIRST_LINE,
                             call_to_action(state, snapshot)[0]])
 
@@ -587,7 +595,7 @@ class Agent:
             # Without an FAQ match the LLM (when there is one) may still map the question.
             plan = ParserPlan(complete=not (und.unanswered and self.llm.available), direct=True)
         elif state.pending_confirmation is not None and (confirmed := _confirmation_plan(state, text)) is not None:
-            plan = confirmed                     # "כן" / "לא" על "התכוונת ל-18,000 ₪?"
+            plan = confirmed                     # "כן" / "לא" על "התכוונתם ל-18,000 ₪?"
         elif state.pending_occupation is not None and (answer := _occupation_answer(state, text)) is not None:
             plan = _occupation_plan(ctx, answer)  # "כן" / מספר הצעה / "לא" על "לא מצאתי את ... בטבלה"
         elif state.pending_clarification is not None and (answer := _clarification_answer(text)) is not None:
@@ -634,7 +642,7 @@ class Agent:
             # a direct answer to the code's own question ("לא" to a confirmation) is understood
             understood = self._execute(ctx, plan.calls) or plan.notice is not None or (plan.direct and plan.complete)
             if plan.clarify is not None:
-                state.pending_clarification = plan.clarify     # "<רכב> הוא הרכב שלך היום, או חלופה?"
+                state.pending_clarification = plan.clarify     # "<רכב> הוא הרכב שלכם היום, או חלופה?"
                 state.role_asked.append(plan.clarify.catalog_code)
                 understood = True
         else:
@@ -679,6 +687,10 @@ class Agent:
         problems = [conflict_text(c) for c in conflicts] + [range_problem_text(*p) for p in ctx.range_problems]
         answers, terms = self._answers(snapshot, und)
         lines = [*extra, *([UNANSWERED] if und.unanswered else []), *([snapshot.faq.redirect] if und.redirect else [])]
+        # a request the bot cannot do yet ("תשווה ביניהם" before the profile is complete): what is needed
+        if (und.compare and not just_calculated and state.stage not in (Stage.PRESENTED, Stage.WAITING_FOR_REP)
+                and RANK_DEFERRED not in confirmations):
+            lines.append(compare_needs_text(state))
         reply_plan = plan_reply(
             state, snapshot, understood=understood or bool(problems) or und.anything, just_calculated=just_calculated,
             matched_car=matched_car, notice="\n".join(problems) or _plan_notice(plan, path), rep_opened=rep_opened,
@@ -689,6 +701,7 @@ class Agent:
         state.unknown_told = state.unknown_told + 1 if current_group(state)[0] == "unknown" else 0
         state.misses = 0 if (understood or problems or und.anything) else state.misses + 1
         state.last_asked = [] if just_calculated else list(current_group(state)[1])
+        state.last_ask = reply_plan.ask[-1] if reply_plan.ask else ""
         requests = dict(question_requests=ctx.question_requests, cancel_question_ids=ctx.cancel_question_ids)
         draft = reply_plan.text()
         # results and the rep messages keep their exact template text; buttons get the template (fast)
@@ -851,7 +864,7 @@ class Agent:
     @staticmethod
     def _clarified(state: ConversationState, snapshot: RulesSnapshot,
                    answer: str) -> tuple[Optional[ParserPlan], str]:
-        """תשובה ל"הוא הרכב שלך היום, או חלופה?": mine → התאמה (מחדש); alternative → בהמתנה לנציג
+        """תשובה ל"הוא הרכב שלכם היום, או חלופה?": mine → התאמה (מחדש); alternative → בהמתנה לנציג
         בתור לחישוב, וב-Q3 נבחרת מיד (ומחושבת כשהרכב של היום ידוע)."""
         clarification = state.pending_clarification
         state.pending_clarification = None
@@ -967,7 +980,7 @@ class Agent:
             lines.append(rep_maintenance_text(amount))
         elif field == MissingField.GENERAL_QUESTION:
             # the representative's own words; nothing in the state changes
-            lines.append(f"נציג התחבורה ענה על השאלה שלך:\n{event.value}")
+            lines.append(f"נציג התחבורה ענה על השאלה שלכם:\n{event.value}")
 
         state.applied_answers.append(qid)
         if state.pending_rep is None and state.queued_options:
@@ -1173,6 +1186,11 @@ def rep_ok(snapshot: RulesSnapshot, text: str) -> bool:
     return bool(text.strip()) and rep_text_ok(cleaned)
 
 
+# the bot speaks to the employee in second-person plural only (CLAUDE.md style guide)
+SINGULAR_RE = re.compile(r"(?<![א-ת])(?:שלך|לך|ממך|אותך|עבורך|בחרת|כתבת|התכוונת|ביקשת|תרצה|תרצי)(?![א-ת])")
+OPENERS = ("בשמחה", "שמנו לב", "איזה יופי", "רשמנו", "מעולה", "נהדר", "כדי שנוכל להתקדם", "היי", "תודה רבה")
+
+
 def _norm_line(text: str) -> str:
     return re.sub(r"[\s\"'״׳“”*]+", "", text)
 
@@ -1185,6 +1203,12 @@ def uncovered(reply: str, plan: ReplyPlan) -> Optional[str]:
     lines = [line for line in reply.splitlines() if line.strip()]
     if plan.cta and (not lines or _norm_line(lines[-1]) != _norm_line(plan.cta)):
         return "cta"
+    if SINGULAR_RE.search(reply):
+        return "address"                       # one form of address: plural, never mixed
+    if lines and lines[0].strip().startswith(OPENERS):
+        return "opener"
+    if any(a.startswith("רשמתי") for a in plan.ack) and "רשמתי" not in reply:
+        return "ack"
     # every plan item (answer, ack, follow-up, the question) keeps at least one line before the CTA
     items = len(plan.answers) + len(plan.ack) + len(plan.follow_up) + len(plan.ask)
     if len(lines) - (1 if plan.cta else 0) < items:

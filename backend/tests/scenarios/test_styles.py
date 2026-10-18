@@ -119,7 +119,7 @@ def fields_of(expects: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def clarify_answer(emp: Employee, reply: str, short: bool) -> str:
-    """"<רכב> הוא הרכב שלך היום, או חלופה?" — לפי הרכב שבשאלה."""
+    """"<רכב> הוא הרכב שלכם היום, או חלופה?" — לפי הרכב שבשאלה."""
     alternative = emp.alternative != "OPT_OUT" and _catalog_label(emp.alternative).split(" (")[0] in reply
     if alternative:
         return "חלופה" if short else "זו חלופה שאני רוצה לבדוק"
@@ -383,7 +383,7 @@ def test_free_corpus(setup: str, text: str, checks: dict[str, Any]):
     if checks.get("redirect"):
         assert reply.startswith("אני כאן רק כדי לעזור"), where
     if checks.get("follow_up"):
-        assert "כתבת שיש לך" in reply, where
+        assert "כתבתם שיש לכם" in reply, where
     if "no_car" in checks:
         assert (after["source"] == "none") == checks["no_car"], f"no-car guessed wrong: {where}"
     if "car" in checks:

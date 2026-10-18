@@ -26,8 +26,8 @@ def test_llm_work_pattern_is_not_saved_and_the_bot_asks(sessions):
     assert (s.profile.occupation, s.profile.occupation_text, s.profile.occupation_unknown) == (None, None, False)
     assert (s.profile.base, s.profile.pension_percent) == (18500, 6)
     assert s.pending_occupation.text == "במשמרות" and s.pending_occupation.suggestions == []
-    assert without_cta(turn.reply).endswith('לא מצאתי את "במשמרות" בטבלת העיסוקים. זה התפקיד שלך?')
-    assert turn.reply.endswith("בחרו תפקיד מהרשימה, או כתבו את התפקיד שלך.")
+    assert without_cta(turn.reply).endswith('לא מצאתי את "במשמרות" בטבלת העיסוקים. זה התפקיד שלכם?')
+    assert turn.reply.endswith("בחרו תפקיד מהרשימה, או כתבו את התפקיד שלכם.")
     assert turn.source == "template"
     assert turn.expects["field"] == "occupation_confirmation"
     assert [c["id"] for c in turn.expects["choices"]] == ["yes"]
@@ -37,7 +37,7 @@ def test_near_miss_suggests_the_table_occupation(sessions):
     svc = service(sessions)
     turn, token = svc.start()
     turn = svc.send(turn.conversation_id, token, "מנהלת מוצרים")
-    assert without_cta(turn.reply).endswith('לא מצאתי את "מנהלת מוצרים" בטבלת העיסוקים. התכוונת לאחד מאלה: '
+    assert without_cta(turn.reply).endswith('לא מצאתי את "מנהלת מוצרים" בטבלת העיסוקים. התכוונתם לאחד מאלה: '
                                             "מנהל/ת מוצר?")
     assert [c["id"] for c in turn.expects["choices"]] == ["מנהל/ת מוצר", "yes"]
     assert turn.expects["choices"][-1]["label"] == "כן, זה התפקיד שלי"
@@ -81,7 +81,7 @@ def test_no_or_another_title_replaces_the_question(sessions):
     turn = svc.send(turn.conversation_id, token, "לא")
     s = profile(svc, turn.conversation_id, token)
     assert s.pending_occupation is None and s.profile.occupation_text is None
-    assert "מה התפקיד שלך" in turn.reply
+    assert "מה התפקיד שלכם" in turn.reply
     svc.send(turn.conversation_id, token, "במשמרות")
     turn = svc.send(turn.conversation_id, token, "מפתחת תוכנה")
     s = profile(svc, turn.conversation_id, token)

@@ -119,7 +119,7 @@ class PendingOccupation(BaseModel):
 
 
 class PendingConfirmation(BaseModel):
-    """סכום מקוצר ("18" לשכר): לא מרחיבים בשקט — שואלים "התכוונת ל-18,000 ₪?" ושומרים רק אחרי "כן"."""
+    """סכום מקוצר ("18" לשכר): לא מרחיבים בשקט — שואלים "התכוונתם ל-18,000 ₪?" ושומרים רק אחרי "כן"."""
 
     field: str              # שם הארגומנט ב-save_profile
     value: Decimal
@@ -159,6 +159,8 @@ class ConversationState(BaseModel):
     # Q2 was answered in part (a later turn saved a Q2 field): only then its leftovers move to Q3.
     # A turn that only asked a question ("מה זה נקודות זיכוי?") does not move on.
     q2_answered: bool = False
+    ranked_count: int = 0    # "הכי משתלם": how many eligible cars were ranked (0 = the employee chose)
+    last_ask: str = ""       # the last question asked (never repeated verbatim twice in a row)
     unknown_told: int = 0    # replies about fields the employee does not know (the wording alternates)
     misses: int = 0          # answers in a row that were not understood (never the same reply twice)
     unanswered_question: Optional[str] = None    # a question the FAQ does not cover: "לשאול את נציג התחבורה"

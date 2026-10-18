@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -30,8 +31,8 @@ def money(value: Any) -> str:
 
 CAR_AGAIN = "לא זיהיתי את דגם הרכב."
 
-GREETING = ("שלום! אני יועץ הרכב של שטראוס. אעזור לך לראות איך שינוי ברכב הצמוד ישפיע על הנטו "
-            "החודשי שלך. כל המספרים מחושבים לפי כללי החברה, לא מוערכים.\n")
+GREETING = ("שלום! אני יועץ הרכב של שטראוס. אעזור לכם לראות איך שינוי ברכב הצמוד ישפיע על הנטו "
+            "החודשי שלכם. כל המספרים מחושבים לפי כללי החברה, לא מוערכים.\n")
 
 
 def question(field: str, state: ConversationState, snapshot: RulesSnapshot) -> str:
@@ -40,26 +41,26 @@ def question(field: str, state: ConversationState, snapshot: RulesSnapshot) -> s
     groups = ", ".join(snapshot.calc.group_order)
     texts = {
         "occupation": _group_or_occupation(snapshot) + "?",
-        "opt_out_occupation": "כדי לבדוק אם אפשר לוותר על הרכב, מה התפקיד שלך?",
+        "opt_out_occupation": "כדי לבדוק אם אפשר לוותר על הרכב, מה התפקיד שלכם?",
         "group": (f"לא מצאתי את התפקיד \"{state.profile.occupation_text or ''}\" בטבלת העיסוקים. "
-                  f"מה קבוצת הזכאות שלך לרכב? ({groups})"),
-        "base": "מה שכר הבסיס החודשי שלך (ברוטו)?",
-        "commissions": "יש לך עמלות חודשיות? אם כן, כמה בחודש?",
-        "bonus": "יש לך בונוס חודשי? אם כן, כמה?",
-        "pension_percent": "כמה אחוזים מהשכר מופרשים ממך לפנסיה (חלק העובד)?",
-        "study_fund_percent": "כמה אחוזים מופרשים ממך לקרן השתלמות?",
-        "credit_points": "כמה נקודות זיכוי יש לך? (מופיע בתלוש)",
-        "children": f"כמה ילדים עד גיל {age} יש לך?",
-        "car": "איזה רכב צמוד יש לך היום?",
-        "use_value": f"לא מצאתי את \"{c.query or ''}\" במאגר. מה שווי השימוש החודשי שמופיע בתלוש שלך?",
+                  f"מה קבוצת הזכאות שלכם לרכב? ({groups})"),
+        "base": "מה שכר הבסיס החודשי שלכם (ברוטו)?",
+        "commissions": "יש לכם עמלות חודשיות? אם כן, כמה בחודש?",
+        "bonus": "יש לכם בונוס חודשי? אם כן, כמה?",
+        "pension_percent": "כמה אחוזים מהשכר מופרשים מכם לפנסיה (חלק העובד)?",
+        "study_fund_percent": "כמה אחוזים מופרשים מכם לקרן השתלמות?",
+        "credit_points": "כמה נקודות זיכוי יש לכם? (מופיע בתלוש)",
+        "children": f"כמה ילדים עד גיל {age} יש לכם?",
+        "car": "איזה רכב צמוד יש לכם היום?",
+        "use_value": f"לא מצאתי את \"{c.query or ''}\" במאגר. מה שווי השימוש החודשי שמופיע בתלוש שלכם?",
         "drive": "מה סוג ההנעה של הרכב: בנזין, היברידי, פלאג-אין או חשמלי?",
-        "copay": "מה ההשתתפות החודשית שלך היום בעלות הרכב?",
-        "maintenance": "כמה אחזקת רכב מופיעה היום בתלוש שלך?",
+        "copay": "מה ההשתתפות החודשית שלכם היום בעלות הרכב?",
+        "maintenance": "כמה אחזקת רכב מופיעה היום בתלוש שלכם?",
     }
     if field == "car_choice":
         lines = [f"{i}. {ch.label} {ch.description}".rstrip() + f" — שווי שימוש {money(ch.use_value)}"
                  for i, ch in enumerate(c.choices, 1)]
-        return ("מצאתי כמה גרסאות של הרכב עם שווי שימוש שונה. איזו מהן שלך? "
+        return ("מצאתי כמה גרסאות של הרכב עם שווי שימוש שונה. איזו מהן שלכם? "
                 "קוד הדגם מופיע ברישיון הרכב.\n" + "\n".join(lines))
     if field == "options":
         return options_ask(state, snapshot)
@@ -96,17 +97,17 @@ def options_text(state: ConversationState, snapshot: RulesSnapshot, with_list: b
 def _group_or_occupation(snapshot: RulesSnapshot) -> str:
     order = snapshot.calc.group_order
     # בתרחיש הרשמי השאלה בצורת לוכסן לשני המגדרים; התבניות לא משתמשות בצורות לוכסן — אותה שאלה, בלי מגדר
-    return f"מה קבוצת הזכאות שלך ({order[0]}-{order[-1]}), או מה התפקיד שלך"
+    return f"מה קבוצת הזכאות שלכם ({order[0]}-{order[-1]}), או מה התפקיד שלכם"
 
 
-Q3_CAR = "איזה רכב צמוד יש לך היום, וכמה משלמים עליו בחודש?"
+Q3_CAR = "איזה רכב צמוד יש לכם היום, וכמה משלמים עליו בחודש?"
 _Q2_PAY = {"commissions": "עמלות", "bonus": "בונוסים"}
 _Q2_DEDUCTIONS = {"pension_percent": "פנסיה", "study_fund_percent": "קרן השתלמות", "credit_points": "נקודות זיכוי"}
 # שדה מ-Q2 שנשאר חסר ונשאל בתוך Q3
-_LEFTOVER = {"commissions": "יש לך עמלות חודשיות?", "bonus": "יש לך בונוס חודשי?",
-             "pension_percent": "כמה אחוזים מופרשים ממך לפנסיה?",
-             "study_fund_percent": "כמה אחוזים מופרשים ממך לקרן השתלמות?",
-             "credit_points": "כמה נקודות זיכוי יש לך?"}
+_LEFTOVER = {"commissions": "יש לכם עמלות חודשיות?", "bonus": "יש לכם בונוס חודשי?",
+             "pension_percent": "כמה אחוזים מופרשים מכם לפנסיה?",
+             "study_fund_percent": "כמה אחוזים מופרשים מכם לקרן השתלמות?",
+             "credit_points": "כמה נקודות זיכוי יש לכם?"}
 
 
 _LEFTOVER_NAMES = {"commissions": "עמלות", "bonus": "בונוס", "pension_percent": "פנסיה",
@@ -115,8 +116,8 @@ _LEFTOVER_NAMES = {"commissions": "עמלות", "bonus": "בונוס", "pension_
 
 def _q1(fields: list[str], state: ConversationState, snapshot: RulesSnapshot) -> str:
     if "group" in fields:            # תפקיד שאינו בטבלה (אושר): שואלים את הקבוצה, ואת השכר אם חסר
-        return question("group", state, snapshot) + (" ומה שכר הבסיס החודשי שלך?" if "base" in fields else "")
-    return f"{_group_or_occupation(snapshot)}? ומה שכר הבסיס החודשי שלך?"
+        return question("group", state, snapshot) + (" ומה שכר הבסיס החודשי שלכם?" if "base" in fields else "")
+    return f"{_group_or_occupation(snapshot)}? ומה שכר הבסיס החודשי שלכם?"
 
 
 def _q2(fields: list[str], snapshot: RulesSnapshot) -> str:
@@ -127,7 +128,7 @@ def _q2(fields: list[str], snapshot: RulesSnapshot) -> str:
         parts.append(f"יש רכיבי שכר נוספים — {', '.join(pay)}?")
     deductions = [name for f, name in _Q2_DEDUCTIONS.items() if f in fields]
     if deductions:
-        parts.append(f"ואילו הפרשות יורדות לך: {', '.join(deductions)}?")
+        parts.append(f"ואילו הפרשות יורדות לכם: {', '.join(deductions)}?")
     if "children" in fields:
         parts.append(f"וכמה ילדים עד גיל {age}?")
     text = " ".join(parts)
@@ -138,7 +139,7 @@ def _leftover_asks(fields: list[str], snapshot: RulesSnapshot) -> list[str]:
     age = snapshot.strauss.family_track.child_max_age
     asks = [_LEFTOVER[f] for f in fields if f in _LEFTOVER]
     if "children" in fields:
-        asks.append(f"כמה ילדים עד גיל {age} יש לך?")
+        asks.append(f"כמה ילדים עד גיל {age} יש לכם?")
     return asks
 
 
@@ -180,11 +181,11 @@ def group_question(state: ConversationState, snapshot: RulesSnapshot, skip: Sequ
     return " ".join(_leftover_asks(fields, snapshot))
 
 def net_change(delta: Any) -> str:
-    """"הנטו שלך יגדל ב-250 ₪ בחודש". The same wording everywhere: future tense, never "ירד"/"עלה"."""
+    """"הנטו שלכם יגדל ב-250 ₪ בחודש". The same wording everywhere: future tense, never "ירד"/"עלה"."""
     v = to_shekel(Decimal(str(delta)))
     if v == 0:
-        return "הנטו שלך לא ישתנה"
-    return f"הנטו שלך {'יגדל' if v > 0 else 'יקטן'} ב-{money(abs(v))} בחודש"
+        return "הנטו שלכם לא ישתנה"
+    return f"הנטו שלכם {'יגדל' if v > 0 else 'יקטן'} ב-{money(abs(v))} בחודש"
 
 
 _WHY_COMPONENT = {
@@ -217,13 +218,28 @@ def why_sentence(drivers: list[dict[str, Any]]) -> str:
     return ""
 
 
-WAITING_COPAY = ("תודה! חסר לי רק אישור לסכום ההשתתפות שלך ברכב החדש. "
-                 "שאלתי את נציג התחבורה, ואעדכן כאן ברגע שיענה.")
+WAITING_COPAY_ONLY = ("חסר לי רק אישור לסכום ההשתתפות שלכם ברכב החדש. "
+                      "שאלתי את נציג התחבורה, ואעדכן כאן ברגע שיענה.")
+WAITING_COPAY = "תודה! " + WAITING_COPAY_ONLY     # alone (REP_REQUIRED: the result waits for the answer)
 
 
 def pending_copay_text(label: str, amount: Any) -> str:
-    """Template only, no numbers (the official scenario wording)."""
-    return WAITING_COPAY
+    """After a result in the same reply: no "תודה!", straight to what is missing. No numbers."""
+    return WAITING_COPAY_ONLY
+
+
+def _among(n: int) -> str:
+    return "בשניהם" if n == 2 else "בכולם"
+
+
+def _best_line(best: Any) -> str:
+    """"הכי משתלם: MG4 (2025), תוספת של 1,013 ₪ בחודש." — one phrase, never the net sentence twice."""
+    d = to_shekel(Decimal(str(best.result["delta_display"])))
+    if d > 0:
+        return f"הכי משתלם: {best.label}, תוספת של {money(d)} בחודש."
+    if d < 0:
+        return f"הכי משתלם: {best.label}, רק {money(-d)} פחות בחודש."
+    return f"הכי משתלם: {best.label}, בלי שינוי בנטו."
 
 
 def results_text(state: ConversationState) -> str:
@@ -234,24 +250,29 @@ def results_text(state: ConversationState) -> str:
         r = item.result
         (ok if r["status"] == "OK" and r.get("delta_display") is not None else bad).append(item)
     lines: list[str] = []
-    if len(ok) == 1:
+    best = max(ok, key=lambda i: Decimal(str(i.result["delta_display"]))) if ok else None
+    if state.ranked_count and ok:
+        # "הכי משתלם": how many were ranked, and that only the top ones are shown
+        top = f"אלה {len(ok)} המשתלמים ביותר:" if len(ok) > 1 else "זה המשתלם ביותר:"
+        lines.append(f"בדקתי את כל {state.ranked_count} הרכבים שאתם זכאים להם. {top}")
+        lines.append(_best_line(best))
+    elif len(ok) == 1:
         lines.append(f"בדקתי את {ok[0].label}. {net_change(ok[0].result['delta_display'])}.")
     elif ok:
         deltas = [Decimal(str(i.result["delta_display"])) for i in ok]
-        best = max(ok, key=lambda i: Decimal(str(i.result["delta_display"])))
-        head = f"בדקתי {len(ok)} רכבים."
+        head = f"בדקתי {len(ok)} רכבים"
         if all(d > 0 for d in deltas):
-            lines.append(f"{head} בכולם הנטו שלך יגדל, הכי הרבה ב-{best.label}. {net_change(best.result['delta_display'])}.")
+            lines.append(f"{head}, ו{_among(len(ok))} הנטו שלכם יגדל. {_best_line(best)}")
         elif all(d < 0 for d in deltas):
-            lines.append(f"{head} בכולם הנטו שלך יקטן, הכי פחות ב-{best.label}. {net_change(best.result['delta_display'])}.")
+            lines.append(f"{head}, ו{_among(len(ok))} הנטו שלכם יקטן. {_best_line(best)}")
         elif all(d == 0 for d in deltas):
-            lines.append(f"{head} בכולם הנטו שלך לא ישתנה.")
+            lines.append(f"{head}, ו{_among(len(ok))} הנטו שלכם לא ישתנה.")
         else:
-            lines.append(f"{head} הכי משתלם {best.label}. {net_change(best.result['delta_display'])}.")
+            lines.append(f"{head}. {_best_line(best)}")
     for item in bad:
         r = item.result
         if r["status"] == "NOT_ELIGIBLE":
-            lines.append(f"{item.label} לא זמין לך: {r['reason']}")
+            lines.append(f"{item.label} לא זמין לכם: {r['reason']}")
         else:
             lines.append(f"{item.label}: חסר מידע לחישוב. {r['reason']}")
     if any(i.result.get("copay_pending") and i.result["status"] == "OK" for i in ok):
@@ -276,12 +297,12 @@ _RANGE_TEXT = {
     "base_salary": ("לשכר בסיס חודשי", "מה הסכום המלא מהתלוש?"),
     "commissions": ("לעמלות חודשיות", "מה הסכום החודשי?"),
     "bonus": ("לבונוס חודשי", "מה הסכום החודשי?"),
-    "pension_percent": ("להפרשה לפנסיה", "כמה אחוזים מופרשים ממך לפנסיה?"),
-    "study_fund_percent": ("להפרשה לקרן השתלמות", "כמה אחוזים מופרשים ממך לקרן השתלמות?"),
+    "pension_percent": ("להפרשה לפנסיה", "כמה אחוזים מופרשים מכם לפנסיה?"),
+    "study_fund_percent": ("להפרשה לקרן השתלמות", "כמה אחוזים מופרשים מכם לקרן השתלמות?"),
     "credit_points": ("למספר נקודות זיכוי", "כמה נקודות זיכוי מופיעות בתלוש?"),
-    "children_under_23": ("למספר ילדים", "כמה ילדים עד גיל 23 יש לך?"),
+    "children_under_23": ("למספר ילדים", "כמה ילדים עד גיל 23 יש לכם?"),
     "current_use_value": ("לשווי שימוש חודשי", "מה שווי השימוש שמופיע בתלוש?"),
-    "current_copay": ("להשתתפות חודשית ברכב", "מה ההשתתפות החודשית שלך?"),
+    "current_copay": ("להשתתפות חודשית ברכב", "מה ההשתתפות החודשית שלכם?"),
     "current_maintenance": ("לאחזקת רכב חודשית", "מה סכום האחזקה בתלוש?"),
 }
 
@@ -315,8 +336,8 @@ def range_problem_text(field: str, value: Decimal, side: str) -> str:
 
 def confirm_occupation_text(text: str, suggestions: list[str]) -> str:
     if suggestions:
-        return f"לא מצאתי את \"{text}\" בטבלת העיסוקים. התכוונת לאחד מאלה: {', '.join(suggestions)}?"
-    return f"לא מצאתי את \"{text}\" בטבלת העיסוקים. זה התפקיד שלך?"
+        return f"לא מצאתי את \"{text}\" בטבלת העיסוקים. התכוונתם לאחד מאלה: {', '.join(suggestions)}?"
+    return f"לא מצאתי את \"{text}\" בטבלת העיסוקים. זה התפקיד שלכם?"
 
 
 _UNUSUAL_ASK = {
@@ -336,33 +357,33 @@ def confirm_value_text(field: str, value: Decimal, unusual: bool = False) -> str
     if unusual:
         ask, note = _UNUSUAL_ASK.get(field, (f"לאשר {_VALUE_LABELS[field][0]} {{v}}?", "הערך נדיר."))
         return f"{ask.format(v=_show(field, value))} {note}"
-    return f"התכוונת ל-{_show(field, value)}?"
+    return f"התכוונתם ל-{_show(field, value)}?"
 
 
 def approximate_assumptions(state: ConversationState) -> list[str]:
-    """"עמלות: כ-1,000 ₪, לפי ההערכה שלך" — לכל ערך שהעובד אמר כהערכה."""
+    """"עמלות: כ-1,000 ₪, לפי ההערכה שלכם" — לכל ערך שהעובד אמר כהערכה."""
     p, c = state.profile, state.current
     values = {"base_salary": p.base, "commissions": p.commissions, "bonus": p.bonus,
               "pension_percent": p.pension_percent, "study_fund_percent": p.study_fund_percent,
               "credit_points": p.credit_points, "children_under_23": p.children,
               "current_use_value": c.use_value, "current_copay": c.copay, "current_maintenance": c.maintenance}
-    return [f"{_VALUE_LABELS[f][0]}: כ-{_show(f, values[f])}, לפי ההערכה שלך"
+    return [f"{_VALUE_LABELS[f][0]}: כ-{_show(f, values[f])}, לפי ההערכה שלכם"
             for f in p.approximate_fields if values.get(f) is not None]
 
 
 def clarify_car_text(label: str) -> str:
-    return (f"לא בטוח שהבנתי: {label} הוא הרכב שלך היום, או חלופה שתרצו לבדוק? "
-            f"אם זה הרכב שלך, כתבו \"זה הרכב שלי\". אם זו חלופה, אבדוק אותה ברגע שהנציג יענה.")
+    return (f"לא בטוח שהבנתי: {label} הוא הרכב שלכם היום, או חלופה שתרצו לבדוק? "
+            f"אם זה הרכב שלכם, כתבו \"זה הרכב שלי\". אם זו חלופה, אבדוק אותה ברגע שהנציג יענה.")
 
 
 def clarify_role_text(label: str) -> str:
     """ב-Q3, כשלא ברור אם הרכב שנכתב הוא הרכב של היום או חלופה."""
-    return f"{label} הוא הרכב שלך היום, או חלופה שתרצו לבדוק?"
+    return f"{label} הוא הרכב שלכם היום, או חלופה שתרצו לבדוק?"
 
 
 def queued_option_text(label: str) -> str:
     return f"בסדר, אבדוק את {label} כחלופה ברגע שהנציג יענה."
-OPT_OUT_DENIED = "לפי נציג התחבורה, בעיסוק שלך לא ניתן לוותר על הרכב"
+OPT_OUT_DENIED = "לפי נציג התחבורה, בעיסוק שלכם לא ניתן לוותר על הרכב"
 
 
 def _effective(effective: Optional[date]) -> str:
@@ -391,13 +412,13 @@ def rep_changed_text(label: str, amount: Decimal, effective: Optional[date], old
 
 
 def rep_current_text(field: str, label: str, amount: Decimal) -> str:
-    what = "ההשתתפות הנוכחית שלך" if field == "CURRENT_COPAY" else "שווי השימוש"
+    what = "ההשתתפות הנוכחית שלכם" if field == "CURRENT_COPAY" else "שווי השימוש"
     return f"נציג התחבורה השיב: {what} ב-{label} היא {money(amount)}."
 
 
 def rep_opt_out_text(allowed: bool) -> str:
     if allowed:
-        return ("נציג התחבורה השיב שבעיסוק שלך מותר לוותר על הרכב. "
+        return ("נציג התחבורה השיב שבעיסוק שלכם מותר לוותר על הרכב. "
                 "שאלתי אותו מה סכום אחזקת הרכב החודשי; אעדכן כשתגיע תשובה.")
     return f"{OPT_OUT_DENIED}."
 
@@ -412,9 +433,9 @@ def asked_text(state: ConversationState) -> str:
     labels = " ו-".join(state.pending_rep.labels)
     topics = {
         RepReason.NEW_CAR_COPAY: "",
-        RepReason.CURRENT_COPAY: f"מה ההשתתפות הנוכחית שלך ב-{labels}",
+        RepReason.CURRENT_COPAY: f"מה ההשתתפות הנוכחית שלכם ב-{labels}",
         RepReason.CURRENT_USE_VALUE: f"מה שווי השימוש של {labels}",
-        RepReason.OCCUPATION_OPT_OUT: "אם בעיסוק שלך מותר לוותר על הרכב",
+        RepReason.OCCUPATION_OPT_OUT: "אם בעיסוק שלכם מותר לוותר על הרכב",
         RepReason.MAINTENANCE_AMOUNT: "מה סכום אחזקת הרכב החודשי בוויתור",
     }
     if state.pending_rep.reason == RepReason.NEW_CAR_COPAY:
@@ -428,7 +449,7 @@ def confirm_group_text(occupation: str, group: str) -> str:
 
 
 def chosen_options_text(labels: list[str]) -> str:
-    return f"בחרת להשוות: {', '.join(labels)}."
+    return f"בחרתם להשוות: {', '.join(labels)}."
 
 
 # דוגמה מדויקת לכל שדה — מצורפת כשאותה שאלה נשאלת פעם שנייה ברצף (במקום אותו ניסוח)
@@ -455,7 +476,7 @@ def retry_hint(fields: list[str]) -> str:
     return f"אפשר ללחוץ על אחד הכפתורים, או לכתוב. לדוגמה: {example}"
 
 
-RANK_DEFERRED ="ביקשת את החלופות הכי משתלמות. אבחר אותן ואחשב ברגע שיהיו לי כל הפרטים."
+RANK_DEFERRED ="ביקשתם את החלופות הכי משתלמות. אבחר אותן ואחשב ברגע שיהיו לי כל הפרטים."
 REP_DEFERRED = "רשמתי שזה לא ידוע. אשאל את נציג התחבורה אחרי שנשלים את שאר הפרטים."
 
 
@@ -467,7 +488,7 @@ def confirm_car_text(state: ConversationState) -> str:
         details.append(f"קבוצה {c.group}")
     if c.drive:
         details.append(DRIVE_HE[c.drive.value])
-    return f"זיהיתי: {', '.join(details)}. אם זה לא הרכב שלך, אפשר לתקן."
+    return f"זיהיתי: {', '.join(details)}. אם זה לא הרכב שלכם, אפשר לתקן."
 
 
 
@@ -483,7 +504,7 @@ class ReplyPlan:
     answers: list[str] = field(default_factory=list)     # FAQ answers, one per question asked
     terms: list[str] = field(default_factory=list)       # words a phrased reply must contain (FAQ terms)
     ack: list[str] = field(default_factory=list)         # what was saved / identified this turn
-    follow_up: list[str] = field(default_factory=list)   # "כתבת שיש לך עמלות. כמה בחודש?"
+    follow_up: list[str] = field(default_factory=list)   # "כתבתם שיש לכם עמלות. כמה בחודש?"
     ask: list[str] = field(default_factory=list)         # one clarifying question, or the next question
     cta: str = ""                                        # exactly one call to action, the last line
     fixed: bool = False                                  # results / waiting: final text, never rephrased
@@ -497,7 +518,7 @@ class ReplyPlan:
 
 
 CTA_STARTS = ("כתבו", "בחרו", "אפשר לכתוב")
-LINK_LABELS = {"profile_form": "למלא בטופס", "selection": "להציג את הרכבים בקבוצה שלך",
+LINK_LABELS = {"profile_form": "למלא בטופס", "selection": "להציג את הרכבים בקבוצה שלכם",
                "payslip_upload": "להעלות תלוש"}
 
 
@@ -522,11 +543,60 @@ def unknown_text(state: ConversationState, snapshot: RulesSnapshot, fields: Sequ
 FIRST_LINE = "אפשר לכתוב כמו שמדברים, הכול בהודעה אחת או בכמה."
 UNANSWERED = "על זה אין לי מידע מדויק. אפשר לשאול את נציג התחבורה, והתשובה תגיע לכאן."
 NOT_UNDERSTOOD = "לא הצלחתי להבין את התשובה."
-_Q2_EXAMPLE = "בונוס 2,000, אין עמלות, פנסיה 6%"
+# examples are built only from fields that are still missing (never "פנסיה 6%" when the pension is known)
+_FIELD_EXAMPLE = {"commissions": "אין עמלות", "bonus": "בונוס 2,000", "pension_percent": "פנסיה 6%",
+                  "study_fund_percent": "קרן השתלמות 2.5%", "credit_points": "2.25 נקודות זיכוי",
+                  "children": "2 ילדים"}
+FIELD_NAMES = {"occupation": "קבוצה או תפקיד", "group": "קבוצת הזכאות", "opt_out_occupation": "התפקיד",
+               "base": "שכר בסיס", "commissions": "עמלות", "bonus": "בונוס", "pension_percent": "פנסיה",
+               "study_fund_percent": "קרן השתלמות", "credit_points": "נקודות זיכוי", "children": "ילדים",
+               "car": "הרכב שלכם היום", "copay": "ההשתתפות שלכם ברכב", "use_value": "שווי השימוש",
+               "drive": "סוג ההנעה", "maintenance": "אחזקת הרכב", "car_choice": "גרסת הרכב",
+               "options": "הרכבים להשוואה"}
+
+
+def q2_example(fields: Sequence[str]) -> str:
+    return ", ".join([_FIELD_EXAMPLE[f] for f in fields if f in _FIELD_EXAMPLE][:3])
+
+
+def _q1_example(fields: Sequence[str]) -> str:
+    asks_group = any(f in ("occupation", "group") for f in fields)
+    if asks_group and "base" in fields:
+        return "קבוצה ג, שכר בסיס 18,500"
+    return "קבוצה ג, או: מנהלת מוצר" if asks_group else "18,500"
+
+
+def _list(names: Sequence[str]) -> str:
+    names = list(dict.fromkeys(names))
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " ו" + names[-1]
+
+
+def missing_names(state: ConversationState) -> list[str]:
+    """What is still needed before a calculation, in the order it is asked."""
+    from .stage import missing_current_car, open_profile, unknown_missing
+
+    p = state.profile
+    fields = [*open_profile(p), *missing_current_car(state.current), *unknown_missing(p)]
+    if not state.selected and not state.rank_requested:
+        fields.append("options")
+    return [FIELD_NAMES[f] for f in fields if f in FIELD_NAMES]
+
+
+def compare_needs_text(state: ConversationState) -> str:
+    """A request the bot cannot do yet ("תשווה ביניהם" before the profile is complete): what is needed."""
+    names = missing_names(state)
+    return f"כדי להשוות, חסרים לי עוד: {_list(names)}." if names else ""
+
+
+def still_missing_text(fields: Sequence[str]) -> str:
+    names = [FIELD_NAMES[f] for f in fields if f in FIELD_NAMES]
+    if not names:
+        return ""
+    return f"עדיין חסר לי: {names[0]}." if len(names) == 1 else f"עדיין חסרים לי: {_list(names)}."
 _PRESENT_NAMES = {"commissions": "עמלות", "bonus": "בונוס", "pension_percent": "הפרשה לפנסיה",
                   "study_fund_percent": "קרן השתלמות", "children": "ילדים"}
 _Q2_SIMPLE = ("במילים פשוטות: אני צריך לדעת כמה כסף נוסף על הבסיס מקבלים בחודש, כמה אחוזים יורדים "
-              "לפנסיה ולקרן השתלמות, וכמה נקודות זיכוי יש לך.")
+              "לפנסיה ולקרן השתלמות, וכמה נקודות זיכוי יש לכם.")
 
 
 def _faq_example(snapshot: RulesSnapshot, key: str) -> str:
@@ -550,7 +620,7 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
             return "בחרו \"לאשר\" או \"לתקן\", או כתבו את הערך הנכון.", None
         return "בחרו \"כן\" או \"לא\", או כתבו את הסכום המלא.", None
     if state.pending_occupation is not None:
-        return "בחרו תפקיד מהרשימה, או כתבו את התפקיד שלך.", None
+        return "בחרו תפקיד מהרשימה, או כתבו את התפקיד שלכם.", None
     if state.pending_clarification is not None:
         return "בחרו או כתבו: \"הרכב שלי\" או \"חלופה\".", None
     group = current_group(state)[0]
@@ -565,14 +635,14 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
     # the field the question text asks (group_question's order), not just the first open one
     first = next((f for f in ("car", "copay", "opt_out_occupation", "options") if f in fields), fields[0])
     if _is_q2(fields):
-        example =_Q2_EXAMPLE if len(fields) > 1 else _faq_example(snapshot, first)
+        example = q2_example(fields) if len(fields) > 1 else _faq_example(snapshot, first)
         return f"אפשר לכתוב כאן, למשל: \"{example}\", או למלא בטופס.", "profile_form"
     if fields == ["group"]:
         return "בחרו קבוצה, או כתבו אותה, למשל: ג.", None
     if fields == ["base"]:
         return f"כתבו את הסכום, למשל: {_faq_example(snapshot, 'base').split()[-1]}.", None
     if first in ("occupation", "group", "base"):
-        return f"כתבו כאן, למשל: \"{_faq_example(snapshot, 'occupation')}\".", None
+        return f"כתבו כאן, למשל: \"{_q1_example(fields)}\".", None
     if first == "opt_out_occupation":
         return "כתבו את התפקיד, למשל: מנהלת מוצר.", None
     if first == "car":
@@ -592,7 +662,7 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
         return "בחרו גרסה, או כתבו את המספר שלה.", None
     if first == "options":
         return (f"כתבו שמות של עד {MAX_OPTIONS} רכבים, למשל: \"{_faq_example(snapshot, 'options').split(',')[0]}\", "
-                "או \"הכי משתלם\". אפשר גם להציג את הרכבים בקבוצה שלך."), "selection"
+                "או \"הכי משתלם\". אפשר גם להציג את הרכבים בקבוצה שלכם."), "selection"
     return "כתבו כאן את התשובה.", None
 
 
@@ -613,10 +683,10 @@ def placeholder_text(state: ConversationState, snapshot: RulesSnapshot) -> str:
         return "למשל: מה זה שווי שימוש?"
     first = fields[0]
     if _is_q2(fields):
-        return "למשל: " + (_Q2_EXAMPLE if len(fields) > 1 else _faq_example(snapshot, first))
-    key = {"group": "occupation", "base": "occupation", "opt_out_occupation": "occupation"}.get(first, first)
-    if fields == ["base"]:
-        key = "base"
+        return "למשל: " + (q2_example(fields) if len(fields) > 1 else _faq_example(snapshot, first))
+    if first in ("occupation", "group", "base"):
+        return "למשל: " + _q1_example(fields)
+    key = {"opt_out_occupation": "occupation"}.get(first, first)
     return "למשל: " + (_faq_example(snapshot, key) or EXAMPLES.get(first, ""))
 
 
@@ -648,7 +718,7 @@ def follow_up_text(fields: Sequence[str], snapshot: RulesSnapshot) -> str:
         ask = f"כמה ילדים עד גיל {snapshot.strauss.family_track.child_max_age}?"
     else:
         ask = "מה הסכום או האחוז של כל אחד?"
-    return f"כתבת שיש לך {said}. {ask}"
+    return f"כתבתם שיש לכם {said}. {ask}"
 
 
 def options_ask(state: ConversationState, snapshot: RulesSnapshot) -> str:
@@ -690,7 +760,7 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
         plan.ask.append(f"אשלח לנציג התחבורה: \"{state.pending_rep_question}\". לשלוח?")
         return plan
     if state.pending_ambiguity is not None:
-        plan.ask.append("לא בטוח שהבנתי: אין לך רכב צמוד היום, או שיש רכב וההשתתפות שלך היא 0?")
+        plan.ask.append("לא בטוח שהבנתי: אין לכם רכב צמוד היום, או שיש רכב וההשתתפות שלכם היא 0?")
         return plan
     if state.pending_clarification is not None:
         plan.ask.append(clarify_role_text(state.pending_clarification.label))
@@ -723,7 +793,20 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
     elif rest:
         plan.ask.append(group_question(state, snapshot, skip=present))
     plan.ask = [a for a in plan.ask if a]
+    _vary_repeat(plan, state, snapshot, fields)
     return plan
+
+
+def _vary_repeat(plan: ReplyPlan, state: ConversationState, snapshot: RulesSnapshot, fields: Sequence[str]) -> None:
+    """The same question is never asked verbatim twice in a row: narrowed to what is still missing, or
+    in simpler words."""
+    if not plan.ask or plan.ask[-1] != state.last_ask:
+        return
+    for other in (still_missing_text(fields), explain_text(state, snapshot, fields)):
+        if other and other != state.last_ask:
+            plan.ask[-1] = other
+            return
+    plan.ask[-1] = "שאלה אחת לפני שממשיכים: " + plan.ask[-1]
 
 
 def render(state: ConversationState, snapshot: RulesSnapshot, **kwargs: Any) -> str:
@@ -734,3 +817,14 @@ def render(state: ConversationState, snapshot: RulesSnapshot, **kwargs: Any) -> 
 def unknown_ack_text(fields: Sequence[str]) -> str:
     """"לא יודע" recorded per field: said once, with what it means (no default, asked again at the end)."""
     return f"רשמתי שלא ידוע: {_names(fields)}. אני לא מניח ערך; נחזור לזה בסוף."
+
+
+_SINGULAR_TO_PLURAL = [(re.compile(rf"(?<![א-ת]){a}(?![א-ת])"), b) for a, b in
+                       (("שלך", "שלכם"), ("לך", "לכם"), ("ממך", "מכם"), ("בחרת", "בחרתם"))]
+
+
+def to_plural(text: str) -> str:
+    """Engine texts keep the reference wording (singular); the employee always reads plural."""
+    for pattern, plural in _SINGULAR_TO_PLURAL:
+        text = pattern.sub(plural, text)
+    return text

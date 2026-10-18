@@ -38,7 +38,7 @@ export function buildRows(items: OptionResult[]): Row[] {
       alts: items.map((i) => i.result.cost
         ? { kind: 'text', text: `${fmt(i.result.cost.monthly_cost_display)} מתוך ${fmt(i.result.cost.budget_display)}` }
         : NONE) },
-    { key: 'copay', label: 'ההשתתפות שלך', today: ok0(first?.copay),
+    { key: 'copay', label: 'ההשתתפות שלכם', today: ok0(first?.copay),
       alts: items.map((i) => (ok(i) ? money(alt(i)!.copay) : NONE)) },
     { key: 'use_value', label: 'שווי שימוש', today: ok0(first?.use_value),
       alts: items.map((i) => (ok(i) ? money(alt(i)!.use_value) : NONE)) },

@@ -39,7 +39,7 @@ def test_noa_levi_with_llm(engine, sessions):
 
     fake.turn(call("save_profile", occupation="מנהלת מוצר", base_salary=18500, commissions=0, bonus=0,
                    pension_percent=6, study_fund_percent=2.5, credit_points=2.75, children_under_23=2),
-              reply="תודה! איזה רכב יש לך היום?")
+              reply="תודה! איזה רכב יש לכם היום?")
     body = client.post(f"/api/conversations/{cid}/messages", json={
         "text": "הנה הפרטים שלי"}).json()     # הקורא לא מבין → המודל
     assert body["stage"] == "COLLECT_CURRENT_CAR"
@@ -54,7 +54,7 @@ def test_noa_levi_with_llm(engine, sessions):
               reply="הנה ההשוואה שביקשת, לפי כללי החברה.")
     body = client.post(f"/api/conversations/{cid}/messages", json={"text": "את החשמלי הסיני בבקשה"}).json()
     _assert_noa_result(body, sessions)
-    assert body["source"] == "template" and "הנטו שלך יגדל ב-661 ₪ בחודש" in body["reply"]   # results: template only
+    assert body["source"] == "template" and "הנטו שלכם יגדל ב-661 ₪ בחודש" in body["reply"]   # results: template only
 
     # UNDERSTAND: one call per turn with every data tool and note_message (nothing said early is dropped)
     tool_sets = [c.tools for c in fake.calls if c.tools]
@@ -78,7 +78,7 @@ def test_noa_levi_fallback_mode(engine, sessions):
         body = client.post(f"/api/conversations/{cid}/messages", json={"text": text}).json()
         assert body["source"] == "template"
     _assert_noa_result(body, sessions)
-    assert "הנטו שלך יגדל ב-661 ₪ בחודש" in body["reply"]
+    assert "הנטו שלכם יגדל ב-661 ₪ בחודש" in body["reply"]
     # גרסת קובץ הכללים לא מוצגת לעובד, אבל נשארת בתוצאה (מסך האימות)
     assert "mock-2026-10-12" not in body["reply"] and "קובץ כללים" not in body["reply"]
     assert body["results"][0]["rules_version"] == "mock-2026-10-12"

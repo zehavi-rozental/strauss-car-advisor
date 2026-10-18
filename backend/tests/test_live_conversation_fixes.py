@@ -102,7 +102,7 @@ def test_the_chosen_alternatives_are_confirmed(sessions):
     cid, token = start_q2(svc)
     svc.send(cid, token, "אין")
     turn = svc.send_choice(cid, token, ["CAR-01", "CAR-12", "CAR-03"], "options")
-    assert turn.reply.startswith("בחרת להשוות: PICANTO (2025), TUCSON (2025), BYD DOLPHIN (2025).")
+    assert turn.reply.startswith("בחרתם להשוות: PICANTO (2025), TUCSON (2025), BYD DOLPHIN (2025).")
 
 
 # ---------- 5. שאלה לנציג רק אחרי שהפרופיל מלא ----------

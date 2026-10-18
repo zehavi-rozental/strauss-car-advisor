@@ -54,6 +54,7 @@ class Understanding:
     help: bool = False                                      # "מה?" / "לא הבנתי": explain the question again
     redirect: bool = False                                  # off-topic or an attempt to change the rules
     ambiguity: Optional[str] = None                         # NO_CAR_OR_ZERO
+    compare: bool = False                                   # asks for a comparison / a result ("תשווה ביניהם")
     remainder: str = ""                                     # the message without questions (read by the parser)
 
     @property
@@ -64,7 +65,7 @@ class Understanding:
     @property
     def anything(self) -> bool:
         return bool(self.faq_ids or self.unanswered or self.presence or self.help or self.redirect
-                    or self.ambiguity)
+                    or self.ambiguity or self.compare)
 
 
 def meaningful(text: str) -> bool:
@@ -134,6 +135,14 @@ def _presence(clause: str) -> list[str]:
     return found
 
 
+_COMPARE_WORDS = {"תשווה", "תשוו", "השווה", "השוו", "להשוות", "השוואה", "תחשב", "תחשבו", "לחשב", "חשב",
+                  "תמליץ", "תמליצו", "משתלם"}
+
+
+def _asks_to_compare(text: str) -> bool:
+    return any(w in _COMPARE_WORDS or (len(w) > 1 and w[0] in _PREFIX and w[1:] in _COMPARE_WORDS) for w in words(text))
+
+
 def _contains_any(text: str, patterns: Iterable[str]) -> bool:
     low = text.lower()
     ws = words(text)
@@ -169,6 +178,7 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
             continue
         kept.append(clause)
     remainder = " ".join(kept).strip()
+    u.compare = _asks_to_compare(remainder)
     for part in re.split(r"[,;]|\s+ו(?=אין|יש|גם)", remainder):
         for f in _presence(part):
             if f not in u.presence:

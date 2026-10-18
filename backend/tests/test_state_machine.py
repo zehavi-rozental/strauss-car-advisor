@@ -72,13 +72,13 @@ def test_unknown_copay_opens_rep_question(sessions):
     assert (q.missing_field.value, q.mode.value, q.answer_type.value) == ("CURRENT_COPAY", "REQUIRED", "MONEY")
     assert q.context == {"group": "ג", "car_label": "COROLLA CROSS (2025)", "catalog_code": "CAR-09",
                          "suggested_amount": "300"}
-    assert "שאלתי את נציג התחבורה מה ההשתתפות הנוכחית שלך ב-COROLLA CROSS (2025)" in turn.reply
+    assert "שאלתי את נציג התחבורה מה ההשתתפות הנוכחית שלכם ב-COROLLA CROSS (2025)" in turn.reply
     state = svc.view(turn.conversation_id, token).state
     assert state.pending_rep.question_ids == [q.id]
     # בזמן ההמתנה: רכב אחר בלי סימן תיקון — שואלים במקום לנחש; אין התקדמות ואין שאלה נוספת לנציג
     turn = svc.send(turn.conversation_id, token, "ATTO 3")
     assert turn.stage == Stage.WAITING_FOR_REP and turn.path == "waiting"
-    assert turn.reply.startswith("לא בטוח שהבנתי: ATTO 3 (2025) הוא הרכב שלך היום")
+    assert turn.reply.startswith("לא בטוח שהבנתי: ATTO 3 (2025) הוא הרכב שלכם היום")
     assert len(open_questions(svc)) == 1
     turn = svc.send(turn.conversation_id, token, "נו?")
     assert turn.reply == "שאלתי את נציג התחבורה ואעדכן כשתגיע תשובה."
@@ -106,7 +106,7 @@ def test_car_not_found_and_use_value_unknown_opens_rep_question(sessions):
 def test_unknown_occupation_asks_group_and_opt_out_goes_to_rep(sessions):
     svc = service(sessions)
     turn, token = talk(svc, ["אסטרונאוטית"])
-    assert "לא מצאתי את \"אסטרונאוטית\" בטבלת העיסוקים. זה התפקיד שלך?" in turn.reply   # לא נשמר בלי אישור
+    assert "לא מצאתי את \"אסטרונאוטית\" בטבלת העיסוקים. זה התפקיד שלכם?" in turn.reply   # לא נשמר בלי אישור
     turn, _ = talk(svc, ["כן"], start=(turn, token))
     assert "קבוצת הזכאות" in turn.reply
     turn, _ = talk(svc, ["ג", "18,500", Q2_ANSWER.format(children="2"), "יש לי COROLLA CROSS", "300"], start=(turn, token))
@@ -118,7 +118,7 @@ def test_unknown_occupation_asks_group_and_opt_out_goes_to_rep(sessions):
     assert q.question_text == "האם עובד בעיסוק הזה רשאי לוותר על רכב?"
     assert q.context == {"group": "ג", "occupation_text": "אסטרונאוטית"}
     assert turn.results[0].result["missing_fields"] == ["OCCUPATION_OPT_OUT"]
-    assert "שאלתי את נציג התחבורה אם בעיסוק שלך מותר לוותר על הרכב" in turn.reply
+    assert "שאלתי את נציג התחבורה אם בעיסוק שלכם מותר לוותר על הרכב" in turn.reply
 
 
 def test_registration_year_mismatch_uses_tax_file(sessions):
@@ -211,7 +211,7 @@ def test_parse_copay(text, expected):
 
 # ---------- אישור הרכב שזוהה, ותיקון שלו ----------
 
-CONFIRM_TAIL = "אם זה לא הרכב שלך, אפשר לתקן."
+CONFIRM_TAIL = "אם זה לא הרכב שלכם, אפשר לתקן."
 
 
 def test_identified_car_is_confirmed_with_label_group_and_drive(sessions):
@@ -236,7 +236,7 @@ def test_correction_at_the_copay_question_rematches_the_car(sessions):
     current = svc.view(turn.conversation_id, token).state.current
     assert current.catalog_code == "CAR-09" and current.copay is None
     assert turn.reply.startswith("זיהיתי: COROLLA CROSS (2025), קבוצה ג, היברידי.")
-    assert "מה ההשתתפות החודשית שלך היום" in turn.reply and turn.stage == Stage.COLLECT_CURRENT_CAR
+    assert "ההשתתפות שלכם ברכב" in turn.reply and turn.stage == Stage.COLLECT_CURRENT_CAR
 
 
 def test_plain_number_at_the_copay_question_is_still_the_copay(sessions):
@@ -261,7 +261,7 @@ def test_not_this_car_resets_and_asks_for_the_model(sessions):
     turn = svc.send(turn.conversation_id, token, "זה לא הרכב שלי")
     current = svc.view(turn.conversation_id, token).state.current
     assert current.catalog_code is None and current.source is None
-    assert "איזה רכב צמוד יש לך היום" in turn.reply
+    assert "איזה רכב צמוד יש לכם היום" in turn.reply
 
 
 # ---------- ניסוח ניטרלי מגדרית ----------

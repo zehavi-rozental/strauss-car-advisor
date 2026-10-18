@@ -4,10 +4,10 @@ import { Money } from '../format/Amount'
 import { annualFromMonthly } from '../format/money'
 import { driverLabel, missingLabel } from './labels'
 
-/** "הנטו שלך יגדל ב-X ₪" / "יקטן ב-X ₪": future tense, readable without niqqud. */
+/** "הנטו שלכם יגדל ב-X ₪" / "יקטן ב-X ₪": future tense, readable without niqqud. */
 function Headline({ delta, value }: { delta: number; value: string }) {
-  if (delta === 0) return <>הנטו שלך לא ישתנה</>
-  return <>הנטו שלך {delta > 0 ? 'יגדל' : 'יקטן'} ב-<Money value={String(Math.abs(Number(value)))} /> בחודש</>
+  if (delta === 0) return <>הנטו שלכם לא ישתנה</>
+  return <>הנטו שלכם {delta > 0 ? 'יגדל' : 'יקטן'} ב-<Money value={String(Math.abs(Number(value)))} /> בחודש</>
 }
 
 export function ResultCard({ item, onOpenTable }: { item: OptionResult; onOpenTable?: () => void }) {

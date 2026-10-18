@@ -25,7 +25,7 @@ export function widgetsFor(expects: Expects | null): Widget[] {
     .map((f) => ({ kind: f.choices.length > SELECT_THRESHOLD ? 'select' : 'buttons', field: f }))
 }
 
-/** The one secondary link under the reply ("או למלא בטופס", "להציג את הרכבים בקבוצה שלך"), or null. */
+/** The one secondary link under the reply ("או למלא בטופס", "להציג את הרכבים בקבוצה שלכם"), or null. */
 export function linkFor(expects: Expects | null): ExpectsLink | null {
   return expects?.link ?? null
 }

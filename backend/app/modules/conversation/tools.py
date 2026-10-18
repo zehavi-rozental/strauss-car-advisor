@@ -425,6 +425,7 @@ def calculate(ctx: ToolContext, args: CalculateArgs) -> dict[str, Any]:
         raise ToolError("אף חלופה לא זוהתה")
     ctx.state.selected = chosen[:MAX_OPTIONS]
     ctx.state.rank_requested = False
+    ctx.state.ranked_count = 0
     _invalidate_results(ctx.state)
     return {"selected": ctx.state.selected, "not_recognized": unknown,
             "note": "the system calculates now; do not compute anything yourself"}
@@ -445,6 +446,7 @@ def rank_options(ctx: ToolContext, args: NoArgs) -> dict[str, Any]:
     if not top:
         raise ToolError("אין חלופות זכאיות לדירוג")
     ctx.state.selected = top
+    ctx.state.ranked_count = len([r for r in ranked if r.alternative is not None])
     _invalidate_results(ctx.state)
     return {"selected": top, "note": "the system calculates the top options now"}
 
@@ -468,7 +470,7 @@ def engine_inputs(snapshot: RulesSnapshot, state: ConversationState
     else:
         if c.drive is None:   # המכונה לא מתקדמת בלי הנעה; אין ברירת מחדל
             raise ToolError("חסר סוג ההנעה של הרכב הנוכחי")
-        current = CarState(label=c.label or c.query or "הרכב שלך", group=None, drive=c.drive,
+        current = CarState(label=c.label or c.query or "הרכב שלכם", group=None, drive=c.drive,
                            use_value=c.use_value, copay=c.copay, copay_status=CopayStatus.EMPLOYEE_STATED)
     occupation = occupation_rule(snapshot.occupations.get(p.occupation or ""))
     if occupation is None and p.occupation_unknown and p.group:

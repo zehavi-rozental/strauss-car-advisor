@@ -15,10 +15,10 @@ from .conftest import CONFIG, without_cta
 SCENARIO_1 = "קבוצה ג, 14,200 ₪"
 SCENARIO_2 = "עמלות משתנות כ-1,000 ₪, פנסיה 6%, קרן השתלמות 2.5%, 2.25 נקודות זיכוי. ויש לי היום רכב חברה."
 # נוסח השאלות (Q1 בלי צורת לוכסן — ראו templates._group_or_occupation)
-Q1 = "מה קבוצת הזכאות שלך (א-ד), או מה התפקיד שלך? ומה שכר הבסיס החודשי שלך?"
-Q2 = ("יש רכיבי שכר נוספים — עמלות, בונוסים? ואילו הפרשות יורדות לך: פנסיה, קרן השתלמות, נקודות זיכוי? "
+Q1 = "מה קבוצת הזכאות שלכם (א-ד), או מה התפקיד שלכם? ומה שכר הבסיס החודשי שלכם?"
+Q2 = ("יש רכיבי שכר נוספים — עמלות, בונוסים? ואילו הפרשות יורדות לכם: פנסיה, קרן השתלמות, נקודות זיכוי? "
       "וכמה ילדים עד גיל 23?")
-Q3 = "איזה רכב צמוד יש לך היום, וכמה משלמים עליו בחודש?"
+Q3 = "איזה רכב צמוד יש לכם היום, וכמה משלמים עליו בחודש?"
 
 
 def service(sessions, llm=None):
@@ -73,9 +73,9 @@ def test_each_group_names_only_what_is_missing(sessions):
     svc = service(sessions)
     turn, token = svc.start()
     turn = svc.send(turn.conversation_id, token, "מנהלת מוצר")
-    assert without_cta(turn.reply) == "זיהיתי: מנהל/ת מוצר, קבוצה ג.\n\nמה שכר הבסיס החודשי שלך (ברוטו)?"   # Q1: רק השכר
+    assert without_cta(turn.reply) == "זיהיתי: מנהל/ת מוצר, קבוצה ג.\n\nמה שכר הבסיס החודשי שלכם (ברוטו)?"   # Q1: רק השכר
     turn = svc.send(turn.conversation_id, token, "18,500, פנסיה 6%, 2 ילדים")
-    assert without_cta(turn.reply).endswith("יש רכיבי שכר נוספים — עמלות, בונוסים? ואילו הפרשות יורדות לך: "
+    assert without_cta(turn.reply).endswith("יש רכיבי שכר נוספים — עמלות, בונוסים? ואילו הפרשות יורדות לכם: "
                                             "קרן השתלמות, נקודות זיכוי?")     # Q2: בלי פנסיה וילדים
 
 
@@ -87,7 +87,7 @@ def test_group_only_asks_the_occupation_when_opting_out(sessions):
         turn = svc.send(turn.conversation_id, token, m)
     assert "איזה רכבים להשוות" in turn.reply                                   # התפקיד לא נשאל עד עכשיו
     turn = svc.send(turn.conversation_id, token, "ויתור")
-    assert without_cta(turn.reply) == "בחרת להשוות: ויתור על רכב.\n\nכדי לבדוק אם אפשר לוותר על הרכב, מה התפקיד שלך?"
+    assert without_cta(turn.reply) == "בחרתם להשוות: ויתור על רכב.\n\nכדי לבדוק אם אפשר לוותר על הרכב, מה התפקיד שלכם?"
     turn = svc.send(turn.conversation_id, token, "מנהלת מוצר")
     assert turn.stage == Stage.PRESENTED and turn.results[0].result["status"] == "OK"
     assert svc.view(turn.conversation_id, token).state.profile.occupation == "מנהל/ת מוצר"
@@ -109,7 +109,7 @@ def test_a_full_q3_answer_is_read_with_the_q2_leftovers(sessions):
 
 # ---------- Q3 שואלת על הרכב של היום ועל החלופות: התפקיד נקבע בקוד, לא מנחשים ----------
 
-ASK_ATTO = "ATTO 3 (2025) הוא הרכב שלך היום, או חלופה שתרצו לבדוק?"
+ASK_ATTO = "ATTO 3 (2025) הוא הרכב שלכם היום, או חלופה שתרצו לבדוק?"
 
 
 def at_q3(svc):
@@ -149,7 +149,7 @@ def test_the_alternative_button_selects_the_car(sessions):
     turn = svc.send_choice(turn.conversation_id, token, ["alternative"])
     s = svc.view(turn.conversation_id, token).state
     assert s.selected == ["CAR-10"] and s.current.source is None and s.pending_clarification is None
-    assert turn.reply.startswith("בחרת להשוות: ATTO 3 (2025).\n\nאיזה רכב צמוד יש לך היום")   # עכשיו רק הרכב של היום
+    assert turn.reply.startswith("בחרתם להשוות: ATTO 3 (2025).\n\nאיזה רכב צמוד יש לכם היום")   # עכשיו רק הרכב של היום
 
 def test_an_alternative_cue_selects_the_car_as_an_alternative(sessions):
     svc = service(sessions)

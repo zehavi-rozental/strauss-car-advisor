@@ -26,7 +26,7 @@ export function SummaryCard({ items, onOpenTable }: { items: OptionResult[]; onO
                 </>
               ) : (
                 <span className="summary-why">
-                  {r.status === 'NOT_ELIGIBLE' ? 'לא זמין לך' : 'חסרים פרטים לחישוב'}. {r.reason}
+                  {r.status === 'NOT_ELIGIBLE' ? 'לא זמין לכם' : 'חסרים פרטים לחישוב'}. {r.reason}
                 </span>
               )}
             </li>

@@ -19,7 +19,7 @@ NOA = [
     "אטו 3",
 ]
 # נוסח התרחיש הרשמי בזמן המתנה לנציג על ההשתתפות ברכב החדש
-PENDING = "תודה! חסר לי רק אישור לסכום ההשתתפות שלך ברכב החדש. שאלתי את נציג התחבורה, ואעדכן כאן ברגע שיענה."
+PENDING = "חסר לי רק אישור לסכום ההשתתפות שלכם ברכב החדש. שאלתי את נציג התחבורה, ואעדכן כאן ברגע שיענה."
 
 
 def service(sessions, llm=None, config=CONFIG):
@@ -80,7 +80,7 @@ def test_correcting_the_car_cancels_its_questions(engine):
     body = client.post(f"/api/conversations/{cid}/messages", json={"text": "לא, זו קורולה קרוס"}).json()
     assert cases.get(old.id).status == Status.CANCELLED and cases.list_open() == []
     assert body["stage"] == "COLLECT_CURRENT_CAR"
-    assert body["reply"].startswith("זיהיתי: COROLLA CROSS (2025)") and "מה ההשתתפות החודשית שלך היום" in body["reply"]
+    assert body["reply"].startswith("זיהיתי: COROLLA CROSS (2025)") and "מה ההשתתפות החודשית שלכם היום" in body["reply"]
     state = client.get(f"/api/conversations/{cid}").json()
     assert state["pending_rep"] is None and state["current_car"]["catalog_code"] == "CAR-09"
 
@@ -109,7 +109,7 @@ def test_rep_required_policy_waits_and_hides_the_result(sessions, tmp_path):
     svc = service(sessions, config=_policy(tmp_path, "REP_REQUIRED"))
     turn, token = talk(svc, NOA)
     assert turn.stage == Stage.WAITING_FOR_REP and "661" not in turn.reply
-    assert PENDING in turn.reply
+    assert "תודה! " + PENDING in turn.reply             # alone (no result above it): with "תודה!"
     [q] = svc.cases.list_open()
     assert (q.missing_field, q.mode) == (MissingField.NEW_CAR_COPAY, Mode.REQUIRED)
     assert svc.view(turn.conversation_id, token).state.pending_rep.question_ids == [q.id]

@@ -42,7 +42,7 @@ def test_atto_3_is_explained_in_plain_lines(sessions):
     assert r["cost"]["monthly_cost"] == str(atto.monthly_cost) and r["cost"]["budget"] == str(budget)
     assert r["cost"]["under_budget"] is (atto.monthly_cost < budget)
     # the chat text is two short lines; the detail lives in the structured result
-    assert turn.reply == "בדקתי את ATTO 3 (2025). הנטו שלך יגדל ב-661 ₪ בחודש.\nתודה! חסר לי רק אישור לסכום ההשתתפות שלך ברכב החדש. שאלתי את נציג התחבורה, ואעדכן כאן ברגע שיענה."
+    assert turn.reply == "בדקתי את ATTO 3 (2025). הנטו שלכם יגדל ב-661 ₪ בחודש.\nחסר לי רק אישור לסכום ההשתתפות שלכם ברכב החדש. שאלתי את נציג התחבורה, ואעדכן כאן ברגע שיענה."
     assert r["why"] == "שווי השימוש נמוך יותר, ולכן המס יקטן." and r["copay_pending"] is True
 
 
@@ -76,7 +76,7 @@ def test_not_eligible_option_has_no_cost_or_why_lines():
     state = ConversationState(results=[OptionResult(option_id="CAR-14", label=model3.label,
                                                     result=result.model_dump(mode="json"))])
     text = results_text(state)
-    assert text == f"{model3.label} לא זמין לך: {result.reason}"
+    assert text == f"{model3.label} לא זמין לכם: {result.reason}"
 
 
 def test_drivers_add_up_to_the_net_change_for_every_reference_employee_and_alternative():

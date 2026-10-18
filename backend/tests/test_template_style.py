@@ -31,33 +31,51 @@ def assert_style(t):
     assert not re.search(r"[+−-]\d", t.replace("ב-", "")), t
 
 
-def test_all_up():
+def test_all_up_two_and_three():
+    t = text(_item("A", 100), _item("MG4 (2025)", 1013))
+    assert t == "בדקתי 2 רכבים, ובשניהם הנטו שלכם יגדל. הכי משתלם: MG4 (2025), תוספת של 1,013 ₪ בחודש."
     t = text(_item("A", 100), _item("B", 300), _item("C", 200))
-    assert t.splitlines() == ["בדקתי 3 רכבים. בכולם הנטו שלך יגדל, הכי הרבה ב-B. הנטו שלך יגדל ב-300 ₪ בחודש."]
+    assert t == "בדקתי 3 רכבים, ובכולם הנטו שלכם יגדל. הכי משתלם: B, תוספת של 300 ₪ בחודש."
     assert_style(t)
 
 
 def test_all_down_names_the_least_bad():
     t = text(_item("A", -923), _item("B", -1200), _item("C", -1500))
-    assert t == "בדקתי 3 רכבים. בכולם הנטו שלך יקטן, הכי פחות ב-A. הנטו שלך יקטן ב-923 ₪ בחודש."
+    assert t == "בדקתי 3 רכבים, ובכולם הנטו שלכם יקטן. הכי משתלם: A, רק 923 ₪ פחות בחודש."
+    assert text(_item("A", -923), _item("B", -1200)).startswith("בדקתי 2 רכבים, ובשניהם הנטו שלכם יקטן.")
     assert_style(t)
 
 
 def test_mixed_names_the_best():
     t = text(_item("A", -50), _item("B", 70))
-    assert t == "בדקתי 2 רכבים. הכי משתלם B. הנטו שלך יגדל ב-70 ₪ בחודש."
+    assert t == "בדקתי 2 רכבים. הכי משתלם: B, תוספת של 70 ₪ בחודש."
     assert_style(t)
 
 
-def test_zero_and_single():
-    assert text(_item("A", 0), _item("B", 0)) == "בדקתי 2 רכבים. בכולם הנטו שלך לא ישתנה."
-    assert text(_item("A", 0)) == "בדקתי את A. הנטו שלך לא ישתנה."
-    assert text(_item("A", -5)) == "בדקתי את A. הנטו שלך יקטן ב-5 ₪ בחודש."
+def test_no_phrase_is_repeated_in_a_results_line():
+    for items in ((_item("A", 100), _item("B", 300)), (_item("A", -1), _item("B", -2), _item("C", -3)),
+                  (_item("A", -50), _item("B", 70))):
+        t = text(*items)
+        assert t.count("הנטו שלכם") <= 1 and t.count("בחודש") <= 1, t
 
+
+def test_zero_and_single():
+    assert text(_item("A", 0), _item("B", 0)) == "בדקתי 2 רכבים, ובשניהם הנטו שלכם לא ישתנה."
+    assert text(_item("A", 0)) == "בדקתי את A. הנטו שלכם לא ישתנה."
+    assert text(_item("A", -5)) == "בדקתי את A. הנטו שלכם יקטן ב-5 ₪ בחודש."
+
+
+def test_rank_says_how_many_were_ranked():
+    state = ConversationState(results=[_item("A", 100), _item("B", 300), _item("C", 200)], ranked_count=13)
+    assert T.results_text(state).splitlines() == [
+        "בדקתי את כל 13 הרכבים שאתם זכאים להם. אלה 3 המשתלמים ביותר:",
+        "הכי משתלם: B, תוספת של 300 ₪ בחודש."]
 
 def test_three_options_with_pending_copay_are_two_lines():
     t = text(_item("A", 100, pending=True), _item("B", -300, pending=True), _item("C", 5))
-    assert len(t.splitlines()) == 2 and t.splitlines()[1] == T.WAITING_COPAY and not re.search(r"\d", T.WAITING_COPAY)
+    # after a result in the same reply: no "תודה!", straight to what is missing
+    assert len(t.splitlines()) == 2 and t.splitlines()[1] == T.WAITING_COPAY_ONLY
+    assert t.splitlines()[1].startswith("חסר לי רק אישור") and not re.search(r"\d", T.WAITING_COPAY_ONLY)
     assert_style(t)
 
 
@@ -65,12 +83,12 @@ def test_not_eligible_and_incomplete_get_one_short_line_each():
     t = text(_item("A", 100), _item("B", None, "NOT_ELIGIBLE", reason="קבוצה גבוהה"),
              _item("C", None, "INCOMPLETE", reason="חסר שכר"))
     lines = t.splitlines()
-    assert lines[1] == "B לא זמין לך: קבוצה גבוהה" and lines[2] == "C: חסר מידע לחישוב. חסר שכר"
+    assert lines[1] == "B לא זמין לכם: קבוצה גבוהה" and lines[2] == "C: חסר מידע לחישוב. חסר שכר"
     assert_style(t)
 
 
 def test_only_bad_options():
-    assert text(_item("B", None, "NOT_ELIGIBLE", reason="קבוצה גבוהה")) == "B לא זמין לך: קבוצה גבוהה"
+    assert text(_item("B", None, "NOT_ELIGIBLE", reason="קבוצה גבוהה")) == "B לא זמין לכם: קבוצה גבוהה"
 
 
 @pytest.mark.parametrize("name", [n for n in dir(T) if n.isupper() and isinstance(getattr(T, n), str)])
@@ -81,6 +99,6 @@ def test_constant_templates_follow_the_style(name):
 
 
 def test_net_change_wording_is_future_tense():
-    assert T.net_change(Decimal("-923")) == "הנטו שלך יקטן ב-923 ₪ בחודש"
-    assert T.net_change(Decimal("250")) == "הנטו שלך יגדל ב-250 ₪ בחודש"
-    assert T.net_change(0) == "הנטו שלך לא ישתנה"
+    assert T.net_change(Decimal("-923")) == "הנטו שלכם יקטן ב-923 ₪ בחודש"
+    assert T.net_change(Decimal("250")) == "הנטו שלכם יגדל ב-250 ₪ בחודש"
+    assert T.net_change(0) == "הנטו שלכם לא ישתנה"

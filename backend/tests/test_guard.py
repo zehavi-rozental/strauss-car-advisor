@@ -46,7 +46,7 @@ def _question_turn(sessions, reply, text=CREDIT_Q):
 
 def test_a_reply_that_covers_the_plan_is_used(sessions):
     reply = ("נקודות זיכוי מקטינות את מס ההכנסה, וכל נקודה שווה 242 ₪ בחודש.\n"
-             "ועכשיו: מה הקבוצה או התפקיד שלך, ומה שכר הבסיס?\n" + Q1_CTA)
+             "ועכשיו: מה הקבוצה או התפקיד שלכם, ומה שכר הבסיס?\n" + Q1_CTA)
     turn = _question_turn(sessions, reply)
     assert turn.source == "llm" and turn.reply == reply
 
@@ -55,7 +55,7 @@ def test_blocked_reply_is_replaced_by_template(sessions):
     turn = _question_turn(sessions, "כל נקודה שווה 250 ₪, אז תרוויחי בערך 700 ₪.\n" + Q1_CTA)
     assert turn.stage == Stage.COLLECT_PROFILE
     assert turn.source == "template" and "700" not in turn.reply
-    assert "242" in turn.reply and "התפקיד" in turn.reply and turn.reply.endswith(Q1_CTA)
+    assert "242" in turn.reply and "תפקיד" in turn.reply and turn.reply.endswith(Q1_CTA)
     with sessions() as s:
         last = s.scalars(select(MessageRow).order_by(MessageRow.seq.desc())).first()
         assert last.guard_blocked is True and last.content == turn.reply
@@ -70,12 +70,12 @@ def test_numbers_only_from_the_plan_even_the_employees_own(sessions):
 
 
 def test_a_reply_without_the_call_to_action_is_not_used(sessions):
-    turn = _question_turn(sessions, "נקודות זיכוי שוות 242 ₪ כל אחת. מה הקבוצה שלך?")
+    turn = _question_turn(sessions, "נקודות זיכוי שוות 242 ₪ כל אחת. מה הקבוצה שלכם?")
     assert turn.source == "template" and turn.reply.endswith(Q1_CTA)
 
 
 def test_a_reply_that_drops_the_answer_is_not_used(sessions):
-    turn = _question_turn(sessions, "מה הקבוצה שלך ושכר הבסיס, 18,500?\n" + Q1_CTA)
+    turn = _question_turn(sessions, "מה הקבוצה שלכם ושכר הבסיס, 18,500?\n" + Q1_CTA)
     assert turn.source == "template" and "נקודות זיכוי" in turn.reply
 
 
@@ -101,7 +101,7 @@ def test_results_text_is_the_template_and_the_llm_is_not_asked(sessions):
     for text in ("הנה הפרטים שלי", "זה הרכב שלי, אותו אחד כמו תמיד", "את החשמלי הסיני בבקשה"):
         turn = svc.send(turn.conversation_id, token, text)
     assert turn.source == "template" and "חבל" not in turn.reply
-    assert "הנטו שלך יגדל ב-661 ₪ בחודש" in turn.reply and len(turn.reply.splitlines()) <= 2
+    assert "הנטו שלכם יגדל ב-661 ₪ בחודש" in turn.reply and len(turn.reply.splitlines()) <= 2
     assert fake.calls[-1].tools                        # the results turn made no phrasing call
 
 def test_a_reply_that_is_only_the_call_to_action_is_not_used(sessions):

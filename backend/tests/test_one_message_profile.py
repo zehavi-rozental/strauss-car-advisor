@@ -122,7 +122,7 @@ def test_provider_failure_after_first_round_keeps_profile(sessions):
     assert turn.stage == Stage.COLLECT_CURRENT_CAR and turn.source == "template"
     current = svc.view(turn.conversation_id, token).state.current
     assert current.query is None and current.source is None        # לא חיפשו "רכב" בשם הפרופיל
-    assert "איזה רכב צמוד יש לך היום" in turn.reply
+    assert "איזה רכב צמוד יש לכם היום" in turn.reply
 
 
 def test_provider_failure_on_first_round_uses_fallback_parser(sessions):
