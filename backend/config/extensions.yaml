@@ -60,13 +60,23 @@ value_ranges:
   base_salary: [3000, 200000]
   commissions: [0, 200000]
   bonus: [0, 200000]
-  pension_percent: [0, 10]
-  study_fund_percent: [0, 10]
-  credit_points: [0, 15]
+  pension_percent: [0, 7]
+  study_fund_percent: [0, 2.5]
+  credit_points: [0, 12]
   children_under_23: [0, 15]
   current_use_value: [0, 20000]
   current_copay: [0, 10000]
   current_maintenance: [0, 10000]
+
+# Monthly amounts this small are almost always shorthand ("3" for 3,000): asked "3 ₪ או 3,000 ₪?",
+# never saved or multiplied silently.
+small_amount_below:
+  commissions: 100
+  bonus: 100
+
+# Phrases that ask for one question at a time; kept in the conversation state until "pace_reset_cues".
+pace_cues: [שאלה אחת כל פעם, שאלה אחת בכל פעם, אחד אחד, אחת אחת, לא ביחד, לאט, אחד כל פעם, אחת כל פעם]
+pace_reset_cues: [הכול ביחד, הכל ביחד, כמה שאלות ביחד]
 
 # ערכים חוקיים אבל נדירים שמשפיעים חזק על הנטו: נשאלים פעם אחת ("לאשר / לתקן"), אף פעם לא ברירת מחדל.
 # at_most: הערך הזה ומטה; at_least: הערך הזה ומעלה.

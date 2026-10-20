@@ -53,6 +53,12 @@ class VehicleRepository:
                                             key.manufacturer_code, key.model_code))
         return None if row is None else _info(row)
 
+    def year_range(self, tax_year: int = 2026) -> Optional[tuple[int, int]]:
+        """The registration years the tax file covers (min, max), or None when it is empty."""
+        low, high = self.session.execute(select(func.min(TaxVehicle.reg_year), func.max(TaxVehicle.reg_year))
+                                         .where(TaxVehicle.tax_year == tax_year)).one()
+        return None if low is None else (int(low), int(high))
+
     def search(self, text: str, reg_year: Optional[int] = None, tax_year: int = 2026,
                limit: int = 50) -> list[VehicleInfo]:
         """חיפוש לפי כינוי מסחרי (לרכב הנוכחי של העובד)."""

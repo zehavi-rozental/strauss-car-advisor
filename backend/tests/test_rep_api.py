@@ -113,7 +113,7 @@ def test_rep_rate_limit(engine):
 def test_cancelled_question_is_not_listed(client):
     """תיקון הרכב בזמן המתנה מבטל את שאלת ההשתתפות — והנציג כבר לא רואה אותה."""
     cid = client.post("/api/conversations").json()["conversation_id"]
-    for text in [NOA[0], "יש לי קורולה", "לא יודע"]:
+    for text in [NOA[0], "יש לי קורולה 2026", "לא יודע"]:
         client.post(f"/api/conversations/{cid}/messages", json={"text": text})
     [q] = client.get("/api/rep/questions", headers=AUTH).json()
     client.post(f"/api/conversations/{cid}/messages", json={"text": "לא, זו קורולה קרוס"})

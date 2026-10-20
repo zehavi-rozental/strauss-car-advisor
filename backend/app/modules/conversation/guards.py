@@ -2,7 +2,8 @@
 
 a. numbers: each number appears in STATE, a tool result, the FAQ or the employee's own messages;
 b. sources: a sentence that states a rule / eligibility / benefit carries a valid hidden tag ([[faq:id]],
-   [[tool:name]] of a tool called this turn, or [[state]]); tags are stripped before display;
+   [[tool:name]] of a tool called this turn, [[state]], or [[catalog]] on a sentence naming a catalog car);
+   tags are stripped before display;
 c. claims: a short second call checks content sentences against the FAQ and STATE (claim verifier);
 d. progress: while data is missing the reply asks for a missing item (or offers the representative);
 e. shape: line count, one call to action, plural address, no "!" / emojis / banned phrases / openers;
@@ -19,12 +20,12 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Iterable, Optional, Sequence
 
-from app.modules.rules.public import RulesSnapshot
+from app.modules.rules.public import RulesSnapshot, matched_name
 
 from .llm.port import ChatMessage, LLMChain, LLMError
 from .parsing import numbers_in
 
-TAG_RE = re.compile(r"\s*\[\[(faq|tool|state)(?::([\w-]+))?\]\]")
+TAG_RE = re.compile(r"\s*\[\[(faq|tool|state|catalog)(?::([\w-]+))?\]\]")
 SINGULAR_RE = re.compile(r"(?<![א-ת])(?:שלך|לך|ממך|אותך|עבורך|בחרת|כתבת|התכוונת|ביקשת|תרצה|תרצי)(?![א-ת])")
 OPENERS = ("בשמחה", "שמנו לב", "איזה יופי", "רשמנו", "מעולה", "נהדר", "כדי שנוכל להתקדם", "היי", "תודה רבה")
 BANNED = ("לא הצלחתי להבין את התשובה", "אני רק בוט", "אני רק מודל", "כבינה מלאכותית")
@@ -90,16 +91,22 @@ def _is_question(s: str) -> bool:
     return s.rstrip().endswith("?") or s.startswith(CTA_STARTS)
 
 
+def _catalog_supported(sentence: str, snapshot: RulesSnapshot) -> bool:
+    """[[catalog]] stands only on a sentence that names a catalog car, or says the model is not in it."""
+    return "בקטלוג" in sentence or any(matched_name(sentence, c) for c in snapshot.catalog)
+
+
 def check(raw: str, *, snapshot: RulesSnapshot, allowed: set[Decimal], tools_called: Iterable[str],
           fields: Sequence[str], offer_rep: bool, waiting_answer: bool, conflicts: Sequence[str],
-          must_answer: bool = False) -> Check:
+          must_answer: bool = False, one_field: bool = False) -> Check:
     tools = set(tools_called)
     out = Check(strip_tags(raw))
     for s in sentences(raw):
         tags = TAG_RE.findall(s)
         clean = TAG_RE.sub("", s).strip()
         for kind, ref in tags:
-            if (kind == "faq" and ref not in snapshot.faq.ids) or (kind == "tool" and ref not in tools):
+            if (kind == "faq" and ref not in snapshot.faq.ids) or (kind == "tool" and ref not in tools) or (
+                    kind == "catalog" and not _catalog_supported(clean, snapshot)):
                 out.violations.append(Violation("source", clean))
         if not tags and not _is_question(clean) and not clean.startswith("רשמתי") and \
                 not any(b in clean for b in BOUNDARY_CUES) and any(w in clean for w in POLICY_WORDS):
@@ -128,6 +135,13 @@ def check(raw: str, *, snapshot: RulesSnapshot, allowed: set[Decimal], tools_cal
     asks = sum(1 for line in lines if line.strip().startswith(CTA_STARTS) or "?" in line)
     if asks != 1 or not _is_question(lines[-1].strip().rstrip(",.")):
         out.violations.append(Violation("cta"))
+    # one request per reply: the asking line never mixes the salary details with the car, and asks a
+    # single field when the employee asked for one question at a time
+    named = [f for f in fields if any(w in lines[-1] for w in FIELD_WORDS.get(f, ()))]
+    car_details = {"copay", "use_value", "drive", "maintenance", "car_choice"}   # "רכב" alone is everywhere
+    salary = {"base", "commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points", "children"}
+    if (one_field and len(named) > 1) or (car_details & set(named) and salary & set(named)):
+        out.violations.append(Violation("multi"))
     if offer_rep and ("נציג" not in lines[-1] or text.count("?") > 1):
         out.violations.append(Violation("offer"))     # the offer is the only question, and the last line
     elif fields and not waiting_answer and not any(w in text for f in fields for w in FIELD_WORDS.get(f, ())):

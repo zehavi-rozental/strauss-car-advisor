@@ -228,7 +228,7 @@ def test_tax_file_car_confirmation_has_no_group(sessions):
 
 def test_correction_at_the_copay_question_rematches_the_car(sessions):
     svc = service(sessions)
-    turn, token = talk(svc, profile() + ["יש לי קורולה"])
+    turn, token = talk(svc, profile() + ["יש לי קורולה 2026"])
     assert turn.reply.startswith("זיהיתי: COROLLA (2026), קבוצה ב, בנזין.")
     assert svc.view(turn.conversation_id, token).state.current.catalog_code == "CAR-07"
 
@@ -241,7 +241,7 @@ def test_correction_at_the_copay_question_rematches_the_car(sessions):
 
 def test_plain_number_at_the_copay_question_is_still_the_copay(sessions):
     svc = service(sessions)
-    turn, token = talk(svc, profile() + ["יש לי קורולה", "300"])
+    turn, token = talk(svc, profile() + ["יש לי קורולה 2026", "300"])
     assert turn.stage == Stage.CHOOSE_OPTIONS
     current = svc.view(turn.conversation_id, token).state.current
     assert (current.catalog_code, current.copay) == ("CAR-07", Decimal(300))
@@ -257,7 +257,7 @@ def test_correction_keeps_the_copay_already_given(sessions):
 
 def test_not_this_car_resets_and_asks_for_the_model(sessions):
     svc = service(sessions)
-    turn, token = talk(svc, profile() + ["יש לי קורולה"])
+    turn, token = talk(svc, profile() + ["יש לי קורולה 2026"])
     turn = svc.send(turn.conversation_id, token, "זה לא הרכב שלי")
     current = svc.view(turn.conversation_id, token).state.current
     assert current.catalog_code is None and current.source is None

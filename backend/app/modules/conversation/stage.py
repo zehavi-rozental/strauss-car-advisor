@@ -66,6 +66,7 @@ class CarChoice(BaseModel):
     drive: Drive
     use_value: Decimal
     reg_year: int
+    catalog_code: Optional[str] = None   # a catalog car ("קורולה": COROLLA or COROLLA CROSS)
 
 
 class CurrentCar(BaseModel):
@@ -76,6 +77,7 @@ class CurrentCar(BaseModel):
     source: Optional[Literal["catalog", "tax", "stated", "none"]] = None
     label: Optional[str] = None
     catalog_code: Optional[str] = None
+    coverage: Optional[str] = None       # a year outside the tax file: the years it covers ("2019–2026")
     group: Optional[str] = None
     drive: Optional[Drive] = None
     use_value: Optional[Decimal] = None
@@ -125,6 +127,7 @@ class PendingConfirmation(BaseModel):
     value: Decimal
     approximate: bool = False
     unusual: bool = False   # a legal but rare value: asked "לאשר / לתקן" once
+    scale: bool = False     # a tiny amount ("3" for commissions): asked "3 ₪ או 3,000 ₪?"; value is the amount said
 
 
 class CarClarification(BaseModel):
@@ -168,6 +171,12 @@ class ConversationState(BaseModel):
     offered_rank: bool = False   # the results reply offered "הכי משתלם": "כן" ranks
     rep_skipped: bool = False    # "להמשיך בלי" this turn: the representative is not offered again
     pending_ambiguity: Optional[str] = None      # "no_car_or_zero_copay": asked with two buttons, never guessed
+    # the one save_profile field the last reply asked for (None: several or none). A bare value ("34") may
+    # only be saved to it, never remapped to another field.
+    asked_field: Optional[str] = None
+    pace: Literal["normal", "one_at_a_time"] = "normal"   # "שאלה אחת כל פעם": kept until the employee changes it
+    links_shown: list[str] = Field(default_factory=list)  # links already offered (each one once)
+    link_now: Optional[str] = None                        # the link of the reply on screen (kept on reload)
 
 
 # ---------- מה חסר ----------

@@ -23,12 +23,13 @@ class CurrentCarMatch:
     vehicle: Optional[VehicleInfo] = None
     use_value: Optional[Decimal] = None
     choices: list[VehicleInfo] = field(default_factory=list)
+    years: Optional[tuple[int, int]] = None     # NOT_FOUND: the registration years the tax file covers
 
 
 def match_current_car(repo: VehicleRepository, text: str, reg_year: Optional[int] = None) -> CurrentCarMatch:
     found = repo.search(text, reg_year=reg_year)
     if not found:
-        return CurrentCarMatch(status="NOT_FOUND")
+        return CurrentCarMatch(status="NOT_FOUND", years=repo.year_range())
     values = {v.use_value for v in found}
     if len(values) == 1:
         return CurrentCarMatch(status="FOUND", vehicle=found[0], use_value=found[0].use_value)

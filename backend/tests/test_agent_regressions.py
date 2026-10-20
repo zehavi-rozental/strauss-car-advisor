@@ -36,7 +36,7 @@ def test_live_transcript_replayed_with_the_gemini_calls(sessions):
     svc = service(sessions, fake)
     turn, token = svc.start()
     cid = turn.conversation_id
-    assert "אפשר לכתוב כמו שמדברים" in turn.reply and ends_with_cta(turn.reply)
+    assert turn.reply.endswith("נתחיל — מה קבוצת הזכאות שלכם?") and "כמו שמדברים" not in turn.reply
 
     # 1. group, a shortened salary, pension and children in one sentence
     fake.turn(call("save_profile", eligibility_group="ג", base_salary="18.5", pension_percent=6,

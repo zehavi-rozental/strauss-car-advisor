@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from typing import Any, Iterable, Optional
 
-from app.modules.rules.public import Faq, FaqEntry, RulesSnapshot, words
+from app.modules.rules.public import FAMILY_GROUP, CatalogCar, Faq, FaqEntry, RulesSnapshot, matched_name, related_cars, words
 
 from .fallback import _RANK_RE, named_cars
 from .llm.port import ToolSpec
@@ -37,6 +37,9 @@ _QUESTION_CUES = ("האם", "רוצה לדעת", "רוצים לדעת", "אשמ�
                   "אפשר לקבל", "מעניין אותי לדעת")
 _COMPLAINT_CUES = ("לא עונה", "לא ענית", "לא לפי השאלה", "לא הבנת", "לא עניתם", "לא עזרת", "בוט", "שאלתי משהו אחר",
                    "זה לא מה ששאלתי")
+# "I already answered that" / "you got it wrong": answered from the state (what is saved and what is missing),
+# with no apology unless something really went wrong
+_AUDIT_CUES = ("כבר כתבתי", "כבר עניתי", "כבר אמרתי", "כבר רשמתי", "כבר נתתי", "טעית", "טעיתם", "רשמת לא נכון")
 _FILLER = {"ו", "תודה", "שלום", "היי", "אוקיי", "אוקי", "ok", "טוב", "בסדר", "רגע", "אז", "נו", "אה", "אמממ",
            "יופי", "מעולה", "סבבה"}
 # clauses: after "?" / "!" / "." / a new line, and before ", ולמה …" / ", ומה …" (data, then a question)
@@ -61,7 +64,9 @@ class Understanding:
     ambiguity: Optional[str] = None                         # NO_CAR_OR_ZERO
     compare: bool = False                                   # asks for a comparison / a result ("תשווה ביניהם")
     complaint: bool = False                                 # "אתה בוט שעונה לא לפי השאלה"
+    audit: bool = False                                     # "כבר כתבתי לך": say what is saved and missing
     remainder: str = ""                                     # the message without questions (read by the parser)
+    catalog: list[str] = field(default_factory=list)        # answers from the company catalog ("יש לכם קורולה?")
 
     @property
     def question_only(self) -> bool:
@@ -70,7 +75,7 @@ class Understanding:
 
     @property
     def anything(self) -> bool:
-        return bool(self.faq_ids or self.unanswered or self.presence or self.help or self.redirect
+        return bool(self.audit or self.faq_ids or self.catalog or self.unanswered or self.presence or self.help or self.redirect
                     or self.ambiguity or self.compare or self.complaint)
 
 
@@ -172,9 +177,40 @@ def _contains_any(text: str, patterns: Iterable[str]) -> bool:
     return any(p.lower() in low or all(exact(a) for a in words(p)) for p in patterns)
 
 
+_DRIVE_HE = {"PETROL": "בנזין", "HYBRID": "היברידי", "PLUG_IN": "פלאג-אין", "ELECTRIC": "חשמלי"}
+# a question about whether a car exists / its group or drive (not colour, price or specs: those go to the rep)
+_CATALOG_CUES = ("יש לכם", "יש אצלכם", "בקטלוג", "קיים", "קיימת", "זמין", "זמינה", "איזו קבוצה", "באיזו קבוצה",
+                 "איזה הנעה", "איזו הנעה", "חשמלי או", "היברידי או")
+NOT_IN_CATALOG = "לא מצאתי את הדגם הזה בקטלוג הרכבים הזמין במערכת."
+
+
+def catalog_answer(snapshot: RulesSnapshot, clause: str) -> Optional[str]:
+    """A question about which cars exist, answered from the catalog only (model, year, group, drive, family
+    track); a brand / model question with no catalog match → "not in the catalog". Never prices or specs."""
+    if not any(cue in clause for cue in _CATALOG_CUES):
+        return None
+    found: list[CatalogCar] = []
+    for car in named_cars(clause, snapshot.catalog):          # "קורולה" names COROLLA and COROLLA CROSS
+        said = matched_name(clause, car) or car.model_name
+        found += [c for c in related_cars(snapshot, said) or [car] if c not in found]
+    if not found:                                             # a brand only: "יש לכם סקודה?"
+        for prefix, names in snapshot.extensions.manufacturer_brands.items():
+            if _contains_any(clause, names):
+                found += [c for c in snapshot.catalog if c.manufacturer.startswith(prefix) and c not in found]
+    if found:
+        parts = [f"{c.label}, " + ("במסלול המשפחתי" if c.group == FAMILY_GROUP else f"קבוצה {c.group}")
+                 + f", {_DRIVE_HE[c.drive.value]}" for c in found]
+        return "כן, בקטלוג יש: " + "; ".join(parts) + "."
+    # "יש לכם פולקסווגן גולף?": a car or brand question with no catalog match
+    if "דגם" in clause or "רכב" in clause or "בקטלוג" in clause or re.search(r"[A-Za-z]{2,}", clause):
+        return NOT_IN_CATALOG
+    return None
+
+
 def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Understanding:
     faq = snapshot.faq
-    u = Understanding(complaint=any(cue in text for cue in _COMPLAINT_CUES))
+    audit = any(cue in text for cue in _AUDIT_CUES)
+    u = Understanding(complaint=not audit and any(cue in text for cue in _COMPLAINT_CUES), audit=audit)
     if _contains_any(text, faq.injection_patterns) or (
             _contains_any(text, faq.off_topic_patterns) and not named_cars(text, snapshot.catalog)):
         u.redirect = True
@@ -188,8 +224,11 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
             continue
         if _is_question(clause) and not _RANK_RE.search(clause):     # "מה הכי משתלם לי?" is a request
             entry = match_faq(faq, clause)
+            catalog = catalog_answer(snapshot, clause) if entry is None else None
             if entry is None and _is_help(clause):
                 u.help = True
+            elif catalog:
+                u.catalog.append(catalog)
             elif entry is None:
                 u.unanswered.append(clause.strip())
             elif entry not in u.faq_ids:
@@ -209,5 +248,7 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
             and not named_cars(remainder, snapshot.catalog) and not no_car_span(remainder)):
         u.ambiguity = NO_CAR_OR_ZERO
         remainder = ""
+    if u.audit and not re.search(r"\d", remainder):
+        remainder = ""                            # "כבר כתבתי לך" carries nothing to save
     u.remainder = remainder
     return u

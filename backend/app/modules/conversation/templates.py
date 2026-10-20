@@ -31,8 +31,8 @@ def money(value: Any) -> str:
 
 CAR_AGAIN = "לא זיהיתי את דגם הרכב."
 
-GREETING = ("שלום! אני יועץ הרכב של שטראוס. אעזור לכם לראות איך שינוי ברכב הצמוד ישפיע על הנטו "
-            "החודשי שלכם. כל המספרים מחושבים לפי כללי החברה, לא מוערכים.\n")
+GREETING = ("שלום! אני יועץ הרכב של שטראוס. אעזור לכם להבין אילו רכבים מתאימים לכם ואיך הבחירה משפיעה על הנטו.\n"
+            "נתחיל — מה קבוצת הזכאות שלכם?")
 
 
 def question(field: str, state: ConversationState, snapshot: RulesSnapshot) -> str:
@@ -52,11 +52,16 @@ def question(field: str, state: ConversationState, snapshot: RulesSnapshot) -> s
         "credit_points": "כמה נקודות זיכוי יש לכם? (מופיע בתלוש)",
         "children": f"כמה ילדים עד גיל {age} יש לכם?",
         "car": "איזה רכב צמוד יש לכם היום?",
-        "use_value": f"לא מצאתי את \"{c.query or ''}\" במאגר. מה שווי השימוש החודשי שמופיע בתלוש שלכם?",
+        "use_value": (f"מאגר רשות המסים כולל רכבים משנות {c.coverage}, ושנת {c.reg_year} לא נמצאת בו. "
+                      "מה שווי השימוש החודשי שמופיע בתלוש שלכם?") if c.coverage else
+                     f"לא מצאתי את \"{c.query or ''}\" במאגר. מה שווי השימוש החודשי שמופיע בתלוש שלכם?",
         "drive": "מה סוג ההנעה של הרכב: בנזין, היברידי, פלאג-אין או חשמלי?",
         "copay": "מה ההשתתפות החודשית שלכם היום בעלות הרכב?",
         "maintenance": "כמה אחזקת רכב מופיעה היום בתלוש שלכם?",
     }
+    if field == "car_choice" and c.choices and all(ch.catalog_code for ch in c.choices):
+        names = " או ".join(ch.label for ch in c.choices)
+        return f"בקטלוג יש כמה רכבים בשם הזה. הרכב שלכם היום הוא {names}?"
     if field == "car_choice":
         lines = [f"{i}. {ch.label} {ch.description}".rstrip() + f" — שווי שימוש {money(ch.use_value)}"
                  for i, ch in enumerate(c.choices, 1)]
@@ -150,12 +155,34 @@ def _leftover_tail(fields: list[str]) -> str:
     return "חסר עוד: " + ", ".join(_LEFTOVER_NAMES[f] for f in fields if f in _LEFTOVER_NAMES) + "."
 
 
+_ASK_ORDER = ("occupation", "group", "base", "commissions", "bonus", "pension_percent", "study_fund_percent",
+              "credit_points", "children", "car", "car_choice", "use_value", "drive", "maintenance", "copay",
+              "opt_out_occupation", "options")
+
+
+def paced(state: ConversationState, fields: Sequence[str]) -> list[str]:
+    """The employee asked for one question at a time ("שאלה אחת כל פעם"): only the next field is asked."""
+    fields = list(fields)
+    if state.pace != "one_at_a_time" or len(fields) <= 1:
+        return fields
+    if "car" in fields:                     # the car today comes before the Q2 leftovers
+        return ["car"]
+    return [min(fields, key=lambda f: _ASK_ORDER.index(f) if f in _ASK_ORDER else len(_ASK_ORDER))]
+
+
+def _once(state: ConversationState, link: Optional[str]) -> Optional[str]:
+    """A link is offered once: on the reply that first shows it (and on a reload of that reply)."""
+    if link is None or state.pace == "one_at_a_time" and link == "profile_form":
+        return None
+    return link if link not in state.links_shown or link == state.link_now else None
+
+
 def group_question(state: ConversationState, snapshot: RulesSnapshot, skip: Sequence[str] = ()) -> str:
     """The current question, one item at a time: Q1, Q2, then the car today (with its copay), then the
     alternatives, then what is left of Q2. A message may still answer more (the parser reads every
     open field); the text asks only the next item. skip: fields asked separately (a follow-up)."""
     group, fields = current_group(state)
-    fields = [f for f in fields if f not in skip]
+    fields = paced(state, [f for f in fields if f not in skip])
     if not fields:
         return ""
     if group == "unknown":
@@ -309,6 +336,13 @@ _RANGE_TEXT = {
 }
 
 
+_RANGE_HIGH = {
+    "pension_percent": "לפנסיה. כמה אחוז יורד לכם בפועל?",
+    "study_fund_percent": "לקרן השתלמות. כמה אחוז יורד לכם בפועל?",
+    "credit_points": "לנקודות זיכוי. כמה נקודות מופיעות בתלוש?",
+}
+
+
 def _show(field: str, value: Any) -> str:
     kind = _VALUE_LABELS[field][1]
     number = Decimal(str(value))
@@ -333,6 +367,8 @@ def conflict_text(field: str) -> str:
 def range_problem_text(field: str, value: Decimal, side: str) -> str:
     """"18 ₪ נראה נמוך מאוד לשכר בסיס חודשי. מה הסכום המלא מהתלוש?" — המספר מההודעה."""
     reason, follow_up = _RANGE_TEXT[field]
+    if side == "high" and field in _RANGE_HIGH:
+        return f"{_show(field, value)} גבוה מהטווח שהמערכת מאפשרת {_RANGE_HIGH[field]}"
     return f"{_show(field, value)} נראה {'נמוך' if side == 'low' else 'גבוה'} מאוד {reason}. {follow_up}"
 
 
@@ -355,7 +391,9 @@ def unusual_fix_text(field: str) -> str:
     return f"בסדר. {_RANGE_TEXT[field][1]}"
 
 
-def confirm_value_text(field: str, value: Decimal, unusual: bool = False) -> str:
+def confirm_value_text(field: str, value: Decimal, unusual: bool = False, scale: bool = False) -> str:
+    if scale:
+        return f"התכוונתם ל-{_show(field, value)} או ל-{_show(field, value * 1000)}?"
     if unusual:
         ask, note = _UNUSUAL_ASK.get(field, (f"לאשר {_VALUE_LABELS[field][0]} {{v}}?", "הערך נדיר."))
         return f"{ask.format(v=_show(field, value))} {note}"
@@ -545,7 +583,6 @@ def unknown_text(state: ConversationState, snapshot: RulesSnapshot, fields: Sequ
     else:
         lines.append("כולם מופיעים בתלוש השכר החודשי.")
     return "\n".join(lines)
-FIRST_LINE = "אפשר לכתוב כמו שמדברים, הכול בהודעה אחת או בכמה."
 UNANSWERED = "על זה אין לי מידע מדויק. התשובה של נציג התחבורה תגיע לכאן. רוצים שאשאל אותו?"
 # the offer is the turn's one call to action; the next question comes after the choice
 REP_OFFER_CTA = "בחרו \"לשאול את הנציג\" או \"להמשיך בלי\"."
@@ -627,13 +664,15 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
     if state.pending_confirmation is not None:
         if state.pending_confirmation.unusual:
             return "בחרו \"לאשר\" או \"לתקן\", או כתבו את הערך הנכון.", None
+        if state.pending_confirmation.scale:
+            return "בחרו אחד מהסכומים, או כתבו את הסכום המלא.", None
         return "בחרו \"כן\" או \"לא\", או כתבו את הסכום המלא.", None
     if state.pending_occupation is not None:
         return "בחרו תפקיד מהרשימה, או כתבו את התפקיד שלכם.", None
     if state.pending_clarification is not None:
         return "בחרו או כתבו: \"הרכב שלי\" או \"חלופה\".", None
     group = current_group(state)[0]
-    fields = list(current_group(state)[1] if fields is None else fields)
+    fields = paced(state, current_group(state)[1] if fields is None else fields)
     if not fields:
         return "", None
     if group == "unknown":
@@ -645,7 +684,8 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
     first = next((f for f in ("car", "copay", "opt_out_occupation", "options") if f in fields), fields[0])
     if _is_q2(fields):
         example = q2_example(fields) if len(fields) > 1 else _faq_example(snapshot, first)
-        return f"אפשר לכתוב כאן, למשל: \"{example}\", או למלא בטופס.", "profile_form"
+        link = _once(state, "profile_form")
+        return f"אפשר לכתוב כאן, למשל: \"{example}\"" + (", או למלא בטופס." if link else "."), link
     if fields == ["group"]:
         return "בחרו קבוצה, או כתבו אותה, למשל: ג.", None
     if fields == ["base"]:
@@ -671,7 +711,7 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
         return "בחרו גרסה, או כתבו את המספר שלה.", None
     if first == "options":
         return (f"כתבו שמות של עד {MAX_OPTIONS} רכבים, למשל: \"{_faq_example(snapshot, 'options').split(',')[0]}\", "
-                "או \"הכי משתלם\". אפשר גם להציג את הרכבים בקבוצה שלכם."), "selection"
+                "או \"הכי משתלם\"."), _once(state, "selection")
     return "כתבו כאן את התשובה.", None
 
 
@@ -793,7 +833,7 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
         return plan
     if state.pending_confirmation is not None:
         pending = state.pending_confirmation
-        plan.ask.append(confirm_value_text(pending.field, pending.value, pending.unusual))
+        plan.ask.append(confirm_value_text(pending.field, pending.value, pending.unusual, pending.scale))
         return plan
     if state.pending_occupation is not None:
         plan.ask.append(confirm_occupation_text(state.pending_occupation.text,

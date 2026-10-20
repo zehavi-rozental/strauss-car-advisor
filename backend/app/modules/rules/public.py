@@ -99,6 +99,15 @@ def find_catalog_car(snapshot: RulesSnapshot, text: str) -> list[CatalogCar]:
             if any(key in _norm(n) or mentions(text, n) for n in catalog_names(c))]
 
 
+def related_cars(snapshot: RulesSnapshot, text: str) -> list[CatalogCar]:
+    """Catalog cars whose name starts with what was said ("קורולה" → COROLLA, COROLLA CROSS). A catalog code
+    is exact. More than one → the employee chooses; never a silent pick."""
+    key = _norm(re.sub(r"\(\d{4}\)", "", text))
+    if not key or any(key == _norm(c.catalog_code) for c in snapshot.catalog):
+        return []
+    return [c for c in snapshot.catalog if any(_norm(n).startswith(key) for n in catalog_names(c))]
+
+
 def candidate_states(snapshot: RulesSnapshot) -> list[State]:
     """כל החלופות האפשריות: כל רכבי הקטלוג + ויתור (הזכאות נבדקת במנוע)."""
     return [car_state(c) for c in snapshot.catalog] + [OptOutState()]
@@ -132,6 +141,6 @@ def parse_reference_state(snapshot: RulesSnapshot, label: str, *, current_copay:
 
 __all__ = [
     "FAMILY_GROUP", "MAX_COMPARE", "Faq", "FaqEntry", "CarRoleCues", "CatalogCar", "ConfigError", "Occupation", "ReferenceEmployee", "ReferenceResult",
-    "RulesSnapshot", "RulesStore", "candidate_states", "car_state", "catalog_names", "find_catalog_car", "matched_name", "mentions", "words",
+    "RulesSnapshot", "RulesStore", "candidate_states", "car_state", "catalog_names", "find_catalog_car", "matched_name", "mentions", "related_cars", "words",
     "load_snapshot", "occupation_rule", "parse_reference_state", "reference_employee",
 ]

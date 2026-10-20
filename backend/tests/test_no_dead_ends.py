@@ -75,6 +75,9 @@ def test_every_non_result_reply_ends_with_exactly_one_call_to_action(sessions):
     for text, turn in run(sessions):
         if turn.results or turn.stage == Stage.WAITING_FOR_REP:
             continue
+        if text is None:                      # the greeting: one question, its own call to action
+            assert turn.reply.endswith("?") and turn.reply.count("?") == 1
+            continue
         paragraphs = turn.reply.split("\n\n")
         assert paragraphs[-1].startswith(CTA_STARTS), f"no call to action after {text!r}: {turn.reply}"
         assert sum(p.startswith(CTA_STARTS) for p in paragraphs) == 1, turn.reply

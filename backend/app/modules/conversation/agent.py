@@ -18,7 +18,7 @@ from typing import Any, Callable, Optional, Sequence
 from app.modules.calculation.public import CopayStatus, ScenarioResult, evaluate
 from app.modules.calculation.public import Status as CalcStatus
 from app.modules.cases.public import AnswerType, MissingField, Mode, QuestionAnswered, QuestionRequest
-from app.modules.rules.public import CatalogCar, RulesSnapshot, find_catalog_car, words
+from app.modules.rules.public import CatalogCar, RulesSnapshot, find_catalog_car, matched_name, related_cars, words
 from app.modules.rules.public import catalog_names as catalog_names_of
 
 
@@ -28,9 +28,9 @@ from .fallback import (ZERO_ALLOWED, fields_plan, ParserPlan, car_roles, correct
 from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
 from .parsing import YEAR_RE, match_occupation, no_car_span, parse_copay, read_profile, redact_id_numbers
-from .guards import SINGULAR_RE, TAG_RE, Check, Violation, check, content_sentences, drop, sentences, verify
-from .turn import LLM_TOOLS, Candidate, parser_hint, render_faq, run_rounds, state_block, system_message, user_message
-from .understanding import NO_CAR_OR_ZERO, Understanding, understand
+from .guards import FIELD_WORDS, SINGULAR_RE, TAG_RE, Check, Violation, check, content_sentences, drop, sentences, verify
+from .turn import LLM_TOOLS, Candidate, parser_hint, render_catalog, render_faq, run_rounds, state_block, system_message, user_message
+from .understanding import NO_CAR_OR_ZERO, NOT_IN_CATALOG, Understanding, understand
 from .stage import (
     allowed_tools,
     current_group,
@@ -43,13 +43,13 @@ from .stage import (
     RepReason,
     Stage,
     blocking_rep_reason,
+    missing_current_car,
     missing_profile,
     open_profile,
     next_stage,
     Q2_FIELDS,
 )
 from .templates import (
-    FIRST_LINE,
     UNANSWERED,
     to_plural,
     compare_needs_text,
@@ -178,6 +178,18 @@ def _confirmation_plan(state: ConversationState, text: str) -> Optional[ParserPl
     pending = state.pending_confirmation
     if not ws or len(ws) > 3 or pending is None:
         return None
+    if pending.scale:
+        # "3 ₪ או 3,000 ₪?": the button, or the amount typed; anything else is read as a new message
+        amount = {"small": pending.value, "thousands": pending.value * 1000}.get(ws[0])
+        if amount is None:
+            m = re.search(r"\d[\d,]*(?:\.\d+)?", text)
+            said = Decimal(m.group().replace(",", "")) if m else None
+            amount = said if said in (pending.value, pending.value * 1000) else None
+        if amount is None:
+            return None
+        state.pending_confirmation = None
+        args = {pending.field: str(amount), "approximate_fields": [pending.field] if pending.approximate else []}
+        return ParserPlan([ToolCall("save_profile", args, "scale")], True, direct=True)
     if ws[0] in _YES:
         state.pending_confirmation = None
         if pending.unusual and pending.field not in state.confirmed_unusual:
@@ -351,7 +363,51 @@ def _is_zero(value: Any) -> bool:
         return False
 
 
-_SEND = {"לשלוח", "שלח", "שלחו", "תשלח", "כן", "send"}
+# missing item (stage.py) → the save_profile argument a bare value answers
+_ASKED_ARG = {"base": "base_salary", "commissions": "commissions", "bonus": "bonus",
+              "pension_percent": "pension_percent", "study_fund_percent": "study_fund_percent",
+              "credit_points": "credit_points", "children": "children_under_23", "copay": "current_copay",
+              "use_value": "current_use_value", "maintenance": "current_maintenance", "car": "car"}
+_NUMERIC_ARGS = {a for a in _ASKED_ARG.values() if a != "car"}
+_BARE_RE = re.compile(r"^\s*(?:בערך|כ-?|בסביבות)?\s*[\d.,]+\s*(?:%|אחוז(?:ים)?|₪|ש\"ח|שח|שקל(?:ים)?)?\s*\.?\s*$")
+
+
+PACE_ONE = "בסדר, אשאל שאלה אחת בכל פעם."
+PACE_NORMAL = "בסדר, אפשר לענות על כמה דברים יחד."
+
+
+def _pace_change(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Optional[str]:
+    """"שאלה אחת כל פעם" / "הכול ביחד" (cues in extensions.yaml): the pace is stored in the state and kept
+    across stages until the employee changes it. Returns the acknowledgement, or None."""
+    ext = snapshot.extensions
+    if state.pace != "normal" and any(c in text for c in ext.pace_reset_cues):
+        state.pace = "normal"
+        return PACE_NORMAL
+    if state.pace != "one_at_a_time" and any(c in text for c in ext.pace_cues):
+        state.pace = "one_at_a_time"
+        return PACE_ONE
+    return None
+
+
+def asked_field(state: ConversationState, reply: str) -> Optional[str]:
+    """The one missing item the reply asks for (its question line, else its last line); None when it names
+    several or none. Only missing items count, so an ack line ("רשמתי: פנסיה 6%") never binds."""
+    lines = [ln for ln in reply.splitlines() if ln.strip()]
+    asking = [ln for ln in lines if "?" in ln] or lines[-1:]
+    if not asking:
+        return None
+    line = asking[-1]
+    missing = [*missing_profile(state.profile), *missing_current_car(state.current)]
+    named = {f for f in missing if f in _ASKED_ARG and any(w in line for w in FIELD_WORDS.get(f, ()))}
+    return _ASKED_ARG[next(iter(named))] if len(named) == 1 else None
+
+
+def bare_value(text: str) -> bool:
+    """A message that is only a number ("34", "6%", "בערך 300 ₪"): it answers the question on screen."""
+    return bool(_BARE_RE.match(text)) and any(ch.isdigit() for ch in text)
+
+
+_SEND ={"לשלוח", "שלח", "שלחו", "תשלח", "כן", "send"}
 _CANCEL = {"לבטל", "בטל", "ביטול", "לא", "cancel"}
 
 
@@ -438,6 +494,25 @@ def ack_text(changed: dict[str, Any], group: Optional[str] = None) -> str:
     return f"רשמתי: {', '.join(parts)}." if parts else ""
 
 
+def _answers_catalog(reply: str, answers: Sequence[str], snapshot: RulesSnapshot) -> bool:
+    """The reply answers each catalog question: names a car from the answer, or says it is not in the catalog."""
+    def covered(answer: str) -> bool:
+        if answer == NOT_IN_CATALOG:
+            return "בקטלוג" in reply
+        return any(c.model_name in answer for c in named_cars(reply, snapshot.catalog))
+    return all(covered(a) for a in answers)
+
+
+def _audit_text(state: ConversationState) -> str:
+    """"כבר כתבתי לך": the truth from the state. What is saved; the flow question that follows names what is
+    still missing. No apology: nothing went wrong unless the state shows it."""
+    saved = ack_text({k: v for k, v in _values(state).items() if v is not None},
+                     state.profile.group if state.profile.group else None)
+    if state.current.label and state.current.source in ("catalog", "tax", "stated"):
+        saved = (saved[:-1] + f", רכב היום {state.current.label}.") if saved else f"רשמתי: רכב היום {state.current.label}."
+    return ("בדקתי: " + saved.replace("רשמתי: ", "עד עכשיו רשמתי ")) if saved else "בדקתי: עוד לא רשמתי אף ערך."
+
+
 @dataclass(frozen=True)
 class _Before:
     """המצב לפני התור — כדי לאשר במשפט מה הכלים שמרו בתור הזה (לא מה שהמודל אמר)."""
@@ -493,9 +568,8 @@ class Agent:
     def greeting(self, state: ConversationState, snapshot: RulesSnapshot) -> str:
         _mark_asked(state)
         state.last_asked = list(current_group(state)[1])
-        state.last_ask = group_question(state, snapshot)
-        return "\n\n".join([GREETING.strip(), group_question(state, snapshot) + "\n" + FIRST_LINE,
-                            call_to_action(state, snapshot)[0]])
+        state.last_ask = GREETING.splitlines()[-1]
+        return GREETING           # one question, no repeated intro later
 
     def run_choice(self, snapshot: RulesSnapshot, find_vehicle: VehicleLookup, get_vehicle: VehicleGetter,
                    state: ConversationState, ids: list[str], label: str, record_run: RecordRun,
@@ -525,7 +599,8 @@ class Agent:
             if waiting:
                 before = self._start_correction(ctx)
         elif field_ == "confirmation":
-            plan = _confirmation_plan(state, "כן" if ids[0] == "yes" else "לא") or ParserPlan(complete=True)
+            answer = ids[0] if ids[0] in ("small", "thousands") else "כן" if ids[0] == "yes" else "לא"
+            plan = _confirmation_plan(state, answer) or ParserPlan(complete=True)
         elif field_ == "occupation_confirmation":
             plan = _occupation_plan(ctx, ids[0])
         elif ids[0] == "none" and field_ in ZERO_ALLOWED:
@@ -558,6 +633,11 @@ class Agent:
         before = next_stage(state)
 
         und = understand(state, snapshot, text)
+        pace = _pace_change(state, snapshot, text)
+        if pace is not None and len(words(text)) <= 6:
+            # only the request ("שאלה אחת כל פעם"): acknowledged, kept in the state, then the next question
+            return self._finish(ctx, history, text, ParserPlan(complete=True, notice=pace, direct=True), before,
+                                record_run, und=Understanding(remainder=""))
         if before == Stage.WAITING_FOR_REP:
             correction, reply = self._waiting(state, snapshot, text)
             if correction is None:
@@ -603,7 +683,7 @@ class Agent:
             else:
                 # הקורא הדטרמיניסטי קודם, על ההודעה בלי השאלות שבה. מה שהוא קורא במלואו לא מגיע למודל.
                 plan = fallback_plan(state, snapshot, und.remainder)
-        return self._finish(ctx, history, text, plan, before, record_run, und=und)
+        return self._finish(ctx, history, text, plan, before, record_run, und=und, extra=[pace] if pace else ())
 
     @staticmethod
     def _start_correction(ctx: ToolContext) -> Stage:
@@ -621,6 +701,7 @@ class Agent:
         writes the plan; the template renders it when the LLM is off, fails or breaks a check)."""
         state, snapshot = ctx.state, ctx.snapshot
         und = und or Understanding(remainder=text)
+        state.link_now = None               # a link is offered on one reply only (templates._once)
         car_before = _car_key(state)
         before_turn = _Before.of(state)
         used_llm = False
@@ -698,7 +779,7 @@ class Agent:
         rep_opened = any(r.mode == Mode.REQUIRED for r in ctx.question_requests)
         problems = [conflict_text(c) for c in conflicts] + [range_problem_text(*p) for p in ctx.range_problems]
         answers, terms = self._answers(snapshot, und)
-        lines = [*extra, *(["צודקים, סליחה."] if und.complaint else []),
+        lines = [*extra, *(["צודקים, סליחה."] if und.complaint else []), *([_audit_text(state)] if und.audit else []),
                  *([snapshot.faq.redirect] if und.redirect and not und.complaint else [])]   # the rep offer: plan_reply
         # a request the bot cannot do yet ("תשווה ביניהם" before the profile is complete): what is needed
         if (und.compare and not just_calculated and state.stage not in (Stage.PRESENTED, Stage.WAITING_FOR_REP)
@@ -717,26 +798,37 @@ class Agent:
         state.offered_rank = reply_plan.fixed and state.stage == Stage.PRESENTED and not state.ranked_count
         state.last_asked = [] if just_calculated else list(current_group(state)[1])
         state.last_ask = reply_plan.ask[-1] if reply_plan.ask else ""
+        link = call_to_action(state, snapshot)[1] if not reply_plan.fixed else None
+        if link:
+            state.link_now = link
+            if link not in state.links_shown:
+                state.links_shown.append(link)
         requests = dict(question_requests=ctx.question_requests, cancel_question_ids=ctx.cancel_question_ids)
         draft = reply_plan.text()
         # results and the rep messages keep their exact template text; buttons get the template (fast)
         if (choice or reply_plan.fixed or rep_opened or candidate is None or not self.llm.available
                 or self.mode == "parser_first"):
             say = ("outage" if llm_failed else "not_tried" if candidate is None or not used_llm else "fixed")
+            state.asked_field = asked_field(state, draft)
             return TurnOutcome(reply=draft, source="template", just_calculated=just_calculated, path=path,
                                say=say, **requests)
         reply, source, blocked, say = self._guarded(candidate, draft, ctx, history, text, deadline, conflicts,
-                                                    must_answer=bool(und.faq_ids or und.unanswered or und.help
+                                                    must_answer=bool(und.audit or und.faq_ids or und.catalog or und.unanswered or und.help
                                                                      or und.complaint))
         if gap_ack and source == "llm":
             reply = f"{gap_ack}\n{reply}"
+        if source == "llm" and und.catalog and not _answers_catalog(reply, und.catalog, snapshot):
+            # the catalog sentence was trimmed by a guard: the code's answer (from the catalog) comes first
+            reply = "\n".join([*und.catalog, reply])
+        state.asked_field = asked_field(state, reply)
         return TurnOutcome(reply=reply, source=source, guard_blocked=blocked, just_calculated=just_calculated,
                            path=path, say=say, **requests)
 
     @staticmethod
     def _answers(snapshot: RulesSnapshot, und: Understanding) -> tuple[list[str], list[str]]:
         entries = [e for e in (snapshot.faq.get(i) for i in und.faq_ids) if e is not None]
-        return [e.answer for e in entries], [e.term for e in entries]
+        return ([e.answer for e in entries] + und.catalog,
+                [e.term for e in entries] + ["קטלוג הרכבים"] * len(und.catalog))
 
     def _fill_gaps(self, ctx: ToolContext, text: str, conflicts: Sequence[str] = ()) -> bool:
         """Labelled values the parser reads with certainty ("פנסיה 6%", "משלמת 300") that no tool saved
@@ -818,7 +910,33 @@ class Agent:
             drop = {presence[f] for f in und.presence if f in presence}
             args = {k: v for k, v in call.args.items()
                     if not (k in drop and v is not None and _is_zero(v))}
+            # a copay while code asks "no car, or copay 0?" — or a copay of 0 before any car is known — is
+            # never saved: "אינני משתתף" may mean no car at all (the question decides, never the model)
+            # (und.ambiguity: "אינני משתתף" with no car named in the message and none known)
+            if args.get("current_copay") is not None and (
+                    state.pending_ambiguity is not None or und.ambiguity is not None):
+                args.pop("current_copay")
+                state.pending_ambiguity = NO_CAR_OR_ZERO
+                log.info("copay 0 before the car is known; asked, not saved")
+                if not any(v not in (None, [], False) for k, v in args.items() if k != "approximate_fields"):
+                    return None
+            # a bare value ("34") answers only the field on screen: any other field is refused, never remapped
+            bound = state.asked_field
+            if bound and bare_value(text):
+                wrong = [k for k, v in args.items() if k in _NUMERIC_ARGS and v is not None and k != bound]
+                if wrong:
+                    log.info("bare value for %s refused (asked %s)", ",".join(wrong), bound)
+                    return None
             return ToolCall(call.name, args, call.id)
+        if call.name == "match_current_car" and call.args.get("model"):
+            # the model shortened what the employee wrote ("קורולה" for "קורולה קרוס"): the car the message
+            # itself names, when that name is unambiguous; a bare "קורולה" from the employee is still asked
+            candidates = {c.catalog_code for c in related_cars(ctx.snapshot, str(call.args["model"]))}
+            said = [c for c in named_cars(text, ctx.snapshot.catalog) if c.catalog_code in candidates
+                    and len(related_cars(ctx.snapshot, matched_name(text, c) or c.model_name)) == 1]
+            if len(candidates) > 1 and len(said) == 1:
+                return ToolCall(call.name, {**call.args, "model": said[0].catalog_code, "registration_year": None},
+                                call.id)
         if call.name == "match_current_car" and call.args.get("no_car") and not no_car_span(text):
             if state.current.source is None:
                 state.pending_ambiguity = NO_CAR_OR_ZERO
@@ -1124,7 +1242,8 @@ class Agent:
         if not cand.text:
             return draft, "template", False, "empty"
         state, snap = ctx.state, ctx.snapshot
-        if state.pending_ambiguity is not None or state.pending_clarification is not None:
+        if (state.pending_ambiguity is not None or state.pending_clarification is not None
+                or ctx.range_problems):    # a rejected value ("34% גבוה מהטווח…"): the template names it
             # code refused a value and asks about it (no car or copay 0? the car today or an alternative?):
             # the exact question, with its buttons
             return draft, "template", False, "pending"
@@ -1135,7 +1254,8 @@ class Agent:
         fields = [] if (waiting_answer or offer) else list(current_group(state)[1])
         allowed = self._allowed_numbers(ctx, history, text, cand, draft)
         kwargs = dict(snapshot=snap, allowed=allowed, tools_called=cand.tools_called, fields=fields,
-                      offer_rep=offer, waiting_answer=waiting_answer, conflicts=conflicts, must_answer=must_answer)
+                      offer_rep=offer, waiting_answer=waiting_answer, conflicts=conflicts, must_answer=must_answer,
+                      one_field=state.pace == "one_at_a_time")
 
         def judge(raw: str) -> tuple[Check, list[Violation]]:
             result = check(raw, **kwargs)
@@ -1165,19 +1285,19 @@ class Agent:
     def _claims(self, raw: str, state: ConversationState, snap: RulesSnapshot,
                 deadline: Optional[float]) -> list[str]:
         """The claim verifier on the sentences beyond ack / question. Out of time: only template-safe
-        sentences pass (those tagged with an FAQ entry)."""
+        sentences pass (those tagged with an FAQ entry, or [[catalog]] on a sentence naming a catalog car)."""
         items = content_sentences(raw)
         if not items:
             return []
         left = None if deadline is None else deadline - self.llm.clock()
         if left is not None and left < self.MIN_VERIFY_S:
-            safe = {TAG_RE.sub("", s).strip() for s in sentences(raw) if "[[faq:" in s}
+            safe = {TAG_RE.sub("", s).strip() for s in sentences(raw) if "[[faq:" in s or "[[catalog]]" in s}
             return [s for s in items if s not in safe]
         cap = self.llm.clock() + self.VERIFY_BUDGET_S
-        unsupported = verify(self.llm, render_faq(snap), state_block(state, snap), items,
+        unsupported = verify(self.llm, f"{render_faq(snap)}\n\n{render_catalog(snap)}", state_block(state, snap), items,
                              cap if deadline is None else min(cap, deadline))
         if unsupported is None:          # the verifier failed or ran out of time: template-safe only
-            safe = {TAG_RE.sub("", s).strip() for s in sentences(raw) if "[[faq:" in s}
+            safe = {TAG_RE.sub("", s).strip() for s in sentences(raw) if "[[faq:" in s or "[[catalog]]" in s}
             return [s for s in items if s not in safe]
         return unsupported
 

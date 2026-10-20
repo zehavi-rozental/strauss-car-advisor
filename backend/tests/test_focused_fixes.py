@@ -1,0 +1,290 @@
+"""Focused fixes (20/10): field binding, plausibility, catalog grounding, car ambiguity, year coverage,
+pace preference, single request, greeting, links. Each test checks the saved state (the tool-call layer)
+and the visible reply."""
+from __future__ import annotations
+
+from decimal import Decimal
+
+import pytest
+
+from app.modules.conversation.agent import asked_field, bare_value
+from app.modules.conversation.guards import check
+from app.modules.conversation.llm.fake import FakeLLM, call
+from app.modules.conversation.public import ConversationService, LLMChain, Stage
+from app.modules.conversation.stage import ConversationState
+from app.modules.rules.public import RulesStore, load_snapshot
+
+from .conftest import CONFIG
+
+NO_PENSION = "מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים"
+NO_COMMISSIONS = "מנהלת מוצר, שכר בסיס 18,500, אין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים"
+PROFILE = ("מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, "
+           "2.75 נקודות זיכוי, 2 ילדים")
+
+
+def service(sessions, fake=None):
+    return ConversationService(sessions, RulesStore(CONFIG), LLMChain([fake]) if fake else LLMChain())
+
+
+def start(svc, *texts):
+    turn, token = svc.start()
+    for t in texts:
+        turn = svc.send(turn.conversation_id, token, t)
+    return turn, token
+
+
+def state(svc, turn, token):
+    return svc.view(turn.conversation_id, token).state
+
+
+# ---------- 1. field binding ----------
+
+def test_bare_34_after_the_pension_question_cannot_become_the_copay(sessions):
+    fake = FakeLLM()
+    svc = service(sessions, fake)
+    turn, token = start(svc, NO_PENSION)
+    assert "פנסיה" in turn.reply and state(svc, turn, token).asked_field == "pension_percent"
+    fake.turn(call("save_profile", current_copay=34))          # the model files "34" under the wrong field
+    turn = svc.send(turn.conversation_id, token, "34")
+    s = state(svc, turn, token)
+    assert s.current.copay is None and s.profile.pension_percent is None     # nothing saved, nothing remapped
+    assert "34% גבוה מהטווח שהמערכת מאפשרת לפנסיה. כמה אחוז יורד לכם בפועל?" in turn.reply
+    assert "רשמתי" not in turn.reply
+
+
+def test_labelled_values_are_saved_together_even_with_a_field_on_screen(sessions):
+    fake = FakeLLM()
+    svc = service(sessions, fake)
+    turn, token = start(svc, NO_PENSION)
+    fake.turn(call("save_profile", pension_percent=6, current_copay=300))
+    turn = svc.send(turn.conversation_id, token, "פנסיה 6%, ומשלמת 300 על הרכב")
+    assert state(svc, turn, token).profile.pension_percent == 6
+
+
+def test_asked_field_binds_only_a_single_missing_field():
+    s = ConversationState()
+    assert asked_field(s, "רשמתי: פנסיה 6%.\n\nכמה נקודות זיכוי יש לכם?") == "credit_points"
+    assert asked_field(s, "יש לכם עמלות או בונוס?") is None              # two fields: no binding
+    assert bare_value("34") and bare_value("6%") and bare_value("בערך 300 ₪") and not bare_value("פנסיה 6%")
+
+
+# ---------- 2. plausibility ----------
+
+def test_small_commissions_are_asked_3_or_3000_and_never_multiplied_silently(sessions):
+    svc = service(sessions)
+    turn, token = start(svc, NO_COMMISSIONS)
+    assert "עמלות" in turn.reply
+    turn = svc.send(turn.conversation_id, token, "3")
+    assert "התכוונתם ל-3 ₪ או ל-3,000 ₪?" in turn.reply
+    assert [c["id"] for c in turn.expects["choices"]] == ["small", "thousands"]
+    assert state(svc, turn, token).profile.commissions is None               # held, not saved
+    turn = svc.send_choice(turn.conversation_id, token, ["thousands"], field="confirmation")
+    assert state(svc, turn, token).profile.commissions == 3000 and "3,000" in turn.reply
+
+
+def test_ranges_come_from_extensions_yaml():
+    ranges = load_snapshot(CONFIG).extensions.value_ranges
+    assert ranges["pension_percent"] == (0, 7) and ranges["study_fund_percent"] == (0, Decimal("2.5"))
+    assert ranges["credit_points"] == (0, 12) and ranges["children_under_23"] == (0, 15)
+
+
+# ---------- 3. catalog grounding ----------
+
+def test_catalog_question_is_answered_from_the_catalog_not_the_representative(sessions):
+    svc = service(sessions)
+    turn, token = start(svc, "יש לכם קורולה?")
+    assert "COROLLA (2026), קבוצה ב, בנזין" in turn.reply and "COROLLA CROSS (2025), קבוצה ג, היברידי" in turn.reply
+    assert "נציג" not in turn.reply and state(svc, turn, token).unanswered_question is None
+
+
+def test_a_model_not_in_the_catalog_is_said_plainly(sessions):
+    svc = service(sessions)
+    turn, _ = start(svc, "יש לכם דגם פולקסווגן גולף?")
+    assert "לא מצאתי את הדגם הזה בקטלוג הרכבים הזמין במערכת." in turn.reply
+
+
+def test_catalog_tag_is_valid_only_on_a_sentence_naming_a_catalog_car():
+    snap = load_snapshot(CONFIG)
+    kwargs = dict(snapshot=snap, allowed={Decimal(2026), Decimal(3)}, tools_called=(), fields=[],
+                  offer_rep=False, waiting_answer=False, conflicts=[])
+    ok = check("COROLLA (2026) נמצאת בקבוצה ב. [[catalog]]\nמה קבוצת הזכאות שלכם?", **kwargs)
+    bad = check("זה רכב מצוין עם בגאז' גדול. [[catalog]]\nמה קבוצת הזכאות שלכם?", **kwargs)
+    assert not [v for v in ok.violations if v.kind == "source"]
+    assert [v for v in bad.violations if v.kind == "source"]
+
+
+def test_the_catalog_is_in_the_cached_prompt_prefix(sessions):
+    fake = FakeLLM()
+    svc = service(sessions, fake)
+    start(svc, "קבוצה ג")
+    system = fake.calls[0].messages[0].content
+    catalog = system.index("CATALOG (the Strauss")
+    assert system.index("FAQ (the only source") < catalog < system.index("the rule-based reader")
+    assert "COROLLA CROSS" in system and "family track" in system
+
+
+# ---------- 4. car ambiguity and year coverage ----------
+
+def test_korolla_matches_two_catalog_cars_and_asks_with_buttons(sessions):
+    svc = service(sessions)
+    turn, token = start(svc, PROFILE, "יש לי קורולה")
+    assert [c["label"] for c in turn.expects["choices"]][:2] == ["COROLLA (2026)", "COROLLA CROSS (2025)"]
+    assert "COROLLA (2026) או COROLLA CROSS (2025)" in turn.reply
+    turn = svc.send_choice(turn.conversation_id, token, ["2"], field="car_choice")
+    s = state(svc, turn, token)
+    assert (s.current.source, s.current.catalog_code) == ("catalog", "CAR-09")
+
+
+def test_a_year_outside_the_tax_file_states_its_coverage_and_never_invents_a_value(sessions):
+    fake = FakeLLM()
+    svc = service(sessions, fake)
+    turn, token = start(svc, PROFILE)
+    fake.turn(call("match_current_car", model="FABIA", registration_year=2000))
+    turn = svc.send(turn.conversation_id, token, "יש לי פביה 2000")
+    s = state(svc, turn, token)
+    assert s.current.use_value is None and s.current.coverage == "2022–2023"     # the test tax file
+    assert "משנות 2022–2023" in turn.reply and "שווי השימוש" in turn.reply
+
+
+# ---------- 5. pace ----------
+
+def test_pace_preference_survives_stage_transitions(sessions):
+    svc = service(sessions)
+    turn, token = start(svc, "שאלה אחת כל פעם בבקשה")
+    assert turn.reply.startswith("בסדר, אשאל שאלה אחת בכל פעם.")
+    assert state(svc, turn, token).pace == "one_at_a_time"
+    turn = svc.send(turn.conversation_id, token, "מנהלת מוצר, שכר בסיס 18,500")
+    ask = turn.reply.split("\n\n")[-2]                         # the question (the last line is the CTA)
+    assert "עמלות" in ask and "פנסיה" not in ask and "בונוס" not in ask
+    assert turn.expects["link"] is None                          # no form link at one-at-a-time pace
+    turn = svc.send(turn.conversation_id, token, "אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, "
+                                                 "2.75 נקודות זיכוי, 2 ילדים")
+    assert turn.stage == Stage.COLLECT_CURRENT_CAR
+    assert "כמה משלמים" not in turn.reply                       # the car first, the copay on its own
+    assert state(svc, turn, token).pace == "one_at_a_time"
+
+
+def test_multi_field_question_is_a_guard_violation_at_one_at_a_time_pace():
+    snap = load_snapshot(CONFIG)
+    kwargs = dict(snapshot=snap, allowed=set(), tools_called=(), fields=["pension_percent", "credit_points"],
+                  offer_rep=False, waiting_answer=False, conflicts=[])
+    text = "כמה אחוז יורד לפנסיה וכמה נקודות זיכוי יש לכם?"
+    assert any(v.kind == "multi" for v in check(text, one_field=True, **kwargs).violations)
+    assert not any(v.kind == "multi" for v in check(text, **kwargs).violations)
+
+
+# ---------- 6-8. one request, greeting, links ----------
+
+def test_greeting_is_one_question_without_the_old_intro(sessions):
+    turn, _ = service(sessions).start()
+    assert turn.reply == ("שלום! אני יועץ הרכב של שטראוס. אעזור לכם להבין אילו רכבים מתאימים לכם ואיך הבחירה "
+                          "משפיעה על הנטו.\nנתחיל — מה קבוצת הזכאות שלכם?")
+
+
+def test_the_form_link_is_offered_once(sessions):
+    svc = service(sessions)
+    turn, token = start(svc, "מנהלת מוצר, שכר בסיס 18,500")
+    assert turn.expects["link"]["kind"] == "profile_form" and "או למלא בטופס" in turn.reply
+    assert svc.view(turn.conversation_id, token).expects["link"]["kind"] == "profile_form"   # a reload keeps it
+    turn = svc.send(turn.conversation_id, token, "מה זה נקודות זיכוי?")
+    assert turn.expects["link"] is None and "בטופס" not in turn.reply
+
+
+def test_options_question_carries_no_second_offer(sessions):
+    svc = service(sessions)
+    turn, _ = start(svc, PROFILE, "יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש")
+    assert "אפשר גם להציג" not in turn.reply and turn.reply.count("?") == 1
+
+
+def test_a_saved_field_is_never_asked_again(sessions):
+    svc = service(sessions)
+    turn, token = start(svc, NO_PENSION, "פנסיה 6%")
+    assert state(svc, turn, token).profile.pension_percent == 6
+    for text in ("יש לי קורולה קרוס", "300"):
+        assert "פנסיה" not in turn.reply.split("רשמתי")[0] + turn.reply.rsplit("\n\n", 2)[-2]
+        turn = svc.send(turn.conversation_id, token, text)
+    assert "פנסיה" not in turn.reply
+
+
+# ---------- 9. honest complaints ----------
+
+def test_already_answered_complaint_is_answered_from_the_state_without_a_false_apology(sessions):
+    svc = service(sessions)
+    turn, token = start(svc, NO_PENSION, "כבר כתבתי לך")
+    assert "בדקתי: עד עכשיו רשמתי" in turn.reply and "18,500" in turn.reply
+    assert "סליחה" not in turn.reply and "פנסיה" in turn.reply           # still asks what is really missing
+    assert state(svc, turn, token).profile.pension_percent is None
+
+
+# ---------- eval follow-up: final result, copay, answered what was asked ----------
+
+LONG = ("אני מנהלת מוצר בשטראוס, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, "
+        "2.75 נקודות זיכוי, 2 ילדים. יש לי קורולה קרוס 2025 ואני משתתפת ב-300 ש\"ח בחודש, ואני רוצה לבדוק את אטו 3")
+
+
+@pytest.mark.parametrize("model, year", [("COROLLA CROSS", None), ("COROLLA", 2025), ("קורולה", 2025), ("קורולה", None),
+                                         ("טויוטה קורולה קרוס", 2025), ("Toyota Corolla Cross", None)])
+def test_one_long_message_reaches_the_reference_net_whatever_the_model_calls_the_car(sessions, model, year):
+    fake = FakeLLM().turn(call("save_profile", occupation="מנהלת מוצר", base_salary=18500, commissions=0, bonus=0,
+                               pension_percent=6, study_fund_percent=2.5, credit_points=2.75, children_under_23=2,
+                               current_copay=300),
+                          call("match_current_car", model=model, registration_year=year),
+                          call("select_options", options=["ATTO 3"]))
+    svc = service(sessions, fake)
+    turn, token = start(svc, LONG)
+    s = state(svc, turn, token)
+    assert turn.stage == Stage.PRESENTED and s.current.catalog_code == "CAR-09" and s.current.copay == 300
+    assert turn.results[0].result["delta_display"] == "661"                   # the same net as Noa's reference
+
+
+def test_an_ambiguous_name_the_employee_typed_is_still_asked(sessions):
+    fake = FakeLLM()
+    svc = service(sessions, fake)
+    turn, token = start(svc, PROFILE)
+    fake.turn(call("match_current_car", model="קורולה"))
+    turn = svc.send(turn.conversation_id, token, "יש לי קורולה")
+    assert len(state(svc, turn, token).current.choices) == 2 and turn.expects["field"] == "car_choice"
+
+
+def test_copay_zero_is_never_saved_while_no_car_or_zero_is_open(sessions):
+    fake = FakeLLM()
+    svc = service(sessions, fake)
+    turn, token = start(svc, PROFILE)
+    fake.turn(call("save_profile", current_copay=0))
+    turn = svc.send(turn.conversation_id, token, "אינני משתתף היום")
+    s = state(svc, turn, token)
+    assert s.current.copay is None and s.pending_ambiguity == "no_car_or_zero_copay"
+    assert [c["id"] for c in turn.expects["choices"]]                          # asked with buttons
+
+
+def test_check_call_drops_a_copay_only_under_the_no_car_ambiguity():
+    from app.modules.conversation.agent import Agent
+    from app.modules.conversation.llm.port import ToolCall
+    from app.modules.conversation.tools import ToolContext
+    from app.modules.conversation.understanding import Understanding
+    snap = load_snapshot(CONFIG)
+    ctx = ToolContext(snapshot=snap, find_vehicle=None, state=ConversationState())
+    zero = ToolCall("save_profile", {"current_copay": 0}, "x")
+    assert Agent._check_call(ctx, zero, "אינני משתתף", Understanding(ambiguity="no_car_or_zero_copay")) is None
+    ctx = ToolContext(snapshot=snap, find_vehicle=None, state=ConversationState())
+    kept = Agent._check_call(ctx, zero, "יש לי קורולה קרוס ואני לא משלמת עליה", Understanding())
+    assert kept is not None and kept.args["current_copay"] == 0                 # a car named: copay 0 is real
+
+
+def test_out_of_range_bare_value_is_named_even_when_the_llm_just_reasks(sessions):
+    fake = FakeLLM()
+    svc = service(sessions, fake)
+    turn, token = start(svc, NO_PENSION)
+    fake.turn(call("save_profile", pension_percent=34), reply="מה אחוז ההפרשה לפנסיה (חלק העובד)?")
+    turn = svc.send(turn.conversation_id, token, "34")
+    assert "34% גבוה מהטווח שהמערכת מאפשרת לפנסיה. כמה אחוז יורד לכם בפועל?" in turn.reply
+    assert state(svc, turn, token).profile.pension_percent is None
+
+
+def test_catalog_answer_is_restored_when_a_guard_trims_it():
+    from app.modules.conversation.agent import _answers_catalog
+    snap = load_snapshot(CONFIG)
+    answer = "כן, בקטלוג יש: COROLLA (2026), קבוצה ב, בנזין; COROLLA CROSS (2025), קבוצה ג, היברידי."
+    assert not _answers_catalog("מה קבוצת הזכאות שלכם?", [answer], snap)          # trimmed: code prepends it
+    assert _answers_catalog("יש קורולה בקבוצה ב. מה קבוצת הזכאות שלכם?", [answer], snap)
+    assert _answers_catalog("הדגם לא בקטלוג.", ["לא מצאתי את הדגם הזה בקטלוג הרכבים הזמין במערכת."], snap)

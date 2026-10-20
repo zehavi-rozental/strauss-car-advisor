@@ -364,7 +364,7 @@ def test_pension_60_is_rejected_and_the_problem_is_named(sessions, llm):
         text = "60%"
     turn = svc.send(turn.conversation_id, token, text)
     assert svc.view(turn.conversation_id, token).state.profile.pension_percent is None
-    assert without_cta(turn.reply) == "60% נראה גבוה מאוד להפרשה לפנסיה. כמה אחוזים מופרשים מכם לפנסיה?"
+    assert without_cta(turn.reply) == "60% גבוה מהטווח שהמערכת מאפשרת לפנסיה. כמה אחוז יורד לכם בפועל?"
 
 
 def test_low_salary_outside_any_reading_names_the_problem(sessions):
@@ -379,4 +379,4 @@ def test_other_fields_in_the_same_message_are_still_saved(sessions):
     turn, token = _send_all(svc, ["מנהלת מוצר, שכר בסיס 18,500, פנסיה 60%"])
     p = svc.view(turn.conversation_id, token).state.profile
     assert p.base == 18500 and p.pension_percent is None and p.occupation == "מנהל/ת מוצר"
-    assert "זיהיתי: מנהל/ת מוצר, קבוצה ג.\n\n60% נראה גבוה מאוד להפרשה לפנסיה" in turn.reply
+    assert "זיהיתי: מנהל/ת מוצר, קבוצה ג.\n\n60% גבוה מהטווח שהמערכת מאפשרת לפנסיה" in turn.reply

@@ -92,3 +92,23 @@ cases:
     employee: E-001
   - id: employee_E-004
     employee: E-004
+  # ---------- focused fixes (20/10) ----------
+  - id: bare_34_at_pension
+    turns: ["מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים", "34"]
+    kept_empty: [pension_percent, copay]
+  - id: small_commissions
+    turns: ["מנהלת מוצר, שכר בסיס 18,500, אין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים", "3"]
+    kept_empty: [commissions]
+  - id: catalog_question
+    turns: ["יש לכם קורולה?"]
+  - id: corolla_ambiguity
+    turns: ["מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים", "יש לי קורולה"]
+  - id: car_year_2000
+    turns: ["מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים", "יש לי פביה 2000"]
+    kept_empty: [copay]
+  - id: pace_one_at_a_time
+    turns: ["שאלה אחת כל פעם בבקשה", "קבוצה ג, שכר בסיס 16,000", "אין עמלות"]
+    saved: {base: 16000, commissions: 0}
+  - id: already_answered
+    turns: ["קבוצה ג, שכר בסיס 16,000", "פנסיה 6%", "כבר כתבתי לך"]
+    saved: {base: 16000, pension_percent: 6}

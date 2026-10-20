@@ -27,6 +27,9 @@ from app.modules.rules.public import (
     car_state,
     find_catalog_car,
     occupation_rule,
+    catalog_names,
+    mentions,
+    related_cars,
 )
 from app.modules.vehicles.public import CurrentCarMatch, VehicleInfo, VehicleKey
 
@@ -160,6 +163,13 @@ def _check_ranges(ctx: ToolContext, args: SaveProfileArgs) -> tuple[SaveProfileA
         if value is None or arg not in ranges:
             continue
         low, high = ranges[arg]
+        small = ctx.snapshot.extensions.small_amount_below.get(arg)
+        if small is not None and 0 < Decimal(value) < small and low <= Decimal(value) * 1000 <= high:
+            drop[arg] = None             # "3" for commissions: 3 ₪ or 3,000 ₪? asked, never guessed
+            ctx.state.pending_confirmation = PendingConfirmation(
+                field=arg, value=Decimal(value), approximate=arg in args.approximate_fields, scale=True)
+            rejected.append({"field": arg, "reason": "too small to be sure; the employee is asked 3 or 3,000"})
+            continue
         if low <= Decimal(value) <= high:
             if _unusual(ctx, arg, Decimal(value)):
                 drop[arg] = None
@@ -289,6 +299,16 @@ def _invalidate_results(state: ConversationState) -> None:
 
 # ---------- match_current_car ----------
 
+def _longest_named(cars: list[CatalogCar], text: str) -> list[CatalogCar]:
+    """Several partial matches ("טויוטה קורולה קרוס" mentions COROLLA and COROLLA CROSS): the car whose
+    mentioned name is longest is the one meant."""
+    if len(cars) <= 1:
+        return cars
+    size = {c.catalog_code: max((len(n) for n in catalog_names(c) if mentions(text, n)), default=0) for c in cars}
+    best = max(size.values())
+    return [c for c in cars if size[c.catalog_code] == best] if best else cars
+
+
 def match_current_car(ctx: ToolContext, args: MatchCarArgs) -> dict[str, Any]:
     old = ctx.state.current
     keep = dict(copay=old.copay, copay_unknown=old.copay_unknown)
@@ -319,6 +339,15 @@ def match_current_car(ctx: ToolContext, args: MatchCarArgs) -> dict[str, Any]:
         if args.choice_number > len(old.choices):
             raise ToolError("מספר בחירה לא קיים")
         ch = old.choices[args.choice_number - 1]
+        if ch.catalog_code:
+            car = next(x for x in ctx.snapshot.catalog if x.catalog_code == ch.catalog_code)
+            ctx.state.current = CurrentCar(
+                query=old.query, reg_year=car.reg_year, source="catalog", label=car.label,
+                catalog_code=car.catalog_code, group=car.group, drive=car.drive, use_value=car.use_value,
+                monthly_cost=car.monthly_cost, **keep)
+            _invalidate_results(ctx.state)
+            return {"status": "FOUND", "source": "catalog", "label": car.label, "group": car.group,
+                    "use_value": str(car.use_value)}
         ctx.state.current = CurrentCar(query=old.query, reg_year=ch.reg_year, source="tax", label=ch.label,
                                        drive=ch.drive, use_value=ch.use_value, **keep)
         _invalidate_results(ctx.state)
@@ -329,7 +358,19 @@ def match_current_car(ctx: ToolContext, args: MatchCarArgs) -> dict[str, Any]:
     model = args.model.strip()[:80]
     year = args.registration_year
 
-    cars = find_catalog_car(ctx.snapshot, model)
+    related = related_cars(ctx.snapshot, model)
+    by_year = [c for c in related if c.reg_year == year] if year is not None else []
+    if len(by_year) == 1:
+        related = []                     # the year tells them apart ("COROLLA 2025" → COROLLA CROSS)
+    if len(related) > 1:
+        # "קורולה": COROLLA or COROLLA CROSS? one question with the actual catalog matches as buttons
+        choices = [CarChoice(label=c.label, description=c.model_description, drive=c.drive, use_value=c.use_value,
+                             reg_year=c.reg_year, catalog_code=c.catalog_code) for c in related[:5]]
+        ctx.state.current = CurrentCar(query=model, reg_year=year, choices=choices, **keep)
+        _invalidate_results(ctx.state)
+        return {"status": "CHOOSE", "choices": [{"number": i + 1, "label": ch.label}
+                                                 for i, ch in enumerate(choices)]}
+    cars = by_year if len(by_year) == 1 else _longest_named(find_catalog_car(ctx.snapshot, model), model)
     if len(cars) == 1 and (year is None or year == cars[0].reg_year):
         car = cars[0]
         ctx.state.current = CurrentCar(
@@ -357,6 +398,10 @@ def match_current_car(ctx: ToolContext, args: MatchCarArgs) -> dict[str, Any]:
     else:
         ctx.state.current = CurrentCar(query=model, reg_year=year, label=model, **keep)
         result = {"status": "NOT_FOUND", "next": "ask the employee for the use value on their payslip"}
+        if match.years and year is not None and not match.years[0] <= year <= match.years[1]:
+            # outside the tax file: say what it covers; the use value comes from the payslip, never invented
+            result["coverage"] = f"{match.years[0]}–{match.years[1]}"
+            ctx.state.current.coverage = result["coverage"]
     _invalidate_results(ctx.state)
     return result
 

@@ -108,7 +108,7 @@ def test_api_accepts_fields_and_returns_422_for_bad_bodies(engine):
 def test_correction_while_waiting_for_the_rep_keeps_waiting(sessions):
     svc, cid, token = q2(sessions)
     svc.send_fields(cid, token, Q2_FORM)
-    svc.send(cid, token, "יש לי קורולה")
+    svc.send(cid, token, "יש לי קורולה 2026")
     turn = svc.send(cid, token, "לא יודע")
     assert turn.stage == Stage.WAITING_FOR_REP
     again = svc.send_fields(cid, token, {"children_under_23": 3})

@@ -71,7 +71,7 @@ def test_correcting_the_car_cancels_its_questions(engine):
     client = make_client(engine)
     cases = client.app.state.ctx.service.cases
     cid = client.post("/api/conversations").json()["conversation_id"]
-    for text in [NOA[0], "יש לי קורולה", "לא יודע"]:
+    for text in [NOA[0], "יש לי קורולה 2026", "לא יודע"]:
         body = client.post(f"/api/conversations/{cid}/messages", json={"text": text}).json()
     assert body["stage"] == "WAITING_FOR_REP"
     [old] = cases.list_open()

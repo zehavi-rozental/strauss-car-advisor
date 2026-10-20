@@ -20,7 +20,7 @@ def waiting(sessions, llm=None):
     """נועה, "קורולה" (CAR-07), "לא יודע" → ממתינים לנציג על ההשתתפות."""
     svc = ConversationService(sessions, RulesStore(CONFIG), llm or LLMChain())
     turn, token = svc.start()
-    for text in (PROFILE, "יש לי קורולה", "לא יודע"):
+    for text in (PROFILE, "יש לי קורולה 2026", "לא יודע"):
         turn = svc.send(turn.conversation_id, token, text)
     assert turn.stage == Stage.WAITING_FOR_REP
     [question] = svc.cases.list_open()

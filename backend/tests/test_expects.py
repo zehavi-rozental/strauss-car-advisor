@@ -79,7 +79,7 @@ def test_expects_for_confirmation_variants_drive_and_waiting(engine):
     assert (e["field"], ids(e)) == ("drive", ["PETROL", "HYBRID", "PLUG_IN", "ELECTRIC"])
 
     cid, _ = new(client)
-    body = say(client, cid, PROFILE, "יש לי קורולה", "לא יודעת")
+    body = say(client, cid, PROFILE, "יש לי קורולה 2026", "לא יודעת")
     assert body["stage"] == "WAITING_FOR_REP" and body["expects"]["type"] == "none"
     e = say(client, cid, "אטו 3")["expects"]
     assert (e["field"], ids(e)) == ("clarification", ["mine", "alternative"])

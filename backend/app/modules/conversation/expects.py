@@ -142,7 +142,12 @@ def _build(state: ConversationState, snapshot: RulesSnapshot) -> dict[str, Any]:
     if state.pending_ambiguity is not None:
         return _expects("ambiguity", "choice", AMBIGUITY)
     if state.pending_confirmation is not None:
-        unusual = state.pending_confirmation.unusual
+        pending = state.pending_confirmation
+        unusual = pending.unusual
+        if pending.scale:
+            return _expects("confirmation", "choice", [
+                {"id": "small", "label": money(pending.value)},
+                {"id": "thousands", "label": money(pending.value * 1000)}])
         return _expects("confirmation", "choice", CONFIRM_FIX if unusual else YES_NO)
     if state.pending_occupation is not None:
         pending = state.pending_occupation
@@ -170,7 +175,8 @@ def _field_expects(question: str, state: ConversationState, snapshot: RulesSnaps
         return _expects("car", "car_search", quick=_quick("no_car"))
     if question == "car_choice":
         return _expects("car_choice", "choice", [
-            {"id": str(i), "label": f"{c.label} {c.description} — שווי שימוש {money(c.use_value)}".replace("  ", " ")}
+            {"id": str(i), "label": c.label if c.catalog_code else      # a catalog car: its name only
+             f"{c.label} {c.description} — שווי שימוש {money(c.use_value)}".replace("  ", " ")}
             for i, c in enumerate(state.current.choices, 1)])
     if question == "drive":
         return _expects("drive", "choice", [{"id": d, "label": he} for d, he in DRIVE_HE.items()])

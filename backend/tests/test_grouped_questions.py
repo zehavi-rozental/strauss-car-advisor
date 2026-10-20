@@ -37,7 +37,7 @@ def scenario_llm():
 def test_official_scenario_reaches_the_car_question_in_three_bot_turns(sessions, llm):
     svc = service(sessions, scenario_llm() if llm == "llm_first" else None)
     first, token = svc.start()                                            # תור 1
-    assert Q1 in first.reply and first.reply.endswith(".")
+    assert first.reply.endswith("מה קבוצת הזכאות שלכם?")                  # the greeting asks the group
     second = svc.send(first.conversation_id, token, SCENARIO_1)           # תור 2
     assert without_cta(second.reply).endswith(Q2)
     third = svc.send(first.conversation_id, token, SCENARIO_2)            # תור 3: שאלת הרכב

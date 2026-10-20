@@ -148,6 +148,10 @@ class Extensions(_Strict):
     # legal but rare values that strongly move the net: asked once ("לאשר / לתקן"), never a default.
     # field -> {at_most: N} and/or {at_least: N}
     unusual_values: dict[str, dict[str, Decimal]] = Field(default_factory=dict)
+    # a monthly amount below this is asked "3 ₪ או 3,000 ₪?" (field -> limit)
+    small_amount_below: dict[str, Decimal] = Field(default_factory=dict)
+    pace_cues: list[str] = Field(default_factory=list)          # "שאלה אחת כל פעם"
+    pace_reset_cues: list[str] = Field(default_factory=list)    # "הכול ביחד"
 
 
 # ---------- strauss-data.xlsx ----------
