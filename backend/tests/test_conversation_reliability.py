@@ -150,17 +150,14 @@ def test_group_correction_rejected_when_occupation_owns_it(sessions):
 # BUG 4 — payslip upload button not visible in the normal flow
 # ===========================================================================
 
-def test_payslip_link_absent_by_default(sessions):
-    """[integration] With the pilot flags off, no payslip-upload link is offered (a profile-form link may
-    still appear on Q2). Documents current behaviour; the fix adds the uploader when enabled."""
+def test_payslip_link_offered_during_salary_collection(sessions):
+    """[integration] The built-in uploader is enabled in the shipped config, so the Q2 salary step offers
+    the 'להעלות תלוש' link (the employee can upload instead of typing)."""
     svc = service(sessions)
     turn, token = talk(svc, [PROFILE_Q1])
-    link = turn.expects["link"]
-    assert link is None or link.get("kind") != "payslip_upload"
+    assert turn.expects["link"] == {"kind": "payslip_upload", "label": "להעלות תלוש"}
 
 
-@pytest.mark.xfail(strict=True, reason="GAP: when enabled, the upload link should appear during salary "
-                                       "collection, not only when every remaining field is 'לא יודע'")
 def test_payslip_link_in_salary_collection_when_enabled(sessions, tmp_path):
     """[integration] With the built-in uploader enabled, the link should be offered while collecting the
     salary profile (Q2), so the employee can choose to upload instead of typing."""

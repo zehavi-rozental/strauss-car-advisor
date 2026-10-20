@@ -71,7 +71,9 @@ def test_the_same_question_is_never_repeated_verbatim(sessions):
 def test_the_example_lists_only_missing_fields(sessions):
     turn, _, _ = talk(service(sessions), ["מנהלת מוצר, שכר בסיס 18,500, פנסיה 6%"])     # Q2 without the pension
     cta = turn.reply.split("\n\n")[-1]
-    assert cta == 'אפשר לכתוב כאן, למשל: "אין עמלות, בונוס 2,000, קרן השתלמות 2.5%", או למלא בטופס.'
+    # the example lists only the still-missing fields (not pension). With the built-in uploader enabled the
+    # Q2 link is "להעלות תלוש"; the example itself is unchanged.
+    assert cta == 'אפשר לכתוב כאן, למשל: "אין עמלות, בונוס 2,000, קרן השתלמות 2.5%", או להעלות תלוש.'
     assert "פנסיה" not in turn.expects["placeholder"]
 
 

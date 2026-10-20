@@ -708,6 +708,13 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
     first = next((f for f in ("car", "copay", "opt_out_occupation", "options") if f in fields), fields[0])
     if _is_q2(fields):
         example = q2_example(fields) if len(fields) > 1 else _faq_example(snapshot, first)
+        ext = snapshot.extensions
+        # "all at once" (state.link_now set by the turn) wants the form, to fill everything together.
+        # Otherwise, when the built-in uploader is enabled, offer it (once) instead of the manual form link,
+        # so the employee can upload rather than type. Only one Q2 link ever.
+        if state.link_now != "profile_form" and (ext.payslip_upload_enabled or ext.payslip_upload_url):
+            link = _once(state, "payslip_upload")
+            return f"אפשר לכתוב כאן, למשל: \"{example}\"" + (", או להעלות תלוש." if link else "."), link
         link = _once(state, "profile_form")
         return f"אפשר לכתוב כאן, למשל: \"{example}\"" + (", או למלא בטופס." if link else "."), link
     if fields == ["group"]:

@@ -156,7 +156,8 @@ def test_pace_preference_survives_stage_transitions(sessions):
     turn = svc.send(turn.conversation_id, token, "מנהלת מוצר, שכר בסיס 18,500")
     ask = turn.reply.split("\n\n")[-2]                         # the question (the last line is the CTA)
     assert "עמלות" in ask and "פנסיה" not in ask and "בונוס" not in ask
-    assert turn.expects["link"] is None                          # no form link at one-at-a-time pace
+    # the built-in uploader (if enabled) may be offered on Q2; the manual profile-form link is not
+    assert (turn.expects["link"] is None or turn.expects["link"]["kind"] == "payslip_upload")
     turn = svc.send(turn.conversation_id, token, "אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, "
                                                  "2.75 נקודות זיכוי, 2 ילדים")
     assert turn.stage == Stage.COLLECT_CURRENT_CAR
@@ -182,12 +183,14 @@ def test_greeting_is_one_question_without_the_old_intro(sessions):
 
 
 def test_the_form_link_is_offered_once(sessions):
+    """With the built-in uploader enabled (config), the Q2 link is the payslip uploader; it is offered once
+    and a reload keeps it. (Before the uploader was enabled this was the profile-form link.)"""
     svc = service(sessions)
     turn, token = start(svc, "מנהלת מוצר, שכר בסיס 18,500")
-    assert turn.expects["link"]["kind"] == "profile_form" and "או למלא בטופס" in turn.reply
-    assert svc.view(turn.conversation_id, token).expects["link"]["kind"] == "profile_form"   # a reload keeps it
+    assert turn.expects["link"]["kind"] == "payslip_upload" and "להעלות תלוש" in turn.reply
+    assert svc.view(turn.conversation_id, token).expects["link"]["kind"] == "payslip_upload"  # a reload keeps it
     turn = svc.send(turn.conversation_id, token, "מה זה נקודות זיכוי?")
-    assert turn.expects["link"] is None and "בטופס" not in turn.reply
+    assert turn.expects["link"] is None and "בטופס" not in turn.reply   # the Q2 link is offered only once
 
 
 def test_options_question_carries_no_second_offer(sessions):

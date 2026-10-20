@@ -10,7 +10,7 @@ plug_in_counts_as_electric: false
 # payslip_upload_enabled: true turns on the built-in in-chat uploader (needs the backend PAYSLIP_ENABLED
 # + a Gemini key). payslip_upload_url: an external pilot page instead (a non-empty URL implies the link,
 # and the client opens it in a new tab). Both default off, no code change to turn on.
-payslip_upload_enabled: false
+payslip_upload_enabled: true
 payslip_upload_url: ""
 child_age_inclusive: true               # "עד גיל 23" כולל 23
 default_vehicle_type: "1"               # בקטלוג אין עמודת סוג רכב
