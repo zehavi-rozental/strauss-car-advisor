@@ -288,3 +288,14 @@ def test_catalog_answer_is_restored_when_a_guard_trims_it():
     assert not _answers_catalog("מה קבוצת הזכאות שלכם?", [answer], snap)          # trimmed: code prepends it
     assert _answers_catalog("יש קורולה בקבוצה ב. מה קבוצת הזכאות שלכם?", [answer], snap)
     assert _answers_catalog("הדגם לא בקטלוג.", ["לא מצאתי את הדגם הזה בקטלוג הרכבים הזמין במערכת."], snap)
+
+
+def test_catalog_answer_is_restored_end_to_end_when_a_guard_trims_the_llm_sentence(sessions):
+    # as in the live run (llm:trimmed): the catalog sentence carries an invented price, the number guard drops
+    # it, the rest still passes, and the code's catalog answer is put first
+    fake = FakeLLM().turn(reply="שאלה טובה. COROLLA (2026) עולה 150,000 ₪. [[catalog]]\nמה קבוצת הזכאות שלכם?")
+    svc = service(sessions, fake)
+    turn, _ = start(svc, "יש לכם קורולה?")
+    assert (turn.source, turn.say) == ("llm", "llm:trimmed")
+    assert turn.reply.startswith("כן, בקטלוג יש: COROLLA (2026), קבוצה ב, בנזין; COROLLA CROSS (2025)")
+    assert "150,000" not in turn.reply and turn.reply.endswith("מה קבוצת הזכאות שלכם?")
