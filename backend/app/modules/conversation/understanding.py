@@ -64,6 +64,7 @@ class Understanding:
     ambiguity: Optional[str] = None                         # NO_CAR_OR_ZERO
     compare: bool = False                                   # asks for a comparison / a result ("תשווה ביניהם")
     complaint: bool = False                                 # "אתה בוט שעונה לא לפי השאלה"
+    all_at_once: bool = False                               # "תן לי את כל השאלות בפעם אחת": about the conversation
     audit: bool = False                                     # "כבר כתבתי לך": say what is saved and missing
     remainder: str = ""                                     # the message without questions (read by the parser)
     catalog: list[str] = field(default_factory=list)        # answers from the company catalog ("יש לכם קורולה?")
@@ -75,7 +76,7 @@ class Understanding:
 
     @property
     def anything(self) -> bool:
-        return bool(self.audit or self.faq_ids or self.catalog or self.unanswered or self.presence or self.help or self.redirect
+        return bool(self.audit or self.all_at_once or self.faq_ids or self.catalog or self.unanswered or self.presence or self.help or self.redirect
                     or self.ambiguity or self.compare or self.complaint)
 
 
@@ -178,6 +179,9 @@ def _contains_any(text: str, patterns: Iterable[str]) -> bool:
 
 
 _DRIVE_HE = {"PETROL": "בנזין", "HYBRID": "היברידי", "PLUG_IN": "פלאג-אין", "ELECTRIC": "חשמלי"}
+# "אפשר לעבור לקורולה?": a wish to check a car, not a question for the representative: the catalog facts, and
+# the comparison itself comes once the details are collected
+_SWITCH_CUES = ("לעבור ל", "להחליף ל", "לבדוק")
 # a question about whether a car exists / its group or drive (not colour, price or specs: those go to the rep)
 _CATALOG_CUES = ("יש לכם", "יש אצלכם", "בקטלוג", "קיים", "קיימת", "זמין", "זמינה", "איזו קבוצה", "באיזו קבוצה",
                  "איזה הנעה", "איזו הנעה", "חשמלי או", "היברידי או")
@@ -187,7 +191,8 @@ NOT_IN_CATALOG = "לא מצאתי את הדגם הזה בקטלוג הרכבים
 def catalog_answer(snapshot: RulesSnapshot, clause: str) -> Optional[str]:
     """A question about which cars exist, answered from the catalog only (model, year, group, drive, family
     track); a brand / model question with no catalog match → "not in the catalog". Never prices or specs."""
-    if not any(cue in clause for cue in _CATALOG_CUES):
+    switching = any(cue in clause for cue in _SWITCH_CUES)
+    if not (switching or any(cue in clause for cue in _CATALOG_CUES)):
         return None
     found: list[CatalogCar] = []
     for car in named_cars(clause, snapshot.catalog):          # "קורולה" names COROLLA and COROLLA CROSS
@@ -200,6 +205,9 @@ def catalog_answer(snapshot: RulesSnapshot, clause: str) -> Optional[str]:
     if found:
         parts = [f"{c.label}, " + ("במסלול המשפחתי" if c.group == FAMILY_GROUP else f"קבוצה {c.group}")
                  + f", {_DRIVE_HE[c.drive.value]}" for c in found]
+        if switching:
+            return ("בקטלוג יש: " + "; ".join(parts) + ". נחזור לזה אחרי שנסיים לאסוף את הפרטים, "
+                    "ואז תבחרו אילו רכבים להשוות.")
         return "כן, בקטלוג יש: " + "; ".join(parts) + "."
     # "יש לכם פולקסווגן גולף?": a car or brand question with no catalog match
     if "דגם" in clause or "רכב" in clause or "בקטלוג" in clause or re.search(r"[A-Za-z]{2,}", clause):
@@ -221,6 +229,9 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
     kept: list[str] = []
     for clause in _CLAUSE_RE.split(text):
         if clause is None or not clause.strip():
+            continue
+        if any(cue in clause for cue in snapshot.extensions.all_at_once_cues):
+            u.all_at_once = True                  # about the conversation itself: never the representative
             continue
         if _is_question(clause) and not _RANK_RE.search(clause):     # "מה הכי משתלם לי?" is a request
             entry = match_faq(faq, clause)

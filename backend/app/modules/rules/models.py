@@ -152,6 +152,7 @@ class Extensions(_Strict):
     small_amount_below: dict[str, Decimal] = Field(default_factory=dict)
     pace_cues: list[str] = Field(default_factory=list)          # "שאלה אחת כל פעם"
     pace_reset_cues: list[str] = Field(default_factory=list)    # "הכול ביחד"
+    all_at_once_cues: list[str] = Field(default_factory=list)   # "תן לי את כל השאלות בפעם אחת"
 
 
 # ---------- strauss-data.xlsx ----------

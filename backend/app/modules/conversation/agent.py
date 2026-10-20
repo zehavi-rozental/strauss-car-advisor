@@ -28,7 +28,8 @@ from .fallback import (ZERO_ALLOWED, fields_plan, ParserPlan, car_roles, correct
 from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
 from .parsing import YEAR_RE, match_occupation, no_car_span, parse_copay, read_profile, redact_id_numbers
-from .guards import FIELD_WORDS, SINGULAR_RE, TAG_RE, Check, Violation, check, content_sentences, drop, sentences, verify
+from .guards import (FIELD_WORDS, SINGULAR_RE, TAG_RE, Check, Violation, ask_lines, check, content_sentences, drop,
+                     has_statement, sentences, strip_tags, verify)
 from .turn import LLM_TOOLS, Candidate, parser_hint, render_catalog, render_faq, run_rounds, state_block, system_message, user_message
 from .understanding import NO_CAR_OR_ZERO, NOT_IN_CATALOG, Understanding, understand
 from .stage import (
@@ -50,6 +51,7 @@ from .stage import (
     Q2_FIELDS,
 )
 from .templates import (
+    ALL_AT_ONCE,
     UNANSWERED,
     to_plural,
     compare_needs_text,
@@ -702,6 +704,9 @@ class Agent:
         state, snapshot = ctx.state, ctx.snapshot
         und = und or Understanding(remainder=text)
         state.link_now = None               # a link is offered on one reply only (templates._once)
+        if und.all_at_once:
+            state.pace = "normal"           # "all at once" is an explicit change of pace
+            state.link_now = "profile_form"  # the form is the way to answer everything together
         car_before = _car_key(state)
         before_turn = _Before.of(state)
         used_llm = False
@@ -758,6 +763,10 @@ class Agent:
 
         if before_turn.group == "Q2" and any(f in Q2_FIELDS for f in before_turn.changed(state)):
             state.q2_answered = True             # Q2 answered in part: its leftovers wait for Q3
+        if (candidate is not None and und.unanswered and state.unanswered_question is None and not state.rep_skipped
+                and not has_statement(strip_tags(candidate.text or ""))):
+            # the reply only re-asks the flow question: the employee's question is not left unanswered
+            state.unanswered_question = und.unanswered[0]
         # a complaint ("לא עונה לשאלה") keeps the earlier unanswered question: the offer is repeated.
         # With an LLM reply the offer is the LLM's own (propose_rep_question), never the rule-based guess.
         if candidate is None:
@@ -780,6 +789,7 @@ class Agent:
         problems = [conflict_text(c) for c in conflicts] + [range_problem_text(*p) for p in ctx.range_problems]
         answers, terms = self._answers(snapshot, und)
         lines = [*extra, *(["צודקים, סליחה."] if und.complaint else []), *([_audit_text(state)] if und.audit else []),
+                 *([ALL_AT_ONCE] if und.all_at_once else []),
                  *([snapshot.faq.redirect] if und.redirect and not und.complaint else [])]   # the rep offer: plan_reply
         # a request the bot cannot do yet ("תשווה ביניהם" before the profile is complete): what is needed
         if (und.compare and not just_calculated and state.stage not in (Stage.PRESENTED, Stage.WAITING_FOR_REP)
@@ -813,7 +823,8 @@ class Agent:
             return TurnOutcome(reply=draft, source="template", just_calculated=just_calculated, path=path,
                                say=say, **requests)
         reply, source, blocked, say = self._guarded(candidate, draft, ctx, history, text, deadline, conflicts,
-                                                    must_answer=bool(und.audit or und.faq_ids or und.catalog or und.unanswered or und.help
+                                                    check_repeat=not (und.faq_ids or und.catalog),
+                                                    must_answer=bool(und.audit or und.all_at_once or und.faq_ids or und.catalog or und.unanswered or und.help
                                                                      or und.complaint))
         if gap_ack and source == "llm":
             reply = f"{gap_ack}\n{reply}"
@@ -874,6 +885,12 @@ class Agent:
                 return {"ok": False, "error": "unknown tool"}
             if call.name == "propose_rep_question" and state.rep_skipped:
                 return {"ok": False, "error": "the employee chose to continue without the representative"}
+            if call.name == "propose_rep_question" and not und.unanswered and (
+                    und.all_at_once or und.catalog or und.faq_ids):
+                # code already answers it (the catalog / FAQ), or it is about the conversation itself
+                return {"ok": False, "error": "not a question for the representative: it is answered in this "
+                                              "reply by the system, or it is about the conversation itself "
+                                              "(explain in one line why you ask in steps)"}
             checked = self._check_call(ctx, call, text, und)
             if checked is None:
                 return {"ok": False, "error": "not saved: the message does not say this; ask the employee"}
@@ -1236,7 +1253,7 @@ class Agent:
 
     def _guarded(self, cand: Candidate, draft: str, ctx: ToolContext, history: Sequence[ChatMessage], text: str,
                  deadline: Optional[float], conflicts: Sequence[str],
-                 must_answer: bool = False) -> tuple[str, str, bool, str]:
+                 must_answer: bool = False, check_repeat: bool = False) -> tuple[str, str, bool, str]:
         """Guards on the LLM's reply → one retry with the violations as feedback → the reply without the
         offending sentences, if it still stands → the template. Returns (reply, source, guard_blocked, say)."""
         if not cand.text:
@@ -1257,10 +1274,14 @@ class Agent:
                       offer_rep=offer, waiting_answer=waiting_answer, conflicts=conflicts, must_answer=must_answer,
                       one_field=state.pace == "one_at_a_time")
 
+        bots = [m.content for m in history if m.role == "assistant"][-2:]
+        previous = [ask_lines(m) for m in bots if ask_lines(m)]      # question lines of the last two bot messages
+
         def judge(raw: str) -> tuple[Check, list[Violation]]:
             result = check(raw, **kwargs)
             unsupported = self._claims(raw, state, snap, deadline)
-            return result, [*result.violations, *(Violation("claim", s) for s in unsupported)]
+            again = ([Violation("repeat")] if check_repeat and ask_lines(result.text) in previous else [])
+            return result, [*result.violations, *again, *(Violation("claim", s) for s in unsupported)]
 
         raw = cand.text
         first, violations = judge(raw)

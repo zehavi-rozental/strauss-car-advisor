@@ -52,12 +52,21 @@ BOUNDARY_CUES = ("לא יכול", "לא אוכל", "אין לי מידע", "אי
                  "לא ניתן לי", "לא אמציא", "אני לא ממציא", "אין באפשרותי")
 
 
+# retry feedback for violations whose name alone does not say how to fix them
+HINTS = {"repeat": "the question is word for word the previous one; say in one line what is already saved "
+                   "(\"רשמתי: …\") and ask only for what is still missing, in other words",
+         "unanswered": "the employee asked something or complained: answer it or acknowledge it in one sentence "
+                       "before the next question"}
+
+
 @dataclass
 class Violation:
     kind: str
     sentence: Optional[str] = None      # sentence-level violations can be dropped; others need a rewrite
 
     def __str__(self) -> str:
+        if self.kind in HINTS:
+            return f"{self.kind}: {HINTS[self.kind]}"
         return f"{self.kind}: {self.sentence}" if self.sentence else self.kind
 
 
@@ -89,6 +98,17 @@ def strip_tags(text: str) -> str:
 
 def _is_question(s: str) -> bool:
     return s.rstrip().endswith("?") or s.startswith(CTA_STARTS)
+
+
+def has_statement(text: str) -> bool:
+    """A sentence that is neither a question / call to action nor a "רשמתי" acknowledgement: an answer."""
+    return any(not _is_question(c) and not c.startswith("רשמתי")
+               for c in (TAG_RE.sub("", s).strip() for s in sentences(text)) if c)
+
+
+def ask_lines(text: str) -> list[str]:
+    """The question lines of a reply, whitespace-normalised: to tell a verbatim repeat."""
+    return [" ".join(TAG_RE.sub("", line).split()) for line in text.splitlines() if "?" in line]
 
 
 def _catalog_supported(sentence: str, snapshot: RulesSnapshot) -> bool:
@@ -148,8 +168,10 @@ def check(raw: str, *, snapshot: RulesSnapshot, allowed: set[Decimal], tools_cal
         out.violations.append(Violation("progress"))
     if conflicts and "?" not in text:
         out.violations.append(Violation("conflict"))
-    if must_answer and len(sentences(text)) < 2:
-        out.violations.append(Violation("unanswered"))   # a question / "מה?" / a complaint gets more than the CTA
+    if must_answer and not has_statement(text):
+        # a question / "מה?" / a complaint gets an answer or an acknowledgement: the flow question alone
+        # (even a compound one, with several "?" sentences) is not one
+        out.violations.append(Violation("unanswered"))
     return out
 
 

@@ -76,6 +76,10 @@ small_amount_below:
 
 # Phrases that ask for one question at a time; kept in the conversation state until "pace_reset_cues".
 pace_cues: [שאלה אחת כל פעם, שאלה אחת בכל פעם, אחד אחד, אחת אחת, לא ביחד, לאט, אחד כל פעם, אחת כל פעם]
+# A request about the conversation itself ("give me all the questions at once"): answered in one line from the
+# bot's own design, never a question for the transport representative.
+all_at_once_cues: [כל השאלות בפעם אחת, כל השאלות ביחד, כל השאלות יחד, את כל השאלות, כל השאלות במכה, אמלא הכל ביחד,
+                   אמלא הכול ביחד, אמלא הכל בבת אחת, אמלא הכול בבת אחת, בבת אחת, רשימת השאלות]
 pace_reset_cues: [הכול ביחד, הכל ביחד, כמה שאלות ביחד]
 
 # ערכים חוקיים אבל נדירים שמשפיעים חזק על הנטו: נשאלים פעם אחת ("לאשר / לתקן"), אף פעם לא ברירת מחדל.

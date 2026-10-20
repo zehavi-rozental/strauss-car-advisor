@@ -632,6 +632,24 @@ def compare_needs_text(state: ConversationState) -> str:
     return f"כדי להשוות, חסרים לי עוד: {_list(names)}." if names else ""
 
 
+ALL_AT_ONCE = "אני שואל בשלבים כדי שלא יחסר דבר, אבל אפשר לענות על הכול בהודעה אחת."
+
+_PROFILE_ARGS = (("base_salary", "base"), ("commissions", "commissions"), ("bonus", "bonus"),
+                 ("pension_percent", "pension_percent"), ("study_fund_percent", "study_fund_percent"),
+                 ("credit_points", "credit_points"), ("children_under_23", "children"))
+
+
+def progress_text(state: ConversationState, fields: Sequence[str]) -> str:
+    """The same compound question again: what is already saved, then only what is still missing
+    ("רשמתי: שכר בסיס 18,500 ₪, פנסיה 5%. עדיין חסרים לי: עמלות, בונוס…"), never the full question verbatim."""
+    from .fallback import recorded_text
+
+    p = state.profile
+    saved = {arg: getattr(p, attr) for arg, attr in _PROFILE_ARGS if getattr(p, attr) is not None}
+    missing = still_missing_text(paced(state, fields))
+    return f"רשמתי: {recorded_text(saved)}. {missing}" if saved else missing
+
+
 def still_missing_text(fields: Sequence[str]) -> str:
     names = [FIELD_NAMES[f] for f in fields if f in FIELD_NAMES]
     if not names:
@@ -848,7 +866,9 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
         plan.follow_up.append(follow_up_text(present, snapshot))
     rest = [f for f in fields if f not in present]
     if explain or repeat:
-        plan.ask.append(explain_text(state, snapshot, fields))
+        compound = len(paced(state, fields)) > 1 and _is_q2(fields)
+        plan.ask.append(progress_text(state, fields) if repeat and not explain and compound
+                        else explain_text(state, snapshot, fields))
         if repeat and state.misses >= 1:              # missed again: never the same reply twice
             one = placeholder_text(state, snapshot).removeprefix("למשל: ").split(", ")[0]
             plan.ask.append(f"אפשר גם לענות על דבר אחד בכל פעם, למשל: {one}.")
@@ -864,7 +884,8 @@ def _vary_repeat(plan: ReplyPlan, state: ConversationState, snapshot: RulesSnaps
     in simpler words."""
     if not plan.ask or plan.ask[-1] != state.last_ask:
         return
-    for other in (still_missing_text(fields), explain_text(state, snapshot, fields)):
+    first = progress_text(state, fields) if len(paced(state, fields)) > 1 else still_missing_text(fields)
+    for other in (first, explain_text(state, snapshot, fields)):
         if other and other != state.last_ask:
             plan.ask[-1] = other
             return

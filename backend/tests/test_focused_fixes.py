@@ -299,3 +299,114 @@ def test_catalog_answer_is_restored_end_to_end_when_a_guard_trims_the_llm_senten
     assert (turn.source, turn.say) == ("llm", "llm:trimmed")
     assert turn.reply.startswith("כן, בקטלוג יש: COROLLA (2026), קבוצה ב, בנזין; COROLLA CROSS (2025)")
     assert "150,000" not in turn.reply and turn.reply.endswith("מה קבוצת הזכאות שלכם?")
+
+
+# ---------- manual-test bugs: a question mid-collection, a request about the conversation, a looping question ----------
+
+Q2_FULL = ("יש רכיבי שכר נוספים — עמלות, בונוסים? ואילו הפרשות יורדות לכם: קרן השתלמות? "
+           "כמה נקודות זיכוי יש לכם? וכמה ילדים עד גיל 23?")
+SAVED_LINE = "רשמתי: שכר בסיס 18,500 ₪, פנסיה 5%."
+MISSING_LINE = "עדיין חסרים לי: עמלות, בונוס, קרן השתלמות, נקודות זיכוי וילדים."
+HALF = "מנהלת מוצר, שכר בסיס 18,500, פנסיה 5%"
+
+
+def llm_at_q2(sessions):
+    """An LLM-led conversation after the first message, with the compound salary question on screen."""
+    fake = FakeLLM().turn(call("save_profile", occupation="מנהלת מוצר", base_salary=18500, pension_percent=5),
+                          reply=f"{SAVED_LINE}\n{Q2_FULL}")
+    svc = service(sessions, fake)
+    turn, token = start(svc, HALF)
+    assert Q2_FULL in turn.reply
+    return svc, fake, turn, token
+
+
+def test_bug1_a_car_question_mid_collection_is_acknowledged_in_template_mode(sessions):
+    svc = service(sessions)
+    turn, token = start(svc, HALF, "אפשר לעבור לקורולה?")
+    assert "בקטלוג יש: COROLLA (2026), קבוצה ב, בנזין; COROLLA CROSS (2025), קבוצה ג, היברידי." in turn.reply
+    assert "נחזור לזה אחרי שנסיים לאסוף את הפרטים" in turn.reply
+    assert "נציג" not in turn.reply and state(svc, turn, token).unanswered_question is None   # not the rep
+    assert MISSING_LINE in turn.reply                       # and the collection goes on, with what is missing
+
+
+def test_bug1_the_llm_reply_that_only_re_asks_is_replaced_by_the_acknowledgement(sessions):
+    svc, fake, turn, token = llm_at_q2(sessions)
+    fake.turn(reply=Q2_FULL, retry=Q2_FULL)                 # the live failure: the flow question, nothing else
+    turn = svc.send(turn.conversation_id, token, "אפשר לעבור לקורולה?")
+    assert "בקטלוג יש: COROLLA (2026)" in turn.reply and "נחזור לזה אחרי שנסיים לאסוף את הפרטים" in turn.reply
+    assert Q2_FULL not in turn.reply and "נציג" not in turn.reply
+
+
+def test_bug1_a_question_nothing_covers_is_offered_to_the_rep_not_ignored(sessions):
+    svc, fake, turn, token = llm_at_q2(sessions)
+    fake.turn(reply=Q2_FULL, retry=Q2_FULL)
+    turn = svc.send(turn.conversation_id, token, "אפשר לקבל אטו 3 בצבע אחר?")      # colour: only the rep knows
+    assert "נציג התחבורה" in turn.reply and Q2_FULL not in turn.reply
+    assert state(svc, turn, token).unanswered_question == "אפשר לקבל אטו 3 בצבע אחר?"
+
+
+def test_bug1_root_cause_a_compound_flow_question_is_not_an_answer():
+    snap = load_snapshot(CONFIG)
+    kwargs = dict(snapshot=snap, allowed={Decimal(23)}, tools_called=(), fields=["commissions"], offer_rep=False,
+                  waiting_answer=False, conflicts=[], must_answer=True)
+    assert any(v.kind == "unanswered" for v in check(Q2_FULL, **kwargs).violations)       # four "?" sentences
+    assert any(v.kind == "unanswered" for v in check(f"{SAVED_LINE}\n{Q2_FULL}", **kwargs).violations)
+    answered = check(f"כל נקודה שווה סכום קבוע בחודש.\n{Q2_FULL}", **kwargs)
+    assert not any(v.kind == "unanswered" for v in answered.violations)
+
+
+def test_bug2_all_questions_at_once_is_explained_and_never_goes_to_the_rep_in_template_mode(sessions):
+    svc = service(sessions)
+    turn, token = start(svc, HALF, "תן לי את כל השאלות בפעם אחת, אמלא הכל ביחד")
+    assert "אני שואל בשלבים כדי שלא יחסר דבר, אבל אפשר לענות על הכול בהודעה אחת." in turn.reply
+    assert "נציג" not in turn.reply and state(svc, turn, token).unanswered_question is None
+    assert turn.expects["link"]["kind"] == "profile_form" and "או למלא בטופס" in turn.reply   # honoured: the form
+    assert MISSING_LINE in turn.reply
+
+
+def test_bug2_the_llm_cannot_send_a_request_about_the_conversation_to_the_rep(sessions):
+    svc, fake, turn, token = llm_at_q2(sessions)
+    fake.turn(call("propose_rep_question", question="תן לי את כל השאלות בפעם אחת"),
+              reply="על זה אין לי מידע מדויק. רוצים שאשאל את נציג התחבורה?")
+    turn = svc.send(turn.conversation_id, token, "תן לי את כל השאלות בפעם אחת, אמלא הכל ביחד")
+    assert state(svc, turn, token).unanswered_question is None           # the tool call was refused
+    assert "נציג" not in turn.reply and "אני שואל בשלבים" in turn.reply
+
+
+def test_bug2_all_at_once_cancels_a_one_at_a_time_pace(sessions):
+    svc = service(sessions)
+    turn, token = start(svc, "שאלה אחת כל פעם", HALF)
+    assert state(svc, turn, token).pace == "one_at_a_time"
+    turn = svc.send(turn.conversation_id, token, "תן לי את כל השאלות בפעם אחת")
+    assert state(svc, turn, token).pace == "normal"
+
+
+def test_bug3_a_retry_of_the_compound_question_says_what_is_saved_and_what_is_missing(sessions):
+    svc = service(sessions)
+    turn, token = start(svc, HALF)
+    assert Q2_FULL in turn.reply
+    for text in ("בלה בלה", "משהו אחר"):
+        turn = svc.send(turn.conversation_id, token, text)
+        assert f"{SAVED_LINE} {MISSING_LINE}" in turn.reply and Q2_FULL not in turn.reply
+    p = state(svc, turn, token).profile                                  # nothing saved or required differently
+    assert (p.base, p.pension_percent, p.commissions) == (18500, 5, None)
+    assert [f for f in ("commissions", "bonus", "study_fund_percent", "credit_points", "children")
+            if getattr(p, f) is None] == ["commissions", "bonus", "study_fund_percent", "credit_points", "children"]
+
+
+def test_bug3_an_llm_that_repeats_the_compound_question_word_for_word_is_replaced(sessions):
+    svc, fake, turn, token = llm_at_q2(sessions)
+    for text in ("בלה בלה", "משהו אחר"):
+        fake.turn(reply=Q2_FULL, retry=Q2_FULL)
+        turn = svc.send(turn.conversation_id, token, text)
+        assert (turn.source, turn.say) == ("template", "guard:repeat")
+        assert f"{SAVED_LINE} {MISSING_LINE}" in turn.reply and Q2_FULL not in turn.reply
+
+
+def test_bug3_a_new_question_after_an_answer_is_not_a_repeat(sessions):
+    svc, fake, turn, token = llm_at_q2(sessions)
+    fake.turn(call("save_profile", commissions=0, bonus=0),
+              reply="רשמתי: אין עמלות, אין בונוס.\nואילו הפרשות יורדות לכם: קרן השתלמות? כמה נקודות זיכוי יש לכם? "
+                    "וכמה ילדים עד גיל 23?")
+    turn = svc.send(turn.conversation_id, token, "אין עמלות ואין בונוס")
+    assert turn.say == "llm" and "אין עמלות, אין בונוס" in turn.reply

@@ -57,7 +57,9 @@ def test_a_question_repeated_right_away_comes_with_buttons_and_an_example(sessio
         if text != GIBBERISH or first.expects["fields"] != second.expects["fields"]:
             continue
         # אותה שאלה פעם שנייה (או שלישית) ברצף: לא אותו ניסוח — במילים פשוטות, ועם דוגמה
-        assert "במילים פשוטות" in second.reply and "למשל" in second.reply, second.reply
+        # (the compound salary question says what is saved and what is still missing instead: progress_text)
+        assert ("במילים פשוטות" in second.reply or "עדיין חסרים לי" in second.reply) and "למשל" in second.reply, \
+            second.reply
         assert second.reply != first.reply
         if not first.reply.startswith(("לא הצלחתי", "לא זיהיתי")):
             assert second.reply != first.reply
