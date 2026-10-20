@@ -176,10 +176,15 @@ def test_multi_field_question_is_a_guard_violation_at_one_at_a_time_pace():
 
 # ---------- 6-8. one request, greeting, links ----------
 
-def test_greeting_is_one_question_without_the_old_intro(sessions):
+def test_greeting_invites_group_car_and_interest_salary_later(sessions):
+    """The warmer opening invites the eligibility group, the current car and a car of interest, and says
+    salary comes later. It must still name the eligibility group and make clear salary is deferred-able."""
     turn, _ = service(sessions).start()
-    assert turn.reply == ("שלום! אני יועץ הרכב של שטראוס. אעזור לכם להבין אילו רכבים מתאימים לכם ואיך הבחירה "
-                          "משפיעה על הנטו.\nנתחיל — מה קבוצת הזכאות שלכם?")
+    r = turn.reply
+    assert "קבוצת הזכאות" in r                     # the Strauss-required first datum
+    assert "רכב חברה" in r or "רכב" in r           # invites the current car
+    assert "השכר" in r and "בהמשך" in r            # salary is explicitly left for later
+    assert "יחד או בהדרגה" in r                     # any order, gradually
 
 
 def test_the_form_link_is_offered_once(sessions):
