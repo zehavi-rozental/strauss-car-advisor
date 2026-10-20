@@ -259,7 +259,8 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
             and not named_cars(remainder, snapshot.catalog) and not no_car_span(remainder)):
         u.ambiguity = NO_CAR_OR_ZERO
         remainder = ""
-    if u.audit and not re.search(r"\d", remainder):
-        remainder = ""                            # "כבר כתבתי לך" carries nothing to save
+    if u.audit and not re.search(r"\d", remainder) and "קבוצ" not in remainder:
+        remainder = ""                            # "כבר כתבתי לך" carries nothing to save (but a group
+        #                                           correction like "טעיתי, אני בקבוצה ד" does)
     u.remainder = remainder
     return u

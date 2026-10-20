@@ -10,7 +10,7 @@ plug_in_counts_as_electric: false
 # payslip_upload_enabled: true turns on the built-in in-chat uploader (needs the backend PAYSLIP_ENABLED
 # + a Gemini key). payslip_upload_url: an external pilot page instead (a non-empty URL implies the link,
 # and the client opens it in a new tab). Both default off, no code change to turn on.
-payslip_upload_enabled: false
+payslip_upload_enabled: true
 payslip_upload_url: ""
 child_age_inclusive: true               # "עד גיל 23" כולל 23
 default_vehicle_type: "1"               # בקטלוג אין עמודת סוג רכב
@@ -82,6 +82,16 @@ small_amount_below:
 
 # Phrases that ask for one question at a time; kept in the conversation state until "pace_reset_cues".
 pace_cues: [שאלה אחת כל פעם, שאלה אחת בכל פעם, אחד אחד, אחת אחת, לא ביחד, לאט, אחד כל פעם, אחת כל פעם]
+
+# Phrases that ask to answer a question later ("את השכר אבדוק אחר כך"). The field is postponed, not
+# dropped and never defaulted: the bot keeps asking other things and brings it back when nothing else is
+# askable or a calculation needs it. A value given later clears the deferral. New phrase = a line here.
+# Note: deliberately NOT "להמשיך"/"נמשיך בלי"/"נתקדם" alone — those are the rep-offer "continue without
+# asking the representative" answer, not a request to postpone a data field.
+defer_cues: [אחר כך, "אח\"כ", אחכ, אחרי זה, בהמשך, מאוחר יותר, נחזור לזה, נחזור אליו, נחזור אל זה,
+             לא עכשיו, עוד מעט, בינתיים, תשאל אחר כך, תשאלו אחר כך, תשאל אותי אחר כך, תשאל אותי בינתיים,
+             אבדוק אחר כך, אבדוק בהמשך, אבדוק מאוחר יותר, אשלים אחר כך, אשלים בהמשך,
+             אמסור אחר כך, אמסור בהמשך, אביא בהמשך, דלג על, תדלג, לדלג על, נדלג]
 # A request about the conversation itself ("give me all the questions at once"): answered in one line from the
 # bot's own design, never a question for the transport representative.
 # A zero the employee said: only with one of these (or the digit 0) may a model save 0 for a field. A bare "לא"

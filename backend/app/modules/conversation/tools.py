@@ -53,6 +53,10 @@ from .stage import (
 
 OPT_OUT_WORDS = ("ויתור", "לוותר", "opt out", "opt_out", "בלי רכב", "ללא רכב")
 
+# profile fields (state attribute names) the employee may ask to answer later
+_DEFERRABLE_FIELDS = ("base", "commissions", "bonus", "pension_percent", "study_fund_percent",
+                      "credit_points", "children")
+
 
 # חיפוש במאגר רשות המסים: (דגם, שנת רישום) → התאמה. כל קריאה פותחת סשן קריאה קצר משלה,
 # כך שאין טרנזקציה פתוחה בזמן שהסוכן מחכה למודל השפה.
@@ -142,8 +146,11 @@ class SaveProfileArgs(_Args):
     current_use_value_unknown: bool = False
     current_drive: Optional[str] = None
     current_maintenance: Num = None
+    current_maintenance_unknown: bool = False
     approximate_fields: list[str] = Field(default_factory=list)    # שדות שהעובד אמר כהערכה
     unknown_fields: list[str] = Field(default_factory=list)       # Q2 fields the employee does not know
+    # fields the employee asked to answer LATER ("אח\"כ אבדוק את השכר"): postponed, not a value, not dropped
+    defer_fields: list[str] = Field(default_factory=list)
 
 
 class MatchCarArgs(_Args):
@@ -270,12 +277,21 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
             saved.append(arg)
             if attr in p.unknown_fields:
                 p.unknown_fields.remove(attr)          # the value was found after all
+            if attr in ctx.state.deferred_fields:
+                ctx.state.deferred_fields.remove(attr)  # a value was given — no longer deferred
 
     # "לא יודע": recorded per field, never a value (only fields that are still empty)
     for name in args.unknown_fields:
         if name in Q2_FIELDS and getattr(p, name) is None and name not in p.unknown_fields:
             p.unknown_fields.append(name)
             saved.append(f"unknown:{name}")
+
+    # "אח\"כ אבדוק": postpone a field. Recorded in the state; the stage machine skips it while other work
+    # exists (stage.hidden_deferred). Only still-missing profile fields can be deferred; never a value.
+    for name in args.defer_fields:
+        if name in _DEFERRABLE_FIELDS and getattr(p, name, None) is None and name not in ctx.state.deferred_fields:
+            ctx.state.deferred_fields.append(name)
+            saved.append(f"defer:{name}")
 
     if args.current_copay is not None:
         c.copay, c.copay_unknown = args.current_copay, False
@@ -307,10 +323,19 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
 
     if args.current_maintenance is not None:
         if c.source == "none":
-            c.maintenance = args.current_maintenance
+            c.maintenance, c.maintenance_unknown = args.current_maintenance, False
+            if "maintenance" in ctx.state.deferred_fields:
+                ctx.state.deferred_fields.remove("maintenance")   # answered — no longer deferred
             saved.append("current_maintenance")
         else:
             ignored.append({"field": "current_maintenance", "reason": "רלוונטי רק למי שאין לו רכב היום"})
+    elif args.current_maintenance_unknown and c.source == "none" and c.maintenance is None:
+        # "אבדוק בהמשך": postpone the allowance question (deferred_fields). hidden_deferred skips it while
+        # alternatives can be chosen and brings it back before the net is shown — never assumed 0.
+        c.maintenance_unknown = True
+        if "maintenance" not in ctx.state.deferred_fields:
+            ctx.state.deferred_fields.append("maintenance")
+        saved.append("current_maintenance_unknown")
 
     # הערכה: השדות שנשמרו עכשיו מסומנים (או מנוקים, אם נאמרו עכשיו במדויק)
     for arg in RANGED_FIELDS:
@@ -648,11 +673,24 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             "current_use_value": {"type": "number", "description": "use value from the payslip"},
             "current_use_value_unknown": {"type": "boolean"},
             "current_drive": {"type": "string", "description": "PETROL, HYBRID, PLUG_IN or ELECTRIC"},
-            "current_maintenance": {"type": "number", "description": "car maintenance on the payslip, "
-                                    "only for employees without a car today"},
+            "current_maintenance": {"type": "number", "description": "the monthly car-maintenance allowance "
+                                    "(אחזקת רכב) the employee receives TODAY, only for employees with no "
+                                    "company car. Pass 0 only if the employee says they do NOT receive one. "
+                                    "Never guess it."},
+            "current_maintenance_unknown": {"type": "boolean", "description": "the employee does not know / "
+                                            "will check later whether they get a maintenance allowance. Never "
+                                            "assume 0."},
             "unknown_fields": {"type": "array", "items": {"type": "string", "enum": list(Q2_FIELDS)},
                                "description": "fields the employee says they do not know (לא יודע / לא זוכרת). "
                                "Never guess or fill a value for them."},
+            "defer_fields": {"type": "array",
+                             "items": {"type": "string",
+                                       "enum": ["base", "commissions", "bonus", "pension_percent",
+                                                "study_fund_percent", "credit_points", "children"]},
+                             "description": "fields the employee asked to answer LATER, not now (e.g. "
+                             "'את השכר אבדוק אחר כך', 'אח\"כ', 'בינתיים נתקדם', 'נשלים בהמשך', 'אין לי את זה "
+                             "עכשיו'). Use 'base' for the base salary. Postpone them — the system will stop "
+                             "asking for them and bring them back only when needed. Never a value, never a guess."},
             "approximate_fields": {"type": "array", "items": {"type": "string"},
                                    "description": "names of the fields above that the employee stated as an "
                                    "estimate (כ-, בערך, בסביבות, בממוצע, משתנות)"},

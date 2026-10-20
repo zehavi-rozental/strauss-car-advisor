@@ -404,6 +404,36 @@ def _pace_change(state: ConversationState, snapshot: RulesSnapshot, text: str) -
     return None
 
 
+# a deferral names at most these profile fields explicitly ("את השכר אבדוק אחר כך"); otherwise it defers
+# whatever is being asked now. Car details are deferred only as the group currently on screen.
+_DEFERRABLE = ("base", "commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points",
+               "children")
+_DEFER_NAMES = {"base": "שכר הבסיס", "commissions": "העמלות", "bonus": "הבונוס", "pension_percent": "הפנסיה",
+                "study_fund_percent": "קרן ההשתלמות", "credit_points": "נקודות הזיכוי", "children": "הילדים"}
+
+
+def _defer_change(state: ConversationState, snapshot: RulesSnapshot, text: str, saved_this_turn: set[str]) -> str:
+    """"את השכר אבדוק אחר כך": postpone a field. The field named in the message, else the fields being
+    asked now. A field saved this turn is never deferred (the value wins). Returns an acknowledgement, or
+    "" when nothing was deferred. The stage machine (stage.hidden_deferred) does the skipping."""
+    ext = snapshot.extensions
+    if not ext.defer_cues or not any(c in text for c in ext.defer_cues):
+        return ""
+    # which field(s)? a field named in the message (by its words), else the fields currently open
+    named = [f for f in _DEFERRABLE if any(w in text for w in FIELD_WORDS.get(f, ()))]
+    if not named:
+        open_now = [f for f in open_profile(state.profile) if f in _DEFERRABLE]
+        named = open_now
+    # never defer something the employee just supplied, or something already known
+    to_defer = [f for f in named if getattr(state.profile, f) is None and f not in saved_this_turn
+                and f not in state.deferred_fields]
+    if not to_defer:
+        return ""
+    state.deferred_fields.extend(to_defer)
+    names = _DEFER_NAMES.get(to_defer[0], "זה") if len(to_defer) == 1 else "השדות האלה"
+    return f"בסדר, נחזור ל{names} בהמשך."
+
+
 def asked_field(state: ConversationState, reply: str) -> Optional[str]:
     """The one missing item the reply asks for (its question line, else its last line); None when it names
     several or none. Only missing items count, so an ack line ("רשמתי: פנסיה 6%") never binds."""
@@ -507,6 +537,21 @@ def ack_text(changed: dict[str, Any], group: Optional[str] = None) -> str:
         if f in changed:
             parts.append(f"{label} {money(changed[f])}")
     return f"רשמתי: {', '.join(parts)}." if parts else ""
+
+
+def _dedup_lines(reply: str) -> str:
+    """Safety net on an assembled reply: never emit the same non-empty line twice. Order preserved, the
+    first occurrence wins. Blank lines (paragraph breaks) are kept as-is."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for line in reply.splitlines():
+        key = line.strip()
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        out.append(line)
+    return "\n".join(out)
 
 
 def _answers_catalog(reply: str, answers: Sequence[str], snapshot: RulesSnapshot) -> bool:
@@ -776,6 +821,9 @@ class Agent:
 
         if before_turn.group == "Q2" and any(f in Q2_FIELDS for f in before_turn.changed(state)):
             state.q2_answered = True             # Q2 answered in part: its leftovers wait for Q3
+        # "את השכר אבדוק אחר כך": postpone a field, after this turn's values were saved (so a field just
+        # supplied is never deferred). The acknowledgement is added to the reply below.
+        defer_ack = _defer_change(state, snapshot, text, set(before_turn.changed(state)))
         if (candidate is not None and und.unanswered and state.unanswered_question is None and not state.rep_skipped
                 and not has_statement(strip_tags(candidate.text or ""))):
             # the reply only re-asks the flow question: the employee's question is not left unanswered
@@ -817,7 +865,8 @@ class Agent:
             entry = snapshot.faq.get("maintenance")
             if restated_no_car and entry is not None and current_group(state)[1] == ["maintenance"]:
                 no_car_lines.append(entry.answer)
-        lines = [*extra, *no_car_lines, *(["צודקים, סליחה."] if und.complaint else []),
+        lines = [*extra, *([defer_ack] if defer_ack else []), *no_car_lines,
+                 *(["צודקים, סליחה."] if und.complaint else []),
                  *([_audit_text(state)] if und.audit else []),
                  *([ALL_AT_ONCE] if und.all_at_once else []),
                  *([snapshot.faq.redirect] if und.redirect and not und.complaint else [])]   # the rep offer: plan_reply
@@ -862,6 +911,8 @@ class Agent:
         if source == "llm" and und.catalog and not _answers_catalog(reply, und.catalog, snapshot):
             # the catalog sentence was trimmed by a guard: the code's answer (from the catalog) comes first
             reply = "\n".join([*und.catalog, reply])
+        if source == "llm":
+            reply = _dedup_lines(reply)       # safety net: the live model sometimes repeats a line
         state.asked_field = asked_field(state, reply)
         return TurnOutcome(reply=reply, source=source, guard_blocked=blocked, just_calculated=just_calculated,
                            path=path, say=say, **requests)
@@ -1082,7 +1133,7 @@ class Agent:
         others = [c for c in named_cars(text, snapshot.catalog) if c.catalog_code != state.current.catalog_code]
         if not others:
             return None, waiting_reply
-        calls = self._llm_waiting_correction(state, text)
+        calls = self._llm_waiting_correction(state, snapshot, text)
         if calls:
             return ParserPlan(list(calls), True, direct=True), ""
         # בלי מודל, או שהמודל לא בטוח: לא מנחשים — שואלים, וזוכרים על איזה רכב
@@ -1108,9 +1159,17 @@ class Agent:
             state.queued_options.append(clarification.catalog_code)
         return None, queued_option_text(clarification.label)
 
-    def _llm_waiting_correction(self, state: ConversationState, text: str) -> Optional[tuple[ToolCall, ...]]:
+    def _llm_waiting_correction(self, state: ConversationState, snapshot: RulesSnapshot,
+                                text: str) -> Optional[tuple[ToolCall, ...]]:
         """המודל מקבל רק את match_current_car: יקרא לו רק אם ההודעה מתקנת את הרכב של היום."""
         if not self.llm.available:
+            return None
+        # the model may call match_current_car only when the message is a correction of the car today. Code
+        # double-checks: a bare alternative name ("אטו 3") with no correction cue and no "my car" wording is
+        # NOT a correction — it is probably an alternative, so we ignore the call and ask (never guess).
+        ws = words(text)
+        says_my_car = ("הרכב" in ws and "שלי" in ws) or ("יש" in ws and "לי" in ws)
+        if not (_has_cue(text, snapshot.extensions.correction_cues) or says_my_car):
             return None
         system = WAITING_CORRECTION_PROMPT.format(car=state.current.label or "")
         try:

@@ -31,8 +31,11 @@ def money(value: Any) -> str:
 
 CAR_AGAIN = "לא זיהיתי את דגם הרכב."
 
-GREETING = ("שלום! אני יועץ הרכב של שטראוס. אעזור לכם להבין אילו רכבים מתאימים לכם ואיך הבחירה משפיעה על הנטו.\n"
-            "נתחיל — מה קבוצת הזכאות שלכם?")
+GREETING = ("שלום! אני יועץ הרכב של שטראוס 🚗\n"
+            "אעזור לכם להבין אילו רכבים מתאימים לכם ואיך כל בחירה משפיעה על הנטו שלכם.\n"
+            "כדי להתחיל, אשמח לדעת: מה קבוצת הזכאות שלכם (א–ד)? האם יש לכם היום רכב חברה? "
+            "והאם יש רכב או סוג רכב שמעניין אתכם — חשמלי, היברידי או משפחתי?\n"
+            "אפשר לענות על הכול יחד או בהדרגה, ואת פרטי השכר נשלים בהמשך.")
 
 
 def question(field: str, state: ConversationState, snapshot: RulesSnapshot) -> str:
@@ -57,7 +60,8 @@ def question(field: str, state: ConversationState, snapshot: RulesSnapshot) -> s
                      f"לא מצאתי את \"{c.query or ''}\" במאגר. מה שווי השימוש החודשי שמופיע בתלוש שלכם?",
         "drive": "מה סוג ההנעה של הרכב: בנזין, היברידי, פלאג-אין או חשמלי?",
         "copay": "מה ההשתתפות החודשית שלכם היום בעלות הרכב?",
-        "maintenance": "כמה אחזקת רכב מופיעה היום בתלוש שלכם?",
+        "maintenance": ("מכיוון שאין לכם רכב צמוד, האם אתם מקבלים היום אחזקת רכב בתלוש? "
+                        "אם כן, כמה בחודש? אם לא, כתבו \"אין\". אפשר גם לבדוק בהמשך."),
     }
     if field == "car_choice" and c.choices and all(ch.catalog_code for ch in c.choices):
         names = " או ".join(ch.label for ch in c.choices)
@@ -550,7 +554,24 @@ class ReplyPlan:
     fixed: bool = False                                  # results / waiting: final text, never rephrased
 
     def text(self) -> str:
-        return "\n\n".join(x for x in [*self.answers, *self.ack, *self.follow_up, *self.ask, self.cta] if x)
+        parts = [x for x in [*self.answers, *self.ack, *self.follow_up, *self.ask, self.cta] if x]
+        # safety net only (the root cause is handled where the parts are built): never emit the same line
+        # twice in one reply. Dedup at the line level across the whole reply, but keep each block's own
+        # multi-line structure (so a list or a two-line question is preserved). First occurrence wins.
+        seen: set[str] = set()
+        kept_blocks: list[str] = []
+        for part in parts:
+            lines = []
+            for line in part.splitlines():
+                key = line.strip()
+                if not key or key not in seen:
+                    if key:
+                        seen.add(key)
+                    lines.append(line)
+            block = "\n".join(lines).strip()
+            if block:
+                kept_blocks.append(block)
+        return "\n\n".join(kept_blocks)
 
     def as_json(self) -> dict[str, Any]:
         return {"answers": self.answers, "ack": self.ack, "follow_up": self.follow_up, "ask": self.ask,
@@ -703,6 +724,13 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
     first = next((f for f in ("car", "copay", "opt_out_occupation", "options") if f in fields), fields[0])
     if _is_q2(fields):
         example = q2_example(fields) if len(fields) > 1 else _faq_example(snapshot, first)
+        ext = snapshot.extensions
+        # "all at once" (state.link_now set by the turn) wants the form, to fill everything together.
+        # Otherwise, when the built-in uploader is enabled, offer it (once) instead of the manual form link,
+        # so the employee can upload rather than type. Only one Q2 link ever.
+        if state.link_now != "profile_form" and (ext.payslip_upload_enabled or ext.payslip_upload_url):
+            link = _once(state, "payslip_upload")
+            return f"אפשר לכתוב כאן, למשל: \"{example}\"" + (", או להעלות תלוש." if link else "."), link
         link = _once(state, "profile_form")
         return f"אפשר לכתוב כאן, למשל: \"{example}\"" + (", או למלא בטופס." if link else "."), link
     if fields == ["group"]:
@@ -725,7 +753,7 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
     if first == "drive":
         return "בחרו או כתבו, למשל: היברידי.", None
     if first == "maintenance":
-        return "כתבו את הסכום מהתלוש, למשל: 1,500.", None
+        return "כתבו את הסכום, למשל: 1,500, או \"אין\", או \"לא ידוע\" כדי לבדוק בהמשך.", None
     if first == "car_choice":
         return "בחרו גרסה, או כתבו את המספר שלה.", None
     if first == "options":
@@ -868,8 +896,12 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
     rest = [f for f in fields if f not in present]
     if explain or repeat:
         compound = len(paced(state, fields)) > 1 and _is_q2(fields)
-        plan.ask.append(progress_text(state, fields) if repeat and not explain and compound
-                        else explain_text(state, snapshot, fields))
+        line = (progress_text(state, fields) if repeat and not explain and compound
+                else explain_text(state, snapshot, fields))
+        # root cause of the duplicate bubble: the parser's notice (already in plan.ack) can be the same
+        # progress line; do not add it a second time to plan.ask
+        if line and line not in plan.ack:
+            plan.ask.append(line)
         if repeat and state.misses >= 1:              # missed again: never the same reply twice
             one = placeholder_text(state, snapshot).removeprefix("למשל: ").split(", ")[0]
             plan.ask.append(f"אפשר גם לענות על דבר אחד בכל פעם, למשל: {one}.")

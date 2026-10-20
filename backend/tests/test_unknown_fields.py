@@ -67,14 +67,24 @@ def test_unknown_twice_never_repeats_and_never_calculates(sessions):
 
 
 def test_the_payslip_upload_link_is_offered_only_when_configured(sessions, tmp_path):
-    svc = service(sessions)
+    # with both flags off: no upload link at all
+    off = tmp_path / "config_off"
+    shutil.copytree(CONFIG, off)
+    ext_off = off / "extensions.yaml"
+    ext_off.write_text(ext_off.read_text(encoding="utf-8").replace("payslip_upload_enabled: true",
+                                                                   "payslip_upload_enabled: false"),
+                       encoding="utf-8")
+    svc = service(sessions, config=off)
     turn, _ = talk(svc, [PROFILE_Q1, "לא יודע", CAR, "אטו 3"])
-    assert turn.expects["link"] is None                      # no upload in the app: no link
+    assert turn.expects["link"] is None                      # no uploader, no external url: no link
+    # an external url points the link at a pilot page (url included)
     config = tmp_path / "config"
     shutil.copytree(CONFIG, config)
     ext = config / "extensions.yaml"
-    ext.write_text(ext.read_text(encoding="utf-8").replace('payslip_upload_url: ""',
-                                                          'payslip_upload_url: "https://hr.example/upload"'),
+    content = ext.read_text(encoding="utf-8").replace("payslip_upload_enabled: true",
+                                                       "payslip_upload_enabled: false")
+    ext.write_text(content.replace('payslip_upload_url: ""',
+                                   'payslip_upload_url: "https://hr.example/upload"'),
                    encoding="utf-8")
     svc = service(sessions, config=config)
     turn, _ = talk(svc, [PROFILE_Q1, "לא יודע", CAR, "אטו 3"])
