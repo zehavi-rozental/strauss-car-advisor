@@ -576,9 +576,13 @@ def _car_detail_plan(snapshot: RulesSnapshot, question: str, text: str) -> Parse
         if hit and only(hit[1]):
             return ParserPlan(_call("save_profile", current_drive=hit[0].value), True)
         return ParserPlan()
-    if question in ("use_value", "copay") and only(unknown_span(text)):
-        flag = "current_use_value_unknown" if question == "use_value" else "current_copay_unknown"
+    if question in ("use_value", "copay", "maintenance") and only(unknown_span(text)):
+        flag = {"use_value": "current_use_value_unknown", "copay": "current_copay_unknown",
+                "maintenance": "current_maintenance_unknown"}[question]
         return ParserPlan(_call("save_profile", **{flag: True}), True)
+    if question == "maintenance" and only(none_span(text)):
+        # "אין" to the maintenance-allowance question: a confirmed 0 (the employee receives no allowance)
+        return ParserPlan(_call("save_profile", current_maintenance="0"), True)
     if question == "copay":
         span = copay_span(text)
         if span is not None:

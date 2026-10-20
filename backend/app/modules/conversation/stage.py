@@ -86,7 +86,12 @@ class CurrentCar(BaseModel):
     choices: list[CarChoice] = Field(default_factory=list)
     copay: Optional[Decimal] = None
     copay_unknown: bool = False
-    maintenance: Optional[Decimal] = None     # כשאין רכב היום: אחזקה בתלוש
+    # When there is no company car today: does the employee receive a car-maintenance allowance?
+    # maintenance=Decimal: the confirmed amount (0 = the employee said they do NOT receive one).
+    # maintenance=None + maintenance_unknown=True: "אבדוק בהמשך" — unknown, never assumed, blocks the net.
+    # maintenance=None + maintenance_unknown=False: not asked yet.
+    maintenance: Optional[Decimal] = None
+    maintenance_unknown: bool = False
 
 
 class PendingRep(BaseModel):
@@ -203,6 +208,10 @@ def missing_current_car(c: CurrentCar) -> list[str]:
     if c.source is None:
         return ["use_value"] if c.query else ["car"]
     if c.source == "none":
+        # the maintenance-allowance question: "כן" (an amount) or "לא" (maintenance=0, a confirmed value)
+        # answers it. "אבדוק בהמשך" postpones it via deferred_fields (hidden_deferred skips it while
+        # alternatives are chosen, and brings it back before the net is shown) — never a silent 0, never a
+        # net on an unverified assumption.
         return [] if c.maintenance is not None else ["maintenance"]
     missing: list[str] = []
     if c.use_value is None and not c.use_value_unknown:

@@ -25,9 +25,11 @@ NUMBER_ARGS = {
     "use_value": "current_use_value", "copay": "current_copay", "maintenance": "current_maintenance",
 }
 _QUICK = {"none": "אין", "unknown": "לא ידוע", "no_car": "אין רכב", "rank": "הכי משתלם"}
-_NONE_ALLOWED = {"commissions", "bonus", "study_fund_percent", "children", "copay"}
-_UNKNOWN_ALLOWED = {"use_value", "copay"}
-_UNKNOWN_FLAGS = {"use_value": "current_use_value_unknown", "copay": "current_copay_unknown"}
+# maintenance: "אין" → 0 (the employee receives no car-maintenance allowance), "לא ידוע" → defer / unknown
+_NONE_ALLOWED = {"commissions", "bonus", "study_fund_percent", "children", "copay", "maintenance"}
+_UNKNOWN_ALLOWED = {"use_value", "copay", "maintenance"}
+_UNKNOWN_FLAGS = {"use_value": "current_use_value_unknown", "copay": "current_copay_unknown",
+                  "maintenance": "current_maintenance_unknown"}
 OCCUPATION_YES = {"id": "yes", "label": "כן, זה התפקיד שלי"}
 YES_NO = [{"id": "yes", "label": "כן"}, {"id": "no", "label": "לא"}]
 CONFIRM_FIX = [{"id": "yes", "label": "לאשר"}, {"id": "no", "label": "לתקן"}]

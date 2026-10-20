@@ -60,7 +60,8 @@ def question(field: str, state: ConversationState, snapshot: RulesSnapshot) -> s
                      f"לא מצאתי את \"{c.query or ''}\" במאגר. מה שווי השימוש החודשי שמופיע בתלוש שלכם?",
         "drive": "מה סוג ההנעה של הרכב: בנזין, היברידי, פלאג-אין או חשמלי?",
         "copay": "מה ההשתתפות החודשית שלכם היום בעלות הרכב?",
-        "maintenance": "כמה אחזקת רכב מופיעה היום בתלוש שלכם?",
+        "maintenance": ("מכיוון שאין לכם רכב צמוד, האם אתם מקבלים היום אחזקת רכב בתלוש? "
+                        "אם כן, כמה בחודש? אם לא, כתבו \"אין\". אפשר גם לבדוק בהמשך."),
     }
     if field == "car_choice" and c.choices and all(ch.catalog_code for ch in c.choices):
         names = " או ".join(ch.label for ch in c.choices)
@@ -740,7 +741,7 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
     if first == "drive":
         return "בחרו או כתבו, למשל: היברידי.", None
     if first == "maintenance":
-        return "כתבו את הסכום מהתלוש, למשל: 1,500.", None
+        return "כתבו את הסכום, למשל: 1,500, או \"אין\", או \"לא ידוע\" כדי לבדוק בהמשך.", None
     if first == "car_choice":
         return "בחרו גרסה, או כתבו את המספר שלה.", None
     if first == "options":

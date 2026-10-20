@@ -146,6 +146,7 @@ class SaveProfileArgs(_Args):
     current_use_value_unknown: bool = False
     current_drive: Optional[str] = None
     current_maintenance: Num = None
+    current_maintenance_unknown: bool = False
     approximate_fields: list[str] = Field(default_factory=list)    # שדות שהעובד אמר כהערכה
     unknown_fields: list[str] = Field(default_factory=list)       # Q2 fields the employee does not know
     # fields the employee asked to answer LATER ("אח\"כ אבדוק את השכר"): postponed, not a value, not dropped
@@ -322,10 +323,19 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
 
     if args.current_maintenance is not None:
         if c.source == "none":
-            c.maintenance = args.current_maintenance
+            c.maintenance, c.maintenance_unknown = args.current_maintenance, False
+            if "maintenance" in ctx.state.deferred_fields:
+                ctx.state.deferred_fields.remove("maintenance")   # answered — no longer deferred
             saved.append("current_maintenance")
         else:
             ignored.append({"field": "current_maintenance", "reason": "רלוונטי רק למי שאין לו רכב היום"})
+    elif args.current_maintenance_unknown and c.source == "none" and c.maintenance is None:
+        # "אבדוק בהמשך": postpone the allowance question (deferred_fields). hidden_deferred skips it while
+        # alternatives can be chosen and brings it back before the net is shown — never assumed 0.
+        c.maintenance_unknown = True
+        if "maintenance" not in ctx.state.deferred_fields:
+            ctx.state.deferred_fields.append("maintenance")
+        saved.append("current_maintenance_unknown")
 
     # הערכה: השדות שנשמרו עכשיו מסומנים (או מנוקים, אם נאמרו עכשיו במדויק)
     for arg in RANGED_FIELDS:
@@ -663,8 +673,13 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             "current_use_value": {"type": "number", "description": "use value from the payslip"},
             "current_use_value_unknown": {"type": "boolean"},
             "current_drive": {"type": "string", "description": "PETROL, HYBRID, PLUG_IN or ELECTRIC"},
-            "current_maintenance": {"type": "number", "description": "car maintenance on the payslip, "
-                                    "only for employees without a car today"},
+            "current_maintenance": {"type": "number", "description": "the monthly car-maintenance allowance "
+                                    "(אחזקת רכב) the employee receives TODAY, only for employees with no "
+                                    "company car. Pass 0 only if the employee says they do NOT receive one. "
+                                    "Never guess it."},
+            "current_maintenance_unknown": {"type": "boolean", "description": "the employee does not know / "
+                                            "will check later whether they get a maintenance allowance. Never "
+                                            "assume 0."},
             "unknown_fields": {"type": "array", "items": {"type": "string", "enum": list(Q2_FIELDS)},
                                "description": "fields the employee says they do not know (לא יודע / לא זוכרת). "
                                "Never guess or fill a value for them."},
