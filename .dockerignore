@@ -1,0 +1,20 @@
+# Keep secrets, local state and tests out of the image (and out of the build context).
+.git
+.gitignore
+**/.env
+**/.env.*
+**/*.db
+**/*.db.bak
+**/__pycache__
+**/*.pyc
+**/.venv
+**/.pytest_cache
+**/.hypothesis
+**/.import_linter_cache
+**/*.egg-info
+**/node_modules
+frontend/dist
+backend/tests
+backend/eval-report.md
+CLAUDE.md
+README.md
