@@ -42,7 +42,7 @@ services:
         value: gemini:gemini-3.5-flash-lite,gemini:gemini-3.6-flash
       - key: SESSION_COOKIE_SECURE
         value: "true"
-      - key: PAYSLIP_ENABLED           # demo: no payslip upload, no real payslips
-        value: "false"
+      - key: PAYSLIP_ENABLED           # payslip upload ON (needs GEMINI_API_KEY); SYNTHETIC payslips only in the demo
+        value: "true"          # (the file is never stored; extraction only; matches extensions.yaml payslip_upload_enabled)
       - key: LOG_LEVEL
         value: INFO
