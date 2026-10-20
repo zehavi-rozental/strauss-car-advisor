@@ -12,7 +12,7 @@ from app.modules.conversation.models import MessageRow
 from app.modules.conversation.public import ConversationService, LLMChain, Stage
 from app.modules.rules.public import RulesStore
 
-from .conftest import CONFIG
+from .conftest import CAR_WORDS, CONFIG, NOA_WORDS
 
 FACTS = {"delta_display": "661", "today": {"net_display": "11032"}, "alternative": {"net_display": "11693.4"},
          "profile": {"pension_percent": "6", "study_fund_percent": "2.5"}, "label": "ATTO 3 (2025)"}
@@ -115,8 +115,9 @@ def test_a_shape_violation_is_fixed_by_the_retry(sessions):
 
 
 def test_parser_and_llm_numbers_disagree_the_reply_must_ask(sessions):
-    turn, _ = turn_with(sessions, "רשמתי: שכר בסיס 19,500 ₪.\nכתבו את הקבוצה שלכם.", text="שכר בסיס 18,500",
-                        calls=[call("save_profile", base_salary=19500)])
+    # (both numbers are in the message: the model took the study fund's 2.5 for the pension)
+    turn, _ = turn_with(sessions, "רשמתי: פנסיה 2.5%.\nכתבו את הקבוצה שלכם.", text="פנסיה 6%, קרן השתלמות 2.5%",
+                        calls=[call("save_profile", pension_percent=2.5)])
     assert turn.source == "template" and "conflict" in turn.say
 
 
@@ -179,7 +180,7 @@ def test_results_text_is_the_template_and_the_llm_is_not_asked(sessions):
     fake.turn(call("select_options", options=["ATTO 3"]), reply="חבל, הנטו ירד.")
     svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([fake]))
     turn, token = svc.start()
-    for text in ("הנה הפרטים שלי", "זה הרכב שלי, אותו אחד כמו תמיד", "את החשמלי הסיני בבקשה"):
+    for text in (NOA_WORDS, CAR_WORDS, "את החשמלי הסיני בבקשה"):
         turn = svc.send(turn.conversation_id, token, text)
     assert turn.source == "template" and "חבל" not in turn.reply
     assert "הנטו שלכם יגדל ב-661 ₪ בחודש" in turn.reply and "הסיבה העיקרית" in turn.reply

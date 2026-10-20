@@ -120,7 +120,7 @@ def test_rep_required_policy_waits_and_hides_the_result(sessions, tmp_path):
 class ChooseAtTheBarrier(FakeLLM):
     """שני תורות בוחרים חלופה שונה ונעצרים יחד לפני הכתיבה; רק אחד נשמר."""
 
-    CHOICE = {"אפשרות אלפא": "ATTO 3", "אפשרות בטא": "EV3"}
+    CHOICE = {"אפשרות אלפא: אטו 3": "ATTO 3", "אפשרות בטא: אי וי 3": "EV3"}
 
     def __init__(self, barrier):
         super().__init__()

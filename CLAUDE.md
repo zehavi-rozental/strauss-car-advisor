@@ -120,7 +120,15 @@ A module, and `app/api`, imports another module **only** through that module's `
 - **"כבר כתבתי" / "טעית"** (`understanding._AUDIT_CUES`): answered from the state ("בדקתי: עד עכשיו רשמתי …"), no apology, then the question for what is really missing. The LLM prompt says the same, and to acknowledge a car named early (kept only if it is in the catalog).
 - Privacy check: the rep payload is group + car + catalog code + suggested amount (`agent._open_blocking_rep`, the options copay question); no salary field reaches it.
 
+### Validation audit (session 4; `grounding.py`, `tests/test_grounding.py`, `tests/test_validation_audit.py`)
+
+- **Grounding** (`agent._grounded`, `agent._options_said`, in `_check_call`): a value the LLM asks to save must be something the employee said in that message. Numbers appear as digits or Hebrew number words ("שמונה עשר וחצי אלף"; `grounding.word_numbers`); "18.5" / "18 וחצי" / "20 אלף" ground the full amount, a bare "2" never grounds 2,000; a zero needs its cue AND the field's word ("אין עמלות"), or a bare "אין" for commissions / bonus / study fund / children only (`grounding.zero_grounded`, cues in `extensions.yaml: zero_cues`); a group letter, an occupation and a drive must be named; an alternative must be named, numbered, a ranking request, or described by its drive ("את החשמלי"). Refused values come back as a tool error (never remapped); the parser's labelled values are still saved by the gap fill.
+- **Car label**: a car typed by the employee and not found is free text; `tools.safe_car_label` keeps it only if it is a short name with no figures but a model number or year, otherwise "רכב שלא זוהה בקטלוג". The rep question, its context and `pending_rep.labels` use `rep_car_label` (the representative never sees pay data).
+- **Alternatives** (`tools._match_option`): an exact id / catalog name / alias, or a fragment of at least 3 characters that names exactly one eligible car; several ("cross", "3") are reported back as ambiguous and the employee is asked.
+
 ## NEXT (not done in this pass)
+
+- Validation audit items 4-7 (see Known limitations): range checks on rep answers, minimum use value 1, raise instead of default-to-zero in `engine_inputs`, strict numeric types for LLM-typed values.
 
 - Eval: see `backend/eval-report.md` (session 4 run, 37 cases). Templates still end with a question plus one "כתבו…" line, which the judge may count as two calls to action (kept: `test_no_dead_ends` asserts it).
 - The live model sometimes adds the flow question next to the rep offer; the guard then sends the template (correct, but not LLM-phrased).
@@ -131,6 +139,12 @@ A module, and `app/api`, imports another module **only** through that module's `
 - The rep screen shows `GENERAL_QUESTION` with the generic TEXT answer field; a dedicated layout (the employee's question as the title) would read better.
 
 ## Known limitations (מגבלות ידועות)
+
+- **Rep answers are checked only for being a non-negative, finite amount with two decimals**: `value_ranges` (copay 0-10,000, use value 0-20,000) and any maximum for a new-car copay are not applied to them (the representative is authenticated; a typo such as 350000 would flow into the calculation).
+- **A stated use value of 0 is accepted** (`value_ranges.current_use_value` starts at 0): a company car with a zero use value is impossible; the minimum should be 1.
+- **`engine_inputs` defaults `commissions`, `bonus`, `study_fund_percent` and `children` to 0 when empty.** The stage machine never reaches a calculation with a missing profile field, so this is defence in depth only; it should raise instead (rule 4).
+- **Type coercion is loose for values the LLM types**: `True` becomes 1 child, and a string such as "2..5" or "12 or 13" takes its first number (grounding and the range checks still apply). `Num` should reject booleans and strings with stray text.
+- Grounding looks at the current message only: a value said earlier but saved by the model on a later vague message is refused (the employee is asked again). A selection described only by its brand or colour is refused (a drive word, a name or a number grounds it). A tax-file style car name with a 3-digit figure ("T-ROC 150 TSI") reaches the representative as "רכב שלא זוהה בקטלוג".
 
 - A model that is not in the company catalog ("טויוטה מיסטרי") is always taken as the current car: only catalog cars can be alternatives, so the Q3 role question is never asked for it.
 - In template mode, "לא" in the middle of a sentence ("זה לא קורולה קרוס") is not interpreted: the parser does not act and the bot asks again. Only a leading "לא" (a correction) is read.

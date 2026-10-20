@@ -78,3 +78,10 @@ def without_cta(reply: str) -> str:
     """The reply without its last line, the call to action (every non-result reply ends with one)."""
     head, _, last = reply.rpartition("\n\n")
     return head if head and last.startswith(CTA_STARTS) else reply
+
+
+# A profile said in words the rule-based reader does not read ("שמונה עשר וחצי אלף"): the model saves it, and
+# grounding (conversation/grounding.py) finds every value in what the employee wrote.
+NOA_WORDS = ("מנהלת מוצר, משכורת בסיס שמונה עשר וחצי אלף, בלי עמלות ובלי בונוס, פנסיה שש אחוז, "
+             "קרן השתלמות 2.5, 2.75 נקודות זיכוי ושני ילדים")
+CAR_WORDS = "יש לי קורולה קרוס 2025 ואני משלמת עליה שלוש מאות"

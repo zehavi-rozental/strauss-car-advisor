@@ -153,6 +153,7 @@ class Extensions(_Strict):
     pace_cues: list[str] = Field(default_factory=list)          # "שאלה אחת כל פעם"
     pace_reset_cues: list[str] = Field(default_factory=list)    # "הכול ביחד"
     all_at_once_cues: list[str] = Field(default_factory=list)   # "תן לי את כל השאלות בפעם אחת"
+    zero_cues: list[str] = Field(default_factory=list)          # a zero the employee said ("אין", "בלי"...)
 
 
 # ---------- strauss-data.xlsx ----------

@@ -53,7 +53,8 @@ def test_a_bare_none_to_q2_fills_only_the_fields_where_zero_is_reasonable(sessio
 def test_llm_without_commissions_stays_in_profile(sessions):
     fake = FakeLLM().turn(call("save_profile", occupation="מנהל מוצר", base_salary=18500, pension_percent=6,
                                study_fund_percent=0, credit_points=2.25, children_under_23=0), reply=None)
-    turn, _ = talk(service(sessions, LLMChain([fake])), ["..."])
+    turn, _ = talk(service(sessions, LLMChain([fake])), ["מנהל מוצר, שכר שמונה עשר וחצי אלף, פנסיה שש אחוז, בלי קרן "
+                                                          "השתלמות, 2.25 נקודות זיכוי, בלי ילדים"])
     assert turn.stage == Stage.COLLECT_PROFILE
     assert "עמלות" in turn.reply   # הניסוח נכשל → תבנית
 

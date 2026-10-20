@@ -18,7 +18,8 @@ from typing import Any, Callable, Optional, Sequence
 from app.modules.calculation.public import CopayStatus, ScenarioResult, evaluate
 from app.modules.calculation.public import Status as CalcStatus
 from app.modules.cases.public import AnswerType, MissingField, Mode, QuestionAnswered, QuestionRequest
-from app.modules.rules.public import CatalogCar, RulesSnapshot, find_catalog_car, matched_name, related_cars, words
+from app.modules.rules.public import (FAMILY_GROUP, CatalogCar, RulesSnapshot, find_catalog_car, matched_name,
+                                      related_cars, words)
 from app.modules.rules.public import catalog_names as catalog_names_of
 
 
@@ -27,7 +28,9 @@ from .fallback import (ZERO_ALLOWED, fields_plan, ParserPlan, car_roles, correct
                        recorded_text)
 from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
-from .parsing import YEAR_RE, match_occupation, no_car_span, parse_copay, read_profile, redact_id_numbers
+from .grounding import grounded_number, group_named, occupation_named, option_named, zero_grounded
+from .parsing import (YEAR_RE, match_drive, match_occupation, no_car_span, occupation_match, parse_copay, read_profile,
+                      redact_id_numbers)
 from .guards import (FIELD_WORDS, SINGULAR_RE, TAG_RE, Check, Violation, ask_lines, check, content_sentences, drop,
                      has_statement, sentences, strip_tags, verify)
 from .turn import LLM_TOOLS, Candidate, parser_hint, render_catalog, render_faq, run_rounds, state_block, system_message, user_message
@@ -84,6 +87,9 @@ from .templates import (
     why_sentence,
 )
 from .tools import (
+    GENERIC_CAR_LABEL,
+    OPT_OUT_ID,
+    OPT_OUT_WORDS,
     TOOL_SPECS,
     ToolContext,
     VehicleGetter,
@@ -91,6 +97,8 @@ from .tools import (
     available_options,
     engine_inputs,
     option_state,
+    rep_car_label,
+    safe_car_label,
     resolve_option,
     run_tool,
 )
@@ -917,6 +925,54 @@ class Agent:
         cand = run_rounds(self.llm, messages, _understand_tools(state), execute, deadline)
         return recorded[0], cand
     @staticmethod
+    def _grounded(ctx: ToolContext, args: dict[str, Any], text: str) -> Optional[dict[str, Any]]:
+        """Only what the employee said is saved (grounding.py): numbers appear in the message (digits or Hebrew
+        words), a zero has a zero cue, the group / occupation / drive are named. The rest is refused, never
+        remapped; None when nothing grounded is left."""
+        snap = ctx.snapshot
+        ext = snap.extensions
+        kept, refused = dict(args), []
+        for key in _NUMERIC_ARGS:
+            value = kept.get(key)
+            if value is None:
+                continue
+            ok = zero_grounded(key, text, ext.zero_cues) if _is_zero(value) else grounded_number(value, text)
+            if not ok:
+                refused.append(key)
+        if kept.get("eligibility_group") and not group_named(text, snap.calc.group_order, FAMILY_GROUP):
+            refused.append("eligibility_group")
+        if kept.get("occupation"):
+            name = match_occupation(snap.occupations.keys(), str(kept["occupation"]))
+            hit = occupation_match(snap.occupations.keys(), text)
+            if name and not occupation_named(name, text, hit[0] if hit else None):
+                refused.append("occupation")
+        if kept.get("current_drive") and match_drive(text) is None:
+            refused.append("current_drive")
+        for key in refused:
+            kept.pop(key)
+        if refused:
+            log.info("not said by the employee, refused: %s", ",".join(sorted(refused)))
+        meaningful = {k for k, v in kept.items() if k != "approximate_fields" and v not in (None, [], False)}
+        return kept if meaningful or not refused else None
+
+    @staticmethod
+    def _options_said(ctx: ToolContext, options: Sequence[Any], text: str) -> bool:
+        """The employee named the alternatives (or their numbers in the list, or asked for the ranking)."""
+        snap = ctx.snapshot
+        available = available_options(snap, ctx.state)
+        named = {c.catalog_code for c in named_cars(text, snap.catalog)}
+        if any(w in text.lower() for w in OPT_OUT_WORDS):
+            named.add(OPT_OUT_ID)
+        resolved = [resolve_option(snap, available, str(t)) for t in options]
+        codes = [o.id for o in resolved if o]
+        if option_named(codes, named, text, ("הכי משתלם", "משתלם", "המלצ", "תמליץ", "דרג")):
+            return True
+        # described by its drive ("את החשמלי"): every chosen car has the drive the employee said
+        # (a Hebrew word with its "ה" / "ו" / "ב" prefix: "החשמלי")
+        drive = match_drive(" ".join(t[1:] if len(t) > 3 and t[0] in "הובל" else t for t in words(text)) + " " + text)
+        return bool(codes and drive is not None and all(o.drive == drive for o in resolved if o and o.id != OPT_OUT_ID))
+
+    @staticmethod
     def _check_call(ctx: ToolContext, call: ToolCall, text: str, und: Understanding) -> Optional[ToolCall]:
         """Hard rules on what the model asked to save: a field said to exist without an amount is never 0,
         and "no car" needs the words for it (otherwise ask: no car, or copay 0?)."""
@@ -937,6 +993,9 @@ class Agent:
                 log.info("copay 0 before the car is known; asked, not saved")
                 if not any(v not in (None, [], False) for k, v in args.items() if k != "approximate_fields"):
                     return None
+            args = Agent._grounded(ctx, args, text)
+            if args is None:
+                return None
             # a bare value ("34") answers only the field on screen: any other field is refused, never remapped
             bound = state.asked_field
             if bound and bare_value(text):
@@ -945,6 +1004,9 @@ class Agent:
                     log.info("bare value for %s refused (asked %s)", ",".join(wrong), bound)
                     return None
             return ToolCall(call.name, args, call.id)
+        if call.name == "select_options" and not Agent._options_said(ctx, call.args.get("options", []), text):
+            log.info("alternatives not named by the employee; not selected")
+            return None
         if call.name == "match_current_car" and call.args.get("model"):
             # the model shortened what the employee wrote ("קורולה" for "קורולה קרוס"): the car the message
             # itself names, when that name is unambiguous; a bare "קורולה" from the employee is still asked
@@ -1065,17 +1127,18 @@ class Agent:
             if c.catalog_code:
                 car = next(x for x in ctx.snapshot.catalog if x.catalog_code == c.catalog_code)
                 suggested = str(car.default_copay)
-            text = f"מה ההשתתפות החודשית הנוכחית של העובד ב-{c.label}?" + (
+            label = rep_car_label(c) or GENERIC_CAR_LABEL
+            text = f"מה ההשתתפות החודשית הנוכחית של העובד ב-{label}?" + (
                 f" לפי הקטלוג: {suggested} ₪" if suggested else "")
             self._request(ctx, MissingField.CURRENT_COPAY, Mode.REQUIRED, AnswerType.MONEY, text,
-                          {"group": p.group, "car_label": c.label, "catalog_code": c.catalog_code,
+                          {"group": p.group, "car_label": label, "catalog_code": c.catalog_code,
                            "suggested_amount": suggested}, suggested)
         else:
             self._request(ctx, MissingField.CURRENT_USE_VALUE, Mode.REQUIRED, AnswerType.MONEY,
-                          f"מה שווי השימוש החודשי של הרכב הנוכחי של העובד ({c.label})?",
-                          {"group": p.group, "car_label": c.label})
+                          f"מה שווי השימוש החודשי של הרכב הנוכחי של העובד ({rep_car_label(c) or GENERIC_CAR_LABEL})?",
+                          {"group": p.group, "car_label": rep_car_label(c) or GENERIC_CAR_LABEL})
         state.pending_rep = PendingRep(reason=reason, resume_stage=Stage.COLLECT_CURRENT_CAR,
-                                       labels=[c.label or ""])
+                                       labels=[rep_car_label(c) or ""])
 
     # ---------- תשובות הנציג ----------
 
@@ -1108,7 +1171,7 @@ class Agent:
             if field == MissingField.CURRENT_COPAY:
                 c.copay, c.copay_unknown = amount, False
             else:
-                c.source, c.label = "stated", c.label or c.query
+                c.source, c.label = "stated", c.label or safe_car_label(c.query)
                 c.use_value, c.use_value_unknown = amount, False
             state.calculated_for = []
             lines.append(rep_current_text(field.value, c.label or "", amount))
@@ -1381,7 +1444,7 @@ class Agent:
         text, state.pending_rep_question = state.pending_rep_question, None
         if send and text and rep_ok(snap, text):
             p, c = state.profile, state.current
-            car = c.label if c.source in ("catalog", "tax", "stated") else None
+            car = rep_car_label(c) if c.source in ("catalog", "tax", "stated") else None
             self._request(ctx, MissingField.GENERAL_QUESTION, Mode.CONFIRM, AnswerType.TEXT, text,
                           {"group": p.group, "car_label": car}, option_id=f"gq-{secrets.token_hex(6)}")
             line = "שלחתי את השאלה לנציג התחבורה. התשובה תגיע לכאן, ובינתיים אפשר להמשיך."

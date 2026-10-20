@@ -34,12 +34,20 @@ def test_llm_first_with_a_failing_llm_falls_back_to_the_parser(sessions):
     assert turns[-1].results[0].result["delta_display"] == "661"
 
 
-def test_llm_and_parser_disagree_so_nothing_is_saved_and_the_bot_asks(sessions):
-    fake = FakeLLM().turn(call("save_profile", base_salary=19000))
+def test_a_value_the_employee_never_said_is_not_saved_and_what_they_said_is(sessions):
+    fake = FakeLLM().turn(call("save_profile", base_salary=19000))          # 19,000 is not in the message
     turns, token = talk(service(sessions, LLMChain([fake])), ["שכר בסיס 18,500"])
     assert fake.calls
-    assert svc_base(sessions, turns[-1], token) is None
-    assert "קיבלתי שני ערכים שונים לשכר בסיס. מה הערך הנכון?" in turns[-1].reply
+    assert svc_base(sessions, turns[-1], token) == 18500                  # the parser's labelled value, as said
+    assert "18,500" in turns[-1].reply and "19,000" not in turns[-1].reply
+
+
+def test_llm_and_parser_disagree_on_a_value_both_in_the_message_so_the_bot_asks(sessions):
+    fake = FakeLLM().turn(call("save_profile", pension_percent=2.5))       # 2.5 is the study fund, not the pension
+    turns, token = talk(service(sessions, LLMChain([fake])), ["פנסיה 6%, קרן השתלמות 2.5%"])
+    p = service(sessions, LLMChain()).view(turns[-1].conversation_id, token).state.profile
+    assert p.pension_percent is None
+    assert "קיבלתי שני ערכים שונים לפנסיה. מה הערך הנכון?" in turns[-1].reply
 
 
 def svc_base(sessions, turn, token):

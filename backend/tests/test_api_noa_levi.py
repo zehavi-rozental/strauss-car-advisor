@@ -7,7 +7,7 @@ from app.modules.conversation.llm.fake import FakeLLM, call
 from app.modules.conversation.models import CalculationRunRow, ConfigSnapshotRow, MessageRow
 from app.modules.conversation.public import LLMChain
 
-from .conftest import make_client
+from .conftest import CAR_WORDS, NOA_WORDS, make_client
 
 PENDING = "השתתפות ב-ATTO 3 (2025) לפי הקטלוג — ממתינה לאישור נציג"
 
@@ -41,13 +41,13 @@ def test_noa_levi_with_llm(engine, sessions):
                    pension_percent=6, study_fund_percent=2.5, credit_points=2.75, children_under_23=2),
               reply="תודה! איזה רכב יש לכם היום?")
     body = client.post(f"/api/conversations/{cid}/messages", json={
-        "text": "הנה הפרטים שלי"}).json()     # הקורא לא מבין → המודל
+        "text": NOA_WORDS}).json()     # הקורא לא מבין → המודל
     assert body["stage"] == "COLLECT_CURRENT_CAR"
     assert body["source"] == "template"      # השאלה הבאה — תבנית, בלי קריאת ניסוח
 
     fake.turn(call("match_current_car", model="COROLLA CROSS"), call("save_profile", current_copay=300),
               reply="מצאתי את COROLLA CROSS (2025). לאיזה רכב להשוות?")
-    body = client.post(f"/api/conversations/{cid}/messages", json={"text": "זה הרכב שלי, אותו אחד כמו תמיד"}).json()
+    body = client.post(f"/api/conversations/{cid}/messages", json={"text": CAR_WORDS}).json()
     assert body["stage"] == "CHOOSE_OPTIONS"
 
     fake.turn(call("calculate", options=["ATTO 3"]),

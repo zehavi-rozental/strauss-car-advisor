@@ -10,7 +10,7 @@ from app.modules.conversation.repository import ConversationRepository
 from app.modules.rules.public import RulesStore
 from app.shared.db import Base, make_engine, session_factory
 
-from .conftest import CONFIG
+from .conftest import CAR_WORDS, CONFIG, NOA_WORDS
 
 NOA_SAVE = call("save_profile", occupation="מנהלת מוצר", base_salary=18500, commissions=0, bonus=0,
                 pension_percent=6, study_fund_percent=2.5, credit_points=2.75, children_under_23=2)
@@ -47,9 +47,9 @@ def test_no_write_lock_is_held_during_llm_calls(tmp_path):
     turn, token = svc.start()
 
     fake.turn(NOA_SAVE)
-    svc.send(turn.conversation_id, token, "פרופיל")
+    svc.send(turn.conversation_id, token, NOA_WORDS)
     fake.turn(call("match_current_car", model="COROLLA CROSS"), call("save_profile", current_copay=300))
-    svc.send(turn.conversation_id, token, "זה הרכב שלי, אותו אחד כמו תמיד")
+    svc.send(turn.conversation_id, token, CAR_WORDS)
     fake.turn(call("calculate", options=["ATTO 3"]), reply="הנה ההשוואה שביקשת.")
     turn = svc.send(turn.conversation_id, token, "את החשמלי הסיני בבקשה")
 

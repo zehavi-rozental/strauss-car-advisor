@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Annotated, Any, Callable, Optional
@@ -77,6 +78,33 @@ class ToolContext:
 
 class ToolError(Exception):
     pass
+
+
+# ---------- free-text car name → a label that may be shown and sent to the representative ----------
+
+GENERIC_CAR_LABEL = "רכב שלא זוהה בקטלוג"
+# words that mean the text is about pay, not about a car: never sent to the representative
+_PAY_WORDS = ("שכר", "משכורת", "בונוס", "עמלה", "עמלות", "פנסיה", "ברוטו", "נטו", "השתלמות", "תלוש", "מרוויח")
+
+
+def safe_car_label(text: Any) -> str:
+    """A car name typed by the employee and not found in any file is free text: it may carry anything ("טויוטה
+    שכר 18,500"). Only a short name with no figures but a model number (1-2 digits) or a plausible year is
+    kept; anything else becomes a generic label. Privacy: the representative never sees pay data."""
+    t = " ".join(str(text or "").split())
+    if not t or len(t) > 40 or len(t.split()) > 5 or any(w in t for w in _PAY_WORDS):
+        return GENERIC_CAR_LABEL
+    for token in re.findall(r"\d[\d,.]*", t):
+        if not token.isdigit() or not (len(token) <= 2 or (len(token) == 4 and 1980 <= int(token) <= 2035)):
+            return GENERIC_CAR_LABEL
+    return t
+
+
+def rep_car_label(c: Any) -> Optional[str]:
+    """The car as the representative may see it: catalog and tax-file labels are ours; the rest is sanitized."""
+    if c.source in ("catalog", "tax"):
+        return c.label
+    return safe_car_label(c.label or c.query) if (c.label or c.query) else None
 
 
 # ---------- ארגומנטים ----------
@@ -251,11 +279,11 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
         elif c.query is None and c.source is None:
             ignored.append({"field": "current_use_value", "reason": "עוד לא ידוע מה הרכב"})
         elif args.current_use_value is not None:
-            c.source, c.label = "stated", c.label or c.query
+            c.source, c.label = "stated", c.label or safe_car_label(c.query)
             c.use_value, c.use_value_unknown = args.current_use_value, False
             saved.append("current_use_value")
         elif c.use_value is None:
-            c.source, c.label, c.use_value_unknown = "stated", c.label or c.query, True
+            c.source, c.label, c.use_value_unknown = "stated", c.label or safe_car_label(c.query), True
             saved.append("current_use_value_unknown")
 
     if args.current_drive:
@@ -396,7 +424,7 @@ def match_current_car(ctx: ToolContext, args: MatchCarArgs) -> dict[str, Any]:
             {"number": i + 1, "label": ch.label, "model_code": ch.description,
              "use_value": str(ch.use_value)} for i, ch in enumerate(choices)]}
     else:
-        ctx.state.current = CurrentCar(query=model, reg_year=year, label=model, **keep)
+        ctx.state.current = CurrentCar(query=model, reg_year=year, label=safe_car_label(model), **keep)
         result = {"status": "NOT_FOUND", "next": "ask the employee for the use value on their payslip"}
         if match.years and year is not None and not match.years[0] <= year <= match.years[1]:
             # outside the tax file: say what it covers; the use value comes from the payslip, never invented
@@ -436,18 +464,37 @@ def available_options(snapshot: RulesSnapshot, state: ConversationState) -> list
     return out
 
 
-def resolve_option(snapshot: RulesSnapshot, options: list[Option], text: str) -> Optional[Option]:
+MIN_PARTIAL_CHARS = 3        # a fragment shorter than this ("3", "a", "ev") is never a car
+
+
+def _key(text: str) -> str:
+    return re.sub(r"[^0-9a-zא-ת]+", "", re.sub(r"\(\d{4}\)", "", text).lower())
+
+
+def _match_option(snapshot: RulesSnapshot, options: list[Option], text: str) -> tuple[Optional[Option], list[Option]]:
+    """(the alternative, the alternatives it could be when ambiguous). Exact only: an id, a catalog name or an
+    alias, or the opt-out words. A fragment ("atto", "mazda") counts only when it is at least 3 characters and
+    names exactly one eligible car; several ("3": ATTO 3, MAZDA 3) are never picked silently."""
     t = text.strip()
     by_id = {o.id.upper(): o for o in options}
     if t.upper() in by_id:
-        return by_id[t.upper()]
+        return by_id[t.upper()], []
     if any(w in t.lower() for w in OPT_OUT_WORDS):
-        return by_id.get(OPT_OUT_ID)
-    cars = find_catalog_car(snapshot, t)
-    for car in cars:
-        if car.catalog_code in by_id:
-            return by_id[car.catalog_code]
-    return None
+        return by_id.get(OPT_OUT_ID), []
+    key = _key(t)
+    if not key:
+        return None, []
+    exact = [c for c in snapshot.catalog if key == _key(c.catalog_code) or key in {_key(n) for n in catalog_names(c)}]
+    if exact:                                    # a car named exactly; not eligible → not an alternative
+        return next((by_id[c.catalog_code] for c in exact if c.catalog_code in by_id), None), []
+    if len(key) < MIN_PARTIAL_CHARS:
+        return None, []
+    partial = [by_id[c.catalog_code] for c in find_catalog_car(snapshot, t) if c.catalog_code in by_id]
+    return (partial[0], []) if len(partial) == 1 else (None, partial)
+
+
+def resolve_option(snapshot: RulesSnapshot, options: list[Option], text: str) -> Optional[Option]:
+    return _match_option(snapshot, options, text)[0]
 
 
 def list_options(ctx: ToolContext, args: NoArgs) -> dict[str, Any]:
@@ -460,19 +507,25 @@ def calculate(ctx: ToolContext, args: CalculateArgs) -> dict[str, Any]:
     options = available_options(ctx.snapshot, ctx.state)
     chosen: list[str] = []
     unknown: list[str] = []
+    ambiguous: dict[str, list[str]] = {}
     for text in args.options:
-        opt = resolve_option(ctx.snapshot, options, text)
+        opt, several = _match_option(ctx.snapshot, options, text)
         if opt is None:
             unknown.append(text[:40])
+            if several:
+                ambiguous[text[:40]] = [o.label for o in several]
         elif opt.id not in chosen:
             chosen.append(opt.id)
     if not chosen:
+        if ambiguous:
+            raise ToolError("שם לא חד-משמעי: " + "; ".join(f"{k} = {' או '.join(v)}" for k, v in ambiguous.items())
+                            + ". לשאול את העובד לאיזה התכוון")
         raise ToolError("אף חלופה לא זוהתה")
     ctx.state.selected = chosen[:MAX_OPTIONS]
     ctx.state.rank_requested = False
     ctx.state.ranked_count = 0
     _invalidate_results(ctx.state)
-    return {"selected": ctx.state.selected, "not_recognized": unknown,
+    return {"selected": ctx.state.selected, "not_recognized": unknown, "ambiguous": ambiguous,
             "note": "the system calculates now; do not compute anything yourself"}
 
 
@@ -515,7 +568,7 @@ def engine_inputs(snapshot: RulesSnapshot, state: ConversationState
     else:
         if c.drive is None:   # המכונה לא מתקדמת בלי הנעה; אין ברירת מחדל
             raise ToolError("חסר סוג ההנעה של הרכב הנוכחי")
-        current = CarState(label=c.label or c.query or "הרכב שלכם", group=None, drive=c.drive,
+        current = CarState(label=c.label or safe_car_label(c.query) if (c.label or c.query) else "הרכב שלכם", group=None, drive=c.drive,
                            use_value=c.use_value, copay=c.copay, copay_status=CopayStatus.EMPLOYEE_STATED)
     occupation = occupation_rule(snapshot.occupations.get(p.occupation or ""))
     if occupation is None and p.occupation_unknown and p.group:

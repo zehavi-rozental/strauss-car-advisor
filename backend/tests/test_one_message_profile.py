@@ -10,7 +10,7 @@ from app.modules.conversation.parsing import parse_profile_fields
 from app.modules.conversation.public import ConversationService, LLMChain, Stage
 from app.modules.rules.public import RulesStore
 
-from .conftest import CONFIG, make_client, without_cta
+from .conftest import CAR_WORDS, CONFIG, NOA_WORDS, make_client, without_cta
 
 NOA_PROFILE = ("אני מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, "
                "2.75 נקודות זיכוי, 2 ילדים")
@@ -25,7 +25,7 @@ def test_the_model_saves_in_round_one_and_writes_the_reply_after_the_tool_result
     fake = FakeLLM().turn(NOA_SAVE, reply=None)
     svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([fake]))
     turn, token = svc.start()
-    turn = svc.send(turn.conversation_id, token, "הנה הפרטים שלי")      # הקורא לא מבין → המודל
+    turn = svc.send(turn.conversation_id, token, NOA_WORDS)      # הקורא לא מבין → המודל
     first, second = [c for c in fake.calls if c.tools]
     assert {"save_profile", "match_current_car", "select_options", "propose_rep_question"} <= set(first.tools)
     assert second.messages[-1].role == "tool"                      # round 2 sees what the tools did
@@ -41,7 +41,7 @@ def test_at_most_three_rounds_and_the_user_message_is_delimited(sessions):
     fake = FakeLLM().turn(rounds=[[call("save_profile", base_salary=18500)]] * 5, reply=None)
     svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([fake]))
     turn, token = svc.start()
-    svc.send(turn.conversation_id, token, "הנה הפרטים שלי")
+    svc.send(turn.conversation_id, token, "הנה הפרטים שלי")      # (the call is refused: only the rounds are checked)
     rounds = [c for c in fake.calls if c.tools]
     assert len(rounds) == 3
     assert rounds[0].messages[-1].content == "<<<USER>>>\nהנה הפרטים שלי\n<<<END>>>"
@@ -90,7 +90,7 @@ def test_a_reply_written_with_plain_saves_needs_no_second_round(sessions):
     turn, token = svc.start()
 
     fake.turn(call("save_profile", occupation="מנהלת מוצר"), reply=None)
-    svc.send(turn.conversation_id, token, "הנה הפרטים שלי")
+    svc.send(turn.conversation_id, token, NOA_WORDS)
     assert len([c for c in fake.calls if c.tools]) == 2           # a tool round, then the reply round
 
 
@@ -115,7 +115,7 @@ def test_provider_failure_after_first_round_keeps_profile(sessions):
     fake = FakeLLM().turn(NOA_SAVE, reply=None)
     svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([_FailsFromCall(fake, fail_from=2)]))
     turn, token = svc.start()
-    turn = svc.send(turn.conversation_id, token, "הנה הפרטים שלי")
+    turn = svc.send(turn.conversation_id, token, NOA_WORDS)
     assert turn.stage == Stage.COLLECT_CURRENT_CAR and turn.source == "template"
     current = svc.view(turn.conversation_id, token).state.current
     assert current.query is None and current.source is None        # לא חיפשו "רכב" בשם הפרופיל
@@ -136,10 +136,10 @@ def test_a_found_car_is_reported_in_a_second_round(sessions):
     fake = FakeLLM().turn(NOA_SAVE, reply=None)
     svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([fake]))
     turn, token = svc.start()
-    svc.send(turn.conversation_id, token, "הנה הפרטים שלי")
+    svc.send(turn.conversation_id, token, NOA_WORDS)
     before = len(fake.calls)
     fake.turn(call("match_current_car", model="COROLLA CROSS"), call("save_profile", current_copay=300))
-    turn = svc.send(turn.conversation_id, token, "זה הרכב שלי, אותו אחד כמו תמיד")
+    turn = svc.send(turn.conversation_id, token, CAR_WORDS)
     assert turn.stage == Stage.CHOOSE_OPTIONS
     assert len([c for c in fake.calls[before:] if c.tools]) == 2
 
