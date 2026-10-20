@@ -555,11 +555,23 @@ class ReplyPlan:
 
     def text(self) -> str:
         parts = [x for x in [*self.answers, *self.ack, *self.follow_up, *self.ask, self.cta] if x]
-        # safety net only (the root cause is handled where the parts are built): never emit the same
-        # block twice in one reply. Order is preserved; the first occurrence wins.
+        # safety net only (the root cause is handled where the parts are built): never emit the same line
+        # twice in one reply. Dedup at the line level across the whole reply, but keep each block's own
+        # multi-line structure (so a list or a two-line question is preserved). First occurrence wins.
         seen: set[str] = set()
-        unique = [p for p in parts if not (p.strip() in seen or seen.add(p.strip()))]
-        return "\n\n".join(unique)
+        kept_blocks: list[str] = []
+        for part in parts:
+            lines = []
+            for line in part.splitlines():
+                key = line.strip()
+                if not key or key not in seen:
+                    if key:
+                        seen.add(key)
+                    lines.append(line)
+            block = "\n".join(lines).strip()
+            if block:
+                kept_blocks.append(block)
+        return "\n\n".join(kept_blocks)
 
     def as_json(self) -> dict[str, Any]:
         return {"answers": self.answers, "ack": self.ack, "follow_up": self.follow_up, "ask": self.ask,

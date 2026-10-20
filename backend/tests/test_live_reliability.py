@@ -137,6 +137,34 @@ def test_live_sunroof_question(sessions):
     assert "רק כדי" not in turn.reply        # not the generic "I only calculate net" brush-off
 
 
+def test_live_no_car_group_b_defer_and_restate(sessions):
+    """The second browser failure, live: 'קבוצה ב אין לי רכב', then defer salary, then 'כבר אמרתי'.
+    Must save group=ב AND no car, respect the defer, and not loop re-asking the group or salary."""
+    turn, token, state, svc = _run(sessions, "group B no car + defer + restate", [
+        "קבוצה ב אין לי רכב",
+        'את זה תשאל אח"כ אני אבדוק תעבור לשאלות אחרות',
+        "כתבתי לך שקבוצה ב",
+    ])
+    assert state.profile.group == "ב"                        # group saved and kept
+    assert state.current.source == "none"                    # no car understood
+    assert state.profile.base is None                        # salary not invented
+    last = [ln for ln in turn.reply.splitlines() if ln.strip()][-1]
+    assert not last.strip().startswith("מה קבוצת")           # not looping on the group
+    assert _no_duplicate_lines(turn.reply)
+
+
+def test_live_no_car_maintenance_three_way(sessions):
+    """A no-car employee is asked about a maintenance allowance (not told they have one); 'אין' confirms 0."""
+    turn, token, state, svc = _run(sessions, "no car maintenance", [
+        "מנהלת מוצר, שכר בסיס 18500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים",
+        "אין לי רכב",
+        "אין",
+    ])
+    assert state.current.source == "none"
+    assert state.current.maintenance == 0                    # "אין" -> confirmed 0, not an assumption
+    assert _no_duplicate_lines(turn.reply)
+
+
 def test_live_explain_calculation(sessions):
     turn, token, state, svc = _run(sessions, "explain", [
         "מנהלת מוצר, שכר בסיס 18,500",
