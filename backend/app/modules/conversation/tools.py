@@ -506,6 +506,19 @@ def _obj(props: dict[str, Any], required: Optional[list[str]] = None) -> dict[st
     return schema
 
 
+class RepQuestionArgs(_Args):
+    question: str
+
+
+def propose_rep_question(ctx: ToolContext, args: RepQuestionArgs) -> dict[str, Any]:
+    """Only the offer: the employee chooses "לשאול את הנציג" (then a privacy-checked preview) or "להמשיך בלי"."""
+    question = " ".join(args.question.split())[:300]
+    if not question:
+        raise ToolError("חסרה שאלה")
+    ctx.state.unanswered_question = question
+    return {"offered": True, "note": "end your reply by offering to ask the representative; buttons are shown"}
+
+
 NUM = {"type": "number"}
 
 TOOL_SPECS: dict[str, ToolSpec] = {
@@ -551,6 +564,17 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         _obj({"options": {"type": "array", "items": {"type": "string"}}}, ["options"])),
     "rank_options": ToolSpec(
         "rank_options", "Select the alternatives that raise the employee's net pay the most.", _obj({})),
+    "select_options": ToolSpec(
+        "select_options",
+        "Select up to 3 alternatives to compare (option ids or model names from STATE). The system calculates "
+        "as soon as the profile and the current car are known; you never calculate.",
+        _obj({"options": {"type": "array", "items": {"type": "string"}}}, ["options"])),
+    "propose_rep_question": ToolSpec(
+        "propose_rep_question",
+        "The employee asked something the FAQ and STATE do not answer. Offer to ask the transport "
+        "representative: the employee then sees the buttons \"לשאול את הנציג\" / \"להמשיך בלי\". Nothing is sent "
+        "now (a privacy-checked preview comes first). Pass the employee's question in short Hebrew.",
+        _obj({"question": {"type": "string"}}, ["question"])),
 }
 
 TOOLS: dict[str, tuple[type[_Args], Callable[[ToolContext, Any], dict[str, Any]]]] = {
@@ -559,6 +583,8 @@ TOOLS: dict[str, tuple[type[_Args], Callable[[ToolContext, Any], dict[str, Any]]
     "list_options": (NoArgs, list_options),
     "calculate": (CalculateArgs, calculate),
     "rank_options": (NoArgs, rank_options),
+    "select_options": (CalculateArgs, calculate),
+    "propose_rep_question": (RepQuestionArgs, propose_rep_question),
 }
 
 

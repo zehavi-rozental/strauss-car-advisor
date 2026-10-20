@@ -6,13 +6,15 @@
 """
 from __future__ import annotations
 
+import json
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Optional, Sequence
 
 from .port import ChatMessage, LLMError, LLMResponse, ToolCall, ToolSpec
 
-SAY_MARK = "You write the next chat message"   # the agent's SAY prompt (phrasing a reply plan)
+VERIFY_MARK = "You verify a reply"            # guards.VERIFY_PROMPT (the claim verifier)
+RETRY_MARK = "Your reply broke these rules"   # agent._retry (the feedback after a guard violation)
 
 
 @dataclass
@@ -20,7 +22,9 @@ class _Turn:
     rounds: deque[tuple[ToolCall, ...]] = field(default_factory=deque)
     reply: Optional[str] = None
     forced_only: bool = False
-    user_turn: Optional[int] = None    # מספר הודעות העובד כשהתור התחיל
+    retry: Optional[str] = None          # the reply after a guard violation (None → the retry fails)
+    user_turn: Optional[tuple] = None    # the employee message this turn belongs to
+    replied: bool = False
 
 
 @dataclass(frozen=True)
@@ -30,53 +34,68 @@ class FakeCall:
     require_tool: bool
 
 
+def _key(messages: Sequence[ChatMessage]) -> Optional[tuple]:
+    last = next((m for m in reversed(messages) if m.role == "user"), None)
+    return (id(last), last.content) if last is not None else None
+
+
 class FakeLLM:
+    """Scripted turns. In a turn: the tool rounds, then (on the next tools call, as Gemini writes its reply
+    after seeing the tool results) the reply text. reply=None → no text → the template.
+    The claim verifier gets `verdicts` (default: every sentence supported); a retry gets the turn's `retry`."""
+
     name = "fake"
 
     def __init__(self) -> None:
         self.script: deque[_Turn] = deque()
         self.calls: list[FakeCall] = []
+        self.verdicts: deque[str] = deque()
+        self.last: Optional[_Turn] = None
 
-    def turn(self, *tool_calls: ToolCall, reply: Optional[str] = None,
+    def turn(self, *tool_calls: ToolCall, reply: Optional[str] = None, retry: Optional[str] = None,
              rounds: Sequence[Sequence[ToolCall]] = (), forced_only: bool = False) -> "FakeLLM":
-        """reply=None → הניסוח נכשל (LLMError) והשיחה משתמשת בתבנית.
-
-        forced_only=True מחקה את Gemini במצב AUTO: בלי require_tool הוא עונה בטקסט
-        ולא קורא לכלי; רק כשהבקשה מחייבת כלי הוא מחזיר את הקריאות.
-        """
         all_rounds = deque(tuple(r) for r in rounds)
         if tool_calls:
             all_rounds.appendleft(tuple(tool_calls))
-        self.script.append(_Turn(rounds=all_rounds, reply=reply, forced_only=forced_only))
+        self.script.append(_Turn(rounds=all_rounds, reply=reply, forced_only=forced_only, retry=retry))
+        return self
+
+    def verdict(self, unsupported: Sequence[int]) -> "FakeLLM":
+        self.verdicts.append(json.dumps({"unsupported": list(unsupported)}))
         return self
 
     def complete(self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = (),
                  require_tool: bool = False, timeout_s: Optional[float] = None) -> LLMResponse:
         self.calls.append(FakeCall(list(messages), [t.name for t in tools], require_tool))
         if tools:
-            user_turn = sum(1 for m in messages if m.role == "user")
-            if self.script and self.script[0].user_turn not in (None, user_turn):
-                self.script.popleft()            # התור הקודם הסתיים בלי ניסוח
+            key = _key(messages)
+            if self.script and self.script[0].user_turn not in (None, key):
+                self.script.popleft()            # the previous turn ended
             if self.script and self.script[0].user_turn is None:
-                self.script[0].user_turn = user_turn
+                self.script[0].user_turn = key
             current = self.script[0] if self.script else None
             if current and current.rounds:
                 if current.forced_only and not require_tool:
                     return LLMResponse(text="תודה! רשמתי את הפרטים.")
                 return LLMResponse(tool_calls=current.rounds.popleft())
+            if current and current.reply is not None and not current.replied:
+                current.replied, self.last = True, current
+                return LLMResponse(text=current.reply)
             return LLMResponse()
+        system = messages[0].content if messages and messages[0].role == "system" else ""
+        if system.startswith(VERIFY_MARK):
+            return LLMResponse(text=self.verdicts.popleft() if self.verdicts else '{"unsupported": []}')
+        if messages and messages[-1].role == "user" and messages[-1].content.startswith(RETRY_MARK):
+            if self.last is None or self.last.retry is None:
+                raise LLMError("FakeLLM: no retry scripted")
+            text, self.last.retry = self.last.retry, None
+            return LLMResponse(text=text)
         if not self.script:
             raise LLMError("FakeLLM: התסריט נגמר")
-        is_say = bool(messages) and messages[0].role == "system" and messages[0].content.startswith(SAY_MARK)
-        if is_say and self.script[0].user_turn is None and self.script[0].rounds:
-            # the phrasing (SAY) of a turn the parser handled alone: the next scripted turn belongs to a later
-            # message — not consumed here
-            raise LLMError("FakeLLM: no phrasing scripted for this turn")
         reply = self.script.popleft().reply
         if reply is None:
             raise LLMError("FakeLLM: ניסוח נכשל")
         return LLMResponse(text=reply)
-
 
 class FailingLLM:
     """ספק שתמיד נכשל — לבדיקת מעבר לגיבוי."""

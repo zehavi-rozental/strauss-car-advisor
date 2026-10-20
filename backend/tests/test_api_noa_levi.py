@@ -58,9 +58,9 @@ def test_noa_levi_with_llm(engine, sessions):
 
     # UNDERSTAND: one call per turn with every data tool and note_message (nothing said early is dropped)
     tool_sets = [c.tools for c in fake.calls if c.tools]
-    assert len(tool_sets) == 3
-    assert all("note_message" in s and "save_profile" in s and "match_current_car" in s for s in tool_sets)
-    assert "calculate" in tool_sets[-1]
+    assert len(tool_sets) == 6                                    # per turn: the tool round, then the reply round
+    assert all({"save_profile", "match_current_car", "propose_rep_question"} <= set(s) for s in tool_sets)
+    assert "select_options" in tool_sets[-1]
 
     state = client.get(f"/api/conversations/{cid}").json()
     assert state["stage"] == "PRESENTED"

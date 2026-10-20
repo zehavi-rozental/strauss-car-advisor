@@ -88,7 +88,7 @@ def test_the_payslip_upload_link_is_offered_only_when_configured(sessions, tmp_p
 def test_say_reasons(sessions):
     svc = service(sessions, LLMChain([FakeLLM().turn(reply='כתבו כאן, למשל: "קבוצה ג, שכר בסיס 18,500".')]))
     turn, token = svc.start()
-    assert svc.send(turn.conversation_id, token, "מה?").say == "coverage:items"
+    assert svc.send(turn.conversation_id, token, "מה?").say == "guard:unanswered"     # only the CTA line
     svc = service(sessions, LLMChain([FailingLLM()]))
     turn, token = svc.start()
     assert svc.send(turn.conversation_id, token, "מה?").say == "outage"

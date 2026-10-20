@@ -1,6 +1,8 @@
 """כל חלופה מוסברת בשפה פשוטה, כמו "למה?" בתרחיש הרשמי. כל מספר — משדות המנוע, לא מחושב בתבנית."""
 from __future__ import annotations
 
+import app.modules.conversation.templates as T
+
 from decimal import Decimal
 
 from app.modules.calculation.public import CopayStatus, evaluate
@@ -42,7 +44,11 @@ def test_atto_3_is_explained_in_plain_lines(sessions):
     assert r["cost"]["monthly_cost"] == str(atto.monthly_cost) and r["cost"]["budget"] == str(budget)
     assert r["cost"]["under_budget"] is (atto.monthly_cost < budget)
     # the chat text is two short lines; the detail lives in the structured result
-    assert turn.reply == "בדקתי את ATTO 3 (2025). הנטו שלכם יגדל ב-661 ₪ בחודש.\nחסר לי רק אישור לסכום ההשתתפות שלכם ברכב החדש. שאלתי את נציג התחבורה, ואעדכן כאן ברגע שיענה."
+    summary = ("בדקתי את ATTO 3 (2025). הנטו שלכם יגדל ב-661 ₪ בחודש.\nחסר לי רק אישור לסכום ההשתתפות שלכם ברכב "
+               "החדש. שאלתי את נציג התחבורה, ואעדכן כאן ברגע שיענה.")
+    # the summary, then why (the engine's main driver, in words), then one next step
+    assert turn.reply.split("\n\n") == [summary, "הסיבה העיקרית ב-ATTO 3 (2025): שווי השימוש נמוך יותר, ולכן המס יקטן.",
+                                        T.NEXT_AFTER_RESULTS]
     assert r["why"] == "שווי השימוש נמוך יותר, ולכן המס יקטן." and r["copay_pending"] is True
 
 

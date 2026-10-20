@@ -41,11 +41,11 @@ def test_template_replies_never_use_the_singular(sessions):
 def test_a_phrased_reply_in_the_singular_or_with_an_opener_is_not_used(sessions):
     singular = "נקודות זיכוי מקטינות את המס, כל נקודה שווה 242 ₪.\nמה הקבוצה שלך ומה שכר הבסיס?\n" + Q1_CTA
     opener = "שמנו לב שנקודות זיכוי שוות 242 ₪.\nמה הקבוצה שלכם ושכר הבסיס?\n" + Q1_CTA
-    for reply, reason in ((singular, "coverage:address"), (opener, "coverage:opener")):
+    for reply, reason in ((singular, "address"), (opener, "opener")):
         svc = service(sessions, LLMChain([FakeLLM().turn(reply=reply)]))
         turn, token = svc.start()
         turn = svc.send(turn.conversation_id, token, "מה זה נקודות זיכוי?")
-        assert turn.say == reason and turn.source == "template"
+        assert reason in turn.say and turn.source == "template"
 
 
 # ---------- 2. a request the bot cannot do yet; no verbatim repeat ----------

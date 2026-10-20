@@ -127,9 +127,9 @@ class ChooseAtTheBarrier(FakeLLM):
         self.barrier = barrier
 
     def complete(self, messages, tools=(), require_tool=False, timeout_s=None):
-        if tools:
+        if tools and messages[-1].role == "user":          # round 1 (round 2 sees the tool results)
             self.barrier.wait(timeout=10)
-            text = [m for m in messages if m.role == "user"][-1].content
+            text = messages[-1].content.split("\n")[1]          # inside <<<USER>>> … <<<END>>>
             return LLMResponse(tool_calls=(call("calculate", options=[self.CHOICE[text]]),))
         return LLMResponse()
 

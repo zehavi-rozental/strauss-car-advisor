@@ -518,6 +518,8 @@ class ReplyPlan:
 
 
 CTA_STARTS = ("כתבו", "בחרו", "אפשר לכתוב")
+NEXT_AFTER_RESULTS = "אפשר לכתוב \"הכי משתלם\" כדי לראות את המשתלמים ביותר מכל הרכבים שאתם זכאים להם."
+NEXT_AFTER_RANK = "אפשר לכתוב שמות של רכבים אחרים כדי להשוות אותם."
 LINK_LABELS = {"profile_form": "למלא בטופס", "selection": "להציג את הרכבים בקבוצה שלכם",
                "payslip_upload": "להעלות תלוש"}
 
@@ -759,7 +761,14 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
         plan.fixed = True
         return plan
     if plan.fixed and state.stage == Stage.PRESENTED:
-        return plan                # the results card carries "לשנות בחירה"; the text stays at two lines
+        # after results: why (the engine's main driver, in words), then one relevant next step
+        ok = [r for r in state.results if r.result.get("status") == "OK" and r.result.get("delta_display") is not None]
+        if ok:
+            best = max(ok, key=lambda r: Decimal(str(r.result["delta_display"])))
+            if best.result.get("why"):
+                plan.ask.append(f"הסיבה העיקרית ב-{best.label}: {best.result['why']}")
+            plan.cta = (NEXT_AFTER_RANK if state.ranked_count else NEXT_AFTER_RESULTS)
+        return plan
     cta, _ = call_to_action(state, snapshot)
     plan.cta = cta
     if state.pending_rep_question is not None:

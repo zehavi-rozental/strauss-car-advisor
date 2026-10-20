@@ -1,9 +1,9 @@
 """תור אחד בשיחה: UNDERSTAND → DECIDE → SAY.
 
-UNDERSTAND: the parser, then one LLM call (data tools + note_message), checked in code.
-DECIDE: code saves the values, advances the state machine, calculates, and builds a reply plan
-(answers from faq.yaml, acks, one question, one call to action). SAY: the LLM writes the plan; the
-template of the same plan when the LLM is off, fails, or breaks the number guard or the coverage check.
+LLM-led (turn.py): one tool-calling call reads the message, saves through tools (every call checked in
+code), answers and asks; guards.py checks the reply (numbers, sources, claims, progress, shape), with one
+retry, then the reply without the offending sentences, then the template. Code still owns the state
+machine, the calculation, the rep flow and the template path (no LLM / outage / results / rep messages).
 """
 from __future__ import annotations
 
@@ -28,7 +28,9 @@ from .fallback import (ZERO_ALLOWED, fields_plan, ParserPlan, car_roles, correct
 from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
 from .parsing import YEAR_RE, match_occupation, no_car_span, parse_copay, read_profile, redact_id_numbers
-from .understanding import NO_CAR_OR_ZERO, NOTE_PROMPT, NOTE_TOOL, Understanding, merge_note, note_spec, understand
+from .guards import SINGULAR_RE, TAG_RE, Check, Violation, check, content_sentences, drop, sentences, verify
+from .turn import LLM_TOOLS, Candidate, parser_hint, render_faq, run_rounds, state_block, system_message, user_message
+from .understanding import NO_CAR_OR_ZERO, Understanding, understand
 from .stage import (
     allowed_tools,
     current_group,
@@ -52,7 +54,6 @@ from .templates import (
     to_plural,
     compare_needs_text,
     unknown_ack_text,
-    ReplyPlan,
     call_to_action,
     money,
     plan_reply,
@@ -94,49 +95,7 @@ from .tools import (
 
 log = logging.getLogger(__name__)
 
-MAX_TOOL_ROUNDS = 4
-# בשלבי האיסוף הסבב הראשון מחייב קריאה לכלי: החילוץ לא תלוי בכך שהמודל יבחר לקרוא לו
-FORCED_TOOL_STAGES = (Stage.COLLECT_PROFILE, Stage.COLLECT_CURRENT_CAR)
-HISTORY_MESSAGES = 8
-
-EXTRACT_PROMPT = """You are the data-extraction step of a Hebrew-speaking company-car advisor at Strauss.
-The employee writes in Hebrew. Your only job is to record what they said by calling the tools.
-You never calculate, never answer in text, and never invent values.
-Stage: {stage}. Still missing: {missing}.
-{context}
-Rules:
-- Extract EVERY field the employee mentioned in this message in ONE save_profile call. A single message
-  often holds the whole profile, e.g. "אני מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%,
-  קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים" -> occupation "מנהלת מוצר", base_salary 18500,
-  commissions 0, bonus 0, pension_percent 6, study_fund_percent 2.5, credit_points 2.75, children_under_23 2.
-- "אין" / "לא" / "בלי" for commissions (עמלות), bonus (בונוס) or study fund (קרן השתלמות) means 0.
-- Percentages as plain numbers (6 for 6%). Money in shekels without separators (18,500 -> 18500).
-- Never fill a field the employee did not mention: leave it out, the system will ask for it.
-- If the employee does not know their current copay or use value, set the matching *_unknown flag.
-- Car models in Latin letters as on the tax-authority list (e.g. "קורולה קרוס" -> "COROLLA CROSS").
-- occupation: only a job title the employee names (e.g. "מנהלת מוצר"). Never a work pattern, place or
-  description ("במשמרות", "במפעל", "מהבית") — leave occupation out.
-- Never guess. Never expand a shortened number: for a salary, "18" or "בערך 18" is NOT 18,000. Pass the number
-  exactly as written; the system checks it and asks the employee to confirm.
-- If the employee gives a value as an estimate (כ-, בערך, בסביבות, בממוצע, משתנות), pass it and list that
-  field's name in approximate_fields."""
-
-SAY_PROMPT = """You write the next chat message of a Hebrew company-car advisor at Strauss, FROM A PLAN ONLY.
-The plan is JSON with, in this order: answers (to the employee's questions), ack (what was saved),
-follow_up, ask (the one question to ask now) and cta (the call to action).
-- Cover every plan item, in that order, each on its own line or paragraph: answer the questions first.
-  Never reply with the cta alone. Add no facts, advice or estimates.
-- Use only the numbers that appear in the plan, written exactly as in the plan. Never calculate.
-- Warm, natural and concise Hebrew: short sentences, one idea per line, at most 2-3 lines per paragraph.
-  No chains of "·", no formulas, no parenthetical comparisons.
-- Address the employee ONLY in second-person plural: שלכם, לכם, בחרתם, כתבתם, כתבו, בחרו. Never singular
-  (שלך, לך, בחרת, כתבת), never mixed; never assume the employee's gender.
-- Start directly with the first plan item. No openers ("בשמחה", "שמנו לב ש", "איזה יופי", "רשמנו לפנינו").
-  Acknowledgements start with "רשמתי:" exactly as in the plan.
-- The LAST line must be the cta, copied exactly, character for character.
-Return only the message text."""
-
-SAY_RESERVE_S = 0.3        # SAY needs at least this much of the turn budget; otherwise the template
+HISTORY = 12
 
 REP_QUESTION_PROMPT = """Rewrite the employee's question below as one short, neutral Hebrew question for the company's
 transport representative. Remove every salary, amount, percentage and personal number, and anything
@@ -282,7 +241,7 @@ def _cross_check(ctx: ToolContext, call: ToolCall, expected: dict[str, Any], con
         if not cars or cars[0].catalog_code != expected["car"]:
             conflicts.append("current_car")
             return ToolCall(call.name, {}, call.id)          # ריק — לא מתאים דבר
-    if call.name == "calculate" and "options" in expected:
+    if call.name in ("calculate", "select_options") and "options" in expected:
         # שמות שהמודל שלח → מזהי חלופות, כמו שהכלי עצמו מפרש אותם
         options = available_options(snapshot, ctx.state)
         resolved = [resolve_option(snapshot, options, str(t)) for t in call.args.get("options", [])]
@@ -350,7 +309,7 @@ def _recorded(facts: dict[str, Any]) -> bool:
 def _role_conflict(ctx: ToolContext, call: ToolCall, text: str) -> Optional[CatalogCar]:
     """המודל קרא ל-match_current_car על רכב שנכתב כחלופה ("רוצה לבדוק"), או ל-calculate על רכב שנכתב
     כרכב של היום ("יש לי"). התפקיד נקבע בקוד לפי המילים (car_role_cues) — הקריאה לא רצה, ושואלים."""
-    if call.name not in ("match_current_car", "calculate"):
+    if call.name not in ("match_current_car", "calculate", "select_options"):
         return None
     snapshot = ctx.snapshot
     cars = named_cars(text, snapshot.catalog)
@@ -378,11 +337,11 @@ def _role_conflict(ctx: ToolContext, call: ToolCall, text: str) -> Optional[Cata
 
 
 def _understand_tools(state: ConversationState) -> tuple[str, ...]:
-    """The data tools UNDERSTAND may run: everything said is saved whatever the stage (the stage is
-    derived from the data), except while calculating or waiting for the representative."""
+    """The tools the LLM may call: everything said is saved whatever the stage (the stage is derived from
+    the data), except while calculating or waiting for the representative."""
     if next_stage(state) in (Stage.CALCULATING, Stage.WAITING_FOR_REP):
         return ()
-    return ("save_profile", "match_current_car", "list_options", "rank_options", "calculate")
+    return LLM_TOOLS
 
 
 def _is_zero(value: Any) -> bool:
@@ -523,6 +482,9 @@ class Agent:
         self.llm = llm
         self.mode = mode          # llm_first | parser_first
 
+    def _llm_led(self) -> bool:
+        return self.llm.available and self.mode == "llm_first"
+
     def greeting(self, state: ConversationState, snapshot: RulesSnapshot) -> str:
         _mark_asked(state)
         state.last_asked = list(current_group(state)[1])
@@ -613,8 +575,8 @@ class Agent:
             plan = _ambiguity_plan(state, choice)
         elif und.question_only and und.anything and und.ambiguity is None:
             # only questions / "מה?" / off topic: nothing to save, and a pending question stays open.
-            # Without an FAQ match the LLM (when there is one) may still map the question.
-            plan = ParserPlan(complete=not (und.unanswered and self.llm.available), direct=True)
+            # With an LLM it answers (from the FAQ / STATE); without one, the FAQ template.
+            plan = ParserPlan(complete=not self._llm_led(), direct=True)
         elif state.pending_confirmation is not None and (confirmed := _confirmation_plan(state, text)) is not None:
             plan = confirmed                     # "כן" / "לא" על "התכוונתם ל-18,000 ₪?"
         elif state.pending_occupation is not None and (answer := _occupation_answer(state, text)) is not None:
@@ -655,6 +617,10 @@ class Agent:
         car_before = _car_key(state)
         before_turn = _Before.of(state)
         used_llm = False
+        candidate: Optional[Candidate] = None
+        llm_failed = False
+        gap_ack = ""
+        before_turn_unanswered = state.unanswered_question
         deadline = self.llm.turn_deadline()   # אחרי LLM_TURN_DEADLINE_S — תבניות, בלי ספקים נוספים
         conflicts: list[str] = []
         parser_decides = plan.complete and (self.mode == "parser_first" or plan.calls == [] or plan.direct)
@@ -670,11 +636,11 @@ class Agent:
             # המודל קורא קודם. תוכנית הקורא חושבה לפני כל שינוי במצב: גיבוי, ובדיקה צולבת כשנקרא במלואו.
             cross = _expected_values(snapshot, plan) if plan.complete else {}
             try:
-                understood = self._extract_llm(ctx, history, text, deadline, cross, conflicts, und)
+                understood, candidate = self._llm_turn(ctx, history, text, plan, deadline, cross, conflicts, und)
                 used_llm, path = True, "llm"
             except LLMError:
-                log.warning("llm extraction failed; falling back to the parser")
-                understood, path = False, "fallback"
+                log.warning("llm turn failed; falling back to the parser")
+                understood, path, llm_failed = False, "fallback", True
             # המודל לא קרא לכלי, נכשל או בהמתנה: הקורא (מלא, או רק הגיבוי הבטוח שלו). ניחוש "כל ההודעה
             # היא הערך" רץ רק כשהמודל לא זמין — אם המודל קרא את ההודעה ולא רשם דבר, לא מנחשים.
             declined = path == "llm"
@@ -685,12 +651,17 @@ class Agent:
                     path = "fallback"            # הקורא פעל, או שהמודל נכשל
                 understood = self._execute(ctx, plan.calls) or plan.notice is not None
             elif understood and not und.question_only:
-                # labelled values the LLM left out ("משלמת עליה 300" next to the car) — never dropped
-                understood = self._fill_gaps(ctx, und.remainder, conflicts) or understood
+                # labelled values the LLM left out ("משלמת עליה 300" next to the car) — never dropped,
+                # and said, since the LLM's reply does not know about them
+                values = _values(state)
+                if self._fill_gaps(ctx, und.remainder, conflicts):
+                    gap_ack = ack_text({k: v for k, v in _values(state).items() if v != values.get(k)})
 
         if before_turn.group == "Q2" and any(f in Q2_FIELDS for f in before_turn.changed(state)):
             state.q2_answered = True             # Q2 answered in part: its leftovers wait for Q3
-        state.unanswered_question = und.unanswered[0] if und.unanswered else None
+        # a complaint ("לא עונה לשאלה") keeps the earlier unanswered question: the offer is repeated
+        state.unanswered_question = (und.unanswered[0] if und.unanswered
+                                     else before_turn_unanswered if und.complaint else None)
         self._open_blocking_rep(ctx)
         self._resolve_rank(ctx)
         just_calculated = False
@@ -707,7 +678,8 @@ class Agent:
         rep_opened = any(r.mode == Mode.REQUIRED for r in ctx.question_requests)
         problems = [conflict_text(c) for c in conflicts] + [range_problem_text(*p) for p in ctx.range_problems]
         answers, terms = self._answers(snapshot, und)
-        lines = [*extra, *([snapshot.faq.redirect] if und.redirect else [])]   # the rep offer is the ask (plan_reply)
+        lines = [*extra, *(["צודקים, סליחה."] if und.complaint else []),
+                 *([snapshot.faq.redirect] if und.redirect and not und.complaint else [])]   # the rep offer: plan_reply
         # a request the bot cannot do yet ("תשווה ביניהם" before the profile is complete): what is needed
         if (und.compare and not just_calculated and state.stage not in (Stage.PRESENTED, Stage.WAITING_FOR_REP)
                 and RANK_DEFERRED not in confirmations):
@@ -726,10 +698,16 @@ class Agent:
         requests = dict(question_requests=ctx.question_requests, cancel_question_ids=ctx.cancel_question_ids)
         draft = reply_plan.text()
         # results and the rep messages keep their exact template text; buttons get the template (fast)
-        if choice or reply_plan.fixed or rep_opened or not self.llm.available or self.mode == "parser_first":
+        if (choice or reply_plan.fixed or rep_opened or candidate is None or not self.llm.available
+                or self.mode == "parser_first"):
+            say = ("outage" if llm_failed else "not_tried" if candidate is None or not used_llm else "fixed")
             return TurnOutcome(reply=draft, source="template", just_calculated=just_calculated, path=path,
-                               **requests)
-        reply, source, blocked, say = self._say(reply_plan, deadline)
+                               say=say, **requests)
+        reply, source, blocked, say = self._guarded(candidate, draft, ctx, history, text, deadline, conflicts,
+                                                    must_answer=bool(und.faq_ids or und.unanswered or und.help
+                                                                     or und.complaint))
+        if gap_ack and source == "llm":
+            reply = f"{gap_ack}\n{reply}"
         return TurnOutcome(reply=reply, source=source, guard_blocked=blocked, just_calculated=just_calculated,
                            path=path, say=say, **requests)
 
@@ -764,62 +742,44 @@ class Agent:
 
     # ---------- חילוץ ----------
 
-    def _system(self, ctx: ToolContext) -> ChatMessage:
+    def _llm_turn(self, ctx: ToolContext, history: Sequence[ChatMessage], text: str, plan: ParserPlan,
+                  deadline: Optional[float], cross: dict[str, Any], conflicts: list[str],
+                  und: Understanding) -> tuple[bool, Candidate]:
+        """The LLM leads the turn: it saves through tools (each call checked in code, exactly as before),
+        answers and asks; the reply it writes is guarded in _finish before it is sent."""
         state, snap = ctx.state, ctx.snapshot
-        stage = next_stage(state)
-        group, missing = current_group(state)
-        context = ""
-        if group in ("Q1", "Q2") or "opt_out_occupation" in missing:
-            context = "Occupations table: " + "; ".join(snap.occupations.keys())
-        elif stage == Stage.COLLECT_CURRENT_CAR and state.current.choices:
-            context = "Car choices: " + "; ".join(f"{i}. {c.label}" for i, c in enumerate(state.current.choices, 1))
-        if "options" in missing or stage in (Stage.CHOOSE_OPTIONS, Stage.PRESENTED):
-            context += ("\n" if context else "") + "Options: " + "; ".join(
-                f"{o.id}: {o.label}" for o in available_options(snap, state))
-        return ChatMessage("system", EXTRACT_PROMPT.format(stage=stage.value, missing=", ".join(missing) or "nothing",
-                                                           context=context))
+        recorded = [False]
 
-    def _extract_llm(self, ctx: ToolContext, history: Sequence[ChatMessage], text: str,
-                     deadline: Optional[float] = None, cross: Optional[dict[str, Any]] = None,
-                     conflicts: Optional[list[str]] = None, und: Optional[Understanding] = None) -> bool:
-        """UNDERSTAND: ONE call. The model returns every part of the message at once: the data tools for
-        values (save_profile, match_current_car, calculate / rank_options) and note_message for questions,
-        presence without an amount, help and off-topic. Code checks every call before it runs."""
-        state, snap = ctx.state, ctx.snapshot
-        und = und if und is not None else Understanding(remainder=text)
-        names = _understand_tools(state)
-        if not names:
-            return False
-        system = self._system(ctx)
-        system = ChatMessage("system", system.content + NOTE_PROMPT.format(ids=", ".join(snap.faq.ids)))
-        messages: list[ChatMessage] = [system, *history[-HISTORY_MESSAGES:], ChatMessage("user", text)]
-        response = self.llm.complete(messages, [TOOL_SPECS[n] for n in names] + [note_spec(snap.faq)],
-                                     require_tool=True, deadline=deadline)
-        for call in response.tool_calls:
-            if call.name == NOTE_TOOL:
-                merge_note(und, call.args, snap.faq, text)
-        if (und.question_only and und.anything) or und.redirect:
-            return False                  # only questions / off topic: nothing is saved from this message
-        understood = False
-        order = {"save_profile": 0, "match_current_car": 1, "list_options": 2, "rank_options": 3, "calculate": 3}
-        calls = sorted((c for c in response.tool_calls if c.name != NOTE_TOOL), key=lambda c: order.get(c.name, 9))
-        for call in calls:
-            call = self._check_call(ctx, call, text, und)
-            if call is None:
-                continue
-            blocked = _role_conflict(ctx, call, text)
+        def execute(call: ToolCall) -> dict[str, Any]:
+            if call.name == "calculate":
+                call = ToolCall("select_options", call.args, call.id)
+            if call.name not in LLM_TOOLS:
+                return {"ok": False, "error": "unknown tool"}
+            checked = self._check_call(ctx, call, text, und)
+            if checked is None:
+                return {"ok": False, "error": "not saved: the message does not say this; ask the employee"}
+            blocked = _role_conflict(ctx, checked, text)
             if blocked is not None:
-                log.info("tool %s blocked: the car's role contradicts the message", call.name)
-                if blocked.catalog_code in state.role_asked:
-                    return understood    # כבר שאלנו על הרכב: לא שואלים שוב — הקורא פועל לפי המילים
-                state.pending_clarification = CarClarification(catalog_code=blocked.catalog_code,
-                                                               label=blocked.label)
-                state.role_asked.append(blocked.catalog_code)
-                return understood        # לא ממשיכים עם ההודעה הזו: שואלים על הרכב
-            call = _cross_check(ctx, call, cross or {}, conflicts if conflicts is not None else [])
-            understood = _recorded(self._run(ctx, call, relaxed=True)) or understood
-        return understood
+                if blocked.catalog_code not in state.role_asked:
+                    state.pending_clarification = CarClarification(catalog_code=blocked.catalog_code,
+                                                                   label=blocked.label)
+                    state.role_asked.append(blocked.catalog_code)
+                return {"ok": False, "error": f"not saved: ask whether {blocked.label} is the car today or "
+                                              "an alternative to check"}
+            before = len(conflicts)
+            checked = _cross_check(ctx, checked, cross, conflicts)
+            facts = self._run(ctx, checked, relaxed=True)
+            if len(conflicts) > before:
+                facts = {**facts, "conflict": conflicts[before:],
+                         "note": "two different readings of a value: ask the employee which one is right"}
+            if checked.name != "propose_rep_question":
+                recorded[0] = recorded[0] or _recorded(facts)
+            return facts
 
+        messages = [system_message(state, snap, parser_hint(plan.calls) if plan.complete else ""),
+                    *history[-HISTORY:], user_message(text)]
+        cand = run_rounds(self.llm, messages, _understand_tools(state), execute, deadline)
+        return recorded[0], cand
     @staticmethod
     def _check_call(ctx: ToolContext, call: ToolCall, text: str, und: Understanding) -> Optional[ToolCall]:
         """Hard rules on what the model asked to save: a field said to exist without an amount is never 0,
@@ -1125,31 +1085,91 @@ class Agent:
 
     # ---------- ניסוח ----------
 
-    def _say(self, plan: ReplyPlan, deadline: Optional[float] = None) -> tuple[str, str, bool, str]:
-        """SAY: the LLM writes the plan in natural Hebrew. Rejected (→ the template of the same plan) when
-        it adds a number that is not in the plan, drops a number or an answered term, or does not end with
-        the call to action."""
-        draft = plan.text()
-        if deadline is not None and deadline - self.llm.clock() < SAY_RESERVE_S:
-            return draft, "template", False, "deadline"     # no time left in the turn budget
-        try:
-            response = self.llm.complete([ChatMessage("system", SAY_PROMPT),
-                                          ChatMessage("user", json.dumps(plan.as_json(), ensure_ascii=False))],
-                                         deadline=deadline)
-        except LLMError as exc:
-            return draft, "template", False, "deadline" if getattr(exc, "timeout", False) or "זמן" in str(exc) else "outage"
-        reply = response.text.strip()
-        if not reply:
-            return draft, "template", False, "empty"
-        if violations(reply, collect_numbers(draft)):
-            log.warning("number guard blocked an llm reply")
-            return draft, "template", True, "guard"
-        missing = uncovered(reply, plan)
-        if missing:
-            log.warning("llm reply did not cover the plan (%s); template used", missing)
-            return draft, "template", False, f"coverage:{missing}"
-        return reply, "llm", False, "llm"
+    VERIFY_BUDGET_S = 1.2       # the claim verifier's own cap
+    MIN_VERIFY_S = 0.4          # less than this left in the turn: no verifier, only template-safe sentences
 
+    def _guarded(self, cand: Candidate, draft: str, ctx: ToolContext, history: Sequence[ChatMessage], text: str,
+                 deadline: Optional[float], conflicts: Sequence[str],
+                 must_answer: bool = False) -> tuple[str, str, bool, str]:
+        """Guards on the LLM's reply → one retry with the violations as feedback → the reply without the
+        offending sentences, if it still stands → the template. Returns (reply, source, guard_blocked, say)."""
+        if not cand.text:
+            return draft, "template", False, "empty"
+        state, snap = ctx.state, ctx.snapshot
+        waiting_answer = any(x is not None for x in (state.pending_confirmation, state.pending_occupation,
+                                                     state.pending_clarification, state.pending_ambiguity,
+                                                     state.pending_rep_question))
+        offer = state.unanswered_question is not None
+        fields = [] if (waiting_answer or offer) else list(current_group(state)[1])
+        allowed = self._allowed_numbers(ctx, history, text, cand, draft)
+        kwargs = dict(snapshot=snap, allowed=allowed, tools_called=cand.tools_called, fields=fields,
+                      offer_rep=offer, waiting_answer=waiting_answer, conflicts=conflicts, must_answer=must_answer)
+
+        def judge(raw: str) -> tuple[Check, list[Violation]]:
+            result = check(raw, **kwargs)
+            unsupported = self._claims(raw, state, snap, deadline)
+            return result, [*result.violations, *(Violation("claim", s) for s in unsupported)]
+
+        raw = cand.text
+        first, violations = judge(raw)
+        if not violations:
+            return first.text, "llm", False, "llm"
+        retry = self._retry(cand, violations, deadline)
+        if retry:
+            second, again = judge(retry)
+            if not again:
+                return second.text, "llm", False, "llm:retry"
+            raw, violations = retry, again
+        if all(v.sentence for v in violations):
+            trimmed = drop(raw, [v.sentence for v in violations])      # on the tagged text
+            result = check(trimmed, **kwargs) if trimmed else None
+            if result is not None and result.ok:
+                return result.text, "llm", False, "llm:trimmed"
+        kinds = ",".join(sorted({v.kind for v in violations}))
+        log.warning("llm reply rejected (%s); template used", kinds)
+        return draft, "template", any(v.kind == "number" for v in violations), f"guard:{kinds}"
+
+    def _claims(self, raw: str, state: ConversationState, snap: RulesSnapshot,
+                deadline: Optional[float]) -> list[str]:
+        """The claim verifier on the sentences beyond ack / question. Out of time: only template-safe
+        sentences pass (those tagged with an FAQ entry)."""
+        items = content_sentences(raw)
+        if not items:
+            return []
+        left = None if deadline is None else deadline - self.llm.clock()
+        if left is not None and left < self.MIN_VERIFY_S:
+            safe = {TAG_RE.sub("", s).strip() for s in sentences(raw) if "[[faq:" in s}
+            return [s for s in items if s not in safe]
+        cap = self.llm.clock() + self.VERIFY_BUDGET_S
+        unsupported = verify(self.llm, render_faq(snap), state_block(state, snap), items,
+                             cap if deadline is None else min(cap, deadline))
+        if unsupported is None:          # the verifier failed or ran out of time: template-safe only
+            safe = {TAG_RE.sub("", s).strip() for s in sentences(raw) if "[[faq:" in s}
+            return [s for s in items if s not in safe]
+        return unsupported
+
+    def _retry(self, cand: Candidate, violations: Sequence[Violation], deadline: Optional[float]) -> str:
+        feedback = ("Your reply broke these rules:\n" + "\n".join(f"- {v}" for v in violations)
+                    + "\nRewrite the whole reply in Hebrew, fixing only that. Keep the source tags. "
+                      "Return only the reply.")
+        try:
+            response = self.llm.complete([*cand.messages, ChatMessage("assistant", cand.text),
+                                          ChatMessage("user", feedback)], deadline=deadline)
+        except LLMError:
+            return ""
+        return response.text.strip()
+
+    @staticmethod
+    def _allowed_numbers(ctx: ToolContext, history: Sequence[ChatMessage], text: str, cand: Candidate,
+                         draft: str) -> set[Decimal]:
+        """Numbers the reply may contain: STATE, this turn's tool results, the FAQ, the catalog names and the
+        employee's own messages (and the template of this turn, which code built from the same data)."""
+        snap = ctx.snapshot
+        sources: list[Any] = [ctx.state.model_dump(mode="json"), cand.tool_results, draft, text,
+                              [m.content for m in history if m.role == "user"],
+                              [e.answer for e in snap.faq.entries], [c.label for c in snap.catalog], MAX_OPTIONS,
+                              len([o for o in available_options(snap, ctx.state) if o.car])]
+        return set().union(*(collect_numbers(s) for s in sources))
     # ---------- a question the FAQ does not cover → the transport representative ----------
 
     def _prepare_rep_question(self, ctx: ToolContext) -> TurnOutcome:
@@ -1207,38 +1227,3 @@ def rep_ok(snapshot: RulesSnapshot, text: str) -> bool:
     return bool(text.strip()) and rep_text_ok(cleaned)
 
 
-# the bot speaks to the employee in second-person plural only (CLAUDE.md style guide)
-SINGULAR_RE = re.compile(r"(?<![א-ת])(?:שלך|לך|ממך|אותך|עבורך|בחרת|כתבת|התכוונת|ביקשת|תרצה|תרצי)(?![א-ת])")
-OPENERS = ("בשמחה", "שמנו לב", "איזה יופי", "רשמנו", "מעולה", "נהדר", "כדי שנוכל להתקדם", "היי", "תודה רבה")
-
-
-def _norm_line(text: str) -> str:
-    return re.sub(r"[\s\"'״׳“”*]+", "", text)
-
-
-def uncovered(reply: str, plan: ReplyPlan) -> Optional[str]:
-    """What the phrased reply leaves out of the plan ("cta" / "items" / "terms" / "numbers"), or None: every
-    number, every answered FAQ term, a line for every plan item, and the call to action as its last line."""
-    from .parsing import numbers_in
-
-    lines = [line for line in reply.splitlines() if line.strip()]
-    if plan.cta and (not lines or _norm_line(lines[-1]) != _norm_line(plan.cta)):
-        return "cta"
-    if SINGULAR_RE.search(reply):
-        return "address"                       # one form of address: plural, never mixed
-    if lines and lines[0].strip().startswith(OPENERS):
-        return "opener"
-    if any(a.startswith("רשמתי") for a in plan.ack) and "רשמתי" not in reply:
-        return "ack"
-    # every plan item (answer, ack, follow-up, the question) keeps at least one line before the CTA
-    items = len(plan.answers) + len(plan.ack) + len(plan.follow_up) + len(plan.ask)
-    if len(lines) - (1 if plan.cta else 0) < items:
-        return "items"
-    if any(term not in reply for term in plan.terms):
-        return "terms"
-    have = {abs(n) for n in numbers_in(reply)}
-    return None if all(abs(n) in have for n in numbers_in(plan.text())) else "numbers"
-
-
-def covers(reply: str, plan: ReplyPlan) -> bool:
-    return uncovered(reply, plan) is None

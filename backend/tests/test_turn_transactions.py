@@ -96,9 +96,9 @@ class BarrierLLM(FakeLLM):
 
     def complete(self, messages, tools=(), require_tool=False, timeout_s=None):
         from app.modules.conversation.llm.port import LLMResponse
-        if tools and require_tool:
+        if tools and messages[-1].role == "user":          # round 1 (round 2 sees the tool results)
             self.barrier.wait(timeout=10)
-            occupation = [m for m in messages if m.role == "user"][-1].content
+            occupation = messages[-1].content.split("\n")[1]    # inside <<<USER>>> … <<<END>>>
             return LLMResponse(tool_calls=(call("save_profile", occupation=occupation),))
         return LLMResponse()
 
