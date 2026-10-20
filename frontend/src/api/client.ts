@@ -3,6 +3,7 @@ import type {
   ApiErrorBody,
   CarSearchItem,
   ConversationView,
+  ExtractionResult,
   MessageIn,
   QuestionStatus,
   RepAnswerIn,
@@ -32,12 +33,14 @@ function errorMessage(body: ApiErrorBody | null): string {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  // FormData sets its own multipart boundary; only a JSON string body gets the JSON content type.
+  const jsonBody = typeof init.body === 'string'
   let response: Response
   try {
     response = await fetch(path, {
       ...init,
       credentials: 'include',
-      headers: { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+      headers: { Accept: 'application/json', ...(jsonBody ? { 'Content-Type': 'application/json' } : {}),
                  ...init.headers },
     })
   } catch {
@@ -57,6 +60,13 @@ export const api = {
     request<TurnResponse>(`${conv(id)}/messages`, { method: 'POST', body: JSON.stringify(body) }),
   getUpdates: (id: string, after: number) => request<UpdatesResponse>(`${conv(id)}/updates?after=${after}`),
   searchCars: (q: string) => request<CarSearchItem[]>(`/api/catalog/search?q=${encodeURIComponent(q)}`),
+  /** Upload a payslip for extraction only. The file is never stored; the result is reviewed and
+   *  confirmed before anything is saved. */
+  extractPayslip: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request<ExtractionResult>('/api/payslip/extract', { method: 'POST', body: form })
+  },
 }
 
 /** Representative API: the token goes in X-Rep-Token on every call. A 401 means the token is wrong. */

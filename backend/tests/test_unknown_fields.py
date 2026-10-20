@@ -83,6 +83,21 @@ def test_the_payslip_upload_link_is_offered_only_when_configured(sessions, tmp_p
     assert turn.reply.endswith("או העלו את התלוש.")
 
 
+def test_the_builtin_upload_link_is_offered_without_a_url(sessions, tmp_path):
+    """payslip_upload_enabled: true turns on the link for the in-chat uploader — no external URL."""
+    config = tmp_path / "config"
+    shutil.copytree(CONFIG, config)
+    ext = config / "extensions.yaml"
+    ext.write_text(ext.read_text(encoding="utf-8").replace("payslip_upload_enabled: false",
+                                                           "payslip_upload_enabled: true"),
+                   encoding="utf-8")
+    svc = service(sessions, config=config)
+    turn, _ = talk(svc, [PROFILE_Q1, "לא יודע", CAR, "אטו 3"])
+    # the link is offered, but with no url: the client uses the built-in in-chat uploader
+    assert turn.expects["link"] == {"kind": "payslip_upload", "label": "להעלות תלוש"}
+    assert turn.reply.endswith("או העלו את התלוש.")
+
+
 # ---------- why SAY fell back to the template ----------
 
 def test_say_reasons(sessions):

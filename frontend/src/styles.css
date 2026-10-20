@@ -279,8 +279,15 @@ button:disabled { cursor: not-allowed; }
   padding-inline: 10px; background: #fff; }
 .form-field input[aria-invalid='true'] { border-color: var(--negative); }
 .field-error { color: var(--negative); font-size: 13px; margin: 2px 0 0; }
+/* a value the payslip extraction was unsure about: amber "נא לבדוק" under the field */
+.field-note { color: var(--pending-ink); font-size: 13px; margin: 2px 0 0; }
 .form-actions { display: flex; gap: 8px; margin-block-start: 10px; }
 .muted { color: var(--muted); }
+/* file input kept off-screen but reachable: the visible "בחירת קובץ" button triggers it */
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
 
 /* ---------- comparison panel ---------- */
 .panel-backdrop { position: fixed; inset: 0; z-index: 20; background: rgb(0 0 0 / 35%); display: flex; justify-content: flex-start; }

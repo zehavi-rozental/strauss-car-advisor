@@ -1,13 +1,16 @@
 # extensions.yaml — רק מה שקובץ הכללים של שטראוס (strauss-rules.json) עדיין לא מפרט.
 # פנסיה, בסיס ההפרשות, השתתפות ועיגול — בקובץ הכללים (netMethod), לא כאן.
 # כל ערך כאן הוא החלטה מתועדת (סעיף 11 באיפיון); תשובה משטראוס = שינוי ערך, לא קוד.
-version: "ext-2026-10-18.1"
+version: "ext-2026-10-20.1"
 
 family_gap_adds_to_copay: true          # חלק העובד בפער מתווסף להשתתפות הרכב
 copay_policy: CATALOG_DEFAULT_CONFIRM_ASYNC   # סעיף 8
 plug_in_counts_as_electric: false
-# Link offered with "where to find it on the payslip" when a value is unknown. Empty: no link (the app has no
-# payslip upload yet); a pilot sets the URL here, no code change.
+# "להעלות תלוש" link, offered next to a field the employee does not know.
+# payslip_upload_enabled: true turns on the built-in in-chat uploader (needs the backend PAYSLIP_ENABLED
+# + a Gemini key). payslip_upload_url: an external pilot page instead (a non-empty URL implies the link,
+# and the client opens it in a new tab). Both default off, no code change to turn on.
+payslip_upload_enabled: false
 payslip_upload_url: ""
 child_age_inclusive: true               # "עד גיל 23" כולל 23
 default_vehicle_type: "1"               # בקטלוג אין עמודת סוג רכב

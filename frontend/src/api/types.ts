@@ -47,8 +47,9 @@ export interface ExpectsField {
 }
 
 export interface ExpectsLink {
-  kind: 'profile_form' | 'selection'
+  kind: 'profile_form' | 'selection' | 'payslip_upload'
   label: string
+  url?: string               // payslip_upload only: a pilot's external URL; empty uses the built-in upload
 }
 
 export interface Expects extends ExpectsField {
@@ -226,6 +227,28 @@ export type MessageIn =
   | { choice: string; field?: string }
   | { choices: string[]; field?: string }
   | { fields: ProfileFields }
+
+// ---------- payslip upload (backend/app/modules/payslip) ----------
+
+/** One field read from the payslip. value is null when missing or not confident (never assume 0).
+ *  Only the supported profile fields are ever returned; never name, ID, or base salary. */
+export interface ExtractedField {
+  field: keyof ProfileFields
+  label: string              // Hebrew label for the review form
+  value: Decimal | null      // string number, or null when unknown
+  kind: 'amount' | 'percent' | 'count'
+  confident: boolean         // false → show as "לא ודאי", needs manual review
+  in_range: boolean          // passed the extensions.yaml range check
+  note: string               // short Hebrew note (e.g. "מחוץ לטווח, נא לבדוק")
+}
+
+/** POST /payslip/extract. The payslip itself is never stored; saving happens through {fields}
+ *  only after the employee reviews, edits, and confirms. ok=false → fall back to manual entry. */
+export interface ExtractionResult {
+  ok: boolean
+  fields: ExtractedField[]
+  message_he: string
+}
 
 // ---------- representative (backend/app/api/rep_routes.py: question_json) ----------
 

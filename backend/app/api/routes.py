@@ -4,7 +4,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text as sql
 
@@ -17,6 +17,7 @@ from app.modules.conversation.public import (
     ConversationService,
     TurnResult,
 )
+from app.modules.payslip.public import PayslipError
 
 from .deps import context
 
@@ -154,6 +155,41 @@ def get_updates(conversation_id: str, request: Request, after: int = 0) -> dict[
         return _service(request).updates(conversation_id, request.cookies.get(COOKIE, ""), after)
     except ConversationNotFound:
         raise HTTPException(404, NOT_FOUND) from None
+
+
+async def _read_capped(upload: UploadFile, max_bytes: int) -> bytes:
+    """קורא את הקובץ בנתחים עד התקרה. קובץ גדול מהתקרה → 413 בלי להחזיק הכול בזיכרון."""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await upload.read(1024 * 256)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(413, f"הקובץ גדול מדי. אפשר להעלות עד {max_bytes // (1024 * 1024)} MB.")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+@router.post("/payslip/extract")
+async def payslip_extract(request: Request, file: UploadFile) -> dict[str, Any]:
+    """העלאת תלוש לחילוץ בלבד: מחזיר את השדות הנתמכים שזוהו, לסקירה ואישור בצד הלקוח.
+    הקובץ לא נשמר בשרת. השמירה בפרופיל נעשית אחר כך דרך POST .../messages {fields}, רק אחרי אישור העובד."""
+    ctx = context(request)
+    if not ctx.payslip.enabled:
+        raise HTTPException(503, "העלאת תלוש אינה זמינה כרגע. אפשר למלא את הנתונים ידנית.")
+    client = request.client.host if request.client else "unknown"
+    if not ctx.payslip_limiter.allow(client):
+        raise HTTPException(429, "יותר מדי העלאות. נסו שוב בעוד דקה.")
+    data = await _read_capped(file, ctx.settings.payslip_max_bytes)
+    try:
+        result = ctx.payslip.extract(data)
+    except PayslipError as exc:
+        raise HTTPException(422, exc.message_he) from None
+    finally:
+        data = b""   # לא נשארים עם תוכן התלוש בזיכרון יותר מהנדרש
+    return result.as_dict()
 
 
 @router.get("/conversations/{conversation_id}")

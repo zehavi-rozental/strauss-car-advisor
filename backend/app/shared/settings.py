@@ -63,6 +63,14 @@ class Settings(BaseSettings):
     create_rate_limit_per_minute: int = 20
     max_messages_per_conversation: int = 80
 
+    # העלאת תלוש (סעיף 11): חילוץ בלבד, בלי שמירה בשרת. הקובץ נמחק מיד אחרי החילוץ.
+    payslip_enabled: bool = False          # ברירת מחדל: סגור (אין מפתח Gemini / פיילוט לא הופעל)
+    payslip_max_bytes: int = 8 * 1024 * 1024   # עד 8MB; קובץ גדול יותר → 413 בעברית
+    payslip_max_pages: int = 4             # PDF עם יותר עמודים → נדחה (תלוש הוא עמוד-שניים)
+    payslip_model: str = ""                # ברירת מחדל: הדגם הראשון מ-LLM_CHAIN של gemini
+    payslip_timeout_s: float = 30.0        # חילוץ מתמונה איטי יותר מטקסט; תקרה נדיבה
+    payslip_rate_limit_per_minute: int = 6  # העלאות לכתובת IP בדקה (חילוץ יקר)
+
     rep_access_token: str = ""             # כותרת X-Rep-Token; ריק (ברירת המחדל) = ה-API של הנציג סגור
     rep_rate_limit_per_minute: int = 60
     session_cookie_secure: bool = False

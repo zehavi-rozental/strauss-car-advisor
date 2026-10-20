@@ -124,7 +124,10 @@ class Extensions(_Strict):
     family_gap_adds_to_copay: bool
     copay_policy: Literal["CATALOG_DEFAULT_CONFIRM_ASYNC", "CATALOG_DEFAULT", "REP_REQUIRED"]
     plug_in_counts_as_electric: bool
-    # "להעלות תלוש": offered next to a field the employee does not know; empty = no link (no upload yet)
+    # "להעלות תלוש": offered next to a field the employee does not know.
+    # payslip_upload_enabled turns the link on for the built-in uploader (POST /api/payslip/extract).
+    # payslip_upload_url points the link at an external pilot page instead; a non-empty URL implies enabled.
+    payslip_upload_enabled: bool = False
     payslip_upload_url: str = ""
     child_age_inclusive: bool
     default_vehicle_type: str
