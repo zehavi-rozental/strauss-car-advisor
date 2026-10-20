@@ -126,6 +126,14 @@ A module, and `app/api`, imports another module **only** through that module's `
 - **Car label**: a car typed by the employee and not found is free text; `tools.safe_car_label` keeps it only if it is a short name with no figures but a model number or year, otherwise "רכב שלא זוהה בקטלוג". The rep question, its context and `pending_rep.labels` use `rep_car_label` (the representative never sees pay data).
 - **Alternatives** (`tools._match_option`): an exact id / catalog name / alias, or a fragment of at least 3 characters that names exactly one eligible car; several ("cross", "3") are reported back as ambiguous and the employee is asked.
 
+### Low amounts and "אין רכב" (session 4; `tests/test_low_values_and_no_car.py`)
+
+- **Low-amount confirmation** (`extensions.yaml: small_amount_below`) now covers every monetary field: commissions and bonus (< 100), use value and maintenance (< 100), copay (< 10): asked "התכוונתם ל-15 ₪ או ל-15,000 ₪?" (buttons `small` / `thousands`, or the amount typed), never saved or multiplied silently. Percentages and counts (pension, study fund, credit points, children) have no shorthand meaning; they keep the range check and the unusual-value "לאשר / לתקן" (`unusual_values`).
+- **One held value at a time** (`tools._check_ranges.hold`): the first held value keeps the question; a second one in the same message is not saved and is asked again afterwards. A confirmed amount is remembered in `state.confirmed_unusual` (it used to be asked again forever after "15 ₪").
+- **A held value is never reported as recorded**: the parser's fallback notice (a partly read sentence, or an LLM outage) lists every value it read, written before the checks; `_finish` drops it when a value is held and the acknowledgement comes from the state.
+- **"אין רכב"** is acknowledged when said ("רשמתי: אין לכם רכב צמוד היום.") and when said again ("כתבתי שאין לי רכב"); said again while the maintenance question is open, the FAQ explanation and the question in plain words follow. Guard `stale` (`guards.STALE_WORDS`): a model question never names a profile field the employee already answered.
+- Limitation: in template mode (no LLM) "אין רכב" typed while the salary-components question is on screen is not recorded (Q3 answers are read after Q2); with an LLM it is recorded and acknowledged.
+
 ## NEXT (not done in this pass)
 
 - Validation audit items 4-7 (see Known limitations): range checks on rep answers, minimum use value 1, raise instead of default-to-zero in `engine_inputs`, strict numeric types for LLM-typed values.

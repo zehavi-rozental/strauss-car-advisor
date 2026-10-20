@@ -198,6 +198,8 @@ def _confirmation_plan(state: ConversationState, text: str) -> Optional[ParserPl
         if amount is None:
             return None
         state.pending_confirmation = None
+        if pending.field not in state.confirmed_unusual:
+            state.confirmed_unusual.append(pending.field)       # the chosen amount is saved, not asked again
         args = {pending.field: str(amount), "approximate_fields": [pending.field] if pending.approximate else []}
         return ParserPlan([ToolCall("save_profile", args, "scale")], True, direct=True)
     if ws[0] in _YES:
@@ -382,6 +384,9 @@ _NUMERIC_ARGS = {a for a in _ASKED_ARG.values() if a != "car"}
 _BARE_RE = re.compile(r"^\s*(?:בערך|כ-?|בסביבות)?\s*[\d.,]+\s*(?:%|אחוז(?:ים)?|₪|ש\"ח|שח|שקל(?:ים)?)?\s*\.?\s*$")
 
 
+# profile fields a question must not name once they are saved (guards.FIELD_WORDS keys = Profile attributes)
+_CLOSED_FIELDS = ("base", "commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points", "children")
+NO_CAR_ACK = "רשמתי: אין לכם רכב צמוד היום."
 PACE_ONE = "בסדר, אשאל שאלה אחת בכל פעם."
 PACE_NORMAL = "בסדר, אפשר לענות על כמה דברים יחד."
 
@@ -788,7 +793,14 @@ class Agent:
             just_calculated = True
         state.stage = next_stage(state)
         understood = understood or state.stage != before
-        said = (_plan_notice(plan, path) or "").startswith("רשמתי")
+        notice = _plan_notice(plan, path)
+        if (notice and notice.startswith("רשמתי") and plan.fallback_notice and path in ("fallback", "templates")
+                and state.pending_confirmation is not None):
+            # a partly read sentence: the parser's fallback notice lists every value it read, written before the
+            # checks, so it also names a value held for confirmation ("עמלות 15 ₪": 15 or 15,000?) as recorded.
+            # The acknowledgement comes from the state instead (only what was really saved).
+            notice = None
+        said = (notice or "").startswith("רשמתי")
         confirmations = before_turn.confirmations(state, snapshot, just_calculated, said)
 
         # רכב שזוהה בתור הזה (מהקורא, מהמודל או מהגיבוי) — אומרים איזה, כדי שטעות לא תעבור בשקט
@@ -796,7 +808,17 @@ class Agent:
         rep_opened = any(r.mode == Mode.REQUIRED for r in ctx.question_requests)
         problems = [conflict_text(c) for c in conflicts] + [range_problem_text(*p) for p in ctx.range_problems]
         answers, terms = self._answers(snapshot, und)
-        lines = [*extra, *(["צודקים, סליחה."] if und.complaint else []), *([_audit_text(state)] if und.audit else []),
+        # "אין רכב": said now, or said again ("כתבתי שאין לי רכב"): acknowledged first; said again while the
+        # maintenance question is open, the question is explained in its own words (never a stale field)
+        restated_no_car = state.current.source == "none" and car_before[0] == "none" and bool(no_car_span(text))
+        no_car_lines: list[str] = []
+        if state.current.source == "none" and (restated_no_car or car_before[0] != "none"):
+            no_car_lines.append(NO_CAR_ACK)
+            entry = snapshot.faq.get("maintenance")
+            if restated_no_car and entry is not None and current_group(state)[1] == ["maintenance"]:
+                no_car_lines.append(entry.answer)
+        lines = [*extra, *no_car_lines, *(["צודקים, סליחה."] if und.complaint else []),
+                 *([_audit_text(state)] if und.audit else []),
                  *([ALL_AT_ONCE] if und.all_at_once else []),
                  *([snapshot.faq.redirect] if und.redirect and not und.complaint else [])]   # the rep offer: plan_reply
         # a request the bot cannot do yet ("תשווה ביניהם" before the profile is complete): what is needed
@@ -805,9 +827,9 @@ class Agent:
             lines.append(compare_needs_text(state))
         reply_plan = plan_reply(
             state, snapshot, understood=understood or bool(problems) or und.anything, just_calculated=just_calculated,
-            matched_car=matched_car, notice="\n".join(problems) or _plan_notice(plan, path), rep_opened=rep_opened,
+            matched_car=matched_car, notice="\n".join(problems) or notice, rep_opened=rep_opened,
             notice_asks=bool(problems), confirmations=confirmations, answers=list(zip(answers, terms)),
-            follow_up=und.presence, explain=und.help, extra=lines)
+            follow_up=und.presence, explain=und.help or len(no_car_lines) > 1, extra=lines)
         _mark_asked(state)
         # the reply about unknown fields alternates its wording: "לא יודע" twice never gets the same text
         state.unknown_told = state.unknown_told + 1 if current_group(state)[0] == "unknown" else 0
@@ -831,9 +853,10 @@ class Agent:
             return TurnOutcome(reply=draft, source="template", just_calculated=just_calculated, path=path,
                                say=say, **requests)
         reply, source, blocked, say = self._guarded(candidate, draft, ctx, history, text, deadline, conflicts,
-                                                    check_repeat=not (und.faq_ids or und.catalog),
-                                                    must_answer=bool(und.audit or und.all_at_once or und.faq_ids or und.catalog or und.unanswered or und.help
-                                                                     or und.complaint))
+                                                    check_repeat=not (und.faq_ids or und.catalog or restated_no_car),
+                                                    must_answer=bool(und.audit or und.all_at_once or und.faq_ids
+                                                                     or und.catalog or und.unanswered or und.help
+                                                                     or und.complaint or restated_no_car))
         if gap_ack and source == "llm":
             reply = f"{gap_ack}\n{reply}"
         if source == "llm" and und.catalog and not _answers_catalog(reply, und.catalog, snapshot):
@@ -1333,9 +1356,11 @@ class Agent:
         offer = state.unanswered_question is not None
         fields = [] if (waiting_answer or offer) else list(current_group(state)[1])
         allowed = self._allowed_numbers(ctx, history, text, cand, draft)
+        p = state.profile
+        closed = [f for f in _CLOSED_FIELDS if getattr(p, f) is not None and f not in fields] if fields else []
         kwargs = dict(snapshot=snap, allowed=allowed, tools_called=cand.tools_called, fields=fields,
                       offer_rep=offer, waiting_answer=waiting_answer, conflicts=conflicts, must_answer=must_answer,
-                      one_field=state.pace == "one_at_a_time")
+                      one_field=state.pace == "one_at_a_time", closed=closed)
 
         bots = [m.content for m in history if m.role == "assistant"][-2:]
         previous = [ask_lines(m) for m in bots if ask_lines(m)]      # question lines of the last two bot messages

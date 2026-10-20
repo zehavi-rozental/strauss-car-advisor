@@ -186,31 +186,42 @@ def _check_ranges(ctx: ToolContext, args: SaveProfileArgs) -> tuple[SaveProfileA
     ranges = ctx.snapshot.extensions.value_ranges
     drop: dict[str, None] = {}
     rejected: list[dict[str, str]] = []
+
+    def hold(arg: str, pending: PendingConfirmation, reason: str) -> None:
+        """One value is confirmed at a time: the first held value keeps the question, a second one in the same
+        message is not saved and is asked again as a missing field afterwards (never replacing the first)."""
+        if ctx.state.pending_confirmation is None:
+            ctx.state.pending_confirmation = pending
+            rejected.append({"field": arg, "reason": reason})
+        else:
+            rejected.append({"field": arg, "reason": "not saved: another value is being confirmed first; "
+                                                     "it will be asked again"})
+
     for arg in RANGED_FIELDS:
         value = getattr(args, arg)
         if value is None or arg not in ranges:
             continue
         low, high = ranges[arg]
         small = ctx.snapshot.extensions.small_amount_below.get(arg)
-        if small is not None and 0 < Decimal(value) < small and low <= Decimal(value) * 1000 <= high:
+        if (small is not None and 0 < Decimal(value) < small and low <= Decimal(value) * 1000 <= high
+                and arg not in ctx.state.confirmed_unusual):
             drop[arg] = None             # "3" for commissions: 3 ₪ or 3,000 ₪? asked, never guessed
-            ctx.state.pending_confirmation = PendingConfirmation(
-                field=arg, value=Decimal(value), approximate=arg in args.approximate_fields, scale=True)
-            rejected.append({"field": arg, "reason": "too small to be sure; the employee is asked 3 or 3,000"})
+            hold(arg, PendingConfirmation(field=arg, value=Decimal(value),
+                                          approximate=arg in args.approximate_fields, scale=True),
+                 "too small to be sure; the employee is asked 3 or 3,000")
             continue
         if low <= Decimal(value) <= high:
             if _unusual(ctx, arg, Decimal(value)):
                 drop[arg] = None
-                ctx.state.pending_confirmation = PendingConfirmation(
-                    field=arg, value=Decimal(value), approximate=arg in args.approximate_fields, unusual=True)
-                rejected.append({"field": arg, "reason": "unusual value; the employee is asked to confirm"})
+                hold(arg, PendingConfirmation(field=arg, value=Decimal(value),
+                                              approximate=arg in args.approximate_fields, unusual=True),
+                     "unusual value; the employee is asked to confirm")
             continue
         drop[arg] = None
         thousands = Decimal(value) * 1000
         if arg in SHORTENED_FIELDS and Decimal(value) < low and low <= thousands <= high:
-            ctx.state.pending_confirmation = PendingConfirmation(
-                field=arg, value=thousands, approximate=arg in args.approximate_fields)
-            rejected.append({"field": arg, "reason": "shortened; the employee is asked to confirm"})
+            hold(arg, PendingConfirmation(field=arg, value=thousands, approximate=arg in args.approximate_fields),
+                 "shortened; the employee is asked to confirm")
         else:
             ctx.range_problems.append((arg, Decimal(value), "low" if Decimal(value) < low else "high"))
             rejected.append({"field": arg, "reason": f"outside the plausible range {low}–{high}"})

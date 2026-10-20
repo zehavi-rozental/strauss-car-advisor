@@ -73,6 +73,9 @@ value_ranges:
 small_amount_below:
   commissions: 100
   bonus: 100
+  current_use_value: 100        # a use value of "4" is 4,000 on the payslip
+  current_maintenance: 100
+  current_copay: 10             # copays are typically a few hundred; 1-9 is shorthand ("3" for 3,000)
 
 # Phrases that ask for one question at a time; kept in the conversation state until "pace_reset_cues".
 pace_cues: [שאלה אחת כל פעם, שאלה אחת בכל פעם, אחד אחד, אחת אחת, לא ביחד, לאט, אחד כל פעם, אחת כל פעם]

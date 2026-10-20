@@ -42,7 +42,12 @@ FIELD_WORDS = {"occupation": ("קבוצ", "תפקיד"), "group": ("קבוצ",),
                "car": ("רכב", "דגם"), "copay": ("השתתפות", "משלמ"), "use_value": ("שווי",),
                "drive": ("הנעה", "חשמלי", "היברידי", "בנזין"), "maintenance": ("אחזק",),
                "car_choice": ("גרס", "מספר"), "options": ("רכב", "השוו", "חלופ")}
-VERIFY_PROMPT = """You verify a reply of a company-car advisor. For each numbered sentence decide whether the FAQ and
+# words that name a profile field a question must not ask once it is saved: more specific than FIELD_WORDS
+# ("שכר" alone is in "יש רכיבי שכר נוספים", the generic salary-components question)
+STALE_WORDS = {"base": ("שכר בסיס", "משכורת בסיס"), "commissions": ("עמל",), "bonus": ("בונוס",),
+               "pension_percent": ("פנסי",), "study_fund_percent": ("השתלמות",), "credit_points": ("זיכוי",),
+               "children": ("ילדים", "ילד ")}
+VERIFY_PROMPT ="""You verify a reply of a company-car advisor. For each numbered sentence decide whether the FAQ and
 STATE below support it (facts, rules, eligibility, amounts). Supported without a source: questions, apologies, saying that the advisor has no information or cannot
 help with something (other people's data, personal tax advice, inventing numbers), and offers to ask the
 transport representative. An acknowledgement ("רשמתי: …") is supported only if STATE shows that value.
@@ -56,7 +61,9 @@ BOUNDARY_CUES = ("לא יכול", "לא אוכל", "אין לי מידע", "אי
 HINTS = {"repeat": "the question is word for word the previous one; say in one line what is already saved "
                    "(\"רשמתי: …\") and ask only for what is still missing, in other words",
          "unanswered": "the employee asked something or complained: answer it or acknowledge it in one sentence "
-                       "before the next question"}
+                       "before the next question",
+         "stale": "a question names a field the employee already answered (STATE knows it): ask only for what "
+                  "is still missing (NEXT in STATE)"}
 
 
 @dataclass
@@ -118,7 +125,7 @@ def _catalog_supported(sentence: str, snapshot: RulesSnapshot) -> bool:
 
 def check(raw: str, *, snapshot: RulesSnapshot, allowed: set[Decimal], tools_called: Iterable[str],
           fields: Sequence[str], offer_rep: bool, waiting_answer: bool, conflicts: Sequence[str],
-          must_answer: bool = False, one_field: bool = False) -> Check:
+          must_answer: bool = False, one_field: bool = False, closed: Sequence[str] = ()) -> Check:
     tools = set(tools_called)
     out = Check(strip_tags(raw))
     for s in sentences(raw):
@@ -162,6 +169,11 @@ def check(raw: str, *, snapshot: RulesSnapshot, allowed: set[Decimal], tools_cal
     salary = {"base", "commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points", "children"}
     if (one_field and len(named) > 1) or (car_details & set(named) and salary & set(named)):
         out.violations.append(Violation("multi"))
+    if closed:
+        # a question never names a field the employee already answered (STATE knows it)
+        asking = [ln for ln in lines if "?" in ln or ln.strip().startswith(CTA_STARTS)]
+        if any(w in ln for ln in asking for f in closed for w in STALE_WORDS.get(f, ())):
+            out.violations.append(Violation("stale"))
     if offer_rep and ("נציג" not in lines[-1] or text.count("?") > 1):
         out.violations.append(Violation("offer"))     # the offer is the only question, and the last line
     elif fields and not waiting_answer and not any(w in text for f in fields for w in FIELD_WORDS.get(f, ())):
