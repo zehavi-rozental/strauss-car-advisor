@@ -15,6 +15,7 @@ from .port import ChatMessage, LLMError, LLMResponse, ToolCall, ToolSpec
 
 VERIFY_MARK = "You verify a reply"            # guards.VERIFY_PROMPT (the claim verifier)
 RETRY_MARK = "Your reply broke these rules"   # agent._retry (the feedback after a guard violation)
+APPLIED_MARK = "already saved this turn by the system"   # a turn the parser saved; the LLM only writes the reply
 
 
 @dataclass
@@ -68,6 +69,9 @@ class FakeLLM:
                  require_tool: bool = False, timeout_s: Optional[float] = None) -> LLMResponse:
         self.calls.append(FakeCall(list(messages), [t.name for t in tools], require_tool))
         if tools:
+            system = messages[0].content if messages and messages[0].role == "system" else ""
+            if APPLIED_MARK in system and (not self.script or self.script[0].user_turn != _key(messages)):
+                return LLMResponse()     # unscripted: no text → the template (scripts cover the LLM-read turns)
             key = _key(messages)
             if self.script and self.script[0].user_turn not in (None, key):
                 self.script.popleft()            # the previous turn ended

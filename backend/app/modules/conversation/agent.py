@@ -632,9 +632,19 @@ class Agent:
                 state.pending_clarification = plan.clarify     # "<רכב> הוא הרכב שלכם היום, או חלופה?"
                 state.role_asked.append(plan.clarify.catalog_code)
                 understood = True
+            if self._llm_led() and not choice and next_stage(state) != Stage.CALCULATING:
+                # saved in code (an answer to the bot's own question, or a message read in full); the LLM
+                # still writes the reply, told what was saved
+                try:
+                    _, candidate = self._llm_turn(ctx, history, text, plan, deadline, {}, conflicts, und,
+                                                  applied=parser_hint(plan.calls) or "nothing (the message was read)")
+                    used_llm = True
+                except LLMError:
+                    candidate = None
         else:
             # המודל קורא קודם. תוכנית הקורא חושבה לפני כל שינוי במצב: גיבוי, ובדיקה צולבת כשנקרא במלואו.
             cross = _expected_values(snapshot, plan) if plan.complete else {}
+            state.unanswered_question = None   # the LLM offers the representative itself (propose_rep_question)
             try:
                 understood, candidate = self._llm_turn(ctx, history, text, plan, deadline, cross, conflicts, und)
                 used_llm, path = True, "llm"
@@ -659,9 +669,11 @@ class Agent:
 
         if before_turn.group == "Q2" and any(f in Q2_FIELDS for f in before_turn.changed(state)):
             state.q2_answered = True             # Q2 answered in part: its leftovers wait for Q3
-        # a complaint ("לא עונה לשאלה") keeps the earlier unanswered question: the offer is repeated
-        state.unanswered_question = (und.unanswered[0] if und.unanswered
-                                     else before_turn_unanswered if und.complaint else None)
+        # a complaint ("לא עונה לשאלה") keeps the earlier unanswered question: the offer is repeated.
+        # With an LLM reply the offer is the LLM's own (propose_rep_question), never the rule-based guess.
+        if candidate is None:
+            state.unanswered_question = (und.unanswered[0] if und.unanswered
+                                         else before_turn_unanswered if und.complaint else None)
         self._open_blocking_rep(ctx)
         self._resolve_rank(ctx)
         just_calculated = False
@@ -744,7 +756,7 @@ class Agent:
 
     def _llm_turn(self, ctx: ToolContext, history: Sequence[ChatMessage], text: str, plan: ParserPlan,
                   deadline: Optional[float], cross: dict[str, Any], conflicts: list[str],
-                  und: Understanding) -> tuple[bool, Candidate]:
+                  und: Understanding, applied: str = "") -> tuple[bool, Candidate]:
         """The LLM leads the turn: it saves through tools (each call checked in code, exactly as before),
         answers and asks; the reply it writes is guarded in _finish before it is sent."""
         state, snap = ctx.state, ctx.snapshot
@@ -776,7 +788,7 @@ class Agent:
                 recorded[0] = recorded[0] or _recorded(facts)
             return facts
 
-        messages = [system_message(state, snap, parser_hint(plan.calls) if plan.complete else ""),
+        messages = [system_message(state, snap, "" if applied or not plan.complete else parser_hint(plan.calls), applied),
                     *history[-HISTORY:], user_message(text)]
         cand = run_rounds(self.llm, messages, _understand_tools(state), execute, deadline)
         return recorded[0], cand

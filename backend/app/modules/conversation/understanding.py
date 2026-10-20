@@ -39,7 +39,8 @@ _COMPLAINT_CUES = ("לא עונה", "לא ענית", "לא לפי השאלה", "
                    "זה לא מה ששאלתי")
 _FILLER = {"ו", "תודה", "שלום", "היי", "אוקיי", "אוקי", "ok", "טוב", "בסדר", "רגע", "אז", "נו", "אה", "אמממ",
            "יופי", "מעולה", "סבבה"}
-_CLAUSE_RE = re.compile(r"(?<=\?)|\n|(?<=[!])\s+|(?<=\.)\s+(?=\D)")
+# clauses: after "?" / "!" / "." / a new line, and before ", ולמה …" / ", ומה …" (data, then a question)
+_CLAUSE_RE = re.compile(r"(?<=\?)|\n|(?<=[!])\s+|(?<=\.)\s+(?=\D)|,\s*(?=ו?(?:למה|מה|האם|איך|כמה|איפה)\s)")
 
 # a profile field said to exist with no amount: "יש קצת עמלות ובונוסים", "מקבלת גם בונוס"
 _PRESENCE_WORDS = {"עמלות": "commissions", "עמלה": "commissions", "בונוס": "bonus", "בונוסים": "bonus",

@@ -89,29 +89,20 @@ SUNROOF = "יש אפשרות לרכב עם גג נפתח?"
 
 
 def test_an_unrelated_faq_entry_is_not_used(sessions):
-    """Live: the model mapped the sunroof question to "options" and the bot prefixed "אפשר להשוות עד 3…"."""
+    """Live: the bot prefixed "אפשר להשוות עד 3…" to the sunroof question. With an LLM, an FAQ-tagged sentence
+    that does not answer the question is rejected by the claim verifier; without one, no FAQ entry matches."""
     from app.modules.conversation.llm.fake import call
 
-    fake = FakeLLM().turn(call("note_message", questions=[{"text": SUNROOF, "faq_id": "options"}]))
+    fake = FakeLLM().turn(call("propose_rep_question", question=SUNROOF),
+                          reply="אפשר להשוות עד 3 רכבים מהקבוצה שלכם. [[faq:options]]\n"
+                                "על גג נפתח אין לי מידע מדויק. רוצים שאשאל את נציג התחבורה?")
+    fake.verdict([1])
     svc = service(sessions, LLMChain([fake]))
     turn, token = svc.start()
     turn = svc.send(turn.conversation_id, token, SUNROOF)
-    assert "אפשר להשוות עד" not in turn.reply
-    assert turn.reply.startswith("על זה אין לי מידע מדויק. רוצים שאשאל את נציג התחבורה? התשובה תגיע לכאן.")
-    # and without an LLM: the same honest line, no FAQ entry
-    turn, _, _ = talk(service(sessions), [SUNROOF])
+    assert "אפשר להשוות עד" not in turn.reply and turn.reply.startswith("על גג נפתח אין לי מידע מדויק")
+    turn, _, _ = talk(service(sessions), [SUNROOF])           # without an LLM: the honest line, no FAQ entry
     assert turn.reply.startswith("על זה אין לי מידע מדויק") and "אפשר להשוות עד" not in turn.reply
-
-
-def test_a_related_faq_id_from_the_llm_is_kept(sessions):
-    from app.modules.conversation.llm.fake import call
-
-    fake = FakeLLM().turn(call("note_message", questions=[{"text": "x", "faq_id": "credit_points"}]))
-    svc = service(sessions, LLMChain([fake]))
-    turn, token = svc.start()
-    turn = svc.send(turn.conversation_id, token, "ומה בעצם עושות נקודות הזיכוי במשכורת?")
-    assert "242" in turn.reply
-
 
 # ---------- 8. the rep offer is the turn's one call to action ----------
 

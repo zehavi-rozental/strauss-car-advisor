@@ -94,7 +94,10 @@ def test_the_llm_cannot_confirm_an_unknown_occupation_itself(sessions):
     svc = service(sessions, LLMChain([fake]))
     turn, token = svc.start()
     turn = svc.send(turn.conversation_id, token, "אני אסטרונאוטית")
-    before = len([c for c in fake.calls if c.tools])
+    def reading(calls):        # LLM calls that read the message (not the reply of a turn the code saved)
+        return [c for c in calls if c.tools and "already saved this turn" not in c.messages[0].content]
+
+    before = len(reading(fake.calls))
     turn = svc.send(turn.conversation_id, token, "כן")
-    assert len([c for c in fake.calls if c.tools]) == before          # האישור — בלי חילוץ במודל
+    assert len(reading(fake.calls)) == before                         # האישור — בקוד, בלי קריאה במודל
     assert profile(svc, turn.conversation_id, token).profile.occupation_text == "אסטרונאוטית"

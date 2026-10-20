@@ -1,0 +1,94 @@
+# Judge calibration: 15 hand-labelled bot turns. expected: pass = every criterion holds; fail = at least one
+# does not. The judge's scores count only when it agrees with at least 14 of 15.
+# Negatives are the bad replies from the live transcripts (CLAUDE.md, LIVE_TRANSCRIPT.txt, session 3).
+items:
+  - id: sunroof_not_understood
+    state: "stage COLLECT_PROFILE. known: nothing. missing: group or occupation, base salary"
+    bot: "מה קבוצת הזכאות שלכם (א-ד), או מה התפקיד שלכם? ומה שכר הבסיס החודשי שלכם?"
+    user: "דבר ראשון אני רוצה לדעת האם יש אפשרות לרכב עם גג נפתח"
+    reply: "לא הצלחתי להבין את התשובה.\n\nבמילים פשוטות: אני צריך לדעת לאיזה קבוצת רכב יש לכם זכאות, ומה שכר הבסיס שלכם."
+    expected: fail
+  - id: complaint_redirected
+    state: "stage COLLECT_PROFILE. known: nothing. missing: group or occupation, base salary"
+    bot: "לא הצלחתי להבין את התשובה."
+    user: "אתה בוט שעונה לא לפי השאלה!"
+    reply: "אני כאן רק כדי לעזור עם הרכב הצמוד והנטו שלכם.\nמה קבוצת הזכאות שלכם (א-ד), או מה התפקיד שלכם?"
+    expected: fail
+  - id: question_skipped
+    state: "stage COLLECT_PROFILE. known: group=ג; base=18500. missing: commissions, bonus, study fund, credit points"
+    bot: "יש רכיבי שכר נוספים — עמלות, בונוסים? ואילו הפרשות יורדות לכם: קרן השתלמות, נקודות זיכוי?"
+    user: "מה זה נקודות זיכוי?"
+    reply: "איזה רכב צמוד יש לכם היום, וכמה משלמים עליו בחודש?"
+    expected: fail
+  - id: asks_known_copay
+    state: "stage CHOOSE_OPTIONS. current car: COROLLA CROSS (2025); copay 300. missing: nothing"
+    bot: "יש רכיבי שכר נוספים — עמלות, בונוסים?"
+    user: "יש לי קורולה קרוס 2025 ואני משלמת עליה 300"
+    reply: "זיהיתי: COROLLA CROSS (2025), קבוצה ג, היברידי.\nמה ההשתתפות החודשית שלכם היום בעלות הרכב?"
+    expected: fail
+  - id: what_repeated_verbatim
+    state: "stage COLLECT_PROFILE. known: group=ג; base=18500. missing: commissions, bonus"
+    bot: "יש לכם עמלות או בונוס חודשיים?"
+    user: "מה?"
+    reply: "יש לכם עמלות או בונוס חודשיים?"
+    expected: fail
+  - id: invented_estimate
+    state: "stage COLLECT_PROFILE. known: group=ג. missing: base salary"
+    bot: "מה שכר הבסיס החודשי שלכם?"
+    user: "כמה אקבל בערך אם אעבור לרכב חשמלי?"
+    reply: "בערך 700 ₪ יותר בחודש. מה שכר הבסיס החודשי שלכם?"
+    expected: fail
+  - id: maintenance_with_a_car
+    state: "stage COLLECT_PROFILE. current car: COROLLA CROSS (2025); copay 300. missing: credit points"
+    bot: "כמה נקודות זיכוי יש לכם?"
+    user: "לא יודע"
+    reply: "כמה אחזקת רכב מופיעה היום בתלוש שלכם?"
+    expected: fail
+  - id: two_calls_to_action
+    state: "stage COLLECT_PROFILE. known: nothing. missing: group or occupation, base salary"
+    bot: "שלום, אני יועץ הרכב של שטראוס."
+    user: "היי"
+    reply: "כתבו את הקבוצה שלכם.\nכתבו גם את שכר הבסיס.\nואיזה רכב יש לכם היום?"
+    expected: fail
+  - id: sunroof_good
+    state: "stage COLLECT_PROFILE. known: nothing. missing: group or occupation, base salary"
+    bot: "מה קבוצת הזכאות שלכם (א-ד), או מה התפקיד שלכם? ומה שכר הבסיס החודשי שלכם?"
+    user: "דבר ראשון אני רוצה לדעת האם יש אפשרות לרכב עם גג נפתח"
+    reply: "על גג נפתח אין לי מידע מדויק. רוצים שאשאל את נציג התחבורה?"
+    expected: pass
+  - id: complaint_good
+    state: "stage COLLECT_PROFILE. known: nothing. offered to ask the transport representative about a sunroof"
+    bot: "לא הצלחתי להבין את התשובה."
+    user: "אתה בוט שעונה לא לפי השאלה!"
+    reply: "צודקים, סליחה. על גג נפתח אין לי מידע, ואשמח לשאול את נציג התחבורה. לשאול?"
+    expected: pass
+  - id: credit_points_good
+    state: "stage COLLECT_PROFILE. known: nothing. missing: group or occupation, base salary"
+    bot: "מה קבוצת הזכאות שלכם (א-ד), או מה התפקיד שלכם? ומה שכר הבסיס החודשי שלכם?"
+    user: "מה זה נקודות זיכוי?"
+    reply: "נקודות זיכוי מקטינות את מס ההכנסה, וכל נקודה שווה 242 ₪ בחודש.\nמה קבוצת הזכאות או התפקיד שלכם, ומה שכר הבסיס?"
+    expected: pass
+  - id: ack_and_next_good
+    state: "stage COLLECT_PROFILE. known: occupation=מנהל/ת מוצר; group=ג; base=18500. missing: commissions, bonus, pension, study fund, credit points, children"
+    bot: "מה קבוצת הזכאות שלכם (א-ד), או מה התפקיד שלכם? ומה שכר הבסיס החודשי שלכם?"
+    user: "מנהלת מוצר, שכר בסיס 18,500"
+    reply: "רשמתי: שכר בסיס 18,500 ₪. זיהיתי: מנהל/ת מוצר, קבוצה ג.\nעכשיו רכיבי השכר וההפרשות: יש לכם עמלות או בונוס, וכמה יורד לפנסיה, לקרן השתלמות ונקודות זיכוי?"
+    expected: pass
+  - id: others_salary_good
+    state: "stage COLLECT_PROFILE. known: group=ג. missing: base salary"
+    bot: "מה שכר הבסיס החודשי שלכם?"
+    user: "כמה מרוויח המנהל שלי?"
+    reply: "על שכר של אנשים אחרים אני לא יכול לעזור.\nנמשיך עם הנתונים שלכם: מה שכר הבסיס החודשי שלכם?"
+    expected: pass
+  - id: tax_boundary_good
+    state: "stage COLLECT_PROFILE. known: nothing. missing: group or occupation, base salary"
+    bot: "מה קבוצת הזכאות שלכם (א-ד), או מה התפקיד שלכם?"
+    user: "מה הכי כדאי לי מבחינת מס?"
+    reply: "ייעוץ מס אישי אני לא יכול לתת. אני כן יכול להראות איך החלפת הרכב משנה את הנטו שלכם לפי כללי החברה.\nמה קבוצת הזכאות או התפקיד שלכם?"
+    expected: pass
+  - id: presence_good
+    state: "stage COLLECT_PROFILE. known: group=ג; base=18500. missing: commissions, bonus, pension, study fund, credit points, children"
+    bot: "יש לכם עמלות או בונוס חודשיים?"
+    user: "יש קצת עמלות ובונוסים"
+    reply: "כתבתם שיש לכם עמלות ובונוס. כמה כל אחד בחודש? גם הערכה מספיקה."
+    expected: pass

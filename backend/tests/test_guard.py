@@ -78,15 +78,16 @@ def test_an_unknown_source_tag_is_a_violation(sessions):
 
 
 def test_the_claim_verifier_removes_an_unsupported_sentence(sessions):
-    turn, _ = turn_with(sessions, f"{ANSWER}\nזה הנושא הכי חשוב בחישוב.\n{ASK}", verdicts=[[2], [2]])
-    assert turn.say == "llm:trimmed" and "הכי חשוב" not in turn.reply and "242" in turn.reply
+    turn, _ = turn_with(sessions, f"{ANSWER}\nכל ההפרש מעל התקציב על החברה. [[faq:family_track]]\n{ASK}",
+                        verdicts=[[2], [2]])
+    assert turn.say == "llm:trimmed" and "ההפרש" not in turn.reply and "242" in turn.reply
 
 
 def test_out_of_budget_the_verifier_is_skipped_and_only_template_safe_sentences_stay(sessions):
-    turn, fake = turn_with(sessions, f"{ANSWER}\nזה הנושא הכי חשוב בחישוב.\n{ASK}",
+    turn, fake = turn_with(sessions, f"{ANSWER}\nהתקציב של הקבוצה שלכם קבוע. [[state]]\n{ASK}",
                            chain=lambda f: LLMChain([f], turn_deadline_s=0.2, clock=lambda: 100.0))
     assert not [c for c in fake.calls if c.messages and c.messages[0].content.startswith("You verify")]
-    assert turn.say == "llm:trimmed" and "הכי חשוב" not in turn.reply and "242" in turn.reply
+    assert turn.say == "llm:trimmed" and "התקציב" not in turn.reply and "242" in turn.reply   # only FAQ-tagged stays
 
 
 def test_a_reply_that_does_not_move_forward_is_not_used(sessions):

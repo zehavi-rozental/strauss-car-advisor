@@ -42,8 +42,13 @@ FIELD_WORDS = {"occupation": ("קבוצ", "תפקיד"), "group": ("קבוצ",),
                "drive": ("הנעה", "חשמלי", "היברידי", "בנזין"), "maintenance": ("אחזק",),
                "car_choice": ("גרס", "מספר"), "options": ("רכב", "השוו", "חלופ")}
 VERIFY_PROMPT = """You verify a reply of a company-car advisor. For each numbered sentence decide whether the FAQ and
-STATE below support it (facts, rules, eligibility, amounts). Questions and acknowledgements of what the
-employee said are supported. Return JSON only: {"unsupported": [<sentence numbers>]}."""
+STATE below support it (facts, rules, eligibility, amounts). Supported without a source: questions,
+acknowledgements of what the employee said, apologies, saying that the advisor has no information or cannot
+help with something (other people's data, personal tax advice, inventing numbers), and offers to ask the
+transport representative. Return JSON only: {"unsupported": [<sentence numbers>]}."""
+# a boundary or an honest "no information" is not a policy claim
+BOUNDARY_CUES = ("לא יכול", "לא אוכל", "אין לי מידע", "אין לי אפשרות", "אינני יכול", "לא מסוגל", "לא אמסור",
+                 "לא ניתן לי", "לא אמציא", "אני לא ממציא", "אין באפשרותי")
 
 
 @dataclass
@@ -97,7 +102,7 @@ def check(raw: str, *, snapshot: RulesSnapshot, allowed: set[Decimal], tools_cal
             if (kind == "faq" and ref not in snapshot.faq.ids) or (kind == "tool" and ref not in tools):
                 out.violations.append(Violation("source", clean))
         if not tags and not _is_question(clean) and not clean.startswith("רשמתי") and \
-                any(w in clean for w in POLICY_WORDS):
+                not any(b in clean for b in BOUNDARY_CUES) and any(w in clean for w in POLICY_WORDS):
             out.violations.append(Violation("source", clean))
         bad = [n for n in numbers_in(clean) if abs(n) not in allowed]
         if bad:
@@ -137,7 +142,10 @@ def content_sentences(raw: str) -> list[str]:
     out = []
     for s in sentences(raw):
         clean = TAG_RE.sub("", s).strip()
-        if clean and not _is_question(clean) and not clean.startswith("רשמתי"):
+        if not clean or _is_question(clean) or clean.startswith("רשמתי") or any(b in clean for b in BOUNDARY_CUES):
+            continue
+        # only sentences that can carry a claim: a source tag, a policy word or a number
+        if TAG_RE.search(s) or any(w in clean for w in POLICY_WORDS) or numbers_in(clean):
             out.append(clean)
     return out
 
