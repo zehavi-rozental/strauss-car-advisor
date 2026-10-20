@@ -128,10 +128,41 @@ def fallback_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) 
     t = text.strip()
     if not t or not fields:
         return ParserPlan()
+    correction = _group_correction_plan(state, snapshot, t)
+    if correction is not None:
+        return correction
     unknown = _unknown_plan(snapshot, fields, t)
     if unknown is not None:
         return unknown
     return _fallback_plan_rest(state, snapshot, group, fields, t)
+
+
+def _group_correction_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Optional[ParserPlan]:
+    """Correcting the eligibility group after it was set ("טעיתי, אני בקבוצה ד"), when it is not already
+    the question on screen. Only an explicit "קבוצה X" restatement (not a bare letter, which is ambiguous
+    once the group is known). Rejected by save_profile if an occupation determines the group — correct, the
+    rules decide it then."""
+    p = state.profile
+    if p.group is None or p.occupation is not None:
+        return None                              # nothing set yet, or the occupation table owns the group
+    if "group" in current_group(state)[1]:
+        return None                              # the group is already being asked — the normal path handles it
+    hit = _group_reading(text, snapshot.calc.group_order)
+    if hit is None:
+        return None
+    new_group, span = hit
+    # must be the explicit "קבוצה X" form (a lone letter is too ambiguous once a group is known), and the
+    # message must carry nothing else to act on besides fillers / a correction cue
+    if not re.search(r"קבוצ(?:ה|ת)", text):
+        return None
+    if new_group == p.group:
+        return None                              # same value — not a change
+    ext = snapshot.extensions
+    fillers = [*ext.answer_fillers, *ext.correction_cues, "אני", "אבל", "זה", "למעשה", "בעצם"]
+    if unread_words(text, [span], (), fillers):
+        return None
+    return ParserPlan(_call("save_profile", eligibility_group=new_group), True, direct=True,
+                      notice=f"עדכנתי: קבוצה {new_group}.")
 
 
 # words that name a Q2 field ("לא יודעת כמה נקודות זיכוי")

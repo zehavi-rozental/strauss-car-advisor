@@ -404,6 +404,36 @@ def _pace_change(state: ConversationState, snapshot: RulesSnapshot, text: str) -
     return None
 
 
+# a deferral names at most these profile fields explicitly ("את השכר אבדוק אחר כך"); otherwise it defers
+# whatever is being asked now. Car details are deferred only as the group currently on screen.
+_DEFERRABLE = ("base", "commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points",
+               "children")
+_DEFER_NAMES = {"base": "שכר הבסיס", "commissions": "העמלות", "bonus": "הבונוס", "pension_percent": "הפנסיה",
+                "study_fund_percent": "קרן ההשתלמות", "credit_points": "נקודות הזיכוי", "children": "הילדים"}
+
+
+def _defer_change(state: ConversationState, snapshot: RulesSnapshot, text: str, saved_this_turn: set[str]) -> str:
+    """"את השכר אבדוק אחר כך": postpone a field. The field named in the message, else the fields being
+    asked now. A field saved this turn is never deferred (the value wins). Returns an acknowledgement, or
+    "" when nothing was deferred. The stage machine (stage.hidden_deferred) does the skipping."""
+    ext = snapshot.extensions
+    if not ext.defer_cues or not any(c in text for c in ext.defer_cues):
+        return ""
+    # which field(s)? a field named in the message (by its words), else the fields currently open
+    named = [f for f in _DEFERRABLE if any(w in text for w in FIELD_WORDS.get(f, ()))]
+    if not named:
+        open_now = [f for f in open_profile(state.profile) if f in _DEFERRABLE]
+        named = open_now
+    # never defer something the employee just supplied, or something already known
+    to_defer = [f for f in named if getattr(state.profile, f) is None and f not in saved_this_turn
+                and f not in state.deferred_fields]
+    if not to_defer:
+        return ""
+    state.deferred_fields.extend(to_defer)
+    names = _DEFER_NAMES.get(to_defer[0], "זה") if len(to_defer) == 1 else "השדות האלה"
+    return f"בסדר, נחזור ל{names} בהמשך."
+
+
 def asked_field(state: ConversationState, reply: str) -> Optional[str]:
     """The one missing item the reply asks for (its question line, else its last line); None when it names
     several or none. Only missing items count, so an ack line ("רשמתי: פנסיה 6%") never binds."""
@@ -776,6 +806,9 @@ class Agent:
 
         if before_turn.group == "Q2" and any(f in Q2_FIELDS for f in before_turn.changed(state)):
             state.q2_answered = True             # Q2 answered in part: its leftovers wait for Q3
+        # "את השכר אבדוק אחר כך": postpone a field, after this turn's values were saved (so a field just
+        # supplied is never deferred). The acknowledgement is added to the reply below.
+        defer_ack = _defer_change(state, snapshot, text, set(before_turn.changed(state)))
         if (candidate is not None and und.unanswered and state.unanswered_question is None and not state.rep_skipped
                 and not has_statement(strip_tags(candidate.text or ""))):
             # the reply only re-asks the flow question: the employee's question is not left unanswered
@@ -817,7 +850,8 @@ class Agent:
             entry = snapshot.faq.get("maintenance")
             if restated_no_car and entry is not None and current_group(state)[1] == ["maintenance"]:
                 no_car_lines.append(entry.answer)
-        lines = [*extra, *no_car_lines, *(["צודקים, סליחה."] if und.complaint else []),
+        lines = [*extra, *([defer_ack] if defer_ack else []), *no_car_lines,
+                 *(["צודקים, סליחה."] if und.complaint else []),
                  *([_audit_text(state)] if und.audit else []),
                  *([ALL_AT_ONCE] if und.all_at_once else []),
                  *([snapshot.faq.redirect] if und.redirect and not und.complaint else [])]   # the rep offer: plan_reply

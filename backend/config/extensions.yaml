@@ -82,6 +82,13 @@ small_amount_below:
 
 # Phrases that ask for one question at a time; kept in the conversation state until "pace_reset_cues".
 pace_cues: [שאלה אחת כל פעם, שאלה אחת בכל פעם, אחד אחד, אחת אחת, לא ביחד, לאט, אחד כל פעם, אחת כל פעם]
+
+# Phrases that ask to answer a question later ("את השכר אבדוק אחר כך"). The field is postponed, not
+# dropped and never defaulted: the bot keeps asking other things and brings it back when nothing else is
+# askable or a calculation needs it. A value given later clears the deferral. New phrase = a line here.
+defer_cues: [אחר כך, אחרי זה, בהמשך, מאוחר יותר, נחזור לזה, נחזור אליו, נחזור אל זה, לא עכשיו, עוד מעט,
+             תשאל אחר כך, תשאלו אחר כך, תשאל אותי אחר כך, אבדוק אחר כך, אבדוק בהמשך, אבדוק מאוחר יותר,
+             אשלים אחר כך, אשלים בהמשך, אמסור אחר כך, אמסור בהמשך, דלג, דלג על, תדלג, לדלג, לדלג על]
 # A request about the conversation itself ("give me all the questions at once"): answered in one line from the
 # bot's own design, never a question for the transport representative.
 # A zero the employee said: only with one of these (or the digit 0) may a model save 0 for a field. A bare "לא"
