@@ -13,6 +13,7 @@ from app.modules.conversation.public import (
     LLMChain,
     build_llm_chain,
 )
+from app.modules.payslip.public import PayslipService
 from app.modules.rules.public import RulesStore
 from app.shared.db import get_engine, session_factory
 from app.shared.settings import ENV_FILE, Settings, get_settings
@@ -49,15 +50,18 @@ def create_app(settings: Optional[Settings] = None, *, engine: Optional[Engine] 
     log.info(startup_summary(settings, llm))
 
     cases = CasesService(sessions)
+    payslip = PayslipService(rules, settings)
     app = FastAPI(title="Strauss Car Advisor")
     app.state.ctx = AppContext(
         settings=settings, sessions=sessions, rules=rules,
         service=ConversationService(sessions, rules, llm, cases, settings.max_messages_per_conversation,
                                     settings.llm_mode),
         cases=cases,
+        payslip=payslip,
         message_limiter=RateLimiter(settings.rate_limit_per_minute),
         create_limiter=RateLimiter(settings.create_rate_limit_per_minute),
         rep_limiter=RateLimiter(settings.rep_rate_limit_per_minute),
+        payslip_limiter=RateLimiter(settings.payslip_rate_limit_per_minute),
     )
     app.include_router(router)
     app.include_router(rep_router)

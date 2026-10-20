@@ -3,6 +3,7 @@ import { ComparisonPanel } from './ComparisonPanel'
 import { Composer } from './Composer'
 import { MessageList } from './MessageList'
 import { ProfileForm } from './ProfileForm'
+import { PayslipUpload } from './PayslipUpload'
 import { AnswerWidgets } from './AnswerWidgets'
 import { Progress } from './Progress'
 import { SelectionCard } from './SelectionCard'
@@ -24,12 +25,20 @@ export function EmployeePage() {
   const busy = c.sending || c.loading
   const [tableOpen, setTableOpen] = useState(false)
   const [correcting, setCorrecting] = useState(false)
-  // the selection card and the profile form open only from the reply's link (never automatically)
-  const [opened, setOpened] = useState<'selection' | 'profile_form' | null>(null)
+  // the selection card, the profile form, and the payslip upload open only from the reply's link
+  const [opened, setOpened] = useState<'selection' | 'profile_form' | 'payslip_upload' | null>(null)
   useEffect(() => setOpened(null), [c.expects])        // a new question closes what the last one opened
   const link = linkFor(c.expects)
   const options = optionsField(c.expects)
   const formOpen = correcting || opened === 'profile_form'
+  // a pilot can point the link at an external upload page; then the link just opens it in a new tab
+  const openLink = () => {
+    if (link?.kind === 'payslip_upload' && link.url) {
+      window.open(link.url, '_blank', 'noopener,noreferrer')
+      return
+    }
+    if (link) setOpened(link.kind)
+  }
   const newChat = () => {
     if (window.confirm('להתחיל שיחה חדשה?')) {
       setTableOpen(false)
@@ -47,10 +56,19 @@ export function EmployeePage() {
                    return ok
                  }} />
   )
-  // only one interactive area at a time: the open form / selection, or the closed question's buttons,
-  // or after results the collapsed selection line
+  const payslipUpload = (
+    <PayslipUpload disabled={busy} onCancel={() => setOpened(null)}
+                   onSubmit={async (fields) => {
+                     const ok = await c.send({ fields }, profileFormText(fields))
+                     if (ok) setOpened(null)
+                     return ok
+                   }} />
+  )
+  // only one interactive area at a time: the open form / selection / payslip upload, or the closed
+  // question's buttons, or after results the collapsed selection line
   let area = null
   if (formOpen) area = profileForm
+  else if (opened === 'payslip_upload') area = payslipUpload
   else if (opened === 'selection' && options) {
     area = <SelectionCard f={options} disabled={busy} onSend={c.send} initial={c.results.map((r) => r.option_id)}
                           onDone={() => setOpened(null)} />
@@ -61,7 +79,7 @@ export function EmployeePage() {
       <>
         <AnswerWidgets expects={c.expects} disabled={busy} onSend={c.send} />
         {link && (
-          <button type="button" className="link-button" disabled={busy} onClick={() => setOpened(link.kind)}>
+          <button type="button" className="link-button" disabled={busy} onClick={openLink}>
             {link.label}
           </button>
         )}

@@ -694,7 +694,8 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
     if not fields:
         return "", None
     if group == "unknown":
-        link = "payslip_upload" if snapshot.extensions.payslip_upload_url else None
+        ext = snapshot.extensions
+        link = "payslip_upload" if (ext.payslip_upload_enabled or ext.payslip_upload_url) else None
         example = _faq_example(snapshot, fields[0]).split(", ")[0]
         return (f"כתבו את הערך כשתמצאו אותו בתלוש, למשל: \"{example}\"" + (", או העלו את התלוש." if link else "."),
                 link)

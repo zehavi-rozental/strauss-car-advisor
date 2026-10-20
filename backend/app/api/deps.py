@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.modules.cases.public import CasesService
 from app.modules.conversation.public import ConversationService
+from app.modules.payslip.public import PayslipService
 from app.modules.rules.public import RulesStore
 from app.shared.settings import Settings
 
@@ -21,9 +22,11 @@ class AppContext:
     rules: RulesStore
     service: ConversationService
     cases: CasesService
+    payslip: PayslipService
     message_limiter: RateLimiter
     create_limiter: RateLimiter
     rep_limiter: RateLimiter
+    payslip_limiter: RateLimiter
 
 
 def context(request: Request) -> AppContext:
