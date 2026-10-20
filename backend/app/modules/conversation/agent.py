@@ -539,6 +539,21 @@ def ack_text(changed: dict[str, Any], group: Optional[str] = None) -> str:
     return f"רשמתי: {', '.join(parts)}." if parts else ""
 
 
+def _dedup_lines(reply: str) -> str:
+    """Safety net on an assembled reply: never emit the same non-empty line twice. Order preserved, the
+    first occurrence wins. Blank lines (paragraph breaks) are kept as-is."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for line in reply.splitlines():
+        key = line.strip()
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        out.append(line)
+    return "\n".join(out)
+
+
 def _answers_catalog(reply: str, answers: Sequence[str], snapshot: RulesSnapshot) -> bool:
     """The reply answers each catalog question: names a car from the answer, or says it is not in the catalog."""
     def covered(answer: str) -> bool:
@@ -896,6 +911,8 @@ class Agent:
         if source == "llm" and und.catalog and not _answers_catalog(reply, und.catalog, snapshot):
             # the catalog sentence was trimmed by a guard: the code's answer (from the catalog) comes first
             reply = "\n".join([*und.catalog, reply])
+        if source == "llm":
+            reply = _dedup_lines(reply)       # safety net: the live model sometimes repeats a line
         state.asked_field = asked_field(state, reply)
         return TurnOutcome(reply=reply, source=source, guard_blocked=blocked, just_calculated=just_calculated,
                            path=path, say=say, **requests)
