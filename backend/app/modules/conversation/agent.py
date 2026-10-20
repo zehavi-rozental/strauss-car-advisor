@@ -1133,7 +1133,7 @@ class Agent:
         others = [c for c in named_cars(text, snapshot.catalog) if c.catalog_code != state.current.catalog_code]
         if not others:
             return None, waiting_reply
-        calls = self._llm_waiting_correction(state, text)
+        calls = self._llm_waiting_correction(state, snapshot, text)
         if calls:
             return ParserPlan(list(calls), True, direct=True), ""
         # בלי מודל, או שהמודל לא בטוח: לא מנחשים — שואלים, וזוכרים על איזה רכב
@@ -1159,9 +1159,17 @@ class Agent:
             state.queued_options.append(clarification.catalog_code)
         return None, queued_option_text(clarification.label)
 
-    def _llm_waiting_correction(self, state: ConversationState, text: str) -> Optional[tuple[ToolCall, ...]]:
+    def _llm_waiting_correction(self, state: ConversationState, snapshot: RulesSnapshot,
+                                text: str) -> Optional[tuple[ToolCall, ...]]:
         """המודל מקבל רק את match_current_car: יקרא לו רק אם ההודעה מתקנת את הרכב של היום."""
         if not self.llm.available:
+            return None
+        # the model may call match_current_car only when the message is a correction of the car today. Code
+        # double-checks: a bare alternative name ("אטו 3") with no correction cue and no "my car" wording is
+        # NOT a correction — it is probably an alternative, so we ignore the call and ask (never guess).
+        ws = words(text)
+        says_my_car = ("הרכב" in ws and "שלי" in ws) or ("יש" in ws and "לי" in ws)
+        if not (_has_cue(text, snapshot.extensions.correction_cues) or says_my_car):
             return None
         system = WAITING_CORRECTION_PROMPT.format(car=state.current.label or "")
         try:
