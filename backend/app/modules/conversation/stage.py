@@ -165,6 +165,8 @@ class ConversationState(BaseModel):
     misses: int = 0          # answers in a row that were not understood (never the same reply twice)
     unanswered_question: Optional[str] = None    # a question the FAQ does not cover: "לשאול את נציג התחבורה"
     pending_rep_question: Optional[str] = None   # the privacy-checked text shown before sending to the rep
+    offered_rank: bool = False   # the results reply offered "הכי משתלם": "כן" ranks
+    rep_skipped: bool = False    # "להמשיך בלי" this turn: the representative is not offered again
     pending_ambiguity: Optional[str] = None      # "no_car_or_zero_copay": asked with two buttons, never guessed
 
 

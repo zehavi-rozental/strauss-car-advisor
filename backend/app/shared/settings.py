@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     llm_base_url: str = ""            # ספק תואם OpenAI: ריק = ברירת המחדל של הספק
     llm_fallback_base_url: str = ""
     llm_timeout_s: float = 4.0        # לכל קריאה: רשומה איטית → הבאה בשרשרת
-    llm_turn_deadline_s: float = 5.0   # a whole turn (UNDERSTAND + SAY); after it — the template of the same plan
+    llm_turn_deadline_s: float = 4.0   # a whole turn (UNDERSTAND + SAY); after it — the template of the same plan
     llm_intro_budget_s: float = 2.5    # פתיח לתוצאות: לא ענה בזמן → התוצאה מהתבנית מיד
 
     max_message_chars: int = 1000

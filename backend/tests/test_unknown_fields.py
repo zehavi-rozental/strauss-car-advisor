@@ -35,7 +35,7 @@ def test_unknown_at_q2_is_recorded_per_field_and_the_flow_goes_on(sessions):
     assert set(p.unknown_fields) == {"commissions", "bonus", "pension_percent", "study_fund_percent",
                                      "credit_points", "children"}
     assert (p.commissions, p.pension_percent, p.credit_points, p.children) == (None, None, None, None)  # no default
-    assert turn.reply.startswith("רשמתי שלא ידוע:") and "אני לא מניח ערך" in turn.reply
+    assert turn.reply.startswith("רשמתי שזה לא ידוע:") and "בלי ערך משוער" in turn.reply
     assert turn.stage == Stage.COLLECT_CURRENT_CAR and "איזה רכב צמוד" in turn.reply       # not Q2 again
 
 
@@ -44,14 +44,14 @@ def test_a_named_field_is_the_only_unknown(sessions):
     turn, token = talk(svc, [PROFILE_Q1, "לא יודעת כמה נקודות זיכוי יש לי"])
     p = profile(svc, turn, token)
     assert p.unknown_fields == ["credit_points"] and p.credit_points is None
-    assert "רשמתי שלא ידוע: נקודות זיכוי." in turn.reply
+    assert "רשמתי שזה לא ידוע: נקודות זיכוי." in turn.reply
 
 
 def test_unknown_twice_never_repeats_and_never_calculates(sessions):
     svc = service(sessions)
     turn, token = talk(svc, [PROFILE_Q1, "לא יודע", CAR, "אטו 3"])
     assert turn.results == [] and turn.stage == Stage.COLLECT_PROFILE         # no calculation without them
-    assert "בלי הערכים האלה אין חישוב" in turn.reply and "בתלוש, בשורה נקודות זיכוי." in turn.reply
+    assert "בלי הערכים האלה אין חישוב" in turn.reply and "כולם מופיעים בתלוש השכר החודשי." in turn.reply
     replies = [turn.reply]
     for _ in range(2):
         turn = svc.send(turn.conversation_id, token, "לא יודע")

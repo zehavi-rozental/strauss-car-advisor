@@ -102,7 +102,7 @@ def _group_or_occupation(snapshot: RulesSnapshot) -> str:
 
 Q3_CAR = "איזה רכב צמוד יש לכם היום, וכמה משלמים עליו בחודש?"
 _Q2_PAY = {"commissions": "עמלות", "bonus": "בונוסים"}
-_Q2_DEDUCTIONS = {"pension_percent": "פנסיה", "study_fund_percent": "קרן השתלמות", "credit_points": "נקודות זיכוי"}
+_Q2_DEDUCTIONS = {"pension_percent": "פנסיה", "study_fund_percent": "קרן השתלמות"}
 # שדה מ-Q2 שנשאר חסר ונשאל בתוך Q3
 _LEFTOVER = {"commissions": "יש לכם עמלות חודשיות?", "bonus": "יש לכם בונוס חודשי?",
              "pension_percent": "כמה אחוזים מופרשים מכם לפנסיה?",
@@ -129,6 +129,8 @@ def _q2(fields: list[str], snapshot: RulesSnapshot) -> str:
     deductions = [name for f, name in _Q2_DEDUCTIONS.items() if f in fields]
     if deductions:
         parts.append(f"ואילו הפרשות יורדות לכם: {', '.join(deductions)}?")
+    if "credit_points" in fields:
+        parts.append("כמה נקודות זיכוי יש לכם?")       # not a deduction: a tax credit
     if "children" in fields:
         parts.append(f"וכמה ילדים עד גיל {age}?")
     text = " ".join(parts)
@@ -518,8 +520,8 @@ class ReplyPlan:
 
 
 CTA_STARTS = ("כתבו", "בחרו", "אפשר לכתוב")
-NEXT_AFTER_RESULTS = "אפשר לכתוב \"הכי משתלם\" כדי לראות את המשתלמים ביותר מכל הרכבים שאתם זכאים להם."
-NEXT_AFTER_RANK = "אפשר לכתוב שמות של רכבים אחרים כדי להשוות אותם."
+NEXT_AFTER_RESULTS = "רוצים לראות מה הכי משתלם מכל הרכבים שאתם זכאים להם?"
+NEXT_AFTER_RANK = "רוצים להשוות רכבים אחרים? כתבו את השמות שלהם."
 LINK_LABELS = {"profile_form": "למלא בטופס", "selection": "להציג את הרכבים בקבוצה שלכם",
                "payslip_upload": "להעלות תלוש"}
 
@@ -534,16 +536,17 @@ def unknown_text(state: ConversationState, snapshot: RulesSnapshot, fields: Sequ
     where to find each value; asked again ("לא יודע") in other words, never the same text twice in a row."""
     names = _names(fields)
     if state.unknown_told % 2:
-        return f"בסדר. החישוב מחכה רק ל{names}, ואני לא מניח ערך במקומם. אפשר לחזור לכאן בכל זמן ולכתוב את הערך."
+        return f"בסדר. החישוב מחכה רק ל{names}, בלי ערך משוער. אפשר לחזור לכאן בכל זמן ולכתוב את הערך."
     these = "הערך הזה" if len(fields) == 1 else "הערכים האלה"
-    lines = [f"כדי לחשב חסר לי: {names}. בלי {these} אין חישוב, ואני לא מניח ערך במקום."]
-    for f in fields:
-        entry = snapshot.faq.get(f)
-        if entry is not None and entry.where:
-            lines.append(f"{_LEFTOVER_NAMES[f]}: {entry.where}")
+    lines = [f"כדי לחשב חסר לי: {names}. בלי {these} אין חישוב, וגם לא חישוב עם ערך משוער."]
+    where = [f for f in fields if (e := snapshot.faq.get(f)) is not None and e.where]
+    if len(where) <= 2:           # where on the payslip, field by field — short
+        lines += [f"{_LEFTOVER_NAMES[f]}: {snapshot.faq.get(f).where}" for f in where]
+    else:
+        lines.append("כולם מופיעים בתלוש השכר החודשי.")
     return "\n".join(lines)
 FIRST_LINE = "אפשר לכתוב כמו שמדברים, הכול בהודעה אחת או בכמה."
-UNANSWERED = "על זה אין לי מידע מדויק. רוצים שאשאל את נציג התחבורה? התשובה תגיע לכאן."
+UNANSWERED = "על זה אין לי מידע מדויק. התשובה של נציג התחבורה תגיע לכאן. רוצים שאשאל אותו?"
 # the offer is the turn's one call to action; the next question comes after the choice
 REP_OFFER_CTA = "בחרו \"לשאול את הנציג\" או \"להמשיך בלי\"."
 NOT_UNDERSTOOD = "לא הצלחתי להבין את התשובה."
@@ -775,7 +778,8 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
         plan.ask.append(f"אשלח לנציג התחבורה: \"{state.pending_rep_question}\". לשלוח?")
         return plan
     if state.unanswered_question is not None:
-        plan.ask.append(UNANSWERED)            # one call to action: the offer; no flow question this turn
+        plan.ask.append(UNANSWERED)            # one call to action: the offer (its buttons); no flow question
+        plan.cta = ""
         return plan
     if state.pending_ambiguity is not None:
         plan.ask.append("לא בטוח שהבנתי: אין לכם רכב צמוד היום, או שיש רכב וההשתתפות שלכם היא 0?")
@@ -834,7 +838,7 @@ def render(state: ConversationState, snapshot: RulesSnapshot, **kwargs: Any) -> 
 
 def unknown_ack_text(fields: Sequence[str]) -> str:
     """"לא יודע" recorded per field: said once, with what it means (no default, asked again at the end)."""
-    return f"רשמתי שלא ידוע: {_names(fields)}. אני לא מניח ערך; נחזור לזה בסוף."
+    return f"רשמתי שזה לא ידוע: {_names(fields)}. בלי ערך משוער; נחזור לזה בסוף."
 
 
 _SINGULAR_TO_PLURAL = [(re.compile(rf"(?<![א-ת]){a}(?![א-ת])"), b) for a, b in

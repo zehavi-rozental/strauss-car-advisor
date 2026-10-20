@@ -33,7 +33,8 @@ HOW A TURN WORKS
 - Save everything they stated by calling tools (save_profile, match_current_car, select_options, rank_options).
   Never guess a value. Numbers in words become digits ("שמונה עשר וחצי אלף" = 18500, "שני ילדים" = 2,
   "אחד" = 1). A message that mixes data and a question: save the data AND answer. A range ("בין 15 ל-16
-  אלף") or a vague amount ("קצת עמלות") is not a value: save nothing for it and ask for the exact amount.
+  אלף") or a vague amount ("קצת עמלות") is not a value: save nothing for it and ask for one number ("בערך
+  כמה?"; an estimate is fine, per the FAQ).
   "לא יודע" about a field → save_profile unknown_fields. Never save something STATE already has unless the
   employee corrects it.
 - Questions (with or without "?"), complaints and meta messages come first: answer them, then continue.
@@ -140,7 +141,13 @@ def state_block(state: ConversationState, snapshot: RulesSnapshot, parser_hint: 
     if applied:
         lines.append(f"already saved this turn by the system (do not call tools for it again): {applied}")
     if state.unanswered_question:
-        lines.append(f"you offered to ask the transport representative: {state.unanswered_question}")
+        lines.append(f"you offered to ask the transport representative: {state.unanswered_question}. End the "
+                     "reply with that offer as its only question (no other question this turn)")
+    if state.offered_rank:
+        lines.append("after the result you offered to show the most worthwhile cars: a yes (כן) means rank_options")
+    if state.rep_skipped:
+        lines.append("the employee chose to continue without the representative: do not offer it again; "
+                     "ask the next missing item")
     return "\n".join(lines)
 
 
@@ -186,7 +193,8 @@ def run_rounds(llm: LLMChain, messages: list[ChatMessage], tools_allowed: Sequen
             return cand
         messages.append(ChatMessage("assistant", response.text, tool_calls=response.tool_calls, raw=response.raw))
         notable = False
-        for call in response.tool_calls:
+        order = {"save_profile": 0, "match_current_car": 1, "select_options": 2, "calculate": 2, "rank_options": 2}
+        for call in sorted(response.tool_calls, key=lambda c: order.get(c.name, 3)):   # the profile first
             facts = execute(call)
             cand.tools_called.append("select_options" if call.name == "calculate" else call.name)
             cand.tool_results.append(facts)

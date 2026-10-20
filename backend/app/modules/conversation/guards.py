@@ -42,10 +42,10 @@ FIELD_WORDS = {"occupation": ("קבוצ", "תפקיד"), "group": ("קבוצ",),
                "drive": ("הנעה", "חשמלי", "היברידי", "בנזין"), "maintenance": ("אחזק",),
                "car_choice": ("גרס", "מספר"), "options": ("רכב", "השוו", "חלופ")}
 VERIFY_PROMPT = """You verify a reply of a company-car advisor. For each numbered sentence decide whether the FAQ and
-STATE below support it (facts, rules, eligibility, amounts). Supported without a source: questions,
-acknowledgements of what the employee said, apologies, saying that the advisor has no information or cannot
+STATE below support it (facts, rules, eligibility, amounts). Supported without a source: questions, apologies, saying that the advisor has no information or cannot
 help with something (other people's data, personal tax advice, inventing numbers), and offers to ask the
-transport representative. Return JSON only: {"unsupported": [<sentence numbers>]}."""
+transport representative. An acknowledgement ("רשמתי: …") is supported only if STATE shows that value.
+Return JSON only: {"unsupported": [<sentence numbers>]}."""
 # a boundary or an honest "no information" is not a policy claim
 BOUNDARY_CUES = ("לא יכול", "לא אוכל", "אין לי מידע", "אין לי אפשרות", "אינני יכול", "לא מסוגל", "לא אמסור",
                  "לא ניתן לי", "לא אמציא", "אני לא ממציא", "אין באפשרותי")
@@ -124,10 +124,12 @@ def check(raw: str, *, snapshot: RulesSnapshot, allowed: set[Decimal], tools_cal
         out.violations.append(Violation("banned"))
     if lines[0].strip().startswith(OPENERS):
         out.violations.append(Violation("opener"))
-    if sum(1 for line in lines if line.strip().startswith(CTA_STARTS)) > 1 or not _is_question(lines[-1].strip()):
+    # exactly one call to action: the last line; no other line asks or instructs
+    asks = sum(1 for line in lines if line.strip().startswith(CTA_STARTS) or "?" in line)
+    if asks != 1 or not _is_question(lines[-1].strip().rstrip(",.")):
         out.violations.append(Violation("cta"))
-    if offer_rep and "נציג" not in text:
-        out.violations.append(Violation("offer"))
+    if offer_rep and ("נציג" not in lines[-1] or text.count("?") > 1):
+        out.violations.append(Violation("offer"))     # the offer is the only question, and the last line
     elif fields and not waiting_answer and not any(w in text for f in fields for w in FIELD_WORDS.get(f, ())):
         out.violations.append(Violation("progress"))
     if conflicts and "?" not in text:
@@ -142,7 +144,10 @@ def content_sentences(raw: str) -> list[str]:
     out = []
     for s in sentences(raw):
         clean = TAG_RE.sub("", s).strip()
-        if not clean or _is_question(clean) or clean.startswith("רשמתי") or any(b in clean for b in BOUNDARY_CUES):
+        if not clean or _is_question(clean) or any(b in clean for b in BOUNDARY_CUES):
+            continue
+        if clean.startswith("רשמתי"):        # an acknowledgement must match what was saved (STATE)
+            out.append(clean)
             continue
         # only sentences that can carry a claim: a source tag, a policy word or a number
         if TAG_RE.search(s) or any(w in clean for w in POLICY_WORDS) or numbers_in(clean):

@@ -109,8 +109,7 @@ def test_an_unrelated_faq_entry_is_not_used(sessions):
 def test_the_rep_offer_is_the_only_call_to_action(sessions):
     turn, token, _ = talk(service(sessions), ["מנהלת מוצר", SUNROOF])
     paragraphs = turn.reply.split("\n\n")
-    assert paragraphs[-1] == 'בחרו "לשאול את הנציג" או "להמשיך בלי".'
-    assert sum(p.startswith(("כתבו", "בחרו", "אפשר לכתוב")) for p in paragraphs) == 1
+    assert paragraphs == ["על זה אין לי מידע מדויק. התשובה של נציג התחבורה תגיע לכאן. רוצים שאשאל אותו?"]   # the offer only
     assert "שכר הבסיס" not in turn.reply and turn.expects["link"] is None          # no flow question, no link
     ask = [f for f in turn.expects["fields"] if f["field"] == "ask_rep"][0]
     assert ask["closed"] and [c["id"] for c in ask["choices"]] == ["ask_rep", "skip"]

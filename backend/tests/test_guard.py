@@ -162,7 +162,7 @@ def test_the_two_transcripts_in_template_mode(sessions):
     svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain())
     turn, token = svc.start()
     turn = svc.send(turn.conversation_id, token, SUNROOF)
-    assert turn.reply.startswith("על זה אין לי מידע מדויק. רוצים שאשאל את נציג התחבורה?")
+    assert turn.reply.startswith("על זה אין לי מידע מדויק. התשובה של נציג התחבורה תגיע לכאן. רוצים שאשאל אותו?")
     assert "לא הצלחתי להבין" not in turn.reply
     turn = svc.send(turn.conversation_id, token, COMPLAINT)
     assert turn.reply.startswith("צודקים, סליחה.") and "נציג התחבורה" in turn.reply
@@ -183,4 +183,4 @@ def test_results_text_is_the_template_and_the_llm_is_not_asked(sessions):
         turn = svc.send(turn.conversation_id, token, text)
     assert turn.source == "template" and "חבל" not in turn.reply
     assert "הנטו שלכם יגדל ב-661 ₪ בחודש" in turn.reply and "הסיבה העיקרית" in turn.reply
-    assert turn.reply.split("\n\n")[-1].startswith("אפשר לכתוב")
+    assert turn.reply.split("\n\n")[-1] == "רוצים לראות מה הכי משתלם מכל הרכבים שאתם זכאים להם?"

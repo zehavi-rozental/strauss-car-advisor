@@ -374,6 +374,11 @@ def _rep_offer_answer(text: str) -> Optional[bool]:
     return True if ws[0] in _ASK else False if ws[0] in _SKIP else None
 
 
+_CHILDREN_WORDS = {"ילד אחד": 1, "אחד": 1, "שני": 2, "שתי": 2, "שניים": 2, "שלושה": 3, "שלוש": 3, "ארבעה": 4,
+                   "ארבע": 4, "חמישה": 5, "חמש": 5}
+_CHILDREN_WORDS_RE = re.compile(r"(?<![א-ת])(שני|שתי|שלושה|שלוש|ארבעה|ארבע|חמישה|חמש)\s+(?:ילדים|ילדות)")
+
+
 def _ambiguity_answer(text: str) -> Optional[str]:
     """Typed answer to "אין לכם רכב, או שיש רכב וההשתתפות 0?"."""
     if no_car_span(text):
@@ -502,7 +507,7 @@ class Agent:
         field_ = field or build_expects(state, snapshot)["field"]
         if field_ == "ask_rep":
             if ids[0] == "skip":                     # "להמשיך בלי": back to the flow question
-                state.unanswered_question = None
+                state.unanswered_question, state.rep_skipped = None, True
                 return self._finish(ctx, (), label, ParserPlan(complete=True, direct=True), before, record_run,
                                     choice=True)
             return self._prepare_rep_question(ctx)
@@ -569,8 +574,10 @@ class Agent:
         elif state.unanswered_question is not None and (ask := _rep_offer_answer(text)) is not None:
             if ask:
                 return self._prepare_rep_question(ctx)
-            state.unanswered_question = None
+            state.unanswered_question, state.rep_skipped = None, True
             plan = ParserPlan(complete=True, direct=True)        # "להמשיך": the flow question
+        elif state.offered_rank and state.stage == Stage.PRESENTED and words(text)[:1] in (["כן"], ["רוצים"], ["בטח"]):
+            plan = ParserPlan([ToolCall("rank_options", {}, "offered")], True, direct=True)   # yes to the offer
         elif state.pending_ambiguity is not None and (choice := _ambiguity_answer(text)) is not None:
             plan = _ambiguity_plan(state, choice)
         elif und.question_only and und.anything and und.ambiguity is None:
@@ -644,7 +651,8 @@ class Agent:
         else:
             # המודל קורא קודם. תוכנית הקורא חושבה לפני כל שינוי במצב: גיבוי, ובדיקה צולבת כשנקרא במלואו.
             cross = _expected_values(snapshot, plan) if plan.complete else {}
-            state.unanswered_question = None   # the LLM offers the representative itself (propose_rep_question)
+            if not und.complaint:              # a complaint keeps the earlier offer: the reply repeats it
+                state.unanswered_question = None   # otherwise the LLM offers the representative itself
             try:
                 understood, candidate = self._llm_turn(ctx, history, text, plan, deadline, cross, conflicts, und)
                 used_llm, path = True, "llm"
@@ -705,6 +713,8 @@ class Agent:
         # the reply about unknown fields alternates its wording: "לא יודע" twice never gets the same text
         state.unknown_told = state.unknown_told + 1 if current_group(state)[0] == "unknown" else 0
         state.misses = 0 if (understood or problems or und.anything) else state.misses + 1
+        state.rep_skipped = False
+        state.offered_rank = reply_plan.fixed and state.stage == Stage.PRESENTED and not state.ranked_count
         state.last_asked = [] if just_calculated else list(current_group(state)[1])
         state.last_ask = reply_plan.ask[-1] if reply_plan.ask else ""
         requests = dict(question_requests=ctx.question_requests, cancel_question_ids=ctx.cancel_question_ids)
@@ -741,6 +751,9 @@ class Agent:
                    "credit_points": p.credit_points, "children_under_23": p.children}
         # labelled values ("פנסיה 6%") and explicit zeros ("אין לי ילדים") — never a bare number
         said = {**{k: v for k, v in reading.fields.items() if _is_zero(v)}, **reading.labelled}
+        kids = _CHILDREN_WORDS_RE.search(text)        # "שני ילדים": a number in words
+        if kids and current["children_under_23"] is None:
+            said["children_under_23"] = _CHILDREN_WORDS[kids.group(1)]
         args = {k: v for k, v in said.items()
                 if k in current and current[k] is None and k not in conflicts}
         copay = parse_copay(text)
@@ -767,6 +780,8 @@ class Agent:
                 call = ToolCall("select_options", call.args, call.id)
             if call.name not in LLM_TOOLS:
                 return {"ok": False, "error": "unknown tool"}
+            if call.name == "propose_rep_question" and state.rep_skipped:
+                return {"ok": False, "error": "the employee chose to continue without the representative"}
             checked = self._check_call(ctx, call, text, und)
             if checked is None:
                 return {"ok": False, "error": "not saved: the message does not say this; ask the employee"}
@@ -1099,6 +1114,7 @@ class Agent:
 
     VERIFY_BUDGET_S = 1.2       # the claim verifier's own cap
     MIN_VERIFY_S = 0.4          # less than this left in the turn: no verifier, only template-safe sentences
+    MIN_RETRY_S = 1.5           # less than this left: no retry (the trimmed reply or the template)
 
     def _guarded(self, cand: Candidate, draft: str, ctx: ToolContext, history: Sequence[ChatMessage], text: str,
                  deadline: Optional[float], conflicts: Sequence[str],
@@ -1108,6 +1124,10 @@ class Agent:
         if not cand.text:
             return draft, "template", False, "empty"
         state, snap = ctx.state, ctx.snapshot
+        if state.pending_ambiguity is not None or state.pending_clarification is not None:
+            # code refused a value and asks about it (no car or copay 0? the car today or an alternative?):
+            # the exact question, with its buttons
+            return draft, "template", False, "pending"
         waiting_answer = any(x is not None for x in (state.pending_confirmation, state.pending_occupation,
                                                      state.pending_clarification, state.pending_ambiguity,
                                                      state.pending_rep_question))
@@ -1126,7 +1146,8 @@ class Agent:
         first, violations = judge(raw)
         if not violations:
             return first.text, "llm", False, "llm"
-        retry = self._retry(cand, violations, deadline)
+        left = None if deadline is None else deadline - self.llm.clock()
+        retry = self._retry(cand, violations, deadline) if left is None or left >= self.MIN_RETRY_S else ""
         if retry:
             second, again = judge(retry)
             if not again:
