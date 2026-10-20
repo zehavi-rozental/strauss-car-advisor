@@ -53,6 +53,10 @@ from .stage import (
 
 OPT_OUT_WORDS = ("ויתור", "לוותר", "opt out", "opt_out", "בלי רכב", "ללא רכב")
 
+# profile fields (state attribute names) the employee may ask to answer later
+_DEFERRABLE_FIELDS = ("base", "commissions", "bonus", "pension_percent", "study_fund_percent",
+                      "credit_points", "children")
+
 
 # חיפוש במאגר רשות המסים: (דגם, שנת רישום) → התאמה. כל קריאה פותחת סשן קריאה קצר משלה,
 # כך שאין טרנזקציה פתוחה בזמן שהסוכן מחכה למודל השפה.
@@ -144,6 +148,8 @@ class SaveProfileArgs(_Args):
     current_maintenance: Num = None
     approximate_fields: list[str] = Field(default_factory=list)    # שדות שהעובד אמר כהערכה
     unknown_fields: list[str] = Field(default_factory=list)       # Q2 fields the employee does not know
+    # fields the employee asked to answer LATER ("אח\"כ אבדוק את השכר"): postponed, not a value, not dropped
+    defer_fields: list[str] = Field(default_factory=list)
 
 
 class MatchCarArgs(_Args):
@@ -270,12 +276,21 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
             saved.append(arg)
             if attr in p.unknown_fields:
                 p.unknown_fields.remove(attr)          # the value was found after all
+            if attr in ctx.state.deferred_fields:
+                ctx.state.deferred_fields.remove(attr)  # a value was given — no longer deferred
 
     # "לא יודע": recorded per field, never a value (only fields that are still empty)
     for name in args.unknown_fields:
         if name in Q2_FIELDS and getattr(p, name) is None and name not in p.unknown_fields:
             p.unknown_fields.append(name)
             saved.append(f"unknown:{name}")
+
+    # "אח\"כ אבדוק": postpone a field. Recorded in the state; the stage machine skips it while other work
+    # exists (stage.hidden_deferred). Only still-missing profile fields can be deferred; never a value.
+    for name in args.defer_fields:
+        if name in _DEFERRABLE_FIELDS and getattr(p, name, None) is None and name not in ctx.state.deferred_fields:
+            ctx.state.deferred_fields.append(name)
+            saved.append(f"defer:{name}")
 
     if args.current_copay is not None:
         c.copay, c.copay_unknown = args.current_copay, False
@@ -653,6 +668,14 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             "unknown_fields": {"type": "array", "items": {"type": "string", "enum": list(Q2_FIELDS)},
                                "description": "fields the employee says they do not know (לא יודע / לא זוכרת). "
                                "Never guess or fill a value for them."},
+            "defer_fields": {"type": "array",
+                             "items": {"type": "string",
+                                       "enum": ["base", "commissions", "bonus", "pension_percent",
+                                                "study_fund_percent", "credit_points", "children"]},
+                             "description": "fields the employee asked to answer LATER, not now (e.g. "
+                             "'את השכר אבדוק אחר כך', 'אח\"כ', 'בינתיים נתקדם', 'נשלים בהמשך', 'אין לי את זה "
+                             "עכשיו'). Use 'base' for the base salary. Postpone them — the system will stop "
+                             "asking for them and bring them back only when needed. Never a value, never a guess."},
             "approximate_fields": {"type": "array", "items": {"type": "string"},
                                    "description": "names of the fields above that the employee stated as an "
                                    "estimate (כ-, בערך, בסביבות, בממוצע, משתנות)"},

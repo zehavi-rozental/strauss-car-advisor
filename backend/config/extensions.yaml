@@ -86,9 +86,12 @@ pace_cues: [שאלה אחת כל פעם, שאלה אחת בכל פעם, אחד �
 # Phrases that ask to answer a question later ("את השכר אבדוק אחר כך"). The field is postponed, not
 # dropped and never defaulted: the bot keeps asking other things and brings it back when nothing else is
 # askable or a calculation needs it. A value given later clears the deferral. New phrase = a line here.
-defer_cues: [אחר כך, אחרי זה, בהמשך, מאוחר יותר, נחזור לזה, נחזור אליו, נחזור אל זה, לא עכשיו, עוד מעט,
-             תשאל אחר כך, תשאלו אחר כך, תשאל אותי אחר כך, אבדוק אחר כך, אבדוק בהמשך, אבדוק מאוחר יותר,
-             אשלים אחר כך, אשלים בהמשך, אמסור אחר כך, אמסור בהמשך, דלג, דלג על, תדלג, לדלג, לדלג על]
+# Note: deliberately NOT "להמשיך"/"נמשיך בלי"/"נתקדם" alone — those are the rep-offer "continue without
+# asking the representative" answer, not a request to postpone a data field.
+defer_cues: [אחר כך, "אח\"כ", אחכ, אחרי זה, בהמשך, מאוחר יותר, נחזור לזה, נחזור אליו, נחזור אל זה,
+             לא עכשיו, עוד מעט, בינתיים, תשאל אחר כך, תשאלו אחר כך, תשאל אותי אחר כך, תשאל אותי בינתיים,
+             אבדוק אחר כך, אבדוק בהמשך, אבדוק מאוחר יותר, אשלים אחר כך, אשלים בהמשך,
+             אמסור אחר כך, אמסור בהמשך, אביא בהמשך, דלג על, תדלג, לדלג על, נדלג]
 # A request about the conversation itself ("give me all the questions at once"): answered in one line from the
 # bot's own design, never a question for the transport representative.
 # A zero the employee said: only with one of these (or the digit 0) may a model save 0 for a field. A bare "לא"

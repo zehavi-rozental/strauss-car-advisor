@@ -79,6 +79,57 @@ def test_defer_marks_the_field_and_skips_it(sessions):
     assert "שכר" not in question_line, f"the question still asks for the salary:\n{question_line}"
 
 
+def test_browser_defer_conversation_group_first_then_defer_in_separate_message(sessions):
+    """[integration] Reproduces the exact browser failure (template mode): the group is given first, then
+    the salary is deferred in a SEPARATE message with natural phrasing ('בינתיים ... אח\"כ אבדוק את השכר'),
+    then a restate ('אמרתי שאח\"כ'). The bot must NOT stay stuck re-asking the base salary."""
+    svc = service(sessions)
+    turn, token = svc.start()
+    turn = svc.send(turn.conversation_id, token, "ג")
+    assert profile(svc, turn, token).group == "ג"
+    # the salary is deferred in its own message, in natural Hebrew (abbreviation + "בינתיים")
+    turn = svc.send(turn.conversation_id, token, "תשאל אותי בינתיים שאלות אחרות אח\"כ אבדוק את השכר")
+    st = svc.view(turn.conversation_id, token).state
+    assert "base" in st.deferred_fields                      # the field was marked deferred
+    q1 = [ln for ln in turn.reply.splitlines() if ln.strip()][-1]
+    assert "שכר" not in q1, f"still asking for the salary:\n{q1}"   # the next question is NOT the base salary
+    # a restate does not re-open the base salary
+    turn = svc.send(turn.conversation_id, token, "אמרתי שאח\"כ")
+    q2 = [ln for ln in turn.reply.splitlines() if ln.strip()][-1]
+    assert "שכר" not in q2, f"re-asked the salary after a restate:\n{q2}"
+    assert profile(svc, turn, token).group == "ג"            # earlier data kept
+
+
+def test_defer_several_phrasings_mark_the_field(sessions):
+    """[integration] Natural defer phrasings (not just 'אחר כך') all postpone the asked field. Each starts
+    fresh after the group so the base salary is the field on screen."""
+    # the deterministic parser covers these common phrasings; the live LLM handles freer ones (covered in
+    # test_live_reliability). The point here is that deferral is not tied to one exact sentence.
+    for phrasing in ["נדלג על זה בינתיים", "לא עכשיו, אח\"כ אבדוק את השכר", "את השכר אשלים בהמשך",
+                     "אח\"כ אבדוק את השכר"]:
+        svc = service(sessions)
+        turn, token = svc.start()
+        svc.send(turn.conversation_id, token, "ג")
+        turn = svc.send(turn.conversation_id, token, phrasing)
+        st = svc.view(turn.conversation_id, token).state
+        assert "base" in st.deferred_fields, f"not deferred for: {phrasing!r}"
+
+
+def test_defer_then_complete_reaches_a_result(sessions):
+    """[integration] After deferring the salary and giving everything else, supplying the salary at the end
+    lets the journey reach a calculated result (the deferral never blocks completion)."""
+    svc = service(sessions)
+    turn, token = svc.start()
+    for t in ["ג", "את השכר אבדוק אחר כך",
+              "אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים",
+              "יש לי קורולה קרוס, משלמת 300", "אטו 3"]:
+        turn = svc.send(turn.conversation_id, token, t)
+    # only the base salary is left (deferred, now required): no result yet, and the salary is asked
+    assert turn.results == [] and "שכר" in turn.reply
+    turn = svc.send(turn.conversation_id, token, "18500")
+    assert turn.stage == Stage.PRESENTED and turn.results        # completes to a result
+
+
 def test_deferred_base_comes_back_when_nothing_else_is_askable(sessions):
     """[integration] Once every other field is supplied, a deferred mandatory field comes back (it is
     required for the calculation) and no net is shown until it is given."""
