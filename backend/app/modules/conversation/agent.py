@@ -917,7 +917,7 @@ class Agent:
                 no_car_lines.append(entry.answer)
         if has_car_said and state.current.source is None and not state.current.choices:
             no_car_lines.append(HAS_CAR_ACK)
-        lines = [*extra, *([map_line] if map_line else []), *([defer_ack] if defer_ack else []), *no_car_lines,
+        lines = [*extra, *([defer_ack] if defer_ack else []), *no_car_lines,
                  *(["צודקים, סליחה."] if und.complaint else []),
                  *([_audit_text(state)] if und.audit else []),
                  *([ALL_AT_ONCE] if und.all_at_once else []),
@@ -932,6 +932,10 @@ class Agent:
             notice_asks=bool(problems) or plan.asks is not None, cta_field=asks_field,
             confirmations=[*confirmations, *refused], answers=list(zip(answers, terms)),
             follow_up=und.presence, explain=und.help or len(no_car_lines) > 1, extra=lines)
+        if map_line:
+            reply_plan.ack.append(map_line)  # after what was saved and identified this turn
+        if map_shown and state.stage in (Stage.CHOOSE_OPTIONS, Stage.PRESENTED):
+            reply_plan.ask = []      # the map answered the request; the call to action still offers a comparison
         _mark_asked(state)
         # the reply about unknown fields alternates its wording: "לא יודע" twice never gets the same text
         state.unknown_told = state.unknown_told + 1 if current_group(state)[0] == "unknown" else 0
