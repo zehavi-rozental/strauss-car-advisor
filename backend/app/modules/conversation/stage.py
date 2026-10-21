@@ -60,6 +60,20 @@ class Profile(BaseModel):
     unknown_fields: list[str] = Field(default_factory=list)
 
 
+# The one map between a save_profile argument and the Profile attribute it fills (the seven salary fields).
+# Every other map of these fields is derived from it, so a field is never added in one place only.
+PROFILE_ARGS: dict[str, str] = {
+    "base_salary": "base", "commissions": "commissions", "bonus": "bonus", "pension_percent": "pension_percent",
+    "study_fund_percent": "study_fund_percent", "credit_points": "credit_points", "children_under_23": "children",
+}
+ARG_OF: dict[str, str] = {attr: arg for arg, attr in PROFILE_ARGS.items()}   # Profile attribute → argument
+
+
+def profile_args(p: "Profile") -> dict[str, Any]:
+    """The salary fields as save_profile arguments (None = not given)."""
+    return {arg: getattr(p, attr) for arg, attr in PROFILE_ARGS.items()}
+
+
 class CarChoice(BaseModel):
     label: str
     description: str = ""     # קוד הדגם מרישיון הרכב — מבדיל בין גרסאות

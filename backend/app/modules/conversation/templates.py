@@ -14,7 +14,7 @@ from typing import Any, Optional, Sequence
 from app.modules.rules.public import RulesSnapshot
 from app.shared.money import to_shekel
 
-from .stage import (MAX_OPTIONS, Q2_FIELDS, ConversationState, RepReason, Stage, current_group,
+from .stage import (MAX_OPTIONS, PROFILE_ARGS, Q2_FIELDS, profile_args, ConversationState, RepReason, Stage, current_group,
                     missing_current_car, next_stage, open_profile, unknown_missing)
 from .tools import available_options
 
@@ -461,10 +461,7 @@ def in_label(label: str) -> str:
 def approximate_assumptions(state: ConversationState) -> list[str]:
     """"עמלות: כ-1,000 ₪, לפי ההערכה שלכם" — לכל ערך שהעובד אמר כהערכה."""
     p, c = state.profile, state.current
-    values = {"base_salary": p.base, "commissions": p.commissions, "bonus": p.bonus,
-              "pension_percent": p.pension_percent, "study_fund_percent": p.study_fund_percent,
-              "credit_points": p.credit_points, "children_under_23": p.children,
-              "current_use_value": c.use_value, "current_copay": c.copay, "current_maintenance": c.maintenance}
+    values = {**profile_args(p), "current_use_value": c.use_value, "current_copay": c.copay, "current_maintenance": c.maintenance}
     return [f"{_VALUE_LABELS[f][0]}: כ-{_show(f, values[f])}, לפי ההערכה שלכם"
             for f in p.approximate_fields if values.get(f) is not None]
 
@@ -750,9 +747,7 @@ def compare_needs_text(state: ConversationState) -> str:
 
 ALL_AT_ONCE = "אני שואל בשלבים כדי שלא יחסר דבר, אבל אפשר לענות על הכול בהודעה אחת."
 
-_PROFILE_ARGS = (("base_salary", "base"), ("commissions", "commissions"), ("bonus", "bonus"),
-                 ("pension_percent", "pension_percent"), ("study_fund_percent", "study_fund_percent"),
-                 ("credit_points", "credit_points"), ("children_under_23", "children"))
+_PROFILE_ARGS = tuple(PROFILE_ARGS.items())
 
 
 def progress_text(state: ConversationState, fields: Sequence[str]) -> str:

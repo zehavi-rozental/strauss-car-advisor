@@ -37,6 +37,7 @@ from app.modules.vehicles.public import CurrentCarMatch, VehicleInfo, VehicleKey
 from .llm.port import ToolSpec
 from .parsing import match_drive, match_group, match_occupation, parse_decimal, similar_occupations
 from .stage import (
+    PROFILE_ARGS,
     MAX_OPTIONS,
     Q2_FIELDS,
     OPT_OUT_ID,
@@ -276,9 +277,7 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
             p.group, p.occupation_unknown = group, True
             saved.append("eligibility_group")
 
-    for arg, attr in (("base_salary", "base"), ("commissions", "commissions"), ("bonus", "bonus"),
-                      ("pension_percent", "pension_percent"), ("study_fund_percent", "study_fund_percent"),
-                      ("credit_points", "credit_points"), ("children_under_23", "children")):
+    for arg, attr in PROFILE_ARGS.items():
         value = getattr(args, arg)
         if value is not None:
             setattr(p, attr, value)

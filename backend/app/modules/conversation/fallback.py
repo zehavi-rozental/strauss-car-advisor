@@ -42,7 +42,7 @@ from .parsing import (
     unread_words,
     year_spans,
 )
-from .stage import Q2_FIELDS, CarClarification, ConversationState, current_group
+from .stage import ARG_OF, PROFILE_ARGS, Q2_FIELDS, CarClarification, ConversationState, current_group
 from .templates import money, paced, recorded_text   # recorded_text: re-exported (agent, public)
 from .tools import OPT_OUT_WORDS, available_options
 
@@ -58,10 +58,7 @@ SHORT_MODEL_WORDS = 3     # תשובה קצרה בלי שם מוכר → כל ה
 SHORT_TITLE_WORDS = 3     # תשובה קצרה לשאלת התפקיד → כל ההודעה היא שם התפקיד (גיבוי: עיסוק לא ידוע)
 
 # שם השדה בשאלה → שם הארגומנט ב-save_profile
-_PROFILE_ARG = {"occupation": "occupation", "group": "eligibility_group", "base": "base_salary",
-                "commissions": "commissions", "bonus": "bonus", "pension_percent": "pension_percent",
-                "study_fund_percent": "study_fund_percent", "credit_points": "credit_points",
-                "children": "children_under_23"}
+_PROFILE_ARG = {"occupation": "occupation", "group": "eligibility_group", **ARG_OF}
 ZERO_ALLOWED = {"commissions", "bonus", "study_fund_percent", "children"}
 # מילים שמתארות רכב שכבר זוהה בשמו ("אטו 3 החשמלי") — מותרות לצד השם בשאלת החלופות
 _DRIVE_DESCRIPTORS = {
@@ -258,9 +255,7 @@ def _group_correction_plan(state: ConversationState, snapshot: RulesSnapshot, te
 
 
 # save_profile arg name → the Profile attribute it corrects (for a value correction after it was set)
-_CORRECTABLE = {"base_salary": "base", "commissions": "commissions", "bonus": "bonus",
-                "pension_percent": "pension_percent", "study_fund_percent": "study_fund_percent",
-                "credit_points": "credit_points", "children_under_23": "children"}
+_CORRECTABLE = PROFILE_ARGS
 
 
 def _profile_value_correction_plan(state: ConversationState, snapshot: RulesSnapshot,

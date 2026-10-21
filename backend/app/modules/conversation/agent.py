@@ -51,6 +51,9 @@ from .stage import (
     open_profile,
     next_stage,
     results_stale,
+    ARG_OF,
+    PROFILE_ARGS,
+    profile_args,
     Q2_FIELDS,
 )
 from .templates import (
@@ -383,17 +386,13 @@ def _is_zero(value: Any) -> bool:
 
 
 # missing item (stage.py) → the save_profile argument a bare value answers
-_ASKED_ARG = {"base": "base_salary", "commissions": "commissions", "bonus": "bonus",
-              "pension_percent": "pension_percent", "study_fund_percent": "study_fund_percent",
-              "credit_points": "credit_points", "children": "children_under_23", "copay": "current_copay",
+_ASKED_ARG = {**ARG_OF, "copay": "current_copay",
               "use_value": "current_use_value", "maintenance": "current_maintenance", "car": "car"}
 _NUMERIC_ARGS = {a for a in _ASKED_ARG.values() if a != "car"}
 _BARE_RE = re.compile(r"^\s*(?:בערך|כ-?|בסביבות)?\s*[\d.,]+\s*(?:%|אחוז(?:ים)?|₪|ש\"ח|שח|שקל(?:ים)?)?\s*\.?\s*$")
 
 # save_profile arg name (asked_field) → the Q2 field name used in unknown_fields
-_ASKED_Q2 = {"commissions": "commissions", "bonus": "bonus", "pension_percent": "pension_percent",
-             "study_fund_percent": "study_fund_percent", "credit_points": "credit_points",
-             "children_under_23": "children"}
+_ASKED_Q2 = {arg: attr for arg, attr in PROFILE_ARGS.items() if attr in Q2_FIELDS}
 # Hebrew words that name each Q2 field, to tell which field a "לא יודע" refers to
 _Q2_WORDS = {"commissions": ("עמל",), "bonus": ("בונוס",), "pension_percent": ("פנסי",),
              "study_fund_percent": ("השתלמות",), "credit_points": ("זיכוי", "נקוד"), "children": ("ילד",)}
@@ -530,9 +529,7 @@ def rep_text_ok(text: str) -> bool:
 
 
 # שדות Q2 בפרופיל → שם הארגומנט ב-save_profile (כפי ש-recorded_text מצפה)
-_HIDDEN_ARGS = {"commissions": "commissions", "bonus": "bonus", "pension_percent": "pension_percent",
-                "study_fund_percent": "study_fund_percent", "credit_points": "credit_points",
-                "children": "children_under_23"}
+_HIDDEN_ARGS = {attr: ARG_OF[attr] for attr in Q2_FIELDS}
 
 
 _ACK_FIELDS = ("base", "commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points", "children")
@@ -548,10 +545,7 @@ def _values(state: ConversationState) -> dict[str, Any]:
 
 def _form_values(state: ConversationState) -> dict[str, Any]:
     """The profile values a form can change, by save_profile argument name."""
-    p = state.profile
-    return {"base_salary": p.base, "commissions": p.commissions, "bonus": p.bonus,
-            "pension_percent": p.pension_percent, "study_fund_percent": p.study_fund_percent,
-            "credit_points": p.credit_points, "children_under_23": p.children}
+    return profile_args(state.profile)
 
 
 def ack_text(changed: dict[str, Any], group: Optional[str] = None) -> str:
@@ -997,10 +991,7 @@ class Agent:
             return False
         state, ext = ctx.state, ctx.snapshot.extensions
         reading = read_profile(text, ctx.snapshot.occupations.keys(), ext.correction_cues, ext.value_qualifiers)
-        p = state.profile
-        current = {"base_salary": p.base, "commissions": p.commissions, "bonus": p.bonus,
-                   "pension_percent": p.pension_percent, "study_fund_percent": p.study_fund_percent,
-                   "credit_points": p.credit_points, "children_under_23": p.children}
+        current = profile_args(state.profile)
         # labelled values ("פנסיה 6%") and explicit zeros ("אין לי ילדים") — never a bare number
         said = {**{k: v for k, v in reading.fields.items() if _is_zero(v)}, **reading.labelled}
         kids = _CHILDREN_WORDS_RE.search(text)        # "שני ילדים": a number in words
