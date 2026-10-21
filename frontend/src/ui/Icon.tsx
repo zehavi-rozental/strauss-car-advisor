@@ -29,6 +29,8 @@ const P: Record<string, ReactNode> = {
   drop: <path d="M12 4s5.5 6.2 5.5 10a5.5 5.5 0 0 1-11 0C6.5 10.2 12 4 12 4Z" />,
   road: <><path d="M8.5 4 5 20M15.5 4 19 20" /><path d="M12 5v2.5M12 11v2.5M12 17v2.5" /></>,
   minus: <path d="M6 12h12" />,
+  trendUp: <><path d="M4 16.5 9.5 11l3.5 3.5L20 7.5" /><path d="M15 7.5h5v5" /></>,
+  trendDown: <><path d="M4 7.5 9.5 13l3.5-3.5L20 16.5" /><path d="M15 16.5h5v-5" /></>,
   arrowLeft: <><path d="M19 12H5.5" /><path d="m11 6-6 6 6 6" /></>,
   rep: <><circle cx="9" cy="8.5" r="3" /><path d="M3.5 19a5.5 5.5 0 0 1 11 0" /><path d="M15 6.5h5.5M15 10h5.5M17 13.5h3.5" /></>,
   motion: <><path d="M4 12c2.5-4 5.5-4 8 0s5.5 4 8 0" /><path d="M4 17c2.5-4 5.5-4 8 0s5.5 4 8 0" opacity="0.5" /></>,

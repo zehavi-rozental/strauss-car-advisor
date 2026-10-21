@@ -1,6 +1,7 @@
 /* Base: reset, type, focus, buttons, fields, tags. Logical properties only (inline = horizontal in RTL). */
 *, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; scrollbar-color: var(--line-2) transparent; }
+* { scrollbar-width: thin; }
 body {
   margin: 0;
   min-block-size: 100dvh;
@@ -15,6 +16,9 @@ body {
 }
 h1, h2, h3, h4 { margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
 p { margin: 0; text-wrap: pretty; }
+/* short blocks break into even lines, never one long line and a stub */
+th, td, dt, dd, li, label, legend, figcaption, button, .tag, .state,
+.compare-why, .summary-why, .why-item p, .result-reason, .state-note, .disclaimer, .selected-text { text-wrap: balance; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; }

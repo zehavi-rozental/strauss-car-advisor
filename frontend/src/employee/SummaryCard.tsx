@@ -1,12 +1,12 @@
-// Several calculated options side by side, ranked by the monthly change (the server's delta_display, highest
-// first). Each option: its rank, name, the change with its sign and word, the status, the one-line why, and an
-// abstract petal whose size is the change relative to the largest one. Built from ScenarioResult only.
-import type { CSSProperties } from 'react'
+// Several calculated options, ranked by the monthly change (the server's delta_display, highest first). The card
+// opens with today's net; each option then answers the one question: the new monthly net in large type, and the
+// change against today in words and colour. Then its name, status and the one-line why. Built from
+// ScenarioResult only (the server's *_display values).
 import type { OptionResult } from '../api/types'
 import { Money } from '../format/Amount'
 import { Icon } from '../ui/Icon'
-import { CarName, StateBadge } from './ResultCard'
-import { deltaShares, resultState, toneOf } from './resultView'
+import { CarName, NetChange, StateBadge } from './ResultCard'
+import { resultState, toneOf } from './resultView'
 
 export function rankResults(items: OptionResult[]): OptionResult[] {
   const ok = (i: OptionResult) => i.result.status === 'OK' && i.result.delta_display != null
@@ -16,9 +16,18 @@ export function rankResults(items: OptionResult[]): OptionResult[] {
 
 export function SummaryCard({ items, onOpenTable }: { items: OptionResult[]; onOpenTable?: () => void }) {
   const ranked = rankResults(items)
-  const shares = deltaShares(items)
+  const today = ranked.find((i) => i.result.today)?.result.today ?? null
   return (
     <article className="summary-card" aria-label="סיכום ההשוואה">
+      <header className="summary-head">
+        <h3 className="section-title">הנטו החודשי שלכם עם כל רכב</h3>
+        {today && (
+          <p className="summary-today">
+            <span>הנטו שלכם היום</span>
+            <Money value={today.net_display} />
+          </p>
+        )}
+      </header>
       <ol className="summary-rows">
         {ranked.map((i, n) => {
           const r = i.result
@@ -26,19 +35,22 @@ export function SummaryCard({ items, onOpenTable }: { items: OptionResult[]; onO
           const tone = ok ? toneOf(r.delta_display) : 'flat'
           const best = ok && n === 0 && ranked.length > 1
           return (
-            <li key={`${i.option_id}:${i.run_id}`} className={`summary-row tone-${tone}${best ? ' is-best' : ''}`}
-                style={{ '--share': shares[i.option_id] ?? 0 } as CSSProperties}>
+            <li key={`${i.option_id}:${i.run_id}`} className={`summary-row tone-${tone}${best ? ' is-best' : ''}`}>
               <span className="summary-rank num" aria-hidden="true">{n + 1}</span>
-              <span className="summary-shape" aria-hidden="true" />
               <span className="summary-car">
                 <CarName label={i.label} />
                 {best && <span className="tag tag-brand tag-plain">הכי משתלם</span>}
               </span>
               {ok ? (
                 <>
-                  <span className="summary-figure">
-                    <Money value={r.delta_display!} signed className={`summary-delta ${Number(r.delta_display) < 0 ? 'negative' : 'positive'}`} />
-                    <span className="summary-unit">בחודש</span>
+                  <span className="summary-figure answer is-compact">
+                    {r.alternative && (
+                      <>
+                        <span className="answer-label">הנטו החדש</span>
+                        <span className="answer-figure"><Money value={r.alternative.net_display} /></span>
+                      </>
+                    )}
+                    <NetChange value={r.delta_display!} suffix={r.alternative ? 'לעומת היום' : 'בחודש'} />
                   </span>
                   <span className="summary-status"><StateBadge state={resultState(r)} /></span>
                   {r.why && <span className="summary-why">{r.why}</span>}

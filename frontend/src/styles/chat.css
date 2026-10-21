@@ -146,9 +146,12 @@
   grid-area: body;
   z-index: 1;
   min-block-size: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   scroll-padding-block-end: 24px;
+  /* a desktop scrollbar sits on the start side in RTL; a matching gutter on the other side keeps the column centred */
+  scrollbar-gutter: stable both-edges;
 }
 .is-chat .chat-body { animation: rise var(--t-slow) var(--ease-out); }
 

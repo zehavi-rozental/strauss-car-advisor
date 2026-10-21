@@ -49,6 +49,15 @@
   --down-tint: #fdecea;
   --pending-tint: #fef2e6;
   --electric-tint: #e4f7fb;
+  --sky-surface: #ddf1f9;   /* the petal sky on white */
+  --orange-surface: #fdebdc; /* the petal orange on white */
+
+  /* surfaces by meaning: every card that shows today / a gain / a loss uses these (the best one is the hero blue) */
+  --surface-today: var(--orange-surface);
+  --surface-up: var(--up-tint);
+  --surface-up-line: color-mix(in srgb, var(--petal-green) 28%, transparent);
+  --surface-down: var(--down-tint);
+  --surface-down-line: color-mix(in srgb, var(--petal-red) 22%, transparent);
 
   /* the hero blue: the opening, the consultation band, the rep header */
   --hero-light: #0b5a8a;
@@ -58,7 +67,8 @@
   --on-hero: #ffffff;
   --on-hero-2: #d6eaf6;
   --on-hero-3: #a9cfe6;
-  --on-hero-live: #c9f1a0;
+  --on-hero-live: #c9f1a0;   /* also the net grows, on blue */
+  --on-hero-down: #ffc4ba;   /* the net shrinks, on blue */
 
   /* the opening artwork (art/FlowCar reads these; no colour lives in the code) */
   --art-ribbon-1: var(--petal-red);
@@ -110,6 +120,8 @@
   --fs-title: clamp(1.375rem, 1.1rem + 1vw, 1.875rem);
   --fs-display: clamp(2.75rem, 1.4rem + 4.6vw, 5.75rem);
   --fs-number: clamp(2.75rem, 1.8rem + 3.4vw, 4.75rem);
+  --fs-answer: clamp(2.25rem, 1.7rem + 2.2vw, 3.25rem);          /* the one number a screen is about */
+  --fs-answer-compact: clamp(1.625rem, 1.4rem + 0.8vw, 2rem);   /* the same, in a list or a column */
 
   /* space */
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s7: 32px; --s8: 40px; --s9: 56px; --s10: 72px;

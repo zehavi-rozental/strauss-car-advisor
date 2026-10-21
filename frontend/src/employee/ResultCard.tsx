@@ -1,6 +1,7 @@
-// The decision screen for one option, in three layers: (1) the monthly change in the net and whether it is
-// final or a temporary estimate, (2) today against the new net and what moved it, (3) "פירוט מלא" opens the
-// transparent breakdown. Built from ScenarioResult only. Never from the reply text.
+// The decision screen for one option, in three layers: (1) the answer: the new monthly net, how much it
+// changes in words, and whether it is final or a temporary estimate, (2) what moved it, (3) "פירוט מלא" opens
+// the transparent breakdown. Built from ScenarioResult only (the server's *_display values). Never from the
+// reply text.
 import type { CSSProperties } from 'react'
 import type { OptionResult } from '../api/types'
 import { Money } from '../format/Amount'
@@ -30,6 +31,18 @@ export function CarName({ label }: { label: string }) {
     <span className="car-title">
       <span className="car-title-name latin">{name}</span>
       {year && <span className="car-title-year num">{year}</span>}
+    </span>
+  )
+}
+
+/** The change against today, as one coloured line: "+1,013 ₪ לעומת היום". */
+export function NetChange({ value, suffix = 'לעומת היום' }: { value: string; suffix?: string }) {
+  const tone = toneOf(value)
+  return (
+    <span className={`answer-change is-${tone}`}>
+      <Icon name={tone === 'up' ? 'trendUp' : tone === 'down' ? 'trendDown' : 'minus'} size={18} />
+      <Money value={value} signed className={tone === 'down' ? 'negative' : tone === 'up' ? 'positive' : undefined} />
+      {suffix}
     </span>
   )
 }
@@ -90,17 +103,24 @@ function OkBody({ item }: { item: OptionResult }) {
         <StateBadge state={state} />
       </header>
 
-      {/* layer 1: the change in the net */}
-      <div className={`delta-hero tone-${tone}`}>
-        <span className="delta-figure" aria-hidden="true">
-          <Money value={r.delta_display!} signed />
-          {tone === 'up' && <Confetti />}
-        </span>
-        <p className={`delta-headline ${delta < 0 ? 'negative' : 'positive'}`}><Headline delta={delta} value={r.delta_display!} /></p>
-        <p className="annual">
-          <Money value={r.delta_display!} signed className={delta < 0 ? 'negative' : 'positive'} /> בחודש,{' '}
-          <Money value={annualFromMonthly(r.delta_display!)} signed /> בשנה
-        </p>
+      {/* layer 1: the answer. The new net first; without it (no alternative net) the change itself */}
+      <div className={`card answer-card is-${tone}`}>
+        <div className="answer">
+          <span className="answer-label">{r.alternative ? 'הנטו החדש שלכם' : 'השינוי בנטו החודשי'}</span>
+          <span className="answer-figure">
+            {r.alternative ? <Money value={r.alternative.net_display} /> : <Money value={r.delta_display!} signed />}
+            <span className="answer-unit">בחודש</span>
+            {tone === 'up' && <Confetti />}
+          </span>
+          <p className={`answer-change is-${tone}`}>
+            <Icon name={tone === 'up' ? 'trendUp' : tone === 'down' ? 'trendDown' : 'minus'} size={20} />
+            <span><Headline delta={delta} value={r.delta_display!} /></span>
+          </p>
+          <p className="answer-meta">
+            {r.today && <span>היום: <Money value={r.today.net_display} /></span>}
+            <span>שינוי שנתי: <Money value={annualFromMonthly(r.delta_display!)} signed /></span>
+          </p>
+        </div>
         {state === 'pending' && (
           <p className="pending-note">
             <span className="tag tag-pending">ההשתתפות לפי הקטלוג, ממתינה לאישור נציג</span>
@@ -108,23 +128,10 @@ function OkBody({ item }: { item: OptionResult }) {
         )}
       </div>
 
-      {/* layer 2: today against the new net, and what moved it */}
-      {r.today && r.alternative && (
-        <div className="net-row">
-          <div className="net-cell">
-            <span className="net-label">נטו היום</span>
-            <Money value={r.today.net_display} className="net-value" />
-          </div>
-          <span aria-hidden="true" className="net-arrow"><Icon name="arrowLeft" size={20} /></span>
-          <div className="net-cell is-new">
-            <span className="net-label">נטו חדש</span>
-            <Money value={r.alternative.net_display} className="net-value strong" />
-          </div>
-        </div>
-      )}
+      {/* layer 2: what moved it */}
       {bars.length > 0 && (
         <section className="drivers" aria-label="מה השתנה">
-          <h4>מה השתנה</h4>
+          <h4 className="section-title">מה השתנה</h4>
           <ul>
             {bars.map((d) => (
               <li key={d.code} className={`driver tone-${d.tone}`} style={{ '--share': d.share } as CSSProperties}>
