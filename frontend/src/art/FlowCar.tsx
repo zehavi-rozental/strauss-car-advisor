@@ -1,66 +1,45 @@
-// The opening artwork: "רכב מאוויר". An imaginary car is visible only through the air flowing over it, coloured
-// like a wind-tunnel pressure map in the Strauss petal colours (fast air turquoise and blue, the warm wake
-// orange and red). Decorative only: aria-hidden, no text, never a real or catalog model.
-// The car faces the text (screen right): the air comes from the side of the words and its warm wake leaves
-// through the empty side, so nothing busy ever runs behind the headline.
-// One canvas, a static layer drawn once per size and a light animated layer; it pauses when hidden, off
-// screen or when motion is reduced (then a single still frame).
+// The opening artwork: a pearl car in a soft studio, wrapped by moving ribbons in the colours of the Strauss
+// burst. The ribbons follow the air over an imaginary body (never a real or catalog model), sway slowly and carry
+// travelling light; the car sits on a reflective floor. Decorative only: aria-hidden, no text.
+// Two still layers (floor, car) are drawn once per size; only the ribbons move. It pauses when hidden or off screen,
+// and draws one still frame when motion is reduced.
 import { useEffect, useRef } from 'react'
-import { TOP_CURVE, WHEELS, bodyOutline, displacement, glassOutline, lineHeights, streamY } from './aero'
+import { TOP_CURVE, WHEELS, bodyOutline, displacement, glassOutline, streamY } from './aero'
 import { useReducedMotion } from './motion'
 
 export type FlowMode = 'intro' | 'band' | 'login'
 
 interface Layout {
-  x0: number; L: number; gy: number; lines: number; alpha: number; particles: number
-  /** false: the air only (a narrow band has no room for the car) */
-  car?: boolean
-  /** fade the air on the text side: full until `from`, down to `min` at `to` (screen x) */
-  fade?: { from: number; to: number; min: number }
+  x0: number; L: number; gy: number; width: number; alpha: number
+  car: boolean
+  /** fade the ribbons on the text side: full until `from`, gone at `to` (screen x) */
+  fade?: { from: number; to: number }
 }
 
 function layoutFor(mode: FlowMode, w: number, h: number): Layout {
   if (mode === 'band') {
-    if (w < 720) return { x0: -w, L: w * 1.2, gy: h * 0.96, lines: 22, alpha: 0.55, particles: 1, car: false }
-    const L = Math.max(180, Math.min(h * 2.5, w * 0.34, 420))
-    return { x0: Math.max(12, w * 0.035), L, gy: h * 0.9, lines: 26, alpha: 0.75, particles: 1 }
+    if (w < 720) return { x0: -w, L: w * 1.4, gy: h * 0.98, width: 1.6, alpha: 0.32, car: false }
+    const L = Math.max(200, Math.min(h * 2.3, w * 0.3, 380))
+    const x0 = Math.max(16, w * 0.04)
+    return { x0, L, gy: h * 0.86, width: 2.2, alpha: 0.9, car: true, fade: { from: x0 + L * 1.02, to: x0 + L * 1.45 } }
   }
   if (mode === 'login') {
-    const L = Math.min(Math.max(w * 0.5, 360), 820)
-    return { x0: w / 2 - L / 2, L, gy: h * 0.86, lines: 38, alpha: 0.7, particles: 2 }
+    const L = Math.min(Math.max(w * 0.46, 340), 760)
+    return { x0: w / 2 - L / 2, L, gy: h * 0.84, width: 3, alpha: 0.65, car: true }
   }
   if (w >= 900) {
-    const L = Math.min(Math.max(w * 0.42, 420), 800)
-    const x0 = w * 0.3 - L / 2
-    return { x0, L, gy: h * 0.7, lines: 42, alpha: 1, particles: 3,
-             fade: { from: x0 + L * 1.06, to: x0 + L * 1.6, min: 0.12 } }
+    const L = Math.min(Math.max(w * 0.4, 400), 660)
+    const x0 = w * 0.27 - L / 2
+    return { x0, L, gy: h * 0.7, width: 3.4, alpha: 1, car: true, fade: { from: x0 + L * 1.03, to: x0 + L * 1.28 } }
   }
-  const L = Math.min(w * 0.9, 560)
-  return { x0: (w - L) / 2, L, gy: Math.min(h * 0.4, L * 0.62 + 24), lines: 34, alpha: 1, particles: 2 }
+  const L = Math.min(w * 0.86, 540)
+  return { x0: (w - L) / 2, L, gy: Math.min(h * 0.78, L * 0.5 + 40), width: 2.6, alpha: 1, car: true }
 }
 
-const TURQ = [0, 186, 226], BLUE = [3, 144, 203], ORANGE = [244, 131, 38], RED = [237, 48, 36], LEAF = [199, 222, 141]
+// the burst, top ribbon to bottom ribbon
+const RIBBONS = ['#ed3024', '#f48326', '#b5d36a', '#78a12f', '#9ed8ef', '#00bae2', '#0390cb']
+const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
 const rgba = (c: number[], a: number) => `rgba(${c[0]},${c[1]},${c[2]},${a})`
-
-/** Colour of the air at screen x: a pressure map that runs turquoise → blue over the roof → orange → red in the wake. */
-/** Car units at screen x (u = 0 at the nose, on the right) and back. */
-const uAt = (x: number, lay: Layout) => 1 - (x - lay.x0) / lay.L
-const fadeAt = (x: number, lay: Layout) => {
-  const f = lay.fade
-  if (!f || x <= f.from) return 1
-  if (x >= f.to) return f.min
-  return 1 - ((x - f.from) / (f.to - f.from)) * (1 - f.min)
-}
-
-function airColor(x: number, lay: Layout): number[] {
-  const u = uAt(x, lay)
-  const mix = (a: number[], b: number[], t: number) => a.map((v, i) => Math.round(v + (b[i] - v) * Math.min(1, Math.max(0, t))))
-  if (u < 0.15) return mix(TURQ, TURQ, 0)
-  if (u < 0.65) return mix(TURQ, BLUE, (u - 0.15) / 0.5)
-  if (u < 1.05) return mix(BLUE, ORANGE, (u - 0.65) / 0.4)
-  if (u < 1.45) return mix(ORANGE, RED, (u - 1.05) / 0.4)
-  return mix(RED, BLUE, (u - 1.45) / 0.9)
-}
 
 export function FlowCar({ mode }: { mode: FlowMode }) {
   const holder = useRef<HTMLDivElement>(null)
@@ -72,15 +51,35 @@ export function FlowCar({ mode }: { mode: FlowMode }) {
     if (!box || !cv) return
     const ctx = cv.getContext('2d')
     if (!ctx) return
-    let w = 0, h = 0, dpr = 1, lay: Layout = layoutFor(mode, 1, 1)
-    let still: HTMLCanvasElement | null = null
-    let paths: { y: Float32Array; a: number; width: number; speed: number; h: number }[] = []
+    let w = 0, h = 0, dpr = 1
+    let lay = layoutFor(mode, 1, 1)
+    let under: HTMLCanvasElement | null = null
+    let over: HTMLCanvasElement | null = null
     const STEP = 3
-    let raf = 0, visible = true, running = false, start = performance.now()
-    const parts: { line: number; p: number; len: number }[] = []
+    let base: { y: Float32Array; lock: Float32Array; color: number[]; thin: boolean; phase: number }[] = []
+    let raf = 0, visible = true, running = false
+    const start = performance.now()
 
     const toY = (yCar: number) => lay.gy - yCar * lay.L
+    // the car faces the text (screen right): u = 0 at the nose
     const toX = (u: number) => lay.x0 + (1 - u) * lay.L
+    const uAt = (x: number) => 1 - (x - lay.x0) / lay.L
+    const fadeAt = (x: number) => {
+      const f = lay.fade
+      if (!f || x <= f.from) return 1
+      if (x >= f.to) return 0
+      return 1 - (x - f.from) / (f.to - f.from)
+    }
+    const edgeAt = (x: number) => Math.min(1, x / (w * 0.08))      // ribbons come in softly from the far edge
+
+    const layer = () => {
+      const c = document.createElement('canvas')
+      c.width = cv.width
+      c.height = cv.height
+      const g = c.getContext('2d')!
+      g.scale(dpr, dpr)
+      return [c, g] as const
+    }
 
     const build = () => {
       const r = box.getBoundingClientRect()
@@ -93,84 +92,66 @@ export function FlowCar({ mode }: { mode: FlowMode }) {
       cv.style.height = `${h}px`
       lay = layoutFor(mode, w, h)
 
-      const lift = lay.car === false ? { at: () => 0 } : displacement({ from: -3, to: 4, step: 0.004 }, 0.012, 0.12)
-      const hs = lineHeights(lay.lines)
-      paths = hs.map((hh, i) => {
+      const lift = lay.car ? displacement({ from: -3, to: 4, step: 0.004 }, 0.02, 0.13) : { at: () => 0 }
+      // seven ribbons, a thin hairline between each pair; the lowest hugs the roof
+      base = []
+      const n = RIBBONS.length
+      for (let i = 0; i < n * 2 - 1; i++) {
+        const k = n - 1 - Math.floor(i / 2)                 // bottom ribbon (blue) is drawn closest to the car
+        const thin = i % 2 === 1
+        const hh = 0.012 + i * 0.022 * (1 + i * 0.02)
         const y = new Float32Array(Math.ceil(w / STEP) + 1)
-        for (let k = 0; k < y.length; k++) {
-          y[k] = toY(streamY(hh, lift.at(uAt(k * STEP, lay)), 0.42))
+        const lock = new Float32Array(y.length)
+        for (let j = 0; j < y.length; j++) {
+          const u = uAt(j * STEP)
+          const l = lift.at(u)
+          y[j] = toY(streamY(hh, l, 0.5))
+          // near the body the ribbons hold still (they hug the car); away from it they sway
+          lock[j] = lay.car ? Math.min(1, Math.abs(u - 0.5) > 0.75 ? 1 : Math.max(0.15, (Math.abs(u - 0.5) - 0.2) / 0.55)) : 1
         }
-        return { y, h: hh, a: (0.5 * Math.exp(-i / 13) + 0.07) * lay.alpha, width: i === 0 ? 1.6 : Math.max(0.6, 1.25 - i * 0.02),
-                 speed: (0.075 + 0.12 * Math.exp(-hh / 0.28)) * lay.L }
-      })
-
-      // static layer
-      still = document.createElement('canvas')
-      still.width = cv.width
-      still.height = cv.height
-      const s = still.getContext('2d')!
-      s.scale(dpr, dpr)
-      if (lay.car !== false) {
-        drawFloor(s)
-        drawReflection(s)
+        base.push({ y, lock, color: rgb(RIBBONS[thin ? Math.min(n - 1, k) : k]), thin, phase: i * 0.6 })
       }
-      drawLines(s, 1)
-      if (lay.car !== false) drawBody(s)
 
-      parts.length = 0
-      paths.forEach((_, i) => {
-        if (i % 2 === 1 && i > 6) return
-        for (let k = 0; k < lay.particles; k++) parts.push({ line: i, p: Math.random(), len: 40 + Math.random() * 90 })
-      })
+      const [u, ug] = layer()
+      if (lay.car) {
+        drawFloor(ug)
+        drawReflection(ug)
+      }
+      under = u
+      if (lay.car) {
+        const [o, og] = layer()
+        drawCar(og)
+        over = o
+      } else over = null
     }
 
     const drawFloor = (s: CanvasRenderingContext2D) => {
+      // contact shadow and a soft ambient pool under the car
       const cx = toX(0.5)
-      const g = s.createRadialGradient(cx, lay.gy, 0, cx, lay.gy, lay.L * 0.8)
-      g.addColorStop(0, rgba(TURQ, 0.16 * lay.alpha))
-      g.addColorStop(0.5, rgba(BLUE, 0.06 * lay.alpha))
-      g.addColorStop(1, rgba(BLUE, 0))
-      s.save()
-      s.translate(cx, lay.gy)
-      s.scale(1, 0.12)
-      s.translate(-cx, -lay.gy)
-      s.fillStyle = g
-      s.beginPath()
-      s.arc(cx, lay.gy, lay.L * 0.8, 0, Math.PI * 2)
-      s.fill()
-      s.restore()
-      // horizon line of the studio floor
-      const line = s.createLinearGradient(0, 0, w, 0)
-      line.addColorStop(0, 'rgba(255,255,255,0)')
-      line.addColorStop(0.5, `rgba(255,255,255,${0.1 * lay.alpha})`)
-      line.addColorStop(1, 'rgba(255,255,255,0)')
-      s.fillStyle = line
-      s.fillRect(0, lay.gy, w, 1)
-    }
-
-    const strokePath = (s: CanvasRenderingContext2D, y: Float32Array, from = 0, to = y.length - 1) => {
-      s.beginPath()
-      s.moveTo(from * STEP, y[from])
-      for (let k = from + 1; k <= to; k++) s.lineTo(k * STEP, y[k])
-    }
-
-    const lineGradient = (s: CanvasRenderingContext2D, a: number) => {
-      const g = s.createLinearGradient(0, 0, w, 0)
-      for (let t = 0; t <= 1.0001; t += 0.05) g.addColorStop(Math.min(1, t), rgba(airColor(t * w, lay), a * fadeAt(t * w, lay)))
-      return g
-    }
-
-    const drawLines = (s: CanvasRenderingContext2D, k: number) => {
-      s.save()
-      s.lineCap = 'round'
-      paths.forEach((p, i) => {
-        s.strokeStyle = lineGradient(s, p.a * k)
-        s.lineWidth = p.width
-        if (i === 0) { s.shadowColor = rgba(TURQ, 0.6); s.shadowBlur = 14 } else s.shadowBlur = 0
-        strokePath(s, p.y)
-        s.stroke()
+      const ell = (rx: number, ry: number, a: number, y = lay.gy) => {
+        const g = s.createRadialGradient(cx, y, 0, cx, y, rx)
+        g.addColorStop(0, `rgba(2,16,30,${a})`)
+        g.addColorStop(1, 'rgba(2,16,30,0)')
+        s.save()
+        s.translate(cx, y)
+        s.scale(1, ry / rx)
+        s.translate(-cx, -y)
+        s.fillStyle = g
+        s.beginPath()
+        s.arc(cx, y, rx, 0, Math.PI * 2)
+        s.fill()
+        s.restore()
+      }
+      ell(lay.L * 0.66, lay.L * 0.055, 0.32 * lay.alpha)
+      ell(lay.L * 0.46, lay.L * 0.018, 0.55 * lay.alpha, lay.gy + 1)
+      WHEELS.forEach((wh) => {
+        const x = toX(wh.u)
+        const g = s.createRadialGradient(x, lay.gy, 0, x, lay.gy, wh.r * lay.L * 1.2)
+        g.addColorStop(0, `rgba(2,16,30,${0.6 * lay.alpha})`)
+        g.addColorStop(1, 'rgba(2,16,30,0)')
+        s.fillStyle = g
+        s.fillRect(x - wh.r * lay.L * 1.3, lay.gy - 6, wh.r * lay.L * 2.6, 12)
       })
-      s.restore()
     }
 
     const outline = (s: CanvasRenderingContext2D, pts: [number, number][], mirror = false) => {
@@ -183,183 +164,236 @@ export function FlowCar({ mode }: { mode: FlowMode }) {
       s.closePath()
     }
 
-    const drawBody = (s: CanvasRenderingContext2D) => {
-      const body = bodyOutline()
-      // paint
-      const g = s.createLinearGradient(0, toY(0.34), 0, toY(0.06))
-      g.addColorStop(0, '#1b2531')
-      g.addColorStop(0.55, '#0f151d')
-      g.addColorStop(1, '#090c11')
-      s.fillStyle = g
-      outline(s, body)
-      s.fill()
-      // a long soft reflection along the flank (the studio's light box)
-      const flank = s.createLinearGradient(toX(0.05), 0, toX(0.98), 0)
-      flank.addColorStop(0, 'rgba(255,255,255,0)')
-      flank.addColorStop(0.45, `rgba(158,216,239,${0.1 * lay.alpha})`)
-      flank.addColorStop(1, 'rgba(255,255,255,0)')
-      s.save()
-      outline(s, body)
-      s.clip()
-      s.fillStyle = flank
-      s.fillRect(toX(0), toY(0.19), lay.L, lay.L * 0.05)
-      // shoulder crease
-      s.strokeStyle = `rgba(238,242,246,${0.16 * lay.alpha})`
-      s.lineWidth = 1
-      s.beginPath()
-      s.moveTo(toX(0.06), toY(0.168))
-      s.bezierCurveTo(toX(0.4), toY(0.176), toX(0.7), toY(0.19), toX(0.985), toY(0.2))
-      s.stroke()
-      s.restore()
-      // glass
-      const glass = glassOutline()
-      if (glass.length) {
-        const gg = s.createLinearGradient(toX(0.35), toY(0.32), toX(0.8), toY(0.24))
-        gg.addColorStop(0, '#0b1016')
-        gg.addColorStop(0.42, '#16222e')
-        gg.addColorStop(0.5, `rgba(158,216,239,${0.22 * lay.alpha})`)
-        gg.addColorStop(0.58, '#141e29')
-        gg.addColorStop(1, '#0a0e13')
-        s.fillStyle = gg
-        outline(s, glass)
-        s.fill()
-        // B-pillar
-        s.fillStyle = '#080b10'
-        s.fillRect(toX(0.597), toY(0.33), lay.L * 0.012, lay.L * 0.1)
-      }
-      // rim light along the roof
-      s.save()
-      s.lineCap = 'round'
-      const rim = s.createLinearGradient(toX(0), 0, toX(1), 0)
-      rim.addColorStop(0, 'rgba(255,255,255,0)')
-      rim.addColorStop(0.5, `rgba(255,255,255,${0.75 * lay.alpha})`)
-      rim.addColorStop(1, 'rgba(255,255,255,0.05)')
-      s.strokeStyle = rim
-      s.lineWidth = 1.2
-      s.beginPath()
-      TOP_CURVE.forEach(([u, y], i) => {
-        if (i === 0) s.moveTo(toX(u), toY(y))
-        else s.lineTo(toX(u), toY(y))
-      })
-      s.stroke()
-      s.restore()
-      // wheels
-      WHEELS.forEach((wh) => {
-        const cx = toX(wh.u), cy = toY(wh.r), R = wh.r * lay.L
-        s.fillStyle = '#050709'
-        s.beginPath(); s.arc(cx, cy, R, 0, Math.PI * 2); s.fill()
-        const rimG = s.createRadialGradient(cx - R * 0.2, cy - R * 0.3, R * 0.1, cx, cy, R * 0.7)
-        rimG.addColorStop(0, '#2a3542')
-        rimG.addColorStop(1, '#0d1218')
-        s.fillStyle = rimG
-        s.beginPath(); s.arc(cx, cy, R * 0.66, 0, Math.PI * 2); s.fill()
-        s.strokeStyle = rgba(TURQ, 0.55 * lay.alpha)
-        s.lineWidth = 1.2
-        s.beginPath(); s.arc(cx, cy, R * 0.66, Math.PI * 1.4, Math.PI * 1.95); s.stroke()
-      })
-      // lights: a turquoise light line at the nose (electric), the Strauss-red bar at the tail
-      s.save()
-      s.lineCap = 'round'
-      s.shadowBlur = 18
-      s.shadowColor = rgba(TURQ, 0.95)
-      s.strokeStyle = 'rgba(214,247,255,0.95)'
-      s.lineWidth = 2.2
-      s.beginPath(); s.moveTo(toX(0.012), toY(0.168)); s.lineTo(toX(0.075), toY(0.184)); s.stroke()
-      s.shadowColor = rgba(RED, 0.95)
-      s.strokeStyle = 'rgba(255,120,104,0.95)'
-      s.beginPath(); s.moveTo(toX(0.93), toY(0.222)); s.lineTo(toX(0.996), toY(0.212)); s.stroke()
-      s.restore()
-    }
-
     const drawReflection = (s: CanvasRenderingContext2D) => {
-      const r = document.createElement('canvas')
-      r.width = cv.width
-      r.height = cv.height
-      const c = r.getContext('2d')!
-      c.scale(dpr, dpr)
-      c.fillStyle = '#0d131a'
+      const [r, c] = layer()
+      const paint = c.createLinearGradient(0, lay.gy, 0, lay.gy + lay.L * 0.3)
+      paint.addColorStop(0, '#a9c3d6')
+      paint.addColorStop(1, '#6f97b4')
+      c.fillStyle = paint
       outline(c, bodyOutline(), true)
       c.fill()
-      c.save()
-      c.globalAlpha = 0.5
-      paths.slice(0, 10).forEach((p) => {
-        c.strokeStyle = lineGradient(c, p.a)
-        c.lineWidth = p.width
-        c.beginPath()
-        for (let k = 0; k < p.y.length; k++) {
-          const Y = lay.gy + (lay.gy - p.y[k]) * 0.9
-          if (k === 0) c.moveTo(0, Y)
-          else c.lineTo(k * STEP, Y)
-        }
-        c.stroke()
-      })
-      c.restore()
       c.globalCompositeOperation = 'destination-in'
-      const fade = c.createLinearGradient(0, lay.gy, 0, lay.gy + lay.L * 0.28)
-      fade.addColorStop(0, 'rgba(0,0,0,0.55)')
+      const fade = c.createLinearGradient(0, lay.gy, 0, lay.gy + lay.L * 0.22)
+      fade.addColorStop(0, 'rgba(0,0,0,0.16)')
       fade.addColorStop(1, 'rgba(0,0,0,0)')
       c.fillStyle = fade
       c.fillRect(0, lay.gy, w, lay.L * 0.3)
       s.drawImage(r, 0, 0, w, h)
     }
 
+    const drawCar = (s: CanvasRenderingContext2D) => {
+      const body = bodyOutline()
+      const top = toY(0.335), bottom = toY(0.06)
+      // pearl paint: bright roof, a soft shoulder highlight, the flank turning away into a cool shadow
+      const paint = s.createLinearGradient(0, top, 0, bottom)
+      paint.addColorStop(0, '#ffffff')
+      paint.addColorStop(0.32, '#f4f6f8')
+      paint.addColorStop(0.5, '#e3e8ed')
+      paint.addColorStop(0.62, '#f2f4f7')
+      paint.addColorStop(0.8, '#cdd5de')
+      paint.addColorStop(1, '#a9b4c0')
+      s.fillStyle = paint
+      outline(s, body)
+      s.fill()
+      s.save()
+      outline(s, body)
+      s.clip()
+      // the studio's light box running along the flank
+      const box = s.createLinearGradient(toX(1), 0, toX(0), 0)
+      box.addColorStop(0, 'rgba(255,255,255,0)')
+      box.addColorStop(0.35, 'rgba(255,255,255,0.85)')
+      box.addColorStop(0.75, 'rgba(255,255,255,0.4)')
+      box.addColorStop(1, 'rgba(255,255,255,0)')
+      s.fillStyle = box
+      s.fillRect(toX(1), toY(0.205), lay.L, lay.L * 0.022)
+      // a cool sky tint low on the doors, from the floor
+      const sky = s.createLinearGradient(0, toY(0.14), 0, bottom)
+      sky.addColorStop(0, 'rgba(158,216,239,0)')
+      sky.addColorStop(1, 'rgba(158,216,239,0.35)')
+      s.fillStyle = sky
+      s.fillRect(toX(1), toY(0.14), lay.L, lay.L * 0.1)
+      // shoulder and rocker lines
+      s.lineCap = 'round'
+      s.strokeStyle = 'rgba(120,136,152,0.35)'
+      s.lineWidth = 1
+      s.beginPath()
+      s.moveTo(toX(0.05), toY(0.17))
+      s.bezierCurveTo(toX(0.4), toY(0.178), toX(0.7), toY(0.192), toX(0.985), toY(0.2))
+      s.stroke()
+      s.strokeStyle = 'rgba(96,110,126,0.3)'
+      s.beginPath()
+      s.moveTo(toX(0.27), toY(0.1))
+      s.lineTo(toX(0.72), toY(0.1))
+      s.stroke()
+      // door cut and handles
+      s.strokeStyle = 'rgba(96,110,126,0.28)'
+      s.beginPath()
+      s.moveTo(toX(0.592), toY(0.226)); s.lineTo(toX(0.588), toY(0.09))
+      s.stroke()
+      s.strokeStyle = 'rgba(70,84,100,0.45)'
+      s.lineWidth = 2
+      ;[0.5, 0.69].forEach((u) => { s.beginPath(); s.moveTo(toX(u), toY(0.188)); s.lineTo(toX(u + 0.04), toY(0.19)); s.stroke() })
+      s.restore()
+      // outline, crisp
+      s.strokeStyle = 'rgba(120,136,152,0.55)'
+      s.lineWidth = 1
+      outline(s, body)
+      s.stroke()
+      // glass: deep tint with the sky across it
+      const glass = glassOutline()
+      if (glass.length) {
+        const gg = s.createLinearGradient(toX(0.82), toY(0.31), toX(0.36), toY(0.23))
+        gg.addColorStop(0, '#1d2a39')
+        gg.addColorStop(0.4, '#2c3e53')
+        gg.addColorStop(0.47, '#7fa6c4')
+        gg.addColorStop(0.55, '#33465c')
+        gg.addColorStop(1, '#16212d')
+        s.fillStyle = gg
+        outline(s, glass)
+        s.fill()
+        s.strokeStyle = 'rgba(160,172,186,0.9)'
+        s.lineWidth = 1.4
+        s.stroke()
+        s.fillStyle = '#18222e'
+        s.fillRect(Math.min(toX(0.585), toX(0.597)), toY(0.33), lay.L * 0.012, lay.L * 0.11)
+      }
+      // roof highlight
+      s.save()
+      s.lineCap = 'round'
+      const rim = s.createLinearGradient(toX(1), 0, toX(0), 0)
+      rim.addColorStop(0, 'rgba(255,255,255,0)')
+      rim.addColorStop(0.5, 'rgba(255,255,255,1)')
+      rim.addColorStop(1, 'rgba(255,255,255,0)')
+      s.strokeStyle = rim
+      s.lineWidth = 2
+      s.beginPath()
+      TOP_CURVE.forEach(([u, y], i) => {
+        if (i === 0) s.moveTo(toX(u), toY(y) + 1.5)
+        else s.lineTo(toX(u), toY(y) + 1.5)
+      })
+      s.stroke()
+      s.restore()
+      // wheels: tyre, ten-spoke silver rim, hub
+      WHEELS.forEach((wh) => {
+        const cx = toX(wh.u), cy = toY(wh.r), R = wh.r * lay.L
+        s.fillStyle = '#1c242d'
+        s.beginPath(); s.arc(cx, cy, R, 0, Math.PI * 2); s.fill()
+        s.strokeStyle = 'rgba(255,255,255,0.12)'
+        s.lineWidth = 1
+        s.beginPath(); s.arc(cx, cy, R * 0.93, Math.PI * 1.1, Math.PI * 1.7); s.stroke()
+        const rimG = s.createRadialGradient(cx - R * 0.25, cy - R * 0.3, R * 0.05, cx, cy, R * 0.7)
+        rimG.addColorStop(0, '#f6f8fa')
+        rimG.addColorStop(0.6, '#c3ccd5')
+        rimG.addColorStop(1, '#8794a1')
+        s.fillStyle = rimG
+        s.beginPath(); s.arc(cx, cy, R * 0.68, 0, Math.PI * 2); s.fill()
+        s.fillStyle = '#5a6673'
+        s.beginPath(); s.arc(cx, cy, R * 0.6, 0, Math.PI * 2); s.fill()
+        s.strokeStyle = '#dde3e9'
+        s.lineWidth = Math.max(1.4, R * 0.07)
+        for (let k = 0; k < 10; k++) {
+          const a = (k / 10) * Math.PI * 2
+          s.beginPath()
+          s.moveTo(cx + Math.cos(a) * R * 0.14, cy + Math.sin(a) * R * 0.14)
+          s.lineTo(cx + Math.cos(a + 0.12) * R * 0.6, cy + Math.sin(a + 0.12) * R * 0.6)
+          s.stroke()
+        }
+        s.fillStyle = '#eef2f5'
+        s.beginPath(); s.arc(cx, cy, R * 0.15, 0, Math.PI * 2); s.fill()
+        s.fillStyle = '#ed3024'
+        s.beginPath(); s.arc(cx, cy, R * 0.05, 0, Math.PI * 2); s.fill()
+      })
+      // lights: a turquoise line at the nose, the Strauss red at the tail
+      s.save()
+      s.lineCap = 'round'
+      s.lineWidth = 2.6
+      s.shadowBlur = 10
+      s.shadowColor = 'rgba(0,186,226,0.8)'
+      s.strokeStyle = '#3ccbea'
+      s.beginPath(); s.moveTo(toX(0.012), toY(0.168)); s.lineTo(toX(0.08), toY(0.185)); s.stroke()
+      s.shadowColor = 'rgba(237,48,36,0.7)'
+      s.strokeStyle = '#ed3024'
+      s.beginPath(); s.moveTo(toX(0.93), toY(0.222)); s.lineTo(toX(0.996), toY(0.212)); s.stroke()
+      s.restore()
+    }
+
+    const ribbonY = (r: (typeof base)[number], j: number, t: number) => {
+      if (reduce) return r.y[j]
+      const x = j * STEP
+      const sway = Math.sin((x / (lay.L * 0.55)) * Math.PI * 2 + r.phase - t * 0.9) * lay.L * 0.012
+      return r.y[j] + sway * r.lock[j]
+    }
+
+    const drawRibbons = (t: number) => {
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+      for (let i = base.length - 1; i >= 0; i--) {
+        const r = base[i]
+        const g = ctx.createLinearGradient(0, 0, w, 0)
+        for (let s = 0; s <= 1.0001; s += 0.05) g.addColorStop(Math.min(1, s), rgba(r.color, (r.thin ? 0.35 : 0.92) * lay.alpha * fadeAt(s * w) * edgeAt(s * w)))
+        ctx.strokeStyle = g
+        ctx.lineWidth = r.thin ? 1 : lay.width
+        ctx.beginPath()
+        for (let j = 0; j < r.y.length; j++) {
+          const y = ribbonY(r, j, t)
+          if (j === 0) ctx.moveTo(0, y)
+          else ctx.lineTo(j * STEP, y)
+        }
+        ctx.stroke()
+      }
+      if (reduce) return
+      // travelling light: one bright run per ribbon, from the nose side towards the tail
+      ctx.save()
+      for (let i = 0; i < base.length; i += 2) {
+        const r = base[i]
+        const span = w + lay.L * 0.6
+        const head = w - (((t * lay.L * 0.32 + i * 97) % span) - lay.L * 0.3)
+        const len = lay.L * 0.18
+        const lo = Math.max(0, Math.floor(head / STEP)), hi = Math.min(r.y.length - 1, Math.floor((head + len) / STEP))
+        if (hi - lo < 3) continue
+        const g = ctx.createLinearGradient(head + len, 0, head, 0)
+        const a = fadeAt(head) * edgeAt(head)
+        g.addColorStop(0, 'rgba(255,255,255,0)')
+        g.addColorStop(0.7, `rgba(255,255,255,${0.75 * a})`)
+        g.addColorStop(1, `rgba(255,255,255,${0.95 * a})`)
+        ctx.strokeStyle = g
+        ctx.lineWidth = Math.max(1.2, lay.width - 1.2)
+        ctx.beginPath()
+        for (let j = lo; j <= hi; j++) {
+          const y = ribbonY(r, j, t)
+          if (j === lo) ctx.moveTo(j * STEP, y)
+          else ctx.lineTo(j * STEP, y)
+        }
+        ctx.stroke()
+      }
+      ctx.restore()
+    }
+
     const frame = (now: number) => {
       raf = 0
-      if (!still) return
+      if (!under) return
       const t = (now - start) / 1000
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, w, h)
-      // entrance: the air paints the car from the nose backwards in the first second (intro and login only)
-      const reveal = mode === 'band' || reduce ? 1 : Math.min(1, t / 1.4)
+      // entrance: the ribbons draw in from the nose side, then the car settles
+      const reveal = mode === 'band' || reduce ? 1 : Math.min(1, t / 1.3)
       const ease = 1 - Math.pow(1 - reveal, 3)
+      ctx.drawImage(under, 0, 0, w, h)
+      ctx.save()
       if (ease < 1) {
-        ctx.save()
         ctx.beginPath()
         ctx.rect(w - w * ease - 40, 0, w * ease + 40, h)
         ctx.clip()
-        ctx.globalAlpha = 0.25 + 0.75 * ease
-        ctx.drawImage(still, 0, 0, w, h)
-        ctx.restore()
-      } else {
-        ctx.drawImage(still, 0, 0, w, h)
       }
-      if (!reduce) {
+      drawRibbons(t)
+      ctx.restore()
+      if (over) {
         ctx.save()
-        ctx.globalCompositeOperation = 'lighter'
-        ctx.lineCap = 'round'
-        for (const q of parts) {
-          const p = paths[q.line]
-          q.p = (q.p + (p.speed / w) * 0.016) % 1
-          const headX = w + q.len / 2 - q.p * (w + q.len)
-          const lo = Math.max(0, Math.floor(headX / STEP))
-          const hi = Math.min(p.y.length - 1, Math.floor((headX + q.len) / STEP))
-          if (hi - lo < 2 || headX + q.len < w - w * ease - 40) continue
-          const c = airColor(headX, lay)
-          const g = ctx.createLinearGradient(headX + q.len, 0, headX, 0)
-          g.addColorStop(0, rgba(c, 0))
-          g.addColorStop(1, rgba(c, Math.min(0.95, p.a * 2.4) * fadeAt(headX, lay)))
-          ctx.strokeStyle = g
-          ctx.lineWidth = p.width + 0.6
-          strokePath(ctx, p.y, lo, hi)
-          ctx.stroke()
+        if (ease < 1) {
+          ctx.globalAlpha = Math.min(1, ease * 1.4)
+          ctx.translate(0, (1 - ease) * 10)
         }
-        // a light sweep along the body every few seconds
-        const cycle = (t % 7) / 1.8
-        if (cycle < 1 && reveal >= 1 && lay.car !== false) {
-          const p = paths[0]
-          const uHead = -0.05 + cycle * 1.15
-          const head = Math.round(Math.min(p.y.length - 1, Math.max(0, toX(uHead) / STEP)))
-          const tail = Math.min(p.y.length - 1, head + Math.round((lay.L * 0.22) / STEP))
-          if (tail - head > 2) {
-            const g = ctx.createLinearGradient(tail * STEP, 0, head * STEP, 0)
-            g.addColorStop(0, rgba(LEAF, 0))
-            g.addColorStop(1, 'rgba(255,255,255,0.9)')
-            ctx.strokeStyle = g
-            ctx.lineWidth = 2.2
-            strokePath(ctx, p.y, head, tail)
-            ctx.stroke()
-          }
-        }
+        ctx.drawImage(over, 0, 0, w, h)
         ctx.restore()
       }
       if (running && !reduce) raf = requestAnimationFrame(frame)
@@ -377,7 +411,6 @@ export function FlowCar({ mode }: { mode: FlowMode }) {
     }
 
     build()
-    start = performance.now()
     if (reduce) frame(start + 5000)
     else play()
 
@@ -407,8 +440,8 @@ export function FlowCar({ mode }: { mode: FlowMode }) {
       cam = 0
       cx2 += (tx - cx2) * 0.06
       cy2 += (ty - cy2) * 0.06
-      box.style.setProperty('--rx', `${(-cy2 * 2.2).toFixed(2)}deg`)
-      box.style.setProperty('--ry', `${(cx2 * 3.4).toFixed(2)}deg`)
+      box.style.setProperty('--rx', `${(-cy2 * 1.6).toFixed(2)}deg`)
+      box.style.setProperty('--ry', `${(cx2 * 2.6).toFixed(2)}deg`)
       if (Math.abs(tx - cx2) > 0.002 || Math.abs(ty - cy2) > 0.002) cam = requestAnimationFrame(moveCam)
     }
     if (fine && !reduce && mode !== 'band') window.addEventListener('pointermove', onMove, { passive: true })

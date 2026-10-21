@@ -60,7 +60,7 @@ export function ComparisonPanel({ results, expects, disabled, onClose, onSend, o
     <div className="panel-backdrop" onClick={onClose}>
       <aside className="comparison-panel" role="dialog" aria-modal="true" aria-label="טבלת השוואה"
              onClick={(e) => e.stopPropagation()}>
-        <header className="panel-header on-studio">
+        <header className="panel-header">
           <div>
             <p className="panel-kicker">פירוט מלא</p>
             <h2>טבלת השוואה</h2>

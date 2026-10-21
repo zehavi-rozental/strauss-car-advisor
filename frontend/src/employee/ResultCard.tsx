@@ -15,6 +15,15 @@ function Headline({ delta, value }: { delta: number; value: string }) {
   return <>הנטו שלכם {delta > 0 ? 'יגדל' : 'יקטן'} ב-<Money value={String(Math.abs(Number(value)))} /> בחודש</>
 }
 
+/** A short burst of the Strauss colours when the net grows (decorative; skipped with reduced motion). */
+export function Confetti() {
+  return (
+    <span className="confetti" aria-hidden="true">
+      {Array.from({ length: 14 }, (_, i) => <i key={i} style={{ '--i': i } as CSSProperties} />)}
+    </span>
+  )
+}
+
 export function CarName({ label }: { label: string }) {
   const { name, year } = splitLabel(label)
   return (
@@ -85,6 +94,7 @@ function OkBody({ item }: { item: OptionResult }) {
       <div className={`delta-hero tone-${tone}`}>
         <span className="delta-figure" aria-hidden="true">
           <Money value={r.delta_display!} signed />
+          {tone === 'up' && <Confetti />}
         </span>
         <p className={`delta-headline ${delta < 0 ? 'negative' : 'positive'}`}><Headline delta={delta} value={r.delta_display!} /></p>
         <p className="annual">

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import type { CatalogItem } from '../api/types'
 import { FlowCar } from '../art/FlowCar'
@@ -37,6 +37,11 @@ export function EmployeePage() {
   const link = linkFor(c.expects)
   const options = optionsField(c.expects)
   const formOpen = correcting || opened === 'profile_form'
+  // a form, the payslip review or the cards open under the latest message: bring them into view
+  const tailRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (opened || correcting) tailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [opened, correcting])
 
   // The opening: until the employee writes, the stage is the whole screen (the artwork, the title and the
   // greeting with the box under it). The first message turns it into the consultation. A stored conversation
@@ -110,12 +115,12 @@ export function EmployeePage() {
       </>
     )
   }
-  const tail = <div className="answer-tail">{area}</div>
+  const tail = <div className="answer-tail" ref={tailRef}>{area}</div>
 
   return (
     <div className={`chat ${intro ? 'is-intro' : 'is-chat'}${c.waitingForRep ? ' is-waiting' : ''}`}>
       <FlowCar mode={intro ? 'intro' : 'band'} />
-      <header className="chat-header on-studio">
+      <header className="chat-header">
         <div className="chat-title">
           <h1>יועץ הרכב</h1>
           <span className="status"><i className="status-dot" />זמין עכשיו</span>

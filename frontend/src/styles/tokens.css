@@ -1,100 +1,112 @@
-/* STRAUSS DRIVE design tokens: "Petal" (עלי כותרת).
-   The Strauss mark is a burst of petals from one point; here every petal colour has exactly one job:
-   blue = the advisor and actions, turquoise = electric / live, green = the net grows,
-   red = the net shrinks, orange = waiting for the representative (a temporary estimate).
-   *-ink variants are the text-safe versions (WCAG AA on paper and card, measured). */
+/* STRAUSS DRIVE design tokens: "Bloom".
+   White, clean and roomy, with the colours of the Strauss burst. Every petal colour also keeps one job in the
+   product: blue = the advisor and actions, turquoise = electric / live, green = the net grows, red = the net
+   shrinks (and the Strauss word), orange = waiting for the representative (a temporary estimate).
+   *-ink variants are the text-safe versions (WCAG AA on white and on --paper, measured). */
 :root {
-  /* paper: the financial clarity side */
-  --paper: #f5f4f0;
-  --card: #fcfbf8;
-  --card-2: #f0eee8;
-  --ink: #0e1620;
-  --ink-2: #3a4552;
-  --ink-3: #5f6b77;
-  --line: #e2e0d8;
-  --line-2: #d3d0c6;
+  /* surfaces */
+  --page: #ffffff;
+  --paper: #f6f7f9;
+  --card: #ffffff;
+  --card-2: #f3f5f8;
+  --ink: #1b2430;
+  --ink-2: #48525e;
+  --ink-3: #5e6873;
+  --line: #e6e9ed;
+  --line-2: #d5dae0;
 
-  /* studio: the automotive side (opening stage, band, rep login) */
-  --studio: #0a0e13;
-  --studio-2: #111821;
-  --studio-3: #18212c;
-  --studio-line: rgb(255 255 255 / 9%);
-  --on-studio: #eef2f6;
-  --on-studio-2: #a7b2be;
-  --on-studio-3: #7c8996;
-
-  /* petals (decorative / large shapes) */
-  --petal-blue: #0390cb;
-  --petal-turq: #00bae2;
-  --petal-green: #78a12f;
+  /* the burst: decorative colour, large shapes, lines */
   --petal-red: #ed3024;
   --petal-orange: #f48326;
-  --petal-leaf: #c7de8d;
+  --petal-green: #78a12f;
+  --petal-leaf: #b5d36a;
+  --petal-blue: #0390cb;
+  --petal-turq: #00bae2;
   --petal-sky: #9ed8ef;
+  /* the burst in the order of the mark, as one rule: titles, the route, loading */
+  --burst: linear-gradient(90deg, var(--petal-red) 0 14.3%, var(--petal-orange) 0 28.6%, var(--petal-leaf) 0 42.9%,
+                           var(--petal-green) 0 57.2%, var(--petal-sky) 0 71.5%, var(--petal-turq) 0 85.8%, var(--petal-blue) 0);
 
-  /* petals as text and UI (AA on paper) */
-  --brand: #0a6e9e;
-  --brand-deep: #075f89;
+  /* the burst as text and UI */
+  --brand: #0b72a8;
+  --brand-deep: #085a85;
+  --red: #d7281c;
   --electric: #007a96;
   --up: #3e6a10;
   --down: #be2419;
   --pending: #9a4705;
 
   /* tints */
-  --brand-tint: #e6f2f8;
-  --up-tint: #eef4e2;
-  --down-tint: #fbe9e7;
-  --pending-tint: #fdf0e3;
-  --electric-tint: #e3f6fa;
+  --brand-tint: #e8f4fb;
+  --sky-tint: #eef8fc;
+  --up-tint: #eff6e4;
+  --down-tint: #fdecea;
+  --pending-tint: #fef2e6;
+  --electric-tint: #e4f7fb;
+
+  /* the hero blue: the opening, the consultation band, the rep header */
+  --hero-light: #0b5a8a;
+  --hero: #073d5f;
+  --hero-deep: #06304d;
+  --hero-grad: radial-gradient(90% 120% at 28% 78%, #0d6aa0 0%, var(--hero) 55%, var(--hero-deep) 100%);
+  --on-hero: #ffffff;
+  --on-hero-2: #d6eaf6;
+  --on-hero-3: #a9cfe6;
+  --on-hero-live: #c9f1a0;
+
+  /* frames: every screen sits inside the same container, with side margins */
+  --frame-gap: clamp(10px, 2vw, 24px);
+  --frame-x: max(var(--frame-gap), calc((100% - var(--container)) / 2));
 
   /* type */
-  --font: 'Heebo', system-ui, sans-serif;
+  --font: 'Assistant', system-ui, sans-serif;
   --fs-micro: 0.75rem;     /* 12 */
   --fs-small: 0.8125rem;   /* 13 */
   --fs-body: 1rem;         /* 16 */
-  --fs-lead: clamp(1.125rem, 1rem + 0.5vw, 1.375rem);
+  --fs-lead: clamp(1.0625rem, 0.98rem + 0.4vw, 1.25rem);
   --fs-title: clamp(1.375rem, 1.1rem + 1vw, 1.875rem);
-  --fs-display: clamp(3.25rem, 1.6rem + 6.4vw, 7.5rem);
-  --fs-number: clamp(2.75rem, 1.8rem + 3.6vw, 5rem);
+  --fs-display: clamp(2.75rem, 1.4rem + 4.6vw, 5.75rem);
+  --fs-number: clamp(2.75rem, 1.8rem + 3.4vw, 4.75rem);
 
-  /* space (4px base) */
+  /* space */
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s7: 32px; --s8: 40px; --s9: 56px; --s10: 72px;
-  --gutter: clamp(16px, 3.2vw, 48px);
+  --gutter: clamp(16px, 4vw, 56px);
+  --container: 1240px;
 
-  /* shape: the petal (two opposite corners open, two tight), one radius scale */
+  /* shape: one radius scale, round and calm */
   --r-xs: 6px;
   --r-sm: 10px;
   --r-md: 16px;
   --r-lg: 24px;
   --r-xl: 32px;
   --r-pill: 999px;
-  --petal: var(--r-lg) var(--r-xs) var(--r-lg) var(--r-xs);
-  --petal-lg: var(--r-xl) var(--r-sm) var(--r-xl) var(--r-sm);
+  --petal: var(--r-lg);
+  --petal-lg: var(--r-lg);
 
-  /* depth */
-  --shadow-1: 0 1px 1px rgb(14 22 32 / 4%), 0 2px 6px rgb(14 22 32 / 4%);
-  --shadow-2: 0 2px 4px rgb(14 22 32 / 4%), 0 12px 32px -8px rgb(14 22 32 / 14%);
-  --shadow-3: 0 4px 8px rgb(14 22 32 / 5%), 0 28px 64px -16px rgb(14 22 32 / 26%);
+  /* depth: soft, neutral */
+  --shadow-1: 0 1px 2px rgb(27 36 48 / 5%), 0 2px 8px rgb(27 36 48 / 4%);
+  --shadow-2: 0 2px 6px rgb(27 36 48 / 5%), 0 14px 34px -12px rgb(27 36 48 / 14%);
+  --shadow-3: 0 4px 10px rgb(27 36 48 / 6%), 0 30px 70px -24px rgb(27 36 48 / 24%);
 
-  /* motion: three curves for the whole product */
+  /* motion */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-soft: cubic-bezier(0.33, 1, 0.68, 1);
   --ease-inout: cubic-bezier(0.87, 0, 0.13, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --t-fast: 160ms;
   --t-med: 320ms;
   --t-slow: 640ms;
 
   /* layout */
-  --topbar-h: 64px;
-  --band-h: 148px;
+  --topbar-h: 72px;
+  --band-h: 132px;
   --column: 820px;
 }
 
 @media (max-width: 720px) {
-  :root { --topbar-h: 56px; --band-h: 112px; }
+  :root { --topbar-h: 60px; --band-h: 112px; }
 }
 
-/* the user's "reduce motion" choice, from the menu or the system */
 @media (prefers-reduced-motion: reduce) {
   :root { --t-fast: 1ms; --t-med: 1ms; --t-slow: 1ms; }
 }

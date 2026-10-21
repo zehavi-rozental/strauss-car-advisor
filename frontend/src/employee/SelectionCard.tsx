@@ -1,7 +1,7 @@
 // Alternatives as toggle cards, typographic (no car pictures): the model name large, year, drive, group and the
 // catalog details. The index number on each card is the same number the employee can type ("1, 3"): the
 // server numbers the options in this order.
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import type { CatalogItem, ExpectsField, MessageIn } from '../api/types'
 import { Money } from '../format/Amount'
 import { Icon } from '../ui/Icon'
@@ -29,11 +29,6 @@ export function SelectionCard({ f, fieldParam, disabled, onSend, initial, onDone
   const full = picked.length >= max
   const field = fieldParam ?? f.field ?? undefined
   const rank = f.quick_replies.find((q) => q.id === 'rank')
-  const box = useRef<HTMLDivElement>(null)
-  // opened from the reply's link: bring the cards into view (not inside the comparison sheet, which is its own scroll)
-  useEffect(() => {
-    if (!fieldParam) box.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }, [fieldParam])
 
   const submit = async () => {
     const labels = f.choices.filter((c) => picked.includes(c.id)).map((c) => c.label).join(', ')
@@ -44,7 +39,7 @@ export function SelectionCard({ f, fieldParam, disabled, onSend, initial, onDone
   }
 
   return (
-    <div className="selection" ref={box}>
+    <div className="selection">
       <div className="card-grid">
         {f.choices.map((c, i) => {
           const on = picked.includes(c.id)

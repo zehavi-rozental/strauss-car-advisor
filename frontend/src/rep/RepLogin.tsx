@@ -12,7 +12,7 @@ export function RepLogin({ onToken, notice }: { onToken: (token: string) => void
     if (token.trim()) onToken(token.trim())
   }
   return (
-    <div className="rep-login on-studio">
+    <div className="rep-login">
       <FlowCar mode="login" />
       <form onSubmit={submit} className="rep-login-card">
         <span className="rep-login-mark" aria-hidden="true"><BrandMark size={40} /></span>

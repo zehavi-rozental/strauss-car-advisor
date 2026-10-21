@@ -22,7 +22,7 @@ img, svg { display: block; }
 ::selection { background: color-mix(in srgb, var(--petal-turq) 32%, transparent); }
 
 :focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 6px; }
-.studio :focus-visible, .on-studio :focus-visible { outline-color: var(--petal-turq); }
+.chat-header :focus-visible, .rep-header :focus-visible, .panel-header :focus-visible { outline-color: #fff; }
 
 .money { unicode-bidi: isolate; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .num { font-variant-numeric: tabular-nums; unicode-bidi: isolate; }
@@ -61,10 +61,10 @@ img, svg { display: block; }
 .chip:active:not(:disabled), .btn:active:not(:disabled) { transform: translateY(1px); }
 .chip:disabled, .btn:disabled { opacity: 0.45; }
 .chip-primary, .btn-primary, .chip-on {
-  --bg: var(--ink); --fg: var(--paper); --bd: var(--ink);
+  --bg: var(--brand); --fg: #fff; --bd: var(--brand);
 }
 .chip-primary:hover:not(:disabled), .btn-primary:hover:not(:disabled), .chip-on:hover:not(:disabled) {
-  --bd: var(--ink); background: #1d2a38; box-shadow: 0 8px 20px -10px rgb(14 22 32 / 60%);
+  --bd: var(--brand-deep); background: var(--brand-deep);
 }
 .chip-quiet, .btn-quiet { --bg: transparent; --fg: var(--ink-2); --bd: var(--line-2); }
 .btn-brand { --bg: var(--brand); --fg: #fff; --bd: var(--brand); }

@@ -22,9 +22,10 @@ export function TopBar() {
   const { pathname } = useLocation()
   const rep = pathname.startsWith('/rep')
   return (
-    <header className="topbar on-studio">
+    <header className="topbar">
+      <div className="topbar-inner">
       <Link to="/employee" className="brand" aria-label="STRAUSS DRIVE">
-        <BrandMark size={30} />
+        <BrandMark size={34} />
         <Wordmark />
       </Link>
       <nav className="zones" aria-label="מעבר מסך" data-active={rep ? 'rep' : 'employee'}>
@@ -45,6 +46,7 @@ export function TopBar() {
         </NavLink>
       </nav>
       <UserMenu rep={rep} />
+      </div>
     </header>
   )
 }
