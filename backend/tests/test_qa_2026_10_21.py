@@ -318,3 +318,12 @@ def test_a_rep_answer_on_a_stale_result_reports_the_amount_not_an_old_difference
     assert "ההפרש עודכן" not in content and "350" in content     # no before/after from an out-of-date result
     view = client.get(f"/api/conversations/{cid}").json()
     assert view["results_stale"] is True                       # recalculated only once the car is known again
+
+
+def test_the_model_is_told_there_is_a_company_car(sessions):
+    from app.modules.conversation.turn import state_block
+    from app.modules.rules.public import load_snapshot
+    svc = service(sessions)
+    turn, token = talk(svc, "יש לי רכב חברה ואני בקבוצה ב")
+    block = state_block(state(svc, turn, token), load_snapshot(CONFIG))
+    assert "HAS a company car" in block
