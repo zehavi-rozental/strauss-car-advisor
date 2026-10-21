@@ -152,6 +152,13 @@ A module, and `app/api`, imports another module **only** through that module's `
 - **Recorded vision for browser tests**: `PAYSLIP_FAKE_VISION_DIR` → `FixtureVision` answers by file sha256 (`frontend/e2e/fixtures/payslips/make_fixtures.py`); logged as RECORDED at startup; never set in Render. It tests our server path with fixed answers, not Gemini.
 - Browser tests open ~40 conversations a minute: the e2e server needs `CREATE_RATE_LIMIT_PER_MINUTE` / `PAYSLIP_RATE_LIMIT_PER_MINUTE` raised (CI sets them).
 
+### Closure review (session 7b, 21/10)
+
+- **Rule 4 in the conversation layer**: the engine's `Employee` defaults commissions / bonus / study fund / children to 0, so `tools.engine_inputs` raises `MissingInputs` for any of them instead of passing None; `rank_options` defers while a profile field is missing, and a waiting ranking makes the stage ask the unknown fields (before: "הכי משתלם" ranked on a guessed 0).
+- **One map** `stage.PROFILE_ARGS` (save_profile argument → Profile attribute) for the seven salary fields; every other map derives from it.
+- **No import cycle**: `recorded_text` lives in `templates`; `fallback` imports `templates` (one direction).
+- The annual figure on the result card is the engine's rounded monthly delta × 12 in the browser (display only, always consistent with the monthly line); kept there on purpose (no API field, no change to a redesigned file).
+
 ### QA round (session 7, 21/10; `tests/test_qa_2026_10_21.py`, `tests/test_qa_properties.py`, `e2e/qa-2026-10-21.spec.ts`)
 
 Both cloud conversations replayed message by message (template mode + a FakeLLM scripted like the live model) and in the browser.
@@ -177,9 +184,7 @@ Both cloud conversations replayed message by message (template mode + a FakeLLM 
 - A payslip upload (the "להעלות תלוש" link is ready behind `payslip_upload_url`).
 - Browser checks of the session-2 UI (desktop + 375px): progress header, links, closed buttons only.
 - `LLMChain.intro_deadline` and the `LLM_INTRO_BUDGET_S` setting are unused (the results intro call was removed); remove them together with the setting in a cleanup that also checks the Render environment.
-- The save_profile argument → Profile attribute map exists in several copies (`agent._ASKED_ARG`, `_HIDDEN_ARGS`, `_form_values`, `fallback._PROFILE_ARG`, `_CORRECTABLE`); one shared map in `stage.py` would remove the risk of a field added to one copy only.
 - The payslip conflict ("differs") is computed in the browser from the profile; the server's "עדכנתי: X במקום Y" is the authoritative record of what changed. If the profile cannot be read the review preselects nothing.
-- `ProfileForm` silently shows empty fields when its prefill request fails (nothing is lost: only changed fields are sent).
 - The Docker image could not be built on the development machine (TLS inspection by the local network filter breaks `pip` inside the container); CI builds it.
 - The rep screen shows `GENERAL_QUESTION` with the generic TEXT answer field; a dedicated layout (the employee's question as the title) would read better.
 
