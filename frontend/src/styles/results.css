@@ -36,7 +36,9 @@
 .car-card[data-drive='HYBRID'] { --accent: var(--petal-sky); }
 .car-card[data-drive='PLUG_IN'] { --accent: var(--petal-blue); }
 .car-card[data-drive='PETROL'] { --accent: #b9b4a6; }
-.car-card:hover:not(:disabled) { border-color: var(--ink-3); box-shadow: var(--shadow-2); transform: translateY(-2px); }
+/* no movement on hover: a card that rises under the cursor leaves it and drops back (QA 21/10: the options
+   jittered when the mouse moved); the border and shadow say it is hovered */
+.car-card:hover:not(:disabled) { border-color: var(--ink-3); box-shadow: var(--shadow-2); }
 .car-card:disabled { opacity: 0.42; cursor: not-allowed; }
 .car-card-top { display: flex; align-items: center; justify-content: space-between; }
 .car-index { font-size: var(--fs-micro); font-weight: 500; color: var(--ink-3); letter-spacing: 0.04em; }
