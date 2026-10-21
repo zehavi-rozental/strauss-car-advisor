@@ -73,7 +73,8 @@ async function uploadPayslip(page: Page, file: string) {
 }
 
 const row = (page: Page, field: string) => page.locator(`.payslip-row[data-field="${field}"]`)
-const keep = (page: Page, field: string) => row(page, field).getByRole('checkbox')
+// "לעדכן" / "מהתלוש": the row is updated from the payslip (an explicit choice per row, QA 21/10)
+const keep = (page: Page, field: string) => row(page, field).locator('input[type="radio"][value="payslip"]')
 
 /** A second, API-only conversation with the same messages: what the engine says for those typed values. */
 async function typedResult(request: APIRequestContext, messages: string[]) {
@@ -189,7 +190,9 @@ test.describe('payslip journeys', () => {
     await expect(page.getByRole('heading', { name: 'בדיקת הנתונים מהתלוש' })).toBeVisible()
     await expect(row(page, 'base_salary').locator('input:not([type])')).toHaveValue('18000')
     await expect(row(page, 'base_salary')).toContainText('בתלוש: שכר יסוד')
-    await expect(keep(page, 'base_salary')).toBeChecked()
+    await expect(row(page, 'base_salary')).toContainText('זהה למה שכתבתם בשיחה')
+    await expect(keep(page, 'base_salary')).not.toBeChecked()       // the same value: updated only if chosen
+    await keep(page, 'base_salary').check()
     for (const f of ['commissions', 'bonus', 'pension_percent']) {
       await expect(row(page, f)).toContainText('לא נמצא בתלוש')
       await expect(keep(page, f)).not.toBeChecked()
@@ -199,7 +202,8 @@ test.describe('payslip journeys', () => {
     await expect(info).toContainText('לא מומר לאחוז')
     await expect(info).toContainText('לא מהנטו שבתלוש')
     await confirmPayslip(page)
-    await expect(page.locator(USER).last()).toContainText('שכר בסיס 18,000 ₪')
+    await expect(page.locator(USER).last()).toContainText('מהתלוש (אושר): שכר בסיס 18,000 ₪')
+    await expect(page.locator(BOT).last()).toContainText('הערכים זהים למה שכבר רשמתי.')
     const p = (await state(page)).profile
     expect([p.base, p.commissions, p.bonus, p.pension_percent]).toEqual(['18000', null, null, null])
   })
@@ -208,10 +212,15 @@ test.describe('payslip journeys', () => {
     await open(page)
     await send(page, 'מנהלת מוצר, שכר בסיס 15,000')
     await uploadPayslip(page, 'synthetic_payslip.pdf')
-    await expect(row(page, 'base_salary')).toContainText('שונה ממה שרשמתם בשיחה: 15,000 ₪')
-    await expect(keep(page, 'base_salary')).not.toBeChecked()
+    await expect(row(page, 'base_salary')).toContainText('התלוש שונה ממה שכתבתם בשיחה (15,000 ₪)')
+    await expect(row(page, 'base_salary').getByRole('radio', { name: 'מהשיחה: 15,000 ₪' })).not.toBeChecked()
+    await expect(keep(page, 'base_salary')).not.toBeChecked()             // no default: the employee decides
+    await page.getByRole('button', { name: /אישור ושמירה/ }).click()
+    await expect(page.locator('.payslip-review')).toContainText('יש שורות שבהן צריך לבחור')
+    expect((await state(page)).profile.base).toBe('15000')                 // nothing saved before the choice
     await keep(page, 'base_salary').check()
     await confirmPayslip(page)
+    await expect(page.locator(BOT).last()).toContainText('עדכנתי מהתלוש: שכר בסיס 18,000 ₪ במקום 15,000 ₪.')
     await expect.poll(async () => (await state(page)).profile.base).toBe('18000')
     for (const m of [REST_OF_NOA, 'יש לי קורולה קרוס', '300', 'אטו 3']) await send(page, m)
     const typed = await typedResult(request, ['מנהלת מוצר, שכר בסיס 18,000', REST_OF_NOA, 'יש לי קורולה קרוס', '300', 'אטו 3'])
@@ -222,10 +231,11 @@ test.describe('payslip journeys', () => {
     await open(page)
     await send(page, 'מנהלת מוצר, שכר בסיס 18,500')
     await uploadPayslip(page, 'full_payslip.pdf')
-    for (const f of ['base_salary', 'commissions', 'bonus', 'pension_percent', 'study_fund_percent', 'credit_points', 'children_under_23'])
+    for (const f of ['commissions', 'bonus', 'pension_percent', 'study_fund_percent', 'credit_points', 'children_under_23'])
       await expect(keep(page, f)).toBeChecked()
+    await expect(row(page, 'base_salary')).toContainText('זהה למה שכתבתם בשיחה')   // nothing to update
     await expect(row(page, 'credit_points').locator('input:not([type])')).toHaveValue('2.75')   // not cut to 2
-    await confirmPayslip(page, 'אישור ושמירה (7)')
+    await confirmPayslip(page, 'אישור ושמירה (6)')
     await expect.poll(async () => (await state(page)).stage).toBe('COLLECT_CURRENT_CAR')
     for (const m of ['יש לי קורולה קרוס', '300', 'אטו 3']) await send(page, m)
     expect(deltas(await state(page))).toEqual([['CAR-10', 661]])   // the payslip's net (11,000) plays no part
@@ -239,11 +249,11 @@ test.describe('payslip journeys', () => {
       ['pension_percent', '6'], ['study_fund_percent', '2.5'], ['credit_points', '2.25'], ['children_under_23', '3']]
     for (const [f, v] of want) {
       await expect(row(page, f).locator('input:not([type])')).toHaveValue(v)
-      await expect(keep(page, f)).toBeChecked()
+      if (f !== 'base_salary') await expect(keep(page, f)).toBeChecked()     // 16,000 = the chat value
     }
     await expect(row(page, 'children_under_23')).toContainText('בתלוש: מספר ילדים עד גיל 23')
     await expect(page.locator('.payslip-info')).toContainText('קרן השתלמות עובד')
-    await confirmPayslip(page, 'אישור ושמירה (7)')
+    await confirmPayslip(page, 'אישור ושמירה (6)')
     const p = (await state(page)).profile
     expect([p.base, p.commissions, p.bonus, p.pension_percent, p.study_fund_percent, p.credit_points, p.children])
       .toEqual(['16000', '2400', '1500', '6', '2.5', '2.25', 3])
@@ -323,12 +333,11 @@ test.describe('payslip journeys', () => {
     await open(page)
     await send(page, 'מנהלת מוצר, שכר בסיס 18,500')
     await uploadPayslip(page, 'full_payslip.pdf')
-    await confirmPayslip(page, 'אישור ושמירה (7)')
+    await confirmPayslip(page, 'אישור ושמירה (6)')
     await expect.poll(async () => (await state(page)).stage).toBe('COLLECT_CURRENT_CAR')
     await page.reload()
-    // the history comes back from the server, which stores the values (the "מהתלוש" prefix is the browser's
-    // display text only; keeping the source on the server needs a contract change, see the report)
-    await expect(page.locator(USER, { hasText: 'שכר בסיס 18,500 ₪, אין עמלות' })).toBeVisible({ timeout: 20_000 })
+    // the history comes back from the server, which stores the values with their source (QA 21/10)
+    await expect(page.locator(USER, { hasText: 'מהתלוש (אושר): אין עמלות' })).toBeVisible({ timeout: 20_000 })
     const p = (await state(page)).profile
     expect([p.base, p.pension_percent, p.credit_points, p.children]).toEqual(['18500', '6', '2.75', 2])
   })

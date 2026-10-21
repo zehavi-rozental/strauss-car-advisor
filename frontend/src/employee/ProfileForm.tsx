@@ -3,13 +3,14 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { ProfileFields } from '../api/types'
+import type { SendResult } from './useConversation'
 import { FORM_FIELDS, buildFields, emptyValues, prefill } from './formFields'
 import type { FormKey, FormValues } from './formFields'
 
 interface Props {
   mode: 'q2' | 'correction'
   loadProfile: () => Promise<Record<string, unknown>>
-  onSubmit: (fields: ProfileFields) => Promise<boolean>
+  onSubmit: (fields: ProfileFields) => Promise<SendResult>
   onCancel?: () => void
   disabled: boolean
 }
@@ -44,7 +45,9 @@ export function ProfileForm({ mode, loadProfile, onSubmit, onCancel, disabled }:
     const built = buildFields(values, original)
     setErrors(built.errors)
     if (Object.keys(built.errors).length || !Object.keys(built.fields).length) return
-    await onSubmit(built.fields)
+    const sent = await onSubmit(built.fields)
+    // all or nothing: nothing was saved, everything typed stays, and each refused field says why
+    if (!sent.ok) setErrors(sent.errors as Partial<Record<FormKey, string>>)
   }
 
   return (

@@ -5,18 +5,19 @@
 //   3. the employee keeps, edits or drops each value and explicitly confirms before anything is saved.
 // A failure, an unreadable file and a file that is not a payslip each say so, with retry and manual entry.
 // The payslip file is never stored by the server; saving happens through the normal {fields} message.
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { ApiError, api } from '../api/client'
 import type { PayslipInfo, ProfileFields } from '../api/types'
 import { formatMoney } from '../format/money'
 import { payslipOutcome } from './payslipOutcome'
 import type { PayslipOutcome } from './payslipOutcome'
-import { assign, assignable, reviewFields, reviewRows } from './payslipReview'
+import { CHOOSE_FIRST, assign, assignable, choicesFor, reviewFields, reviewRows } from './payslipReview'
 import type { ReviewRow } from './payslipReview'
+import type { SendResult } from './useConversation'
 
 interface Props {
-  onSubmit: (fields: ProfileFields) => Promise<boolean>
+  onSubmit: (fields: ProfileFields) => Promise<SendResult>
   onCancel: () => void
   loadProfile: () => Promise<Record<string, unknown>>
   disabled: boolean
@@ -26,7 +27,8 @@ interface Props {
 const ACCEPT = 'application/pdf,image/jpeg,image/png,image/webp'
 const UPLOAD_HINT = 'מעלים צילום או PDF של התלוש. קוראים ממנו רק נתוני שכר והפרשות — לא שם, לא ת"ז ולא פרטי בנק. ' +
   'התלוש עצמו לא נשמר.'
-const MANUAL_HINT = 'מלאו את הנתונים ידנית, סמנו את מה לשמור ואשרו. אפשר גם לבטל ולכתוב בצ׳אט.'
+const MANUAL_HINT = 'מלאו את הנתונים ידנית, בחרו מה לעדכן ואשרו. אפשר גם לבטל ולכתוב בצ׳אט.'
+const REVIEW_HINT = 'לכל שורה בחרו אם לעדכן את הפרופיל. כשהתלוש שונה ממה שכתבתם בשיחה, בחרו איזה ערך נכון לחישוב.'
 const ASSIGN_LABEL: Record<string, string> = { commissions: 'לשייך לעמלות', bonus: 'לשייך לבונוס' }
 
 type Step = 'pick' | 'failed' | 'review'
@@ -42,15 +44,11 @@ export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled }: Pro
   const [rows, setRows] = useState<ReviewRow[]>(() => reviewRows([]))
   const [info, setInfo] = useState<PayslipInfo[]>([])
   const [errors, setErrors] = useState<Partial<Record<keyof ProfileFields, string>>>({})
-  const [profile, setProfile] = useState<Record<string, unknown>>({})
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // what the conversation already knows, to flag a payslip value that differs from it
-  useEffect(() => {
-    let alive = true
-    loadProfile().then((p) => { if (alive) setProfile(p) }).catch(() => undefined)
-    return () => { alive = false }
-  }, [loadProfile])
+  // What the conversation holds right now, read when the payslip is read (never an earlier copy). If it
+  // cannot be read, nothing is preselected: every value with a payslip value waits for the employee.
+  const currentProfile = (): Promise<Record<string, unknown> | null> => loadProfile().catch(() => null)
 
   const pick = () => inputRef.current?.click()
 
@@ -59,7 +57,7 @@ export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled }: Pro
     setBusy(true)
     setError(null)
     try {
-      const result = await api.extractPayslip(file)
+      const [result, profile] = await Promise.all([api.extractPayslip(file), currentProfile()])
       const next = payslipOutcome(result)
       setOutcome(next)
       setErrors({})
@@ -80,9 +78,9 @@ export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled }: Pro
   }
 
   // manual entry after a failure: the same review, empty, with no claim that anything was read
-  const manual = () => {
+  const manual = async () => {
     setOutcome(null)
-    setRows(reviewRows([], profile))
+    setRows(reviewRows([], await currentProfile()))
     setInfo([])
     setErrors({})
     setError(null)
@@ -98,15 +96,24 @@ export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled }: Pro
     e.preventDefault()
     const built = reviewFields(rows)
     setErrors(built.errors)
-    if (Object.keys(built.errors).length) return
-    if (!Object.keys(built.fields).length) {
-      setError('לא סומן אף שדה לשמירה. סמנו לפחות שדה אחד או בטלו.')
+    if (Object.values(built.errors).includes(CHOOSE_FIRST)) {
+      setError('יש שורות שבהן צריך לבחור איזה ערך נכון. דבר לא נשמר.')
       return
     }
+    if (Object.keys(built.errors).length) return
+    if (!Object.keys(built.fields).length) {
+      setError('לא נבחר אף שדה לעדכון. בחרו "לעדכן" בשורה אחת לפחות, או בטלו.')
+      return
+    }
+    setError(null)
     setBusy(true)
-    const ok = await onSubmit(built.fields)
+    const sent = await onSubmit(built.fields)
     setBusy(false)
-    if (!ok) setError('השמירה נכשלה. נסו שוב.')
+    if (!sent.ok) {
+      // all or nothing: nothing was saved; the review stays as it was, and each refused field says why
+      setErrors(sent.errors as Partial<Record<keyof ProfileFields, string>>)
+      setError('השמירה נכשלה, ודבר לא נשמר. בדקו את השדות המסומנים ונסו שוב.')
+    }
   }
 
   const working = busy || disabled
@@ -130,7 +137,7 @@ export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled }: Pro
             {busy ? 'קורא את התלוש…' : !failed ? 'בחירת קובץ' : outcome.retry ? 'לנסות שוב' : 'לנסות קובץ אחר'}
           </button>
           {failed && (
-            <button type="button" className="chip chip-quiet" disabled={working} onClick={manual}>מילוי ידני</button>
+            <button type="button" className="chip chip-quiet" disabled={working} onClick={() => void manual()}>מילוי ידני</button>
           )}
           <button type="button" className="chip chip-quiet" disabled={working} onClick={onCancel}>ביטול</button>
         </div>
@@ -138,13 +145,14 @@ export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled }: Pro
     )
   }
 
-  const kept = rows.filter((r) => r.keep).length
+  const kept = rows.filter((r) => r.choice === 'payslip').length
   return (
     <form className="profile-form payslip-review" onSubmit={confirm} aria-label="סקירת נתוני התלוש">
       <h3>{outcome ? outcome.title : 'מילוי ידני'}</h3>
       <p className="form-hint" role={outcome?.status === 'nothing_found' ? 'status' : undefined}>
         {outcome ? outcome.message : MANUAL_HINT}
       </p>
+      {outcome && <p className="form-hint">{REVIEW_HINT}</p>}
       {fileInput}
       <div className="form-grid">
         {rows.map((r) => (
@@ -155,18 +163,24 @@ export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled }: Pro
             <div className="form-input-row">
               <input id={`ps-${r.key}`} inputMode="decimal" autoComplete="off" value={r.value}
                      disabled={working} aria-invalid={errors[r.key] ? true : undefined}
-                     onChange={(e) => update(r.key, { value: e.target.value, keep: e.target.value.trim() !== '' })} />
-              <label className="keep-toggle">
-                <input type="checkbox" checked={r.keep} disabled={working} aria-label={`${r.label}: לשמור`}
-                       onChange={(e) => update(r.key, { keep: e.target.checked })} />
-                לשמור
-              </label>
+                     onChange={(e) => update(r.key, { value: e.target.value,
+                                                      choice: e.target.value.trim() !== '' ? 'payslip' : 'skip' })} />
+            </div>
+            <div className="review-choice" role="radiogroup" aria-label={`${r.label}: מה לעשות`}>
+              {choicesFor(r).map((ch) => (
+                <label key={ch.id} className={r.choice === ch.id ? 'choice-option chosen' : 'choice-option'}>
+                  <input type="radio" name={`ps-choice-${r.key}`} value={ch.id} checked={r.choice === ch.id}
+                         disabled={working} onChange={() => update(r.key, { choice: ch.id })} />
+                  <bdi>{ch.label}</bdi>
+                </label>
+              ))}
             </div>
             {r.source && <span className="field-source">{r.source}</span>}
             {r.note && <span className="field-note" role="note">{r.note}</span>}
             {r.known !== null && (
               <span className={r.differs ? 'field-note' : 'field-source'}>
-                {r.differs ? `שונה ממה שרשמתם בשיחה: ${r.known}` : `בשיחה: ${r.known}`}
+                {r.differs ? `התלוש שונה ממה שכתבתם בשיחה (${r.known}). בחרו איזה ערך נכון.`
+                  : r.same ? 'זהה למה שכתבתם בשיחה' : `בשיחה: ${r.known}`}
               </span>
             )}
             {errors[r.key] && <span className="field-error" role="alert">{errors[r.key]}</span>}

@@ -18,11 +18,13 @@ const NETWORK_ERROR = 'אין חיבור לשרת. בדקו את החיבור ו
 export class ApiError extends Error {
   readonly status: number
   readonly message_he: string
+  readonly errors: Record<string, string>     // per field (the profile form), empty otherwise
 
-  constructor(status: number, message_he: string) {
+  constructor(status: number, message_he: string, errors: Record<string, string> = {}) {
     super(message_he)
     this.status = status
     this.message_he = message_he
+    this.errors = errors
   }
 }
 
@@ -47,7 +49,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError(0, NETWORK_ERROR)
   }
   const body = await response.json().catch(() => null)
-  if (!response.ok) throw new ApiError(response.status, errorMessage(body))
+  if (!response.ok) throw new ApiError(response.status, errorMessage(body), body?.errors ?? {})
   return body as T
 }
 

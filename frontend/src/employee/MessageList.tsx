@@ -10,6 +10,8 @@ import type { ChatMessage } from './useConversation'
 interface Props {
   messages: ChatMessage[]
   results: OptionResult[]
+  /** the results predate the last change: kept as history, marked, never a current recommendation */
+  resultsStale?: boolean
   resultsAnchor: number | null
   typing: boolean
   onOpenTable?: () => void
@@ -21,7 +23,9 @@ interface Props {
 const withoutLeftoverTail = (text: string) =>
   text.split('\n').filter((l) => !l.startsWith('חסר עוד:')).join('\n').trim()
 
-export function MessageList({ messages, results, resultsAnchor, typing, onOpenTable, tail }: Props) {
+export const STALE_NOTE = 'לא מעודכן: החישוב הזה נעשה לפני השינוי האחרון, ויחושב מחדש כשכל הפרטים יהיו ידועים.'
+
+export function MessageList({ messages, results, resultsStale = false, resultsAnchor, typing, onOpenTable, tail }: Props) {
   const end = useRef<HTMLDivElement>(null)
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
@@ -29,9 +33,10 @@ export function MessageList({ messages, results, resultsAnchor, typing, onOpenTa
 
   const anchored = resultsAnchor != null && messages.some((m) => m.seq === resultsAnchor)
   const cards = results.length > 0 && (
-    <div className="result-cards">
+    <div className={resultsStale ? 'result-cards result-stale' : 'result-cards'} data-stale={resultsStale || undefined}>
+      {resultsStale && <p className="stale-note" role="status">{STALE_NOTE}</p>}
       {results.length > 1
-        ? <SummaryCard items={results} onOpenTable={onOpenTable} />
+        ? <SummaryCard items={results} ranked={!resultsStale} onOpenTable={onOpenTable} />
         : results.map((r) => <ResultCard key={`${r.option_id}:${r.run_id}`} item={r} onOpenTable={onOpenTable} />)}
     </div>
   )

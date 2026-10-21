@@ -87,3 +87,8 @@ export function profileFormText(fields: ProfileFields): string {
     parts.push(f.children_under_23 === 0 ? 'אין ילדים' : f.children_under_23 === 1 ? 'ילד אחד' : `${f.children_under_23} ילדים`)
   return parts.join(', ')
 }
+
+/** The history line of values approved from a payslip (the server stores the same prefix). */
+export function payslipFormText(fields: ProfileFields): string {
+  return `מהתלוש (אושר): ${profileFormText(fields)}`
+}

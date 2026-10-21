@@ -173,6 +173,7 @@ export interface TurnResponse {
   results: FlatOptionResult[]  // only when this turn calculated
   pending_rep: RepReason | null
   expects: Expects
+  results_stale?: boolean     // the results predate the last change: history, not a recommendation
 }
 
 export interface ConversationView {
@@ -185,6 +186,7 @@ export interface ConversationView {
   pending_rep: RepReason | null
   expects: Expects
   messages: Message[]
+  results_stale?: boolean     // the results predate the last change: history, not a recommendation
 }
 
 export interface PendingQuestion {
@@ -201,6 +203,7 @@ export interface UpdatesResponse {
   pending_questions: PendingQuestion[]
   expects: Expects
   results: OptionResult[]
+  results_stale?: boolean     // the results predate the last change: history, not a recommendation
 }
 
 export interface CarSearchItem {
@@ -227,7 +230,7 @@ export type MessageIn =
   | { text: string }
   | { choice: string; field?: string }
   | { choices: string[]; field?: string }
-  | { fields: ProfileFields }
+  | { fields: ProfileFields; source?: 'payslip' }     // source: values approved from a reviewed payslip
 
 // ---------- payslip upload (backend/app/modules/payslip) ----------
 
@@ -310,4 +313,5 @@ export interface ApiErrorBody {
   code?: string
   message_he?: string
   details?: unknown
+  errors?: Record<string, string>     // the profile form: every field outside its range
 }

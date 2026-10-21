@@ -8,11 +8,13 @@ export function rankResults(items: OptionResult[]): OptionResult[] {
   return [...items.filter(ok).sort((a, b) => delta(b) - delta(a)), ...items.filter((i) => !ok(i))]
 }
 
-export function SummaryCard({ items, onOpenTable }: { items: OptionResult[]; onOpenTable?: () => void }) {
+export function SummaryCard({ items, onOpenTable, ranked = true }:
+  { items: OptionResult[]; onOpenTable?: () => void; ranked?: boolean }) {
+  // an out-of-date result is never ranked: shown in the order chosen, as history
   return (
     <article className="summary-card" aria-label="סיכום ההשוואה">
       <ol className="summary-rows">
-        {rankResults(items).map((i) => {
+        {(ranked ? rankResults(items) : items).map((i) => {
           const r = i.result
           const ok = r.status === 'OK' && r.delta_display != null
           const tone = ok && Number(r.delta_display) < 0 ? 'negative' : 'positive'

@@ -7,7 +7,7 @@ import { PayslipUpload } from './PayslipUpload'
 import { AnswerWidgets } from './AnswerWidgets'
 import { Progress } from './Progress'
 import { SelectionCard } from './SelectionCard'
-import { profileFormText } from './formFields'
+import { payslipFormText, profileFormText } from './formFields'
 import { SelectedBar } from './SummaryCard'
 import { linkFor, optionsField, placeholderFor } from './widgets'
 import { useConversation } from './useConversation'
@@ -27,7 +27,9 @@ export function EmployeePage() {
   const [correcting, setCorrecting] = useState(false)
   // the selection card, the profile form, and the payslip upload open only from the reply's link
   const [opened, setOpened] = useState<'selection' | 'profile_form' | 'payslip_upload' | null>(null)
-  useEffect(() => setOpened(null), [c.expects])        // a new question closes what the last one opened
+  // A new question closes what the last one opened. Only a new question: a poll that re-sends the same one
+  // (every 3 s while waiting for the representative) keeps the selection, the form and the review open.
+  useEffect(() => setOpened(null), [c.questionKey])
   const link = linkFor(c.expects)
   const options = optionsField(c.expects)
   const formOpen = correcting || opened === 'profile_form'
@@ -51,17 +53,17 @@ export function EmployeePage() {
     <ProfileForm mode={correcting ? 'correction' : 'q2'} loadProfile={c.loadProfile} disabled={busy}
                  onCancel={() => { setCorrecting(false); setOpened(null) }}
                  onSubmit={async (fields) => {
-                   const ok = await c.send({ fields }, profileFormText(fields))
-                   if (ok) { setCorrecting(false); setOpened(null) }
-                   return ok
+                   const sent = await c.sendFields(fields, profileFormText(fields))
+                   if (sent.ok) { setCorrecting(false); setOpened(null) }
+                   return sent
                  }} />
   )
   const payslipUpload = (
     <PayslipUpload disabled={busy} onCancel={() => setOpened(null)} loadProfile={c.loadProfile}
                    onSubmit={async (fields) => {
-                     const ok = await c.send({ fields }, profileFormText(fields))
-                     if (ok) setOpened(null)
-                     return ok
+                     const sent = await c.sendFields(fields, payslipFormText(fields), 'payslip')
+                     if (sent.ok) setOpened(null)
+                     return sent
                    }} />
   )
   // only one interactive area at a time: the open form / selection / payslip upload, or the closed
@@ -103,9 +105,11 @@ export function EmployeePage() {
 
       <main className="chat-body">
         {c.loading && <p className="loading">טוען את השיחה…</p>}
-        <MessageList messages={c.messages} results={c.results} resultsAnchor={c.resultsAnchor} typing={c.sending}
+        {/* the interactive area stays mounted while a message is sent (disabled), so nothing typed is lost */}
+        <MessageList messages={c.messages} results={c.results} resultsStale={c.resultsStale}
+                     resultsAnchor={c.resultsAnchor} typing={c.sending}
                      onOpenTable={() => setTableOpen(true)}
-                     tail={busy ? null : tail} />
+                     tail={c.loading ? null : tail} />
       </main>
 
       <footer className="chat-footer">

@@ -414,3 +414,15 @@ p.annual { margin: 0; }
 .payslip-info h4 { margin: 0 0 6px; font-size: 14px; }
 .payslip-info ul { margin: 0; padding-inline-start: 18px; display: grid; gap: 6px; font-size: 13px; }
 .payslip-info .chip { margin-inline-start: 6px; padding: 2px 8px; font-size: 12px; }
+
+/* results calculated before the last change: history, visibly not current */
+.result-stale .result-card, .result-stale .summary-card { opacity: 0.55; filter: grayscale(0.6); }
+.stale-note { margin: 0 0 8px; padding-block: 8px; padding-inline: 12px; border-radius: 12px;
+  background: var(--pending-bg); color: var(--pending-ink); font-size: 14px; }
+
+/* the payslip review: one explicit decision per row */
+.review-choice { display: flex; flex-wrap: wrap; gap: 6px; margin-block-start: 6px; }
+.choice-option { display: inline-flex; align-items: center; gap: 6px; padding-block: 6px; padding-inline: 10px;
+  border: 1px solid var(--line); border-radius: 999px; cursor: pointer; font-size: 14px; background: var(--surface); }
+.choice-option.chosen { border-color: var(--brand); background: var(--brand-soft); color: var(--brand); }
+.choice-option input { margin: 0; accent-color: var(--brand); }
