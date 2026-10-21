@@ -1,5 +1,8 @@
 import { useState } from 'react'
+import type { OptionResult } from '../api/types'
 import { ComparisonPanel } from './ComparisonPanel'
+import { OptionMapPanel, OptionMapSummary } from './OptionMapPanel'
+import { MAP_REQUEST } from './optionMap'
 import { Composer } from './Composer'
 import { MessageList } from './MessageList'
 import { ProfileForm } from './ProfileForm'
@@ -26,6 +29,9 @@ export function EmployeePage() {
   const c = useConversation()
   const busy = c.sending || c.loading
   const [tableOpen, setTableOpen] = useState(false)
+  const [mapOpen, setMapOpen] = useState(false)
+  // 360°: options chosen in the map for the side-by-side table (the map itself keeps every option)
+  const [mapCompare, setMapCompare] = useState<OptionResult[] | null>(null)
   const [correcting, setCorrecting] = useState(false)
   // the selection card, the profile form, and the payslip upload open only from the reply's link
   // What a link opened belongs to the question it was opened for: a new question closes it. Only a new
@@ -92,7 +98,18 @@ export function EmployeePage() {
       </>
     )
   }
-  const tail = <div className="answer-tail">{area}</div>
+  // 360°: once alternatives can be chosen, every option can be mapped instead (the request goes through the
+  // chat like any message, so the server decides what is still missing)
+  const offerMap = !c.optionMap && (Boolean(options) || c.results.length > 0)
+  const tail = (
+    <div className="answer-tail">
+      {area}
+      {offerMap && (
+        <button type="button" className="chip map-request" disabled={busy}
+                onClick={() => void c.send({ text: MAP_REQUEST }, MAP_REQUEST)}>גלו לי את כל האפשרויות</button>
+      )}
+    </div>
+  )
 
   return (
     <div className="chat">
@@ -113,6 +130,7 @@ export function EmployeePage() {
         <MessageList messages={c.messages} results={c.results} resultsStale={c.resultsStale}
                      resultsAnchor={c.resultsAnchor} typing={c.sending}
                      onOpenTable={() => setTableOpen(true)}
+                     mapCard={c.optionMap && <OptionMapSummary map={c.optionMap} onOpen={() => setMapOpen(true)} />}
                      tail={c.loading ? null : tail} />
       </main>
 
@@ -128,6 +146,14 @@ export function EmployeePage() {
       {tableOpen && c.results.length > 0 && (
         <ComparisonPanel results={c.results} stale={c.resultsStale} expects={c.expects} disabled={busy} onClose={() => setTableOpen(false)}
                          onSend={c.send} onCorrect={() => { setTableOpen(false); setCorrecting(true) }} />
+      )}
+      {mapOpen && c.optionMap && !mapCompare && (
+        <OptionMapPanel map={c.optionMap} onClose={() => setMapOpen(false)} onCompare={setMapCompare} />
+      )}
+      {mapCompare && c.optionMap && (
+        <ComparisonPanel results={mapCompare} stale={c.optionMap.stale} expects={c.expects} disabled={busy}
+                         onClose={() => setMapCompare(null)} onSend={c.send}
+                         onCorrect={() => { setMapCompare(null); setMapOpen(false); setCorrecting(true) }} />
       )}
     </div>
   )

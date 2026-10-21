@@ -15,6 +15,8 @@ interface Props {
   resultsAnchor: number | null
   typing: boolean
   onOpenTable?: () => void
+  /** 360°: the option map's chat card, under the results */
+  mapCard?: ReactNode
   /** the current question's widget, drawn under the latest message */
   tail?: ReactNode
 }
@@ -25,7 +27,7 @@ const withoutLeftoverTail = (text: string) =>
 
 export const STALE_NOTE = 'לא מעודכן: החישוב הזה נעשה לפני השינוי האחרון, ויחושב מחדש כשכל הפרטים יהיו ידועים.'
 
-export function MessageList({ messages, results, resultsStale = false, resultsAnchor, typing, onOpenTable, tail }: Props) {
+export function MessageList({ messages, results, resultsStale = false, resultsAnchor, typing, onOpenTable, mapCard, tail }: Props) {
   const end = useRef<HTMLDivElement>(null)
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
@@ -57,6 +59,7 @@ export function MessageList({ messages, results, resultsStale = false, resultsAn
         </div>
       ))}
       {!anchored && cards}
+      {mapCard}
       {typing && (
         <div className="bubble bubble-bot typing" aria-label="מקליד">
           <span>מקליד</span><span className="dots"><i /><i /><i /></span>

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, api } from '../api/client'
 import { normalizeResults } from '../api/normalize'
-import type { ConversationView, Expects, Message, MessageIn, OptionResult, PendingQuestion, ProfileFields, Stage } from '../api/types'
+import type { ConversationView, Expects, Message, MessageIn, OptionMap, OptionResult, PendingQuestion, ProfileFields, Stage } from '../api/types'
 
 const STORAGE_KEY = 'sca.conversationId'
 const POLL_MS = 3000
@@ -51,6 +51,10 @@ export function useConversation() {
   }, [])
   const [results, setResults] = useState<OptionResult[]>([])
   const [resultsStale, setResultsStale] = useState(false)
+  const [optionMapState, setOptionMapState] = useState<OptionMap | null>(null)
+  const setOptionMap = useCallback((next: OptionMap | null | undefined) => {
+    setOptionMapState((prev) => (JSON.stringify(prev) === JSON.stringify(next ?? null) ? prev : next ?? null))
+  }, [])
   const [lastAssistant, setLastAssistant] = useState<number | null>(null)
   const [resultsAnchor, setResultsAnchor] = useState<number | null>(null)
   const [pendingQuestions, setPendingQuestions] = useState<PendingQuestion[]>([])
@@ -76,10 +80,11 @@ export function useConversation() {
     setExpects(view.expects)
     setLastAssistant(lastAssistantRef.current)
     setResultsStale(Boolean(view.results_stale))
+    setOptionMap(view.option_map)
     setResults(res)
     runKeyRef.current = runKey(res)
     setResultsAnchor(res.length ? lastAssistantRef.current : null)
-  }, [setExpects])
+  }, [setExpects, setOptionMap])
 
   /** New messages after the last seq, plus the current stage, expects, results and open questions.
    *  Calls are chained so polling and sending never apply updates out of order. */
@@ -96,6 +101,7 @@ export function useConversation() {
       setExpects(u.expects)
       setLastAssistant(lastAssistantRef.current)
       setResultsStale(Boolean(u.results_stale))
+      setOptionMap(u.option_map)
       setPendingQuestions(u.pending_questions)
       const res = normalizeResults(u.results)
       const key = runKey(res)
@@ -109,7 +115,7 @@ export function useConversation() {
     const next = syncChain.current.then(run, run)
     syncChain.current = next.catch(() => undefined)
     return next
-  }, [setExpects])
+  }, [setExpects, setOptionMap])
 
   const reload = useCallback(async () => {
     const id = idRef.current
@@ -216,6 +222,7 @@ export function useConversation() {
       setMessages([])
       setLastAssistant(null)
       setResultsStale(false)
+      setOptionMap(null)
       setResults([])
       setResultsAnchor(null)
       setPendingQuestions([])
@@ -227,7 +234,7 @@ export function useConversation() {
     } finally {
       setLoading(false)
     }
-  }, [sync, setExpects])
+  }, [sync, setExpects, setOptionMap])
 
   // polling: only while a rep question is open and the tab is visible
   const waitingForRep = pendingQuestions.length > 0 || stage === 'WAITING_FOR_REP'
@@ -264,7 +271,7 @@ export function useConversation() {
   const questionKey = `${lastAssistant ?? ''}|${JSON.stringify(expects)}`
 
   return {
-    messages, stage, expects, questionKey, results, resultsStale, resultsAnchor, pendingQuestions, waitingForRep,
+    messages, stage, expects, questionKey, results, resultsStale, optionMap: optionMapState, resultsAnchor, pendingQuestions, waitingForRep,
     sending, loading, error, send, sendFields, loadProfile, newConversation, dismissError: () => setError(null),
   }
 }

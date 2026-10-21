@@ -187,6 +187,7 @@ export interface ConversationView {
   expects: Expects
   messages: Message[]
   results_stale?: boolean     // the results predate the last change: history, not a recommendation
+  option_map?: OptionMap | null      // 360°: null until the employee asks for it
 }
 
 export interface PendingQuestion {
@@ -204,6 +205,7 @@ export interface UpdatesResponse {
   expects: Expects
   results: OptionResult[]
   results_stale?: boolean     // the results predate the last change: history, not a recommendation
+  option_map?: OptionMap | null      // 360°: null until the employee asks for it
 }
 
 export interface CarSearchItem {
@@ -314,4 +316,28 @@ export interface ApiErrorBody {
   message_he?: string
   details?: unknown
   errors?: Record<string, string>     // the profile form: every field outside its range
+}
+
+// ---------- STRAUSS DRIVE 360° (backend/app/modules/conversation/option_map.py) ----------
+
+/** full: calculated, copay final · catalog_copay: calculated with the catalog copay, waiting for the rep ·
+ *  incomplete: a value is missing (never ranked) · not_eligible: the engine's own eligibility check */
+export type MapStatus = 'full' | 'catalog_copay' | 'incomplete' | 'not_eligible'
+
+export interface MapEntry {
+  option_id: string
+  label: string
+  group: string | null
+  drive: string | null
+  status: MapStatus
+  result: ScenarioResult
+}
+
+export interface OptionMap {
+  entries: MapEntry[]               // calculated (net, high to low), then waiting, then not eligible
+  excluded: { label: string; group: string | null; reason: string }[]
+  counts: { eligible: number; calculated: number; waiting: number; catalog_copay: number }
+  leaders: string[]                 // highest estimated net among the calculated; several = a tie; [] = none
+  stale: boolean                    // built before the last change: history, never a current ranking
+  group: string | null
 }
