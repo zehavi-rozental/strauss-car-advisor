@@ -333,7 +333,8 @@ def _add_free_number(text: str, arg: str, found: dict, spans: list, approximate:
 def _group_reading(text: str, order: Iterable[str]) -> Optional[tuple[str, tuple[int, int]]]:
     """"קבוצה ג", "בקבוצת זכאות ב", או האות לבד כתשובה."""
     letters = "".join(order)
-    m = re.search(rf"(?:ב|ו)?קבוצ(?:ה|ת)(?:\s*(?:ה)?זכאות)?\s*([{letters}])(?![א-ת])", text)
+    m = re.search(rf"(?:ב|ו|ה)?קבוצ(?:ה|ת)(?:\s*(?:ה)?זכאות)?\s*(?:שלי\s*)?(?:היא\s*)?([{letters}])(?![א-ת])",
+                  text)
     if m:
         return m.group(1), m.span()
     # אות קבוצה כמילה בפני עצמה ("ג, שכר בסיס 18,500") — רק כשיש בדיוק אחת כזו
@@ -350,16 +351,18 @@ def _profile_group_plan(snapshot: RulesSnapshot, group: Optional[str], fields: l
     found = dict(reading.fields)
     spans = list(reading.spans)
     approximate = list(reading.approximate)
+    fillers = list(ext.profile_fillers)
     if group == "Q1":
         hit = _group_reading(text, snapshot.calc.group_order)
         if hit and "occupation" not in found:
             found["eligibility_group"] = hit[0]
             spans.append(hit[1])
+            fillers += ["היא", "הוא", "בלבד", "הקבוצה", "קבוצת", "זכאות", "שלי"]   # group-phrasing words
         if "base" in fields and "base_salary" not in found:
             _add_free_number(text, "base_salary", found, spans, approximate)
     if not found:
         return None
-    if not unread_words(text, spans + approx_spans(text), reading.phrases, ext.profile_fillers):
+    if not unread_words(text, spans + approx_spans(text), reading.phrases, fillers):
         return ParserPlan(_call("save_profile", **found, approximate_fields=approximate), True)
     if reading.fields:
         return _labelled_fallback(reading.labelled)
