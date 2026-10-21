@@ -83,6 +83,7 @@ from .templates import (
     rep_current_text,
     rep_maintenance_text,
     rep_note_text,
+    form_saved_text,
     rep_opt_out_text,
     results_text,
     unusual_fix_text,
@@ -540,6 +541,14 @@ def _values(state: ConversationState) -> dict[str, Any]:
     return out
 
 
+def _form_values(state: ConversationState) -> dict[str, Any]:
+    """The profile values a form can change, by save_profile argument name."""
+    p = state.profile
+    return {"base_salary": p.base, "commissions": p.commissions, "bonus": p.bonus,
+            "pension_percent": p.pension_percent, "study_fund_percent": p.study_fund_percent,
+            "credit_points": p.credit_points, "children_under_23": p.children}
+
+
 def ack_text(changed: dict[str, Any], group: Optional[str] = None) -> str:
     """"רשמתי: קבוצה ג, שכר בסיס 18,500 ₪, פנסיה 6%, השתתפות 300 ₪." — every value saved this turn,
     from the state the tools wrote (never from what the LLM said)."""
@@ -687,18 +696,26 @@ class Agent:
         return self._finish(ctx, (), label, plan, before, record_run, choice=True)
 
     def run_fields(self, snapshot: RulesSnapshot, find_vehicle: VehicleLookup, get_vehicle: VehicleGetter,
-                   state: ConversationState, values: dict[str, Any], label: str, record_run: RecordRun) -> TurnOutcome:
+                   state: ConversationState, values: dict[str, Any], label: str, record_run: RecordRun,
+                   source: Optional[str] = None) -> TurnOutcome:
         """הטופס המובנה (שדות הפרופיל, כבר נבדקו): נשמרים ישירות בכלי save_profile — בלי הקורא ובלי מודל
         השפה. אחרי תיקון, השלב נגזר מהנתונים: תוצאה קיימת מחושבת מחדש."""
-        ctx = ToolContext(snapshot=snapshot, find_vehicle=find_vehicle, state=state, get_vehicle=get_vehicle)
+        ctx = ToolContext(snapshot=snapshot, find_vehicle=find_vehicle, state=state, get_vehicle=get_vehicle,
+                          exact_amounts=True)
         before = next_stage(state)
+        previous = _form_values(state)
+        # A value held from chat ("פנסיה 0": לאשר?) is older than the form: a form value for the same field
+        # replaces it; a held value for another field stays held (never dropped silently).
+        held_before = state.pending_confirmation
         state.pending_confirmation = None
         # הטופס הוא פעולה מפורשת של העובד (גם תיקון אחרי תוצאה), לכן לא עובר דרך _run ומגבלת הכלים של
         # השלב; run_tool נשאר השער היחיד לשמירה. השלב נגזר מהנתונים: calculated_for מתאפס ← חישוב מחדש.
-        run_tool(ctx, "save_profile", values)
-        held = state.pending_confirmation.field if state.pending_confirmation is not None else None
-        saved = {k: v for k, v in values.items() if k != held}      # a rare value waits for "לאשר"
-        plan = fields_plan(saved) if saved else ParserPlan([], True, direct=True)
+        facts = run_tool(ctx, "save_profile", values)
+        if state.pending_confirmation is None and held_before is not None and held_before.field not in values:
+            state.pending_confirmation = held_before
+        saved = {k: values[k] for k in facts.get("saved", []) if k in values}   # only what really changed state
+        notice = form_saved_text(previous, saved, source)
+        plan = ParserPlan([], True, notice=notice, direct=True, acked=True) if notice             else ParserPlan([], True, direct=True)
         return self._finish(ctx, (), label, plan, before, record_run, choice=True)
 
     def run_turn(self, snapshot: RulesSnapshot, find_vehicle: VehicleLookup, state: ConversationState,
@@ -872,7 +889,7 @@ class Agent:
             # checks, so it also names a value held for confirmation ("עמלות 15 ₪": 15 or 15,000?) as recorded.
             # The acknowledgement comes from the state instead (only what was really saved).
             notice = None
-        said = (notice or "").startswith("רשמתי")
+        said = (notice or "").startswith("רשמתי") or plan.acked
         confirmations = before_turn.confirmations(state, snapshot, just_calculated, said)
 
         # רכב שזוהה בתור הזה (מהקורא, מהמודל או מהגיבוי) — אומרים איזה, כדי שטעות לא תעבור בשקט

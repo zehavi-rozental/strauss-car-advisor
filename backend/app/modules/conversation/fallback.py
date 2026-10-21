@@ -79,6 +79,7 @@ class ParserPlan:
     direct: bool = False                     # תשובה לשאלה של הקוד (אישור, הבהרה, כפתור) — לא עוברת למודל
     guess: bool = False                      # "כל ההודעה היא הערך" (תפקיד/דגם קצר) — רק כשהמודל לא זמין
     clarify: Optional[CarClarification] = None   # רכב שלא ברור אם הוא של היום או חלופה — שואלים
+    acked: bool = False                      # the notice already names every value saved (no second "רשמתי")
     clarify_scope: bool = False              # a blanket answer ("לא ידוע", "אין לי כלום", "הכל 5") to a
     #   grouped Q2: too broad to split silently — save nothing, switch to one field at a time, ask again
 

@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Request, Response, UploadFile
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text as sql
 
@@ -15,6 +16,7 @@ from app.modules.conversation.public import (
     ConversationLimitReached,
     ConversationNotFound,
     ConversationService,
+    FieldsInvalid,
     TurnResult,
 )
 from app.modules.payslip.public import PayslipError
@@ -46,6 +48,7 @@ class MessageIn(BaseModel):
     choices: Optional[list[str]] = None
     fields: Optional[ProfileFieldsIn] = None
     field: Optional[str] = None      # בשאלה מקובצת: לאיזה שדה הבחירה (כשכמה שדות מציעים אותו מזהה)
+    source: Optional[Literal["payslip"]] = None   # fields only: values approved from a reviewed payslip
 
 
 def _turn(t: TurnResult) -> dict[str, Any]:
@@ -114,12 +117,14 @@ def create_conversation(request: Request, response: Response) -> dict[str, Any]:
 
 
 @router.post("/conversations/{conversation_id}/messages")
-def send_message(conversation_id: str, body: MessageIn, request: Request) -> dict[str, Any]:
+def send_message(conversation_id: str, body: MessageIn, request: Request) -> Any:
     conversation_id = conversation_id.strip()
     ctx = context(request)
     given = [x for x in (body.text, body.choice, body.choices, body.fields) if x is not None]
     if len(given) != 1:
         raise HTTPException(422, "יש לשלוח אחד מהשדות: text, choice, choices או fields")
+    if body.source is not None and body.fields is None:
+        raise HTTPException(422, "source מתאים רק לשליחת שדות")
     form = body.fields.model_dump(exclude_none=True) if body.fields is not None else None
     choice = [body.choice] if body.choice is not None else body.choices
     text = (body.text or "").strip()
@@ -134,10 +139,13 @@ def send_message(conversation_id: str, body: MessageIn, request: Request) -> dic
         raise HTTPException(429, "יותר מדי הודעות בדקה. נסו שוב עוד מעט.")
     try:
         if form is not None:
-            return _turn(ctx.service.send_fields(conversation_id, token, form))
+            return _turn(ctx.service.send_fields(conversation_id, token, form, body.source))
         if choice is not None:
             return _turn(ctx.service.send_choice(conversation_id, token, choice, body.field))
         return _turn(ctx.service.send(conversation_id, token, text))
+    except FieldsInvalid as exc:
+        # all or nothing: every field outside its range, so the form can mark each one and keep the input
+        return JSONResponse({"detail": str(exc), "message_he": str(exc), "errors": exc.errors}, status_code=422)
     except ChoiceInvalid as exc:
         raise HTTPException(422, str(exc)) from None
     except ConversationNotFound:

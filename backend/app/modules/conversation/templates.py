@@ -491,6 +491,28 @@ def rep_note_text(note: Optional[str]) -> str:
     return f"הערת הנציג: {clean}" if clean else ""
 
 
+def form_saved_text(previous: dict[str, Any], saved: dict[str, Any], source: Optional[str] = None) -> str:
+    """What the form / a reviewed payslip changed: "עדכנתי: שכר בסיס 18,000 ₪ במקום 15,000 ₪." for a value
+    that replaced another, "רשמתי: …" for a new one. A value equal to the one already saved is not repeated."""
+    from .fallback import recorded_text
+
+    def same(a: Any, b: Any) -> bool:
+        return a is not None and b is not None and Decimal(str(a)) == Decimal(str(b))
+
+    changed = [f"{recorded_text({k: v})} במקום {_show(k, previous[k])}" for k, v in saved.items()
+               if previous.get(k) is not None and not same(previous[k], v)]
+    new = {k: v for k, v in saved.items() if previous.get(k) is None}
+    where = " מהתלוש" if source == "payslip" else ""
+    lines = []
+    if changed:
+        lines.append(f"עדכנתי{where}: {', '.join(changed)}.")
+    if new:
+        lines.append(f"רשמתי{where}: {recorded_text(new)}.")
+    if not lines and saved:
+        lines.append("הערכים זהים למה שכבר רשמתי.")
+    return "\n".join(lines)
+
+
 def rep_maintenance_text(amount: Decimal) -> str:
     return f"נציג התחבורה השיב: סכום אחזקת הרכב בוויתור הוא {money(amount)} בחודש."
 

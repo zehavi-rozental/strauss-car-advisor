@@ -35,7 +35,7 @@ from app.shared.db import new_id
 
 from app.modules.cases.public import CasesService, Mode, QuestionAnswered, Status as QuestionStatus
 
-from .expects import ChoiceInvalid, build_expects, tax_label, validate_choice, validate_fields, vehicle_id
+from .expects import ChoiceInvalid, FieldsInvalid, build_expects, tax_label, validate_choice, validate_fields, vehicle_id
 from .agent import Agent
 from .llm.factory import build_llm_chain
 from .llm.port import ChatMessage, LLMChain, LLMError, LLMPort
@@ -224,25 +224,29 @@ class ConversationService:
         בשאלה מקובצת field אומר לאיזה שדה הבחירה (חובה רק כשכמה שדות מציעים את אותו מזהה)."""
         return self._timed(conversation_id, token, "", list(ids), field)
 
-    def send_fields(self, conversation_id: str, token: str, values: dict[str, Any]) -> TurnResult:
-        """טופס מובנה של שדות פרופיל (Q2 או תיקון): נבדק מול הטווחים (ChoiceInvalid) ונשמר בקוד, בלי מודל
-        השפה. ההודעה שנשמרת היא טקסט קריא של הערכים, לתצוגה בלבד."""
-        return self._timed(conversation_id, token, "", None, None, values)
+    def send_fields(self, conversation_id: str, token: str, values: dict[str, Any],
+                    source: Optional[str] = None) -> TurnResult:
+        """טופס מובנה של שדות פרופיל (Q2 או תיקון): נבדק מול הטווחים (FieldsInvalid, כל השדות השגויים;
+        דבר לא נשמר) ונשמר בקוד, בלי מודל השפה. ההודעה שנשמרת היא טקסט קריא של הערכים, לתצוגה בלבד.
+        source="payslip": values the employee reviewed and approved from a payslip (said so in the history)."""
+        return self._timed(conversation_id, token, "", None, None, values, source)
 
     def _timed(self, conversation_id: str, token: str, text: str, choice: Optional[list[str]],
-               field: Optional[str] = None, fields: Optional[dict[str, Any]] = None) -> TurnResult:
+               field: Optional[str] = None, fields: Optional[dict[str, Any]] = None,
+               source: Optional[str] = None) -> TurnResult:
         started = time.monotonic()
         path, say = "error", ""
         try:
             self._apply_pending(self._authorized(conversation_id, token))
-            result = self._send(conversation_id, token, text, choice, field, fields)
+            result = self._send(conversation_id, token, text, choice, field, fields, source)
             path, say = result.path, result.say
             return result
         finally:
             log.info("turn path=%s say=%s total=%.0fms", path, say, (time.monotonic() - started) * 1000)
 
     def _send(self, conversation_id: str, token: str, text: str, choice: Optional[list[str]] = None,
-              field: Optional[str] = None, fields: Optional[dict[str, Any]] = None) -> TurnResult:
+              field: Optional[str] = None, fields: Optional[dict[str, Any]] = None,
+              source: Optional[str] = None) -> TurnResult:
         """שלושה שלבים, כדי שאף טרנזקציה לא תהיה פתוחה בזמן קריאות למודל השפה:
         (א) קריאה קצרה, (ב) הסוכן בלי סשן פתוח, (ג) כתיבה קצרה של כל התור."""
         snapshot = self.rules.current
@@ -265,13 +269,13 @@ class ConversationService:
 
         if fields is not None:
             fields = validate_fields(snapshot, fields)      # לפני כל שינוי במצב
-            text = recorded_text(fields)
+            text = ("מהתלוש (אושר): " if source == "payslip" else "") + recorded_text(fields)
 
         # (ב) הסוכן — הרצות החישוב נאספות בזיכרון
         pending: list[_PendingRun] = []
         if fields is not None:
             outcome = self.agent.run_fields(snapshot, self._find_vehicle, self._get_vehicle, state, fields, text,
-                                            _collector(pending))
+                                            _collector(pending), source)
         elif choice is not None:
             outcome = self.agent.run_choice(snapshot, self._find_vehicle, self._get_vehicle, state, choice, text,
                                             _collector(pending), field)
@@ -425,5 +429,5 @@ __all__ = [
     "ConversationConflict", "ConversationLimitReached", "ConversationNotFound", "ConversationService",
     "ConversationState",
     "ConversationView", "LLMChain", "LLMPort", "OptionResult", "RepReason", "Stage",
-    "TurnResult", "build_llm_chain", "reproduce_run", "ChoiceInvalid",
+    "TurnResult", "build_llm_chain", "reproduce_run", "ChoiceInvalid", "FieldsInvalid",
 ]

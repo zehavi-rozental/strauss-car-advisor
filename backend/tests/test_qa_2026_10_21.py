@@ -197,7 +197,6 @@ def _fields(client, cid, fields, **extra):
     return client.post(f"/api/conversations/{cid}/messages", json={"fields": fields, **extra})
 
 
-@pytest.mark.xfail(strict=True, reason="RC3: first error only")
 def test_a_rejected_form_names_every_bad_field_and_saves_nothing(client):
     cid, _ = _chat(client, "אני בקבוצה ג, שכר בסיס 15,000")
     r = _fields(client, cid, {"bonus": 1000, "study_fund_percent": 6, "pension_percent": 30})
@@ -207,7 +206,6 @@ def test_a_rejected_form_names_every_bad_field_and_saves_nothing(client):
     assert client.get(f"/api/conversations/{cid}").json()["profile"]["bonus"] is None
 
 
-@pytest.mark.xfail(strict=True, reason="RC3: form clears the chat hold")
 def test_a_form_never_drops_a_value_held_from_chat(client):
     cid, body = _chat(client, "אני בקבוצה ג, שכר בסיס 15,000", "פנסיה 0")
     assert "לאשר" in body["reply"]                                    # pension 0 is held for confirmation
@@ -217,7 +215,6 @@ def test_a_form_never_drops_a_value_held_from_chat(client):
     assert "לאשר" in body["reply"] and "פנסיה" in body["reply"]          # still asked, not dropped
 
 
-@pytest.mark.xfail(strict=True, reason="RC3: second held value reported as saved")
 def test_a_form_reports_only_what_it_saved(client):
     cid, _ = _chat(client, "אני בקבוצה ג, שכר בסיס 15,000")
     body = _fields(client, cid, {"bonus": 1000, "pension_percent": 0, "credit_points": 0}).json()
@@ -226,18 +223,17 @@ def test_a_form_reports_only_what_it_saved(client):
     assert "0 נקודות זיכוי" not in body["reply"].split("\n")[0]        # cloud: "רשמתי" for a held value
 
 
-@pytest.mark.xfail(strict=True, reason="RC2: no source / update line")
 def test_a_payslip_value_replaces_the_chat_value_with_an_explicit_update(client):
     cid, _ = _chat(client, "אני מנהלת מוצר, שכר בסיס 15,000, אין עמלות ואין בונוס, פנסיה 6%, "
                            "קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים",
                    "יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש", "אטו 3")
-    before = client.get(f"/api/conversations/{cid}").json()["results"][0]["delta_display"]
+    before = client.get(f"/api/conversations/{cid}").json()["results"][0]["result"]["today"]["net_display"]
     body = _fields(client, cid, {"base_salary": 18000, "pension_percent": 6}, source="payslip").json()
-    assert "עדכנתי: שכר בסיס 18,000 ₪ (במקום 15,000 ₪)" in body["reply"]
+    assert "עדכנתי מהתלוש: שכר בסיס 18,000 ₪ במקום 15,000 ₪." in body["reply"]
     assert "פנסיה" not in body["reply"].split("\n")[0]                 # unchanged values are not "updated"
     view = client.get(f"/api/conversations/{cid}").json()
     assert view["profile"]["base"] == "18000"
-    assert view["results"][0]["delta_display"] != before                # recalculated on the new base
+    assert view["results"][0]["result"]["today"]["net_display"] != before                # recalculated on the new base
     user = [m for m in view["messages"] if m["role"] == "user"][-1]["content"]
     assert user.startswith("מהתלוש (אושר):")
 

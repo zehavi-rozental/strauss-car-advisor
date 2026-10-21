@@ -43,6 +43,15 @@ class ChoiceInvalid(Exception):
     """בחירה שלא הוצעה בשאלה הנוכחית (או יותר מדי בחירות). ההודעה בעברית."""
 
 
+class FieldsInvalid(ChoiceInvalid):
+    """The profile form: every field outside its range, by field name (the form shows each one next to its
+    field). Nothing is saved: the form is all or nothing."""
+
+    def __init__(self, errors: dict[str, str]):
+        self.errors = errors
+        super().__init__(" ".join(errors.values()))
+
+
 def _quick(*ids: str) -> list[dict[str, str]]:
     return [{"id": i, "label": _QUICK[i]} for i in ids]
 
@@ -86,11 +95,11 @@ def validate_fields(snapshot: RulesSnapshot, values: dict[str, Any]) -> dict[str
     if not values or any(k not in FORM_FIELDS for k in values):
         raise ChoiceInvalid(INVALID)
     ranges = snapshot.extensions.value_ranges
-    for key, value in values.items():
-        if key in ranges:
-            low, high = ranges[key]
-            if not Decimal(low) <= Decimal(value) <= Decimal(high):
-                raise ChoiceInvalid(f"{_FORM_LABELS[key]}: הערך מחוץ לטווח ({low}–{high})")
+    errors = {key: f"{_FORM_LABELS[key]}: הערך מחוץ לטווח ({ranges[key][0]}–{ranges[key][1]})"
+              for key, value in values.items()
+              if key in ranges and not Decimal(ranges[key][0]) <= Decimal(value) <= Decimal(ranges[key][1])}
+    if errors:
+        raise FieldsInvalid(errors)
     return values
 
 

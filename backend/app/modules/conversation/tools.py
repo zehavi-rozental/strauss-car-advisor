@@ -78,6 +78,9 @@ class ToolContext:
     get_vehicle: Optional[VehicleGetter] = None
     # העובד אישר תפקיד שאינו בטבלה ("כן, זה התפקיד שלי") — רק הקוד מדליק את זה, לא המודל
     allow_unknown_occupation: bool = False
+    # the profile form / a reviewed payslip: each amount sits in its own shekel field, so a small amount is
+    # what it says (never "3 ₪ or 3,000 ₪?"); unusual values are still confirmed
+    exact_amounts: bool = False
 
 
 class ToolError(Exception):
@@ -210,8 +213,8 @@ def _check_ranges(ctx: ToolContext, args: SaveProfileArgs) -> tuple[SaveProfileA
             continue
         low, high = ranges[arg]
         small = ctx.snapshot.extensions.small_amount_below.get(arg)
-        if (small is not None and 0 < Decimal(value) < small and low <= Decimal(value) * 1000 <= high
-                and arg not in ctx.state.confirmed_unusual):
+        if (small is not None and not ctx.exact_amounts and 0 < Decimal(value) < small
+                and low <= Decimal(value) * 1000 <= high and arg not in ctx.state.confirmed_unusual):
             drop[arg] = None             # "3" for commissions: 3 ₪ or 3,000 ₪? asked, never guessed
             hold(arg, PendingConfirmation(field=arg, value=Decimal(value),
                                           approximate=arg in args.approximate_fields, scale=True),

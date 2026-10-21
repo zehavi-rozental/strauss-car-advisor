@@ -324,7 +324,7 @@ def test_confirmed_payslip_values_reach_the_profile_and_the_calculation():
     base = next(f for f in extracted["fields"] if f["field"] == "base_salary")["value"]
     r = send({"fields": {"base_salary": base}})
     assert r.status_code == 200, r.text
-    assert "רשמתי: שכר בסיס" in r.json()["reply"]
+    assert "עדכנתי: שכר בסיס 18,000 ₪ במקום 15,000 ₪." in r.json()["reply"]   # the change, explicitly
     after = client.get(f"/api/conversations/{cid}").json()
     assert after["profile"]["base"] == "18000"
     old = before["results"][0]["result"]["alternative"]["net_display"]
