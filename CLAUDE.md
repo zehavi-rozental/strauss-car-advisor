@@ -152,6 +152,15 @@ A module, and `app/api`, imports another module **only** through that module's `
 - **Recorded vision for browser tests**: `PAYSLIP_FAKE_VISION_DIR` → `FixtureVision` answers by file sha256 (`frontend/e2e/fixtures/payslips/make_fixtures.py`); logged as RECORDED at startup; never set in Render. It tests our server path with fixed answers, not Gemini.
 - Browser tests open ~40 conversations a minute: the e2e server needs `CREATE_RATE_LIMIT_PER_MINUTE` / `PAYSLIP_RATE_LIMIT_PER_MINUTE` raised (CI sets them).
 
+### STRAUSS DRIVE 360° (session 8, 21/10; `option_map.py`, `tests/test_option_map_360.py`, `e2e/option-map-360.spec.ts`)
+
+- **Request**: "השווה את כל האפשרויות שלי" (cues: `extensions.yaml: option_map_cues`) or the button "גלו לי את כל האפשרויות" (sends the same text). Recorded in `state.map_requested` (also while waiting for the rep); no car has to be chosen and the selection never changes. Until every value is known, "כדי למפות את כל האפשרויות, חסרים לי עוד: …".
+- **Built** (`option_map.build_option_map`) from `tools.classify_options` (the one eligibility function: the options and every excluded catalog car with its reason) and `option_map.evaluate_option` (the same engine call `_calculate` uses). Never on a missing value (`MissingInputs`). Status per option: `full` / `catalog_copay` (calculated with the catalog copay, waiting for the rep's approval) / `incomplete` (never ranked) / `not_eligible`.
+- **Lead**: only among calculated options, by estimated net alone (`leaders`); a tie names every tied option; an out-of-date map has none. Wording: "הנטו החודשי הגבוה ביותר", plus "הדירוג מבוסס על הנטו החודשי המשוער בלבד…". The results text says "הנטו הגבוה ביותר" (never "הכי משתלם" as a verdict); the system prompt forbids "the best car".
+- **Staleness**: `tools._invalidate_results(state)` marks the map out of date with the results (selection-only changes pass `data=False`); `Agent._resolve_map` rebuilds it after every turn and rep answer once every value is known ("עדכנתי את מפת האפשרויות…"); STATE shows the map's engine figures, or "out of date, never quote it".
+- **API (additive)**: `option_map` in `GET /api/conversations/{id}` and `/updates` (`map_json`: entries net-ordered, excluded, counts, leaders, stale, group; null until asked). No new endpoint; the rep API is unchanged.
+- **UI**: `OptionMapSummary` (chat card) and `OptionMapPanel` (every option, sort, drive/group filters with real values only, status chips, excluded cars, up to 3 options into the existing `ComparisonPanel` without changing the selection). No car pictures. Display limit 3 only for the side-by-side table.
+
 ### Closure review (session 7b, 21/10)
 
 - **Rule 4 in the conversation layer**: the engine's `Employee` defaults commissions / bonus / study fund / children to 0, so `tools.engine_inputs` raises `MissingInputs` for any of them instead of passing None; `rank_options` defers while a profile field is missing, and a waiting ranking makes the stage ask the unknown fields (before: "הכי משתלם" ranked on a guessed 0).
