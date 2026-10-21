@@ -172,7 +172,7 @@ test('a rejected correction form keeps everything typed and names each refused f
   await open(page)
   for (const m of [NOA, 'יש לי קורולה קרוס', '300', 'אטו 3']) await send(page, m)
   await page.getByRole('button', { name: 'פירוט מלא' }).first().click()
-  await page.getByRole('button', { name: 'תיקון נתונים' }).click()
+  await page.getByRole('dialog', { name: 'טבלת השוואה' }).getByRole('button', { name: 'תיקון נתונים' }).click()
   await expect(page.locator('#pf-bonus')).toHaveValue('0')                 // prefilled from the server
   await page.locator('#pf-bonus').fill('1000')
   await page.locator('#pf-pension_percent').fill('30')
@@ -216,12 +216,22 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 375, height: 740 
     await page.getByRole('button', { name: 'לשנות בחירה' }).click()
     const cards = page.locator('.car-card')
     await expect(cards.first()).toBeVisible()
-    const before = await cardBoxes(page)
+    // the design scrolls the opened card into view once and animates it in; measure after that has settled
+    let before = await cardBoxes(page)
+    await expect.poll(async () => {
+      const now = await cardBoxes(page)
+      const same = JSON.stringify(now) === JSON.stringify(before)
+      before = now
+      return same
+    }, { intervals: [300], timeout: 10_000 }).toBe(true)
     for (let i = 0; i < 8; i++) {                                     // > two polls, with the mouse moving
       await page.mouse.move(100 + i * 20, 300 + (i % 2) * 15)
       await page.waitForTimeout(1000)
     }
     await expect(cards.first()).toBeVisible()
+    expect(await cardBoxes(page)).toEqual(before)
+    await cards.nth(1).hover()                                        // hovering a card does not move it
+    await page.waitForTimeout(400)
     expect(await cardBoxes(page)).toEqual(before)
     await cards.nth(1).click()                                        // still usable
     await expect(cards.nth(1)).toHaveAttribute('aria-pressed', 'true')
@@ -238,7 +248,7 @@ test('when the form cannot read the saved values it says so, and an edit is stil
   await page.route(`**/api/conversations/${id}`, (route) =>
     route.request().method() === 'GET' ? route.fulfill({ status: 500, body: '{}' }) : route.continue())
   await page.getByRole('button', { name: 'פירוט מלא' }).first().click()
-  await page.getByRole('button', { name: 'תיקון נתונים' }).click()
+  await page.getByRole('dialog', { name: 'טבלת השוואה' }).getByRole('button', { name: 'תיקון נתונים' }).click()
   const form = page.locator('form[aria-label="תיקון נתונים"]')
   await expect(form.getByRole('alert')).toContainText('לא הצלחתי לטעון את הערכים שכבר רשומים')
   await page.unroute(`**/api/conversations/${id}`)
