@@ -99,7 +99,8 @@ def test_group_and_no_car_in_one_natural_sentence(sessions):
     """[integration] Template mode (no Gemini): a single natural sentence that states BOTH the eligibility
     group AND 'no company car' is parsed as both facts — the bug from the local port-10000 session."""
     for msg in ["אני בקבוצה ב ואין לי רכב היום", "קבוצה ב אין לי רכב",
-                "אני בקבוצה ג ואין לי רכב חברה"]:
+                "אני בקבוצה ג ואין לי רכב חברה",
+                "אני בקבוצה ב ואין ליר רכב היום"]:   # last one has a light typo ("ליר") — tolerated
         svc = service(sessions)
         turn, token = svc.start()
         turn = svc.send(turn.conversation_id, token, msg)

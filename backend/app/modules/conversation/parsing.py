@@ -22,7 +22,8 @@ _UNKNOWN_RE = re.compile(r"לא\s*(?:ידוע|יודעים|יודע|יודעת|�
                          re.IGNORECASE)
 # "לא" לבד = אין; "לא ברור לי" — לא תשובה (אין ברירת מחדל לסכום חסר)
 _NONE_RE = re.compile(r"^\s*(?:אין|לא|ללא|אפס|0|none|no)\s*[.!]?\s*$|^\s*(?:אין|ללא)(?:\s|$)", re.IGNORECASE)
-_NO_CAR_RE = re.compile(r"(?:אין|בלי|ללא)\s*(?:לי\s*)?רכב|no\s+car", re.IGNORECASE)
+# "אין/בלי/ללא [לי] רכב" — the "לי" tolerates a light typo ("ליר", "ליי") via up to 2 trailing letters
+_NO_CAR_RE = re.compile(r"(?:אין|בלי|ללא)\s*(?:ל[יי][א-ת]{0,2}\s+)?רכב|no\s+car", re.IGNORECASE)
 
 _DRIVE_WORDS = {
     Drive.PLUG_IN: ("פלאג", "plug"),
