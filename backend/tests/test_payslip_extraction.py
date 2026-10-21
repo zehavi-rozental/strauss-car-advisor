@@ -31,7 +31,7 @@ from app.modules.payslip.models import SUPPORTED_FIELDS, PayslipError
 from app.modules.payslip.public import PayslipService
 from app.shared.settings import Settings
 
-from .conftest import build_engine
+from .conftest import BACKEND, build_engine
 
 JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 32
 PDF = b"%PDF-1.4\n1 0 obj<</Type /Page>>endobj\n%%EOF"
@@ -365,3 +365,47 @@ def test_fixture_vision_is_off_unless_asked_for():
     assert build_vision(Settings(_env_file=None, payslip_enabled=True, gemini_api_key="k",
                                  llm_chain="gemini:m")).__class__.__name__ == "GeminiVisionAdapter"
     assert build_vision(Settings(_env_file=None, payslip_enabled=False, payslip_fake_vision_dir="x")) is None
+
+
+# ---------- the answers Gemini actually gave in the live check (21/10, gemini-3.5-flash-lite) ----------
+
+FIXTURES = BACKEND.parent / "frontend" / "e2e" / "fixtures" / "payslips"
+
+
+def _recorded(name: str) -> str:
+    import hashlib
+    digest = hashlib.sha256((FIXTURES / name).read_bytes()).hexdigest()
+    return (FIXTURES / "vision" / f"{digest}.json").read_text(encoding="utf-8")
+
+
+def test_the_live_answer_for_the_full_synthetic_payslip(snapshot):
+    result = run(snapshot, _recorded("synthetic_full_payslip.pdf"))
+    assert result.status == "found"
+    d = {f["field"]: f for f in result.as_dict()["fields"]}
+    assert {k: v["value"] for k, v in d.items()} == {
+        "base_salary": "16000", "commissions": "2400", "bonus": "1500", "pension_percent": "6",
+        "study_fund_percent": "2.5", "credit_points": "2.25", "children_under_23": "3"}   # 16000.0 → 16000
+    assert d["children_under_23"]["source_label"] == "מספר ילדים עד גיל 23"            # "23" is not an ID
+    info = {i["key"]: i["value"] for i in result.as_dict()["info"]}
+    assert info["pension_employee_amount"] == "1194" and info["net_pay"] == "13188.5"
+
+
+def test_the_live_answer_for_the_original_synthetic_payslip(snapshot):
+    result = run(snapshot, _recorded("synthetic_payslip.pdf"))
+    assert result.status == "partial"
+    assert [(f.field, str(f.value)) for f in result.fields if f.status == "found"] == [("base_salary", "18000")]
+    assert {i.key for i in result.info} == {"other_addition", "gross_salary", "income_tax", "national_insurance",
+                                            "health_insurance", "pension_employee_amount", "net_pay"}
+
+
+@pytest.mark.parametrize("raw,shown", [(16000.0, "16000"), ("2,400.00", "2400"), (12500.50, "12500.5")])
+def test_numbers_are_shown_without_padding(snapshot, raw, shown):
+    base = by_field(run(snapshot, answer(item("base_salary", raw))))["base_salary"]
+    assert str(base.value) == shown
+
+
+def test_labels_keep_small_numbers_but_never_long_ones(snapshot):
+    fields = by_field(run(snapshot, answer(item("children_under_23", 2, "count", label="ילדים עד גיל 23"),
+                                           item("base_salary", 18000, label="שכר לעובד 312456783"))))
+    assert fields["children_under_23"].source_label == "ילדים עד גיל 23"
+    assert fields["base_salary"].source_label == ""

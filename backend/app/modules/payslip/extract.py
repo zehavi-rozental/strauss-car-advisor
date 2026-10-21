@@ -218,7 +218,7 @@ def _coerce_number(raw: Any) -> Optional[Decimal]:
         return None
     if isinstance(raw, (int, float)):
         try:
-            return Decimal(str(raw))
+            return _plain(Decimal(str(raw)))
         except InvalidOperation:
             return None
     if isinstance(raw, str):
@@ -226,10 +226,17 @@ def _coerce_number(raw: Any) -> Optional[Decimal]:
         if not text or text.lower() in ("unknown", "n/a", "na", "none", "null"):
             return None
         try:
-            return Decimal(text)
+            return _plain(Decimal(text))
         except InvalidOperation:
             return None
     return None
+
+
+def _plain(value: Decimal) -> Decimal:
+    """16000.0 (how the model writes a whole amount) → 16000; 2.50 → 2.5. Exact: only trailing zeros go."""
+    if not value.is_finite():
+        raise InvalidOperation
+    return value.quantize(Decimal(1)) if value == value.to_integral_value() else value.normalize()
 
 
 def _parse_json(text: str) -> Optional[dict[str, Any]]:
@@ -246,16 +253,16 @@ def _parse_json(text: str) -> Optional[dict[str, Any]]:
     return parsed if isinstance(parsed, dict) else None
 
 
-_DIGITS = re.compile(r"\d")
+_LONG_NUMBER = re.compile(r"\d{3,}")       # an ID, an account or an amount; "עד גיל 23" is fine
 
 
 def _safe_label(raw: Any) -> str:
-    """The printed label, kept only when it is a short label: no digits (an ID, an account, an amount) and at
-    most five words. Anything else is dropped rather than shown."""
+    """The printed label, kept only when it is a short label: no number of three digits or more (an ID, an
+    account, an amount) and at most five words. Anything else is dropped rather than shown."""
     if not isinstance(raw, str):
         return ""
     label = " ".join(raw.split())[:40]
-    if not label or _DIGITS.search(label) or len(label.split()) > 5:
+    if not label or _LONG_NUMBER.search(label) or len(label.split()) > 5:
         return ""
     return label
 

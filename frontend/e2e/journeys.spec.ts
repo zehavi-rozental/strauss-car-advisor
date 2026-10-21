@@ -231,6 +231,24 @@ test.describe('payslip journeys', () => {
     expect(deltas(await state(page))).toEqual([['CAR-10', 661]])   // the payslip's net (11,000) plays no part
   })
 
+  test('the full synthetic payslip, with the answer Gemini gave live, fills every field as printed', async ({ page }) => {
+    await open(page)
+    await send(page, 'מנהלת מוצר, שכר בסיס 16,000')
+    await uploadPayslip(page, 'synthetic_full_payslip.pdf')
+    const want: [string, string][] = [['base_salary', '16000'], ['commissions', '2400'], ['bonus', '1500'],
+      ['pension_percent', '6'], ['study_fund_percent', '2.5'], ['credit_points', '2.25'], ['children_under_23', '3']]
+    for (const [f, v] of want) {
+      await expect(row(page, f).locator('input:not([type])')).toHaveValue(v)
+      await expect(keep(page, f)).toBeChecked()
+    }
+    await expect(row(page, 'children_under_23')).toContainText('בתלוש: מספר ילדים עד גיל 23')
+    await expect(page.locator('.payslip-info')).toContainText('קרן השתלמות עובד')
+    await confirmPayslip(page, 'אישור ושמירה (7)')
+    const p = (await state(page)).profile
+    expect([p.base, p.commissions, p.bonus, p.pension_percent, p.study_fund_percent, p.credit_points, p.children])
+      .toEqual(['16000', '2400', '1500', '6', '2.5', '2.25', 3])
+  })
+
   test('ambiguous values are never kept on their own', async ({ page }) => {
     await open(page)
     await send(page, 'מנהלת מוצר, שכר בסיס 18,000')

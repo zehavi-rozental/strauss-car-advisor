@@ -29,7 +29,8 @@ def answer(*items, is_payslip=True, readable=True):
     return {"is_payslip": is_payslip, "readable": readable, "items": list(items)}
 
 
-# what a correct reading of synthetic_payslip.pdf says (base 18,000; the rest is information)
+# what gemini-3.5-flash-lite answered for synthetic_payslip.pdf in the live check (21/10): base 18,000; the rest
+# is information (the same eight items, the same labels, all "high")
 SYNTHETIC = answer(
     item("base_salary", 18000, label="שכר יסוד"), item("other_addition", 1000, label="תוספת חודשית"),
     item("gross_salary", 19000, label="שכר ברוטו"), item("income_tax", 2700, label="מס הכנסה"),
@@ -51,7 +52,25 @@ AMBIGUOUS = answer(
     item("credit_points", 2.25, "count", label="נקודות זיכוי"),
 )
 
+# The answer gemini-3.5-flash-lite actually gave for synthetic_full_payslip.pdf (live check, 21/10), item for
+# item: whole amounts come back as 16000.0, and the server normalizes them.
+LIVE_FULL = answer(
+    item("credit_points", 2.25, "count", label="נקודות זיכוי"),
+    item("children_under_23", 3, "count", label="מספר ילדים עד גיל 23"),
+    item("base_salary", 16000.0, label="שכר יסוד"), item("commissions", 2400.0, label="עמלות מכירה"),
+    item("bonus", 1500.0, label="בונוס"), item("gross_salary", 19900.0, label="שכר ברוטו"),
+    item("pension_employee_percent", 6, "percent", label="פנסיה — הפרשת עובד"),
+    item("study_fund_employee_percent", 2.5, "percent", label="קרן השתלמות — הפרשת עובד"),
+    item("income_tax", 2950.0, label="מס הכנסה"), item("national_insurance", 1150.0, label="ביטוח לאומי"),
+    item("health_insurance", 920.0, label="ביטוח בריאות"),
+    item("pension_employee_amount", 1194.0, label="פנסיה עובד"),
+    item("study_fund_employee_amount", 497.5, label="קרן השתלמות עובד"),
+    item("net_pay", 13188.5, label="נטו לתשלום"),
+)
+
 CASES = {
+    # rendered from synthetic_full_payslip.html (Chromium, A4): a real document, read live on 21/10
+    "synthetic_full_payslip.pdf": (None, LIVE_FULL),
     "synthetic_payslip.pdf": (None, SYNTHETIC),
     "full_payslip.pdf": (pdf("every field"), FULL),
     "ambiguous_payslip.pdf": (pdf("ambiguous"), AMBIGUOUS),
