@@ -184,4 +184,4 @@ def test_results_text_is_the_template_and_the_llm_is_not_asked(sessions):
         turn = svc.send(turn.conversation_id, token, text)
     assert turn.source == "template" and "חבל" not in turn.reply
     assert "הנטו שלכם יגדל ב-661 ₪ בחודש" in turn.reply and "הסיבה העיקרית" in turn.reply
-    assert turn.reply.split("\n\n")[-1] == "רוצים לראות מה הכי משתלם מכל הרכבים שאתם זכאים להם?"
+    assert turn.reply.split("\n\n")[-1] == "רוצים לראות אילו רכבים משאירים לכם את הנטו הגבוה ביותר?"

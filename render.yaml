@@ -1,0 +1,48 @@
+# Render Blueprint - STRAUSS DRIVE, DEMO environment only.
+# No real payslips and no real employee data until the security and privacy review is done.
+#
+# One Docker web service serves both the API and the React app (same origin: no CORS, first-party cookie),
+# and one PostgreSQL database keeps conversations and representative questions across restarts.
+# Secrets are never in this file: `sync: false` = typed in the Render dashboard once.
+databases:
+  - name: strauss-drive-db
+    databaseName: strauss_drive
+    user: strauss_drive
+    region: frankfurt
+    plan: free            # free Postgres is deleted after 30 days: fine for a demo, upgrade to keep the data
+
+services:
+  - type: web
+    name: strauss-drive
+    runtime: docker
+    region: frankfurt     # closest Render region to Israel; must match the database region
+    plan: free            # free web services sleep after 15 min idle (first request ~1 min): upgrade for a live demo
+    branch: deploy/render-demo
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    autoDeploy: false     # a deploy is always a manual decision
+    envVars:
+      # --- wired by Render ---
+      - key: DATABASE_URL
+        fromDatabase:
+          name: strauss-drive-db
+          property: connectionString
+      - key: REP_ACCESS_TOKEN          # transport representative screen (/rep); read it in the dashboard
+        generateValue: true
+      # --- you set these in the dashboard ---
+      - key: GEMINI_API_KEY            # empty = template mode (no LLM): the app still answers
+        sync: false
+      # --- not secret ---
+      - key: CONFIG_MODE
+        value: strict
+      - key: LLM_MODE
+        value: llm_first
+      - key: LLM_CHAIN
+        value: gemini:gemini-3.5-flash-lite,gemini:gemini-3.6-flash
+      - key: SESSION_COOKIE_SECURE
+        value: "true"
+      - key: PAYSLIP_ENABLED           # payslip upload ON (needs GEMINI_API_KEY); SYNTHETIC payslips only in the demo
+        value: "true"          # (the file is never stored; extraction only; matches extensions.yaml payslip_upload_enabled)
+      - key: LOG_LEVEL
+        value: INFO

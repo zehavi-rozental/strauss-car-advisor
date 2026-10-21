@@ -25,9 +25,11 @@ NUMBER_ARGS = {
     "use_value": "current_use_value", "copay": "current_copay", "maintenance": "current_maintenance",
 }
 _QUICK = {"none": "אין", "unknown": "לא ידוע", "no_car": "אין רכב", "rank": "הכי משתלם"}
-_NONE_ALLOWED = {"commissions", "bonus", "study_fund_percent", "children", "copay"}
-_UNKNOWN_ALLOWED = {"use_value", "copay"}
-_UNKNOWN_FLAGS = {"use_value": "current_use_value_unknown", "copay": "current_copay_unknown"}
+# maintenance: "אין" → 0 (the employee receives no car-maintenance allowance), "לא ידוע" → defer / unknown
+_NONE_ALLOWED = {"commissions", "bonus", "study_fund_percent", "children", "copay", "maintenance"}
+_UNKNOWN_ALLOWED = {"use_value", "copay", "maintenance"}
+_UNKNOWN_FLAGS = {"use_value": "current_use_value_unknown", "copay": "current_copay_unknown",
+                  "maintenance": "current_maintenance_unknown"}
 OCCUPATION_YES = {"id": "yes", "label": "כן, זה התפקיד שלי"}
 YES_NO = [{"id": "yes", "label": "כן"}, {"id": "no", "label": "לא"}]
 CONFIRM_FIX = [{"id": "yes", "label": "לאשר"}, {"id": "no", "label": "לתקן"}]
@@ -39,6 +41,15 @@ FIELD_NEEDED = "יש לציין לאיזה שדה הבחירה"
 
 class ChoiceInvalid(Exception):
     """בחירה שלא הוצעה בשאלה הנוכחית (או יותר מדי בחירות). ההודעה בעברית."""
+
+
+class FieldsInvalid(ChoiceInvalid):
+    """The profile form: every field outside its range, by field name (the form shows each one next to its
+    field). Nothing is saved: the form is all or nothing."""
+
+    def __init__(self, errors: dict[str, str]):
+        self.errors = errors
+        super().__init__(" ".join(errors.values()))
 
 
 def _quick(*ids: str) -> list[dict[str, str]]:
@@ -71,8 +82,9 @@ def _pick_field(expects: dict[str, Any], ids: list[str], field: Optional[str]) -
     raise ChoiceInvalid(INVALID)
 
 
-FORM_FIELDS = ("commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points", "children_under_23")
-_FORM_LABELS = {"commissions": "עמלות", "bonus": "בונוס", "pension_percent": "פנסיה",
+FORM_FIELDS = ("base_salary", "commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points",
+               "children_under_23")      # base_salary: from a reviewed payslip (api ProfileFieldsIn)
+_FORM_LABELS = {"base_salary": "שכר בסיס", "commissions": "עמלות", "bonus": "בונוס", "pension_percent": "פנסיה",
                 "study_fund_percent": "קרן השתלמות", "credit_points": "נקודות זיכוי", "children_under_23": "ילדים"}
 
 
@@ -83,11 +95,11 @@ def validate_fields(snapshot: RulesSnapshot, values: dict[str, Any]) -> dict[str
     if not values or any(k not in FORM_FIELDS for k in values):
         raise ChoiceInvalid(INVALID)
     ranges = snapshot.extensions.value_ranges
-    for key, value in values.items():
-        if key in ranges:
-            low, high = ranges[key]
-            if not Decimal(low) <= Decimal(value) <= Decimal(high):
-                raise ChoiceInvalid(f"{_FORM_LABELS[key]}: הערך מחוץ לטווח ({low}–{high})")
+    errors = {key: f"{_FORM_LABELS[key]}: הערך מחוץ לטווח ({ranges[key][0]}–{ranges[key][1]})"
+              for key, value in values.items()
+              if key in ranges and not Decimal(ranges[key][0]) <= Decimal(value) <= Decimal(ranges[key][1])}
+    if errors:
+        raise FieldsInvalid(errors)
     return values
 
 
@@ -129,7 +141,8 @@ def build_expects(state: ConversationState, snapshot: RulesSnapshot) -> dict[str
     expects["closed"] = bool(fields) and fields[0].get("closed", False)
     cta, link = call_to_action(state, snapshot) if next_stage(state) != Stage.WAITING_FOR_REP else ("", None)
     expects["link"] = {"kind": link, "label": LINK_LABELS[link]} if link else None
-    if link == "payslip_upload":
+    if link == "payslip_upload" and snapshot.extensions.payslip_upload_url:
+        # a pilot's external page; empty here means the client uses the built-in in-chat uploader
         expects["link"]["url"] = snapshot.extensions.payslip_upload_url
     expects["placeholder"] = placeholder_text(state, snapshot)
     return expects

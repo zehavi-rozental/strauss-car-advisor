@@ -36,7 +36,14 @@ class Money(TypeDecorator):
         return value if dialect.name == "postgresql" else str(value)
 
     def process_result_value(self, value, dialect):
-        return None if value is None else Decimal(str(value))
+        if value is None:
+            return None
+        value = Decimal(str(value))
+        # NUMERIC(14,4) reads back as 2650.0000 in PostgreSQL; drop the padding so both dialects return the
+        # same value the same way (2650, 2650.5), as SQLite does. Exact: only trailing zeros go.
+        if value == value.to_integral_value():
+            return value.quantize(Decimal(1))
+        return value.normalize()
 
 
 class UtcDateTime(TypeDecorator):

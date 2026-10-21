@@ -1,6 +1,7 @@
 // Comparison table: side panel on desktop, full screen on a phone. Built from the same results the
 // card uses, so it updates with the same sync.
 import { useEffect } from 'react'
+import { STALE_NOTE } from './MessageList'
 import type { Expects, MessageIn, OptionResult } from '../api/types'
 import { Money } from '../format/Amount'
 import { buildRows } from './comparison'
@@ -15,6 +16,8 @@ interface Props {
   onClose: () => void
   onSend: (body: MessageIn, display: string) => Promise<boolean>
   onCorrect: () => void
+  /** calculated before the last change: shown as history, never as the current result */
+  stale?: boolean
 }
 
 function CellView({ cell }: { cell: Cell }) {
@@ -23,7 +26,7 @@ function CellView({ cell }: { cell: Cell }) {
   return <span className="muted">—</span>
 }
 
-export function ComparisonPanel({ results, expects, disabled, onClose, onSend, onCorrect }: Props) {
+export function ComparisonPanel({ results, stale = false, expects, disabled, onClose, onSend, onCorrect }: Props) {
   const shown = results.slice(0, 3)
   const rows = buildRows(shown)
   // the pending-copay assumption is already the "ממתין לאישור" tag in the table
@@ -46,7 +49,8 @@ export function ComparisonPanel({ results, expects, disabled, onClose, onSend, o
           <button type="button" className="panel-close" onClick={onClose} aria-label="סגירה">×</button>
         </header>
 
-        <div className="panel-body">
+        <div className={stale ? 'panel-body result-stale' : 'panel-body'}>
+          {stale && <p className="stale-note" role="status">{STALE_NOTE}</p>}
           <div className="table-scroll">
             <table className="compare">
               <thead>

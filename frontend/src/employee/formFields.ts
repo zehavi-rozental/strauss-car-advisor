@@ -76,6 +76,7 @@ const pct = (n: number) => `${n}%`
 export function profileFormText(fields: ProfileFields): string {
   const parts: string[] = []
   const f = fields
+  if (f.base_salary !== undefined) parts.push(`שכר בסיס ${formatMoney(f.base_salary)}`)
   if (f.commissions !== undefined) parts.push(f.commissions === 0 ? 'אין עמלות' : `עמלות ${formatMoney(f.commissions)}`)
   if (f.bonus !== undefined) parts.push(f.bonus === 0 ? 'אין בונוס' : `בונוס ${formatMoney(f.bonus)}`)
   if (f.pension_percent !== undefined) parts.push(`פנסיה ${pct(f.pension_percent)}`)
@@ -83,6 +84,11 @@ export function profileFormText(fields: ProfileFields): string {
     parts.push(f.study_fund_percent === 0 ? 'אין קרן השתלמות' : `קרן השתלמות ${pct(f.study_fund_percent)}`)
   if (f.credit_points !== undefined) parts.push(`${f.credit_points} נקודות זיכוי`)
   if (f.children_under_23 !== undefined)
-    parts.push(f.children_under_23 === 0 ? 'אין ילדים' : `${f.children_under_23} ילדים`)
+    parts.push(f.children_under_23 === 0 ? 'אין ילדים' : f.children_under_23 === 1 ? 'ילד אחד' : `${f.children_under_23} ילדים`)
   return parts.join(', ')
+}
+
+/** The history line of values approved from a payslip (the server stores the same prefix). */
+export function payslipFormText(fields: ProfileFields): string {
+  return `מהתלוש (אושר): ${profileFormText(fields)}`
 }

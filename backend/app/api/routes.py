@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response, UploadFile
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text as sql
 
@@ -15,8 +16,12 @@ from app.modules.conversation.public import (
     ConversationLimitReached,
     ConversationNotFound,
     ConversationService,
+    FieldsInvalid,
     TurnResult,
+    map_json,
+    results_stale,
 )
+from app.modules.payslip.public import PayslipError
 
 from .deps import context
 
@@ -29,6 +34,7 @@ NOT_FOUND = "השיחה לא נמצאה"
 class ProfileFieldsIn(BaseModel):
     """טופס Q2 / תיקון נתונים: רק מה שנשלח נשמר. הטווחים נבדקים בשירות מול extensions.yaml."""
     model_config = ConfigDict(extra="forbid")
+    base_salary: Optional[Decimal] = None          # from a reviewed payslip (or a correction)
     commissions: Optional[Decimal] = None
     bonus: Optional[Decimal] = None
     pension_percent: Optional[Decimal] = None
@@ -44,6 +50,7 @@ class MessageIn(BaseModel):
     choices: Optional[list[str]] = None
     fields: Optional[ProfileFieldsIn] = None
     field: Optional[str] = None      # בשאלה מקובצת: לאיזה שדה הבחירה (כשכמה שדות מציעים אותו מזהה)
+    source: Optional[Literal["payslip"]] = None   # fields only: values approved from a reviewed payslip
 
 
 def _turn(t: TurnResult) -> dict[str, Any]:
@@ -56,6 +63,7 @@ def _turn(t: TurnResult) -> dict[str, Any]:
                     for r in t.results],
         "pending_rep": t.pending_rep.value if t.pending_rep else None,
         "expects": t.expects,
+        "results_stale": t.results_stale,
     }
 
 
@@ -76,7 +84,7 @@ def health(request: Request) -> dict[str, Any]:
     return {"status": "ok" if db_ok else "degraded", "db": db_ok, "rules_version": calc.rules_version,
             "extensions_version": calc.extensions_version, "engine_version": ENGINE_VERSION,
             "config_error": ctx.rules.last_error, "llm": ctx.service.llm.mode, "llm_mode": ctx.service.agent.mode,
-            "llm_chain": ctx.service.llm.status()}
+            "llm_chain": ctx.service.llm.status(), "payslip": ctx.payslip.enabled}
 
 
 @router.get("/catalog")
@@ -112,12 +120,14 @@ def create_conversation(request: Request, response: Response) -> dict[str, Any]:
 
 
 @router.post("/conversations/{conversation_id}/messages")
-def send_message(conversation_id: str, body: MessageIn, request: Request) -> dict[str, Any]:
+def send_message(conversation_id: str, body: MessageIn, request: Request) -> Any:
     conversation_id = conversation_id.strip()
     ctx = context(request)
     given = [x for x in (body.text, body.choice, body.choices, body.fields) if x is not None]
     if len(given) != 1:
         raise HTTPException(422, "יש לשלוח אחד מהשדות: text, choice, choices או fields")
+    if body.source is not None and body.fields is None:
+        raise HTTPException(422, "source מתאים רק לשליחת שדות")
     form = body.fields.model_dump(exclude_none=True) if body.fields is not None else None
     choice = [body.choice] if body.choice is not None else body.choices
     text = (body.text or "").strip()
@@ -132,10 +142,13 @@ def send_message(conversation_id: str, body: MessageIn, request: Request) -> dic
         raise HTTPException(429, "יותר מדי הודעות בדקה. נסו שוב עוד מעט.")
     try:
         if form is not None:
-            return _turn(ctx.service.send_fields(conversation_id, token, form))
+            return _turn(ctx.service.send_fields(conversation_id, token, form, body.source))
         if choice is not None:
             return _turn(ctx.service.send_choice(conversation_id, token, choice, body.field))
         return _turn(ctx.service.send(conversation_id, token, text))
+    except FieldsInvalid as exc:
+        # all or nothing: every field outside its range, so the form can mark each one and keep the input
+        return JSONResponse({"detail": str(exc), "message_he": str(exc), "errors": exc.errors}, status_code=422)
     except ChoiceInvalid as exc:
         raise HTTPException(422, str(exc)) from None
     except ConversationNotFound:
@@ -156,6 +169,41 @@ def get_updates(conversation_id: str, request: Request, after: int = 0) -> dict[
         raise HTTPException(404, NOT_FOUND) from None
 
 
+async def _read_capped(upload: UploadFile, max_bytes: int) -> bytes:
+    """קורא את הקובץ בנתחים עד התקרה. קובץ גדול מהתקרה → 413 בלי להחזיק הכול בזיכרון."""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await upload.read(1024 * 256)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(413, f"הקובץ גדול מדי. אפשר להעלות עד {max_bytes // (1024 * 1024)} MB.")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+@router.post("/payslip/extract")
+async def payslip_extract(request: Request, file: UploadFile) -> dict[str, Any]:
+    """העלאת תלוש לחילוץ בלבד: מחזיר את השדות הנתמכים שזוהו, לסקירה ואישור בצד הלקוח.
+    הקובץ לא נשמר בשרת. השמירה בפרופיל נעשית אחר כך דרך POST .../messages {fields}, רק אחרי אישור העובד."""
+    ctx = context(request)
+    if not ctx.payslip.enabled:
+        raise HTTPException(503, "העלאת תלוש אינה זמינה כרגע. אפשר למלא את הנתונים ידנית.")
+    client = request.client.host if request.client else "unknown"
+    if not ctx.payslip_limiter.allow(client):
+        raise HTTPException(429, "יותר מדי העלאות. נסו שוב בעוד דקה.")
+    data = await _read_capped(file, ctx.settings.payslip_max_bytes)
+    try:
+        result = ctx.payslip.extract(data)
+    except PayslipError as exc:
+        raise HTTPException(422, exc.message_he) from None
+    finally:
+        data = b""   # לא נשארים עם תוכן התלוש בזיכרון יותר מהנדרש
+    return result.as_dict()
+
+
 @router.get("/conversations/{conversation_id}")
 def get_conversation(conversation_id: str, request: Request) -> dict[str, Any]:
     conversation_id = conversation_id.strip()
@@ -167,6 +215,7 @@ def get_conversation(conversation_id: str, request: Request) -> dict[str, Any]:
     return {"conversation_id": view.conversation_id, "stage": view.stage.value, "profile": state["profile"],
             "current_car": {k: v for k, v in state["current"].items() if k != "choices"},
             "selected": state["selected"], "results": state["results"],
+            "results_stale": results_stale(view.state), "option_map": map_json(view.state),
             "pending_rep": state["pending_rep"]["reason"] if state["pending_rep"] else None,
             "expects": view.expects, "messages": view.messages}
 

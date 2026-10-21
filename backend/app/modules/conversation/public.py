@@ -35,7 +35,7 @@ from app.shared.db import new_id
 
 from app.modules.cases.public import CasesService, Mode, QuestionAnswered, Status as QuestionStatus
 
-from .expects import ChoiceInvalid, build_expects, tax_label, validate_choice, validate_fields, vehicle_id
+from .expects import ChoiceInvalid, FieldsInvalid, build_expects, tax_label, validate_choice, validate_fields, vehicle_id
 from .agent import Agent
 from .llm.factory import build_llm_chain
 from .llm.port import ChatMessage, LLMChain, LLMError, LLMPort
@@ -49,7 +49,8 @@ from .repository import (
     combined_hash,
     token_hash,
 )
-from .stage import ConversationState, OptionResult, RepReason, Stage
+from .option_map import map_json
+from .stage import ConversationState, OptionResult, RepReason, Stage, results_stale
 
 
 log = logging.getLogger(__name__)
@@ -78,6 +79,7 @@ class TurnResult:
     path: str = ""            # parser / llm / fallback / templates / waiting / choice (ללוג; לא נשלח ב-API)
     say: str = ""             # SAY: llm, or why the template was used (ללוג; לא נשלח ב-API)
     expects: dict[str, Any] = field(default_factory=dict)   # מה השאלה הבאה מצפה לקבל (כפתורים, סוג)
+    results_stale: bool = False   # the results on record predate the last change (stage.results_stale)
 
 
 @dataclass
@@ -224,25 +226,29 @@ class ConversationService:
         בשאלה מקובצת field אומר לאיזה שדה הבחירה (חובה רק כשכמה שדות מציעים את אותו מזהה)."""
         return self._timed(conversation_id, token, "", list(ids), field)
 
-    def send_fields(self, conversation_id: str, token: str, values: dict[str, Any]) -> TurnResult:
-        """טופס מובנה של שדות פרופיל (Q2 או תיקון): נבדק מול הטווחים (ChoiceInvalid) ונשמר בקוד, בלי מודל
-        השפה. ההודעה שנשמרת היא טקסט קריא של הערכים, לתצוגה בלבד."""
-        return self._timed(conversation_id, token, "", None, None, values)
+    def send_fields(self, conversation_id: str, token: str, values: dict[str, Any],
+                    source: Optional[str] = None) -> TurnResult:
+        """טופס מובנה של שדות פרופיל (Q2 או תיקון): נבדק מול הטווחים (FieldsInvalid, כל השדות השגויים;
+        דבר לא נשמר) ונשמר בקוד, בלי מודל השפה. ההודעה שנשמרת היא טקסט קריא של הערכים, לתצוגה בלבד.
+        source="payslip": values the employee reviewed and approved from a payslip (said so in the history)."""
+        return self._timed(conversation_id, token, "", None, None, values, source)
 
     def _timed(self, conversation_id: str, token: str, text: str, choice: Optional[list[str]],
-               field: Optional[str] = None, fields: Optional[dict[str, Any]] = None) -> TurnResult:
+               field: Optional[str] = None, fields: Optional[dict[str, Any]] = None,
+               source: Optional[str] = None) -> TurnResult:
         started = time.monotonic()
         path, say = "error", ""
         try:
             self._apply_pending(self._authorized(conversation_id, token))
-            result = self._send(conversation_id, token, text, choice, field, fields)
+            result = self._send(conversation_id, token, text, choice, field, fields, source)
             path, say = result.path, result.say
             return result
         finally:
             log.info("turn path=%s say=%s total=%.0fms", path, say, (time.monotonic() - started) * 1000)
 
     def _send(self, conversation_id: str, token: str, text: str, choice: Optional[list[str]] = None,
-              field: Optional[str] = None, fields: Optional[dict[str, Any]] = None) -> TurnResult:
+              field: Optional[str] = None, fields: Optional[dict[str, Any]] = None,
+              source: Optional[str] = None) -> TurnResult:
         """שלושה שלבים, כדי שאף טרנזקציה לא תהיה פתוחה בזמן קריאות למודל השפה:
         (א) קריאה קצרה, (ב) הסוכן בלי סשן פתוח, (ג) כתיבה קצרה של כל התור."""
         snapshot = self.rules.current
@@ -265,13 +271,13 @@ class ConversationService:
 
         if fields is not None:
             fields = validate_fields(snapshot, fields)      # לפני כל שינוי במצב
-            text = recorded_text(fields)
+            text = ("מהתלוש (אושר): " if source == "payslip" else "") + recorded_text(fields)
 
         # (ב) הסוכן — הרצות החישוב נאספות בזיכרון
         pending: list[_PendingRun] = []
         if fields is not None:
             outcome = self.agent.run_fields(snapshot, self._find_vehicle, self._get_vehicle, state, fields, text,
-                                            _collector(pending))
+                                            _collector(pending), source)
         elif choice is not None:
             outcome = self.agent.run_choice(snapshot, self._find_vehicle, self._get_vehicle, state, choice, text,
                                             _collector(pending), field)
@@ -296,7 +302,8 @@ class ConversationService:
                           source=outcome.source,
                           results=state.results if outcome.just_calculated else [],
                           pending_rep=state.pending_rep.reason if state.pending_rep else None,
-                          path=outcome.path, say=outcome.say, expects=build_expects(state, snapshot))
+                          path=outcome.path, say=outcome.say, expects=build_expects(state, snapshot),
+                          results_stale=results_stale(state))
 
     def _store_questions(self, session, repo: ConversationRepository, conv_id: uuid.UUID,
                          state: ConversationState, outcome) -> None:
@@ -353,7 +360,8 @@ class ConversationService:
             if q.id not in applied and q.answer_value is not None:
                 self.apply_answer(QuestionAnswered(
                     conversation_id=q.conversation_id, question_id=q.id, missing_field=q.missing_field,
-                    option_id=q.option_id, value=q.answer_value, effective_date=q.effective_date))
+                    option_id=q.option_id, value=q.answer_value, effective_date=q.effective_date,
+                    note=q.answer_note))
 
     def _authorized(self, conversation_id: str, token: str) -> uuid.UUID:
         with self.sessions() as session:
@@ -373,7 +381,8 @@ class ConversationService:
                    for q in self.cases.list_for_conversation(str(conv_id), QuestionStatus.OPEN)]
         return {"conversation_id": str(conv_id), "stage": state.stage.value, "messages": messages,
                 "pending_questions": pending, "expects": build_expects(state, self.rules.current),
-                "results": [r.model_dump(mode="json") for r in state.results]}
+                "results": [r.model_dump(mode="json") for r in state.results],
+                "results_stale": results_stale(state), "option_map": map_json(state)}
 
     def view(self, conversation_id: str, token: str) -> ConversationView:
         self._apply_pending(self._authorized(conversation_id, token))
@@ -424,5 +433,5 @@ __all__ = [
     "ConversationConflict", "ConversationLimitReached", "ConversationNotFound", "ConversationService",
     "ConversationState",
     "ConversationView", "LLMChain", "LLMPort", "OptionResult", "RepReason", "Stage",
-    "TurnResult", "build_llm_chain", "reproduce_run", "ChoiceInvalid",
+    "TurnResult", "build_llm_chain", "map_json", "results_stale", "reproduce_run", "ChoiceInvalid", "FieldsInvalid",
 ]

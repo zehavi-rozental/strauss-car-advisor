@@ -3,13 +3,14 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { ProfileFields } from '../api/types'
+import type { SendResult } from './useConversation'
 import { FORM_FIELDS, buildFields, emptyValues, prefill } from './formFields'
 import type { FormKey, FormValues } from './formFields'
 
 interface Props {
   mode: 'q2' | 'correction'
   loadProfile: () => Promise<Record<string, unknown>>
-  onSubmit: (fields: ProfileFields) => Promise<boolean>
+  onSubmit: (fields: ProfileFields) => Promise<SendResult>
   onCancel?: () => void
   disabled: boolean
 }
@@ -18,6 +19,7 @@ export function ProfileForm({ mode, loadProfile, onSubmit, onCancel, disabled }:
   const [values, setValues] = useState<FormValues>(emptyValues)
   const [original, setOriginal] = useState<FormValues>(emptyValues)
   const [errors, setErrors] = useState<Partial<Record<FormKey, string>>>({})
+  const [prefillFailed, setPrefillFailed] = useState(false)
 
   // known values come from the server; what the employee already typed is not overwritten
   useEffect(() => {
@@ -28,7 +30,7 @@ export function ProfileForm({ mode, loadProfile, onSubmit, onCancel, disabled }:
       setOriginal(known)
       setValues((current) => Object.fromEntries(
         FORM_FIELDS.map((f) => [f.key, current[f.key] !== '' ? current[f.key] : known[f.key]])) as FormValues)
-    }).catch(() => undefined)
+    }).catch(() => { if (live) setPrefillFailed(true) })   // said on screen, never an unexplained empty form
     return () => { live = false }
   }, [loadProfile])
 
@@ -44,7 +46,9 @@ export function ProfileForm({ mode, loadProfile, onSubmit, onCancel, disabled }:
     const built = buildFields(values, original)
     setErrors(built.errors)
     if (Object.keys(built.errors).length || !Object.keys(built.fields).length) return
-    await onSubmit(built.fields)
+    const sent = await onSubmit(built.fields)
+    // all or nothing: nothing was saved, everything typed stays, and each refused field says why
+    if (!sent.ok) setErrors(sent.errors as Partial<Record<FormKey, string>>)
   }
 
   return (
@@ -55,6 +59,11 @@ export function ProfileForm({ mode, loadProfile, onSubmit, onCancel, disabled }:
           ? 'ממלאים מה שיודעים. אם אין, לוחצים "אין". אפשר גם להמשיך בכתיבה חופשית.'
           : 'משנים רק מה שצריך. הנטו יחושב מחדש.'}
       </p>
+      {prefillFailed && (
+        <p className="field-error" role="alert">
+          לא הצלחתי לטעון את הערכים שכבר רשומים. מה שתמלאו יישלח; שדה ריק לא משנה דבר.
+        </p>
+      )}
       <div className="form-grid">
         {FORM_FIELDS.map((f) => (
           <div key={f.key} className="form-field">

@@ -1,0 +1,1 @@
+{"is_payslip": true, "readable": true, "items": [{"key": "commissions", "value": 2400, "unit": "ILS", "certainty": "high", "label": "עמלות"}, {"key": "pension_employee_percent", "value": 6, "unit": "percent", "certainty": "high", "label": "פנסיה"}]}

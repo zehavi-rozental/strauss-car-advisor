@@ -47,8 +47,9 @@ export interface ExpectsField {
 }
 
 export interface ExpectsLink {
-  kind: 'profile_form' | 'selection'
+  kind: 'profile_form' | 'selection' | 'payslip_upload'
   label: string
+  url?: string               // payslip_upload only: a pilot's external URL; empty uses the built-in upload
 }
 
 export interface Expects extends ExpectsField {
@@ -172,6 +173,7 @@ export interface TurnResponse {
   results: FlatOptionResult[]  // only when this turn calculated
   pending_rep: RepReason | null
   expects: Expects
+  results_stale?: boolean     // the results predate the last change: history, not a recommendation
 }
 
 export interface ConversationView {
@@ -184,6 +186,8 @@ export interface ConversationView {
   pending_rep: RepReason | null
   expects: Expects
   messages: Message[]
+  results_stale?: boolean     // the results predate the last change: history, not a recommendation
+  option_map?: OptionMap | null      // 360°: null until the employee asks for it
 }
 
 export interface PendingQuestion {
@@ -200,6 +204,8 @@ export interface UpdatesResponse {
   pending_questions: PendingQuestion[]
   expects: Expects
   results: OptionResult[]
+  results_stale?: boolean     // the results predate the last change: history, not a recommendation
+  option_map?: OptionMap | null      // 360°: null until the employee asks for it
 }
 
 export interface CarSearchItem {
@@ -213,6 +219,7 @@ export interface CarSearchItem {
 /** The structured profile form (Q2 / "תיקון נתונים"). Only the fields that are sent are saved;
  *  the server checks the ranges (422) and saves without the LLM. Keys are the server's names. */
 export interface ProfileFields {
+  base_salary?: number       // from a reviewed payslip
   commissions?: number
   bonus?: number
   pension_percent?: number
@@ -225,7 +232,49 @@ export type MessageIn =
   | { text: string }
   | { choice: string; field?: string }
   | { choices: string[]; field?: string }
-  | { fields: ProfileFields }
+  | { fields: ProfileFields; source?: 'payslip' }     // source: values approved from a reviewed payslip
+
+// ---------- payslip upload (backend/app/modules/payslip) ----------
+
+/** One field read from the payslip. value is null when missing or not confident (never assume 0).
+ *  Only the supported profile fields are ever returned; never name, ID, or base salary. */
+export interface ExtractedField {
+  field: keyof ProfileFields
+  label: string              // Hebrew label for the review form
+  value: Decimal | null      // string number, or null when missing / ambiguous
+  kind: 'amount' | 'percent' | 'count'
+  confident: boolean         // false → show as "לא ודאי", needs manual review
+  in_range: boolean          // passed the extensions.yaml range check
+  note: string               // short Hebrew note (e.g. "מחוץ לטווח, נא לבדוק")
+  status?: 'found' | 'missing' | 'ambiguous'
+  source_label?: string      // the label as printed on the payslip ("שכר יסוד")
+  certainty?: 'high' | 'medium' | 'low' | ''
+}
+
+/** What the payslip shows that is not entered automatically (an unclassified addition, the pension as an
+ *  amount, gross, net, taxes), with the reason. Never saved. */
+export interface PayslipInfo {
+  key: string
+  label: string
+  value: Decimal
+  kind: 'amount' | 'percent' | 'count'
+  source_label: string
+  note: string
+}
+
+export type PayslipStatus = 'found' | 'partial' | 'nothing_found' | 'not_payslip' | 'unreadable' | 'failed'
+
+/** POST /payslip/extract. The payslip itself is never stored; saving happens through {fields}
+ *  only after the employee reviews, edits, and confirms. ok=false (status "failed") → retry or manual entry. */
+export interface ExtractionResult {
+  ok: boolean
+  status?: PayslipStatus      // absent from an older server
+  reason?: string             // why it failed: timeout / quota / unavailable / rejected / invalid_response / not_configured
+  retry?: boolean             // trying the same file again may help
+  fields: ExtractedField[]
+  info?: PayslipInfo[]
+  message_he: string
+}
 
 // ---------- representative (backend/app/api/rep_routes.py: question_json) ----------
 
@@ -266,4 +315,29 @@ export interface ApiErrorBody {
   code?: string
   message_he?: string
   details?: unknown
+  errors?: Record<string, string>     // the profile form: every field outside its range
+}
+
+// ---------- STRAUSS DRIVE 360° (backend/app/modules/conversation/option_map.py) ----------
+
+/** full: calculated, copay final · catalog_copay: calculated with the catalog copay, waiting for the rep ·
+ *  incomplete: a value is missing (never ranked) · not_eligible: the engine's own eligibility check */
+export type MapStatus = 'full' | 'catalog_copay' | 'incomplete' | 'not_eligible'
+
+export interface MapEntry {
+  option_id: string
+  label: string
+  group: string | null
+  drive: string | null
+  status: MapStatus
+  result: ScenarioResult
+}
+
+export interface OptionMap {
+  entries: MapEntry[]               // calculated (net, high to low), then waiting, then not eligible
+  excluded: { label: string; group: string | null; reason: string }[]
+  counts: { eligible: number; calculated: number; waiting: number; catalog_copay: number }
+  leaders: string[]                 // highest estimated net among the calculated; several = a tie; [] = none
+  stale: boolean                    // built before the last change: history, never a current ranking
+  group: string | null
 }

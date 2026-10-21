@@ -22,7 +22,14 @@ _UNKNOWN_RE = re.compile(r"לא\s*(?:ידוע|יודעים|יודע|יודעת|�
                          re.IGNORECASE)
 # "לא" לבד = אין; "לא ברור לי" — לא תשובה (אין ברירת מחדל לסכום חסר)
 _NONE_RE = re.compile(r"^\s*(?:אין|לא|ללא|אפס|0|none|no)\s*[.!]?\s*$|^\s*(?:אין|ללא)(?:\s|$)", re.IGNORECASE)
-_NO_CAR_RE = re.compile(r"(?:אין|בלי|ללא)\s*(?:לי\s*)?רכב|no\s+car", re.IGNORECASE)
+# "אין/בלי/ללא [לי] רכב" — the "לי" tolerates a light typo ("ליר", "ליי") via up to 2 trailing letters
+_NO_CAR_RE = re.compile(r"(?:אין|בלי|ללא)\s*(?:ל[יי][א-ת]{0,2}\s+)?רכב|no\s+car", re.IGNORECASE)
+# a sweeping "all / none-of-them / everything" scope: "אין לי כלום", "אף אחד מהם", "הכל", "כולם",
+# "שום דבר", "את כולם", "everything", "nothing", "none". Marks a blanket answer that covers many fields
+# at once — too broad to split silently across a grouped question.
+_ALL_SCOPE_RE = re.compile(
+    r"כלום|שום\s*דבר|שום\s*אחד|אף\s*(?:אחד|פרט|רכיב)|(?:את\s*)?כול[םן]|הכל|everything|nothing|none",
+    re.IGNORECASE)
 
 _DRIVE_WORDS = {
     Drive.PLUG_IN: ("פלאג", "plug"),
@@ -79,6 +86,13 @@ def none_span(text: str) -> Optional[Span]:
 def no_car_span(text: str) -> Optional[Span]:
     m = _NO_CAR_RE.search(text)
     return m.span() if m else None
+
+
+def has_all_scope(text: str) -> bool:
+    """A sweeping scope word ("כלום", "אף אחד", "הכל", "כולם"): the answer is meant to cover everything
+    asked, not a single field. Used to tell "לא יודע כלום" (all unknown) from a bare "לא ידוע" (one field),
+    and to catch "אין לי כלום" / "הכל 5" as blanket claims that must not be split silently."""
+    return bool(_ALL_SCOPE_RE.search(text))
 
 
 def drive_span(text: str) -> Optional[tuple[Drive, Span]]:
@@ -169,7 +183,7 @@ _NEG = r"(?:אין|בלי|ללא|לא)"
 _GAP = r"(?P<gap>[^\d,;.\n]{0,12}?)"
 # כל ביטוי: (שדה ב-save_profile, תבנית). המספר הוא הקבוצה הראשונה.
 _PROFILE_PATTERNS = (
-    ("base_salary", rf"(?:שכר(?:\s*(?:ה)?בסיס)?|ברוטו|משכורת){_GAP}{_NUM}"),
+    ("base_salary", rf"(?:שכר(?:\s*(?:ה)?בסיס)?|ברוטו|משכורת|מרוויח(?:ה|ים|ות)?|מקבל(?:ת|ים|ות)?\s*(?:שכר|משכורת|ברוטו)){_GAP}{_NUM}"),
     ("pension_percent", rf"פנסי(?:ה|ת){_GAP}{_NUM}"),
     ("study_fund_percent", rf"השתלמות{_GAP}{_NUM}"),
     ("credit_points", rf"{_NUM}\s*נקוד(?:ות|ה)\s*(?:ה)?זיכוי"),
@@ -180,6 +194,9 @@ _PROFILE_PATTERNS = (
 )
 # "אין עמלות ואין בונוס" / "בלי עמלות ובונוסים" → 0
 _ZERO_PATTERNS = (
+    # an explicit "אין נקודות זיכוי" / "אין פנסיה" is a value (0); save_profile asks to confirm it (rare)
+    ("credit_points", r"(?:אין|בלי|ללא)(?:\s+לי)?\s*נקודות\s*(?:ה)?זיכוי"),
+    ("pension_percent", r"(?:אין|בלי|ללא)(?:\s+לי)?\s*(?:הפרשה\s+ל)?פנסיה"),
     ("commissions", rf"{_NEG}(?:\s+לי)?\s*עמלות"),
     ("bonus", rf"{_NEG}(?:\s+[^\s,]+){{0,2}}?\s*ו?(?:{_NEG}\s*)?בונוס"),
     ("study_fund_percent", rf"{_NEG}(?:\s+לי)?\s*(?:קרן\s*)?השתלמות"),
@@ -255,10 +272,35 @@ PREFIX_LETTERS = "והבל"          # אות שימוש אחת לפני מיל�
 NAME_PREFIX_LETTERS = "והבלמשכ"  # כמו mentions: "הקורולה", "ואטו 3"
 
 
+_NOT_KNOWING = ("זוכר", "יודע", "בטוח", "ידוע")
+
+# "ילדים מתחת גיל 23", "עד גיל 23", "בני 23": an age that is part of the field's name, never a value
+_AGE_RE = re.compile(r"(?:ה?גיל|בני|בנות)\s*-?\s*(\d{1,2})(?!\d)")
+
+
+def mask_ages(text: str) -> str:
+    """The text with ages ("גיל 23") blanked out, same length (spans stay valid)."""
+    return _AGE_RE.sub(lambda m: m.group(0)[:m.start(1) - m.start(0)] + " " * len(m.group(1)), text)
+
+
 def negates(text: str) -> bool:
     """ "לא" (או "ולא"/"שלא") בכל מקום חוץ מהמילה הראשונה: "זה לא קורולה קרוס" שולל את הרכב.
-    "לא" כמילה ראשונה הוא תיקון ("לא, זו קורולה קרוס")."""
-    return any(w == "לא" or (len(w) == 3 and w[0] in "וש" and w[1:] == "לא") for w in words(text)[1:])
+    "לא" כמילה ראשונה הוא תיקון ("לא, זו קורולה קרוס"). "לא זוכרת" / "לא יודע" is not knowing, not a
+    negation of the car."""
+    ws = words(text)
+    return any((w == "לא" or (len(w) == 3 and w[0] in "וש" and w[1:] == "לא"))
+               and not (i + 1 < len(ws) and ws[i + 1].startswith(_NOT_KNOWING))
+               for i, w in enumerate(ws) if i > 0)
+
+
+# "משלמת עליו אני לא זוכרת כמה": the copay exists but its amount is not known (never 0, never guessed)
+_COPAY_UNKNOWN_RE = re.compile(r"(?:משלמ(?:ת|ים|ות)?|משלם|משתתפ(?:ת|ים|ות)?|משתתף|השתתפות)[^\d,;\n]{0,15}?"
+                               r"לא\s+(?:זוכר|יודע|בטוח)(?:ת|ה)?(?:\s+כמה)?")
+
+
+def copay_unknown_span(text: str) -> Optional[Span]:
+    m = _COPAY_UNKNOWN_RE.search(text)
+    return m.span() if m else None
 
 
 def _widen(text: str, start: int, end: int) -> Span:
@@ -343,6 +385,8 @@ _LABELLED = (
     ("children_under_23", r"(?<![\d.,])(\d+)\s*(?:ילדים|ילדות|ילד)(?![א-ת])"),
 )
 _LABELLED_ZERO = (
+    ("credit_points", r"(?:אין|בלי|ללא)\s+(?:לי\s+)?נקודות\s*(?:ה)?זיכוי"),
+    ("pension_percent", r"(?:אין|בלי|ללא)\s+(?:לי\s+)?(?:הפרשה\s+ל)?פנסיה"),
     ("commissions", r"(?:אין|בלי|ללא)\s+(?:לי\s+)?עמלות"),
     ("bonus", r"(?:אין|בלי|ללא)\s+(?:לי\s+)?בונוס"),
     ("study_fund_percent", r"(?:אין|בלי|ללא)\s+(?:לי\s+)?(?:קרן\s+)?השתלמות"),
@@ -355,6 +399,7 @@ _NEGATIONS = {"לא"}
 
 def _labelled_values(text: str, cues: Iterable[str], qualifiers: Iterable[str] = ()) -> dict[str, object]:
     """ערכים שאין ספק בהם: מילת מפתח + מספר אחד, בלי שלילה, תיקון, הערכה או מספר שני."""
+    text = mask_ages(text)
     stop = _NEGATIONS | {w for c in cues for w in words(c)}
     qualify = {w for q in qualifiers for w in words(q)}
     found: dict[str, set] = {}
@@ -388,6 +433,7 @@ def _labelled_values(text: str, cues: Iterable[str], qualifiers: Iterable[str] =
 
 def read_profile(text: str, occupations: Iterable[str], cues: Iterable[str] = (),
                  qualifiers: Iterable[str] = ()) -> ProfileReading:
+    text = mask_ages(text)
     fields: dict[str, object] = {}
     spans: list[Span] = []
     phrases: list[str] = []
@@ -396,6 +442,12 @@ def read_profile(text: str, occupations: Iterable[str], cues: Iterable[str] = ()
         fields["occupation"], variant = hit
         phrases.append(variant)
     approximate: list[str] = []
+    # "ילד אחד" / "ילדה אחת" — one child stated in words, not digits
+    if "children_under_23" not in fields:
+        m = re.search(r"(?:ילד|ילדה)\s+(אחד|אחת)(?![א-ת])", text)
+        if m:
+            fields["children_under_23"] = 1
+            spans.append(m.span())
     for field, pattern in _PROFILE_PATTERNS:          # סכום מפורש קודם ל"אין"
         m = re.search(pattern, text)
         if m and field not in fields:

@@ -175,7 +175,8 @@ def test_long_sentence_without_a_known_car_asks_for_the_model_again(sessions):
     svc = service(sessions)
     turn, token = talk(svc, profile() + ["יש לי רכב חברה ישן מאוד ואני בכלל לא בטוחה מה השם שלו"])
     assert turn.stage == Stage.COLLECT_CURRENT_CAR
-    assert "לא זיהיתי את דגם הרכב" in turn.reply and "במאגר" not in turn.reply
+    # "יש לי רכב חברה" is kept as a fact (QA 21/10); only the model is asked, never "אם אין רכב"
+    assert "רשמתי שיש לכם רכב צמוד" in turn.reply and "מה הדגם" in turn.reply and "במאגר" not in turn.reply
     assert svc.view(turn.conversation_id, token).state.current.query is None   # לא חיפשנו משפט שלם
 
 
@@ -262,7 +263,7 @@ def test_not_this_car_resets_and_asks_for_the_model(sessions):
     turn = svc.send(turn.conversation_id, token, "זה לא הרכב שלי")
     current = svc.view(turn.conversation_id, token).state.current
     assert current.catalog_code is None and current.source is None
-    assert "איזה רכב צמוד יש לכם היום" in turn.reply
+    assert "מה הדגם של הרכב הצמוד שלכם" in turn.reply and "אין רכב" not in turn.reply   # there is a car
 
 
 # ---------- ניסוח ניטרלי מגדרית ----------

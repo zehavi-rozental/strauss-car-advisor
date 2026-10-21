@@ -15,12 +15,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
-from typing import Any, Iterable, Optional
+from typing import Iterable, Optional
 
 from app.modules.rules.public import FAMILY_GROUP, CatalogCar, Faq, FaqEntry, RulesSnapshot, matched_name, related_cars, words
 
 from .fallback import _RANK_RE, named_cars
-from .llm.port import ToolSpec
 from .parsing import _NO_COPAY_RE, no_car_span
 from .stage import ConversationState
 
@@ -39,7 +38,11 @@ _COMPLAINT_CUES = ("לא עונה", "לא ענית", "לא לפי השאלה", "
                    "זה לא מה ששאלתי")
 # "I already answered that" / "you got it wrong": answered from the state (what is saved and what is missing),
 # with no apology unless something really went wrong
-_AUDIT_CUES = ("כבר כתבתי", "כבר עניתי", "כבר אמרתי", "כבר רשמתי", "כבר נתתי", "טעית", "טעיתם", "רשמת לא נכון")
+_AUDIT_CUES = ("כבר כתבתי", "כבר עניתי", "כבר אמרתי", "כבר רשמתי", "כבר נתתי", "טעית", "טעיתם", "רשמת לא נכון",
+               "כתבתי לך", "אמרתי לך", "עניתי לך", "כתבתי כבר", "אמרתי כבר")
+# "יש לי רכב חברה" without a model: a fact (there is a car), kept so the bot never asks "אם אין רכב" again
+_HAS_CAR_RE = re.compile(r"(?<![א-ת])(?:יש\s+לי|קיבלתי|מקבל(?:ת)?|נוסע(?:ת)?\s+עם)\s+(?:כבר\s+)?(?:רכב|אוטו)"
+                         r"(?:\s+(?:חברה|צמוד|של\s+החברה|מהעבודה))?(?![א-ת])")
 _FILLER = {"ו", "תודה", "שלום", "היי", "אוקיי", "אוקי", "ok", "טוב", "בסדר", "רגע", "אז", "נו", "אה", "אמממ",
            "יופי", "מעולה", "סבבה"}
 # clauses: after "?" / "!" / "." / a new line, and before ", ולמה …" / ", ומה …" (data, then a question)
@@ -63,9 +66,12 @@ class Understanding:
     redirect: bool = False                                  # off-topic or an attempt to change the rules
     ambiguity: Optional[str] = None                         # NO_CAR_OR_ZERO
     compare: bool = False                                   # asks for a comparison / a result ("תשווה ביניהם")
+    rank: bool = False                                      # asks to rank / recommend ("הכי משתלם", "תמליץ", "דרג")
     complaint: bool = False                                 # "אתה בוט שעונה לא לפי השאלה"
     all_at_once: bool = False                               # "תן לי את כל השאלות בפעם אחת": about the conversation
     audit: bool = False                                     # "כבר כתבתי לך": say what is saved and missing
+    has_car: bool = False                                   # "יש לי רכב חברה": there is a car (model unknown)
+    map_all: bool = False                                   # 360°: "השווה את כל האפשרויות שלי"
     remainder: str = ""                                     # the message without questions (read by the parser)
     catalog: list[str] = field(default_factory=list)        # answers from the company catalog ("יש לכם קורולה?")
 
@@ -145,12 +151,19 @@ def _is_help(text: str) -> bool:
     return (not ws and "?" in text) or ws in _HELP
 
 
+# Hebrew number words that state an amount ("ילד אחד", "שני ילדים"): then it is a count, not bare presence
+_COUNT_WORDS = {"אחד", "אחת", "שני", "שתי", "שניים", "שתיים", "שלושה", "שלוש", "ארבעה", "ארבע",
+                "חמישה", "חמש", "שישה", "שש", "שבעה", "שבע", "שמונה", "תשעה", "תשע", "עשרה", "עשר"}
+
+
 def _presence(clause: str) -> list[str]:
     if any(ch.isdigit() for ch in clause):
         return []
     ws = words(clause)
     if any(w in _NEGATIONS for w in ws) or not any(w in _PRESENCE_CUES for w in ws):
         return []
+    if any(w in _COUNT_WORDS for w in ws):
+        return []                               # an amount in words ("ילד אחד") — a count, read by the parser
     found = []
     for w in ws:
         name = w if w in _PRESENCE_WORDS else (w[1:] if len(w) > 1 and w[0] in _PREFIX else "")
@@ -217,8 +230,12 @@ def catalog_answer(snapshot: RulesSnapshot, clause: str) -> Optional[str]:
 
 def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Understanding:
     faq = snapshot.faq
-    audit = any(cue in text for cue in _AUDIT_CUES)
-    u = Understanding(complaint=not audit and any(cue in text for cue in _COMPLAINT_CUES), audit=audit)
+    # "טעית"/"טעיתם" (you got it wrong) is an audit cue; "טעיתי" (I made a mistake) is a first-person
+    # correction, never an audit — it must not be swallowed as one.
+    audit = any(cue in text for cue in _AUDIT_CUES) and "טעיתי" not in text
+    u = Understanding(complaint=not audit and any(cue in text for cue in _COMPLAINT_CUES), audit=audit,
+                      has_car=bool(_HAS_CAR_RE.search(text)) and not no_car_span(text),
+                      map_all=any(cue in text for cue in snapshot.extensions.option_map_cues))
     if _contains_any(text, faq.injection_patterns) or (
             _contains_any(text, faq.off_topic_patterns) and not named_cars(text, snapshot.catalog)):
         u.redirect = True
@@ -240,14 +257,21 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
                 u.help = True
             elif catalog:
                 u.catalog.append(catalog)
+            elif entry is None and (u.audit or u.map_all):    # a request ("מה כל האפשרויות שלי?"), not for the rep
+                pass          # "כתבתי לך שיש לי רכב, למה אתה שואל שוב?": rhetorical; answered from the state
             elif entry is None:
                 u.unanswered.append(clause.strip())
             elif entry not in u.faq_ids:
                 u.faq_ids.append(entry)
             continue
         kept.append(clause)
-    remainder = " ".join(kept).strip()
-    u.compare = _asks_to_compare(remainder)
+    remainder = "\n".join(c.strip() for c in kept).strip()      # clause boundaries stay (a first-line value)
+    u.compare = _asks_to_compare(remainder) or u.map_all
+    # a ranking / recommendation request ("הכי משתלם", "תמליץ", "דרג") is a request to rank ALL eligible
+    # cars — distinct from a plain "תשווה ביניהם" that asks to compare a chosen set
+    u.rank = bool(_RANK_RE.search(text))
+    if u.rank:
+        u.compare = True
     for part in re.split(r"[,;]|\s+ו(?=אין|יש|גם)", remainder):
         for f in _presence(part):
             if f not in u.presence:
@@ -256,10 +280,12 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
         # the presence clauses carry nothing else to save
         remainder = ", ".join(p for p in re.split(r"[,;]", remainder) if not _presence(p)).strip()
     if (_NO_COPAY_RE.search(remainder) and state.current.source is None and not state.current.query
+            and not state.current.has_car and not u.has_car
             and not named_cars(remainder, snapshot.catalog) and not no_car_span(remainder)):
         u.ambiguity = NO_CAR_OR_ZERO
         remainder = ""
-    if u.audit and not re.search(r"\d", remainder):
-        remainder = ""                            # "כבר כתבתי לך" carries nothing to save
+    if u.audit and not re.search(r"\d", remainder) and "קבוצ" not in remainder:
+        remainder = ""                            # "כבר כתבתי לך" carries nothing to save (but a group
+        #                                           correction like "טעיתי, אני בקבוצה ד" does)
     u.remainder = remainder
     return u

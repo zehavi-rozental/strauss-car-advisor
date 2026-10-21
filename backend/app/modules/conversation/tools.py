@@ -37,6 +37,8 @@ from app.modules.vehicles.public import CurrentCarMatch, VehicleInfo, VehicleKey
 from .llm.port import ToolSpec
 from .parsing import match_drive, match_group, match_occupation, parse_decimal, similar_occupations
 from .stage import (
+    PROFILE_ARGS,
+    ExcludedOption,
     MAX_OPTIONS,
     Q2_FIELDS,
     OPT_OUT_ID,
@@ -52,6 +54,10 @@ from .stage import (
 )
 
 OPT_OUT_WORDS = ("ויתור", "לוותר", "opt out", "opt_out", "בלי רכב", "ללא רכב")
+
+# profile fields (state attribute names) the employee may ask to answer later
+_DEFERRABLE_FIELDS = ("base", "commissions", "bonus", "pension_percent", "study_fund_percent",
+                      "credit_points", "children")
 
 
 # חיפוש במאגר רשות המסים: (דגם, שנת רישום) → התאמה. כל קריאה פותחת סשן קריאה קצר משלה,
@@ -74,10 +80,18 @@ class ToolContext:
     get_vehicle: Optional[VehicleGetter] = None
     # העובד אישר תפקיד שאינו בטבלה ("כן, זה התפקיד שלי") — רק הקוד מדליק את זה, לא המודל
     allow_unknown_occupation: bool = False
+    # the profile form / a reviewed payslip: each amount sits in its own shekel field, so a small amount is
+    # what it says (never "3 ₪ or 3,000 ₪?"); unusual values are still confirmed
+    exact_amounts: bool = False
 
 
 class ToolError(Exception):
     pass
+
+
+class MissingInputs(ToolError):
+    """The engine was asked to calculate with a profile field still unknown. The engine's Employee would read
+    an absent commissions / bonus / study fund / children as 0, so the conversation never sends one (rule 4)."""
 
 
 # ---------- free-text car name → a label that may be shown and sent to the representative ----------
@@ -142,8 +156,11 @@ class SaveProfileArgs(_Args):
     current_use_value_unknown: bool = False
     current_drive: Optional[str] = None
     current_maintenance: Num = None
+    current_maintenance_unknown: bool = False
     approximate_fields: list[str] = Field(default_factory=list)    # שדות שהעובד אמר כהערכה
     unknown_fields: list[str] = Field(default_factory=list)       # Q2 fields the employee does not know
+    # fields the employee asked to answer LATER ("אח\"כ אבדוק את השכר"): postponed, not a value, not dropped
+    defer_fields: list[str] = Field(default_factory=list)
 
 
 class MatchCarArgs(_Args):
@@ -203,8 +220,8 @@ def _check_ranges(ctx: ToolContext, args: SaveProfileArgs) -> tuple[SaveProfileA
             continue
         low, high = ranges[arg]
         small = ctx.snapshot.extensions.small_amount_below.get(arg)
-        if (small is not None and 0 < Decimal(value) < small and low <= Decimal(value) * 1000 <= high
-                and arg not in ctx.state.confirmed_unusual):
+        if (small is not None and not ctx.exact_amounts and 0 < Decimal(value) < small
+                and low <= Decimal(value) * 1000 <= high and arg not in ctx.state.confirmed_unusual):
             drop[arg] = None             # "3" for commissions: 3 ₪ or 3,000 ₪? asked, never guessed
             hold(arg, PendingConfirmation(field=arg, value=Decimal(value),
                                           approximate=arg in args.approximate_fields, scale=True),
@@ -261,21 +278,28 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
             p.group, p.occupation_unknown = group, True
             saved.append("eligibility_group")
 
-    for arg, attr in (("base_salary", "base"), ("commissions", "commissions"), ("bonus", "bonus"),
-                      ("pension_percent", "pension_percent"), ("study_fund_percent", "study_fund_percent"),
-                      ("credit_points", "credit_points"), ("children_under_23", "children")):
+    for arg, attr in PROFILE_ARGS.items():
         value = getattr(args, arg)
         if value is not None:
             setattr(p, attr, value)
             saved.append(arg)
             if attr in p.unknown_fields:
                 p.unknown_fields.remove(attr)          # the value was found after all
+            if attr in ctx.state.deferred_fields:
+                ctx.state.deferred_fields.remove(attr)  # a value was given — no longer deferred
 
     # "לא יודע": recorded per field, never a value (only fields that are still empty)
     for name in args.unknown_fields:
         if name in Q2_FIELDS and getattr(p, name) is None and name not in p.unknown_fields:
             p.unknown_fields.append(name)
             saved.append(f"unknown:{name}")
+
+    # "אח\"כ אבדוק": postpone a field. Recorded in the state; the stage machine skips it while other work
+    # exists (stage.hidden_deferred). Only still-missing profile fields can be deferred; never a value.
+    for name in args.defer_fields:
+        if name in _DEFERRABLE_FIELDS and getattr(p, name, None) is None and name not in ctx.state.deferred_fields:
+            ctx.state.deferred_fields.append(name)
+            saved.append(f"defer:{name}")
 
     if args.current_copay is not None:
         c.copay, c.copay_unknown = args.current_copay, False
@@ -307,10 +331,19 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
 
     if args.current_maintenance is not None:
         if c.source == "none":
-            c.maintenance = args.current_maintenance
+            c.maintenance, c.maintenance_unknown = args.current_maintenance, False
+            if "maintenance" in ctx.state.deferred_fields:
+                ctx.state.deferred_fields.remove("maintenance")   # answered — no longer deferred
             saved.append("current_maintenance")
         else:
             ignored.append({"field": "current_maintenance", "reason": "רלוונטי רק למי שאין לו רכב היום"})
+    elif args.current_maintenance_unknown and c.source == "none" and c.maintenance is None:
+        # "אבדוק בהמשך": postpone the allowance question (deferred_fields). hidden_deferred skips it while
+        # alternatives can be chosen and brings it back before the net is shown — never assumed 0.
+        c.maintenance_unknown = True
+        if "maintenance" not in ctx.state.deferred_fields:
+            ctx.state.deferred_fields.append("maintenance")
+        saved.append("current_maintenance_unknown")
 
     # הערכה: השדות שנשמרו עכשיו מסומנים (או מנוקים, אם נאמרו עכשיו במדויק)
     for arg in RANGED_FIELDS:
@@ -331,9 +364,15 @@ def _drive_enum(text: str) -> Optional[Drive]:
         return None
 
 
-def _invalidate_results(state: ConversationState) -> None:
-    """נתון השתנה → התוצאות הקודמות כבר לא תקפות; יחושבו מחדש לאותן חלופות."""
+def _invalidate_results(state: ConversationState, data: bool = True) -> None:
+    """נתון השתנה → התוצאות הקודמות כבר לא תקפות; יחושבו מחדש לאותן חלופות. data=False: only the
+    selection changed (the option map, which covers every option, is still valid)."""
     state.calculated_for = []
+    if data and state.option_map is not None:
+        state.option_map.fresh = False
+
+
+invalidate_results = _invalidate_results     # for the agent (rep answers change data outside the tools)
 
 
 # ---------- match_current_car ----------
@@ -350,12 +389,15 @@ def _longest_named(cars: list[CatalogCar], text: str) -> list[CatalogCar]:
 
 def match_current_car(ctx: ToolContext, args: MatchCarArgs) -> dict[str, Any]:
     old = ctx.state.current
-    keep = dict(copay=old.copay, copay_unknown=old.copay_unknown)
+    keep = dict(copay=old.copay, copay_unknown=old.copay_unknown, rejected=list(old.rejected), has_car=old.has_car)
 
     if args.reset:
-        ctx.state.current = CurrentCar(**keep)
+        # "זה לא הרכב שלי" / "התכוונתי לרכב אחר": only the model is wrong. There is a car (has_car), its copay
+        # stays, and the model just rejected is not offered again.
+        rejected = [*old.rejected, *([old.catalog_code] if old.catalog_code else [])]
+        ctx.state.current = CurrentCar(**{**keep, "rejected": rejected, "has_car": True})
         _invalidate_results(ctx.state)
-        return {"status": "RESET", "next": "ask the employee for the exact model"}
+        return {"status": "RESET", "next": "ask the employee for the exact model (they have a company car)"}
 
     if args.no_car:
         ctx.state.current = CurrentCar(source="none", label="ללא רכב")
@@ -398,6 +440,11 @@ def match_current_car(ctx: ToolContext, args: MatchCarArgs) -> dict[str, Any]:
     year = args.registration_year
 
     related = related_cars(ctx.snapshot, model)
+    if len(related) > 1 and old.rejected:
+        # a model the employee already said is not theirs is not offered again ("התכוונתי לרכב אחר" → "קורולה")
+        related = [c for c in related if c.catalog_code not in old.rejected] or related
+        if len(related) == 1:
+            model = related[0].model_name
     by_year = [c for c in related if c.reg_year == year] if year is not None else []
     if len(by_year) == 1:
         related = []                     # the year tells them apart ("COROLLA 2025" → COROLLA CROSS)
@@ -456,23 +503,41 @@ class Option:
     car: Optional[CatalogCar] = None
 
 
-def available_options(snapshot: RulesSnapshot, state: ConversationState) -> list[Option]:
-    """רכבים מהקבוצה של העובד ומטה, רכבי המסלול המשפחתי ל-4+ ילדים, וויתור כשהעיסוק מאפשר."""
+def classify_options(snapshot: RulesSnapshot, state: ConversationState
+                     ) -> tuple[list[Option], list[ExcludedOption]]:
+    """The eligibility rules in one place: the options the employee may choose (their group and lower, the
+    family track from the minimum number of children, opting out when the occupation allows it) and every
+    other catalog car with the rule that excludes it. The car today is neither."""
     p = state.profile
     order = snapshot.calc.group_order
     rank = order.index(p.group) if p.group in order else -1
     family = (p.children or 0) >= snapshot.calc.family_min_children
     out: list[Option] = []
+    excluded: list[ExcludedOption] = []
     for car in snapshot.catalog:
         if car.catalog_code == state.current.catalog_code:
             continue
         own_or_lower = car.group in order and order.index(car.group) <= rank
         if own_or_lower or (car.group == FAMILY_GROUP and family):
             out.append(Option(id=car.catalog_code, label=car.label, group=car.group, drive=car.drive, car=car))
+        elif car.group == FAMILY_GROUP:
+            excluded.append(ExcludedOption(label=car.label, group=car.group, reason=(
+                f"מסלול משפחתי: מ-{snapshot.calc.family_min_children} ילדים "
+                f"עד גיל {snapshot.strauss.family_track.child_max_age}")))
+        else:
+            excluded.append(ExcludedOption(label=car.label, group=car.group,
+                                           reason=f"קבוצה {car.group}, מעל קבוצת הזכאות שלכם"))
     occ = snapshot.occupations.get(p.occupation or "")
     if state.current.source != "none" and (occ is None or (occ.opt_out_allowed and not occ.car_mandatory)):
         out.append(Option(id=OPT_OUT_ID, label=OptOutState().label, group=None, drive=None))
-    return out
+    elif state.current.source != "none":
+        excluded.append(ExcludedOption(label=OptOutState().label, reason="בעיסוק שלכם לא ניתן לוותר על הרכב"))
+    return out, excluded
+
+
+def available_options(snapshot: RulesSnapshot, state: ConversationState) -> list[Option]:
+    """רכבים מהקבוצה של העובד ומטה, רכבי המסלול המשפחתי ל-4+ ילדים, וויתור כשהעיסוק מאפשר."""
+    return classify_options(snapshot, state)[0]
 
 
 MIN_PARTIAL_CHARS = 3        # a fragment shorter than this ("3", "a", "ev") is never a car
@@ -535,13 +600,15 @@ def calculate(ctx: ToolContext, args: CalculateArgs) -> dict[str, Any]:
     ctx.state.selected = chosen[:MAX_OPTIONS]
     ctx.state.rank_requested = False
     ctx.state.ranked_count = 0
-    _invalidate_results(ctx.state)
+    _invalidate_results(ctx.state, data=False)
     return {"selected": ctx.state.selected, "not_recognized": unknown, "ambiguous": ambiguous,
             "note": "the system calculates now; do not compute anything yourself"}
 
 
 def rank_options(ctx: ToolContext, args: NoArgs) -> dict[str, Any]:
-    if next_stage(ctx.state) in (Stage.COLLECT_PROFILE, Stage.COLLECT_CURRENT_CAR):
+    # the ranking needs every value it ranks on: a field the employee does not know yet defers it too
+    if (next_stage(ctx.state) in (Stage.COLLECT_PROFILE, Stage.COLLECT_CURRENT_CAR)
+            or missing_profile(ctx.state.profile)):
         # הדירוג צריך את הפרופיל ואת הרכב של היום: הבקשה נרשמת, והבחירה נעשית ברגע שהם ידועים
         ctx.state.rank_requested = True
         return {"deferred": True, "note": "ranked as soon as the profile and the current car are known"}
@@ -556,7 +623,7 @@ def rank_options(ctx: ToolContext, args: NoArgs) -> dict[str, Any]:
         raise ToolError("אין חלופות זכאיות לדירוג")
     ctx.state.selected = top
     ctx.state.ranked_count = len([r for r in ranked if r.alternative is not None])
-    _invalidate_results(ctx.state)
+    _invalidate_results(ctx.state, data=False)
     return {"selected": top, "note": "the system calculates the top options now"}
 
 
@@ -565,11 +632,14 @@ def rank_options(ctx: ToolContext, args: NoArgs) -> dict[str, Any]:
 def engine_inputs(snapshot: RulesSnapshot, state: ConversationState
                   ) -> tuple[Employee, State, Optional[OccupationRule]]:
     p, c = state.profile, state.current
+    missing = [f for f in ("commissions", "bonus", "study_fund_percent", "children") if getattr(p, f) is None]
+    if missing:
+        raise MissingInputs("חסרים פרטי שכר לחישוב: " + ", ".join(missing))   # never a silent 0
     employee = Employee(
-        group=p.group, base=p.base, commissions=p.commissions or Decimal(0), bonus=p.bonus or Decimal(0),
+        group=p.group, base=p.base, commissions=p.commissions, bonus=p.bonus,
         pension_rate=None if p.pension_percent is None else p.pension_percent / 100,
-        study_fund_rate=(p.study_fund_percent or Decimal(0)) / 100,
-        credit_points=p.credit_points, eligible_children=p.children or 0,
+        study_fund_rate=p.study_fund_percent / 100,
+        credit_points=p.credit_points, eligible_children=p.children,
     )
     if c.source == "none":
         current: State = OptOutState(label="ללא רכב", maintenance=c.maintenance)
@@ -648,11 +718,24 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             "current_use_value": {"type": "number", "description": "use value from the payslip"},
             "current_use_value_unknown": {"type": "boolean"},
             "current_drive": {"type": "string", "description": "PETROL, HYBRID, PLUG_IN or ELECTRIC"},
-            "current_maintenance": {"type": "number", "description": "car maintenance on the payslip, "
-                                    "only for employees without a car today"},
+            "current_maintenance": {"type": "number", "description": "the monthly car-maintenance allowance "
+                                    "(אחזקת רכב) the employee receives TODAY, only for employees with no "
+                                    "company car. Pass 0 only if the employee says they do NOT receive one. "
+                                    "Never guess it."},
+            "current_maintenance_unknown": {"type": "boolean", "description": "the employee does not know / "
+                                            "will check later whether they get a maintenance allowance. Never "
+                                            "assume 0."},
             "unknown_fields": {"type": "array", "items": {"type": "string", "enum": list(Q2_FIELDS)},
                                "description": "fields the employee says they do not know (לא יודע / לא זוכרת). "
                                "Never guess or fill a value for them."},
+            "defer_fields": {"type": "array",
+                             "items": {"type": "string",
+                                       "enum": ["base", "commissions", "bonus", "pension_percent",
+                                                "study_fund_percent", "credit_points", "children"]},
+                             "description": "fields the employee asked to answer LATER, not now (e.g. "
+                             "'את השכר אבדוק אחר כך', 'אח\"כ', 'בינתיים נתקדם', 'נשלים בהמשך', 'אין לי את זה "
+                             "עכשיו'). Use 'base' for the base salary. Postpone them — the system will stop "
+                             "asking for them and bring them back only when needed. Never a value, never a guess."},
             "approximate_fields": {"type": "array", "items": {"type": "string"},
                                    "description": "names of the fields above that the employee stated as an "
                                    "estimate (כ-, בערך, בסביבות, בממוצע, משתנות)"},

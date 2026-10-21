@@ -15,7 +15,8 @@ from typing import Any, Optional, Sequence
 from app.modules.rules.public import FAMILY_GROUP, RulesSnapshot
 
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
-from .stage import ConversationState, Stage, current_group, missing_current_car, next_stage, open_profile, unknown_missing
+from .stage import (ConversationState, Stage, current_group, missing_current_car, next_stage, open_profile,
+                    results_stale, unknown_missing)
 from .templates import DRIVE_HE, FIELD_NAMES, group_question, money, paced
 from .tools import TOOL_SPECS, available_options
 
@@ -37,6 +38,11 @@ HOW A TURN WORKS
   כמה?"; an estimate is fine, per the FAQ).
   "לא יודע" about a field → save_profile unknown_fields. Never save something STATE already has unless the
   employee corrects it.
+- The employee may ask to answer a field LATER ("את השכר אבדוק אחר כך", "אח\"כ", "בינתיים תשאל דברים אחרים",
+  "נשלים בהמשך", "אין לי את זה עכשיו", "נדלג על זה כרגע"). Then call save_profile with defer_fields for that
+  field (e.g. defer_fields=["base"]), acknowledge briefly ("בסדר, נחזור לזה בהמשך"), and ask the NEXT thing
+  in STATE instead — never re-ask the deferred field. If they say "אמרתי שאחר כך" / "כבר ביקשתי", they mean the
+  field you just asked: defer it and move on; do not ask it again.
 - Questions (with or without "?"), complaints and meta messages come first: answer them, then continue.
   A complaint ("אתה לא עונה לשאלה") gets a few words of apology ("צודקים, סליחה.") and the answer to the
   earlier question.
@@ -57,6 +63,8 @@ WHAT YOU MAY SAY
   for an FAQ entry, [[tool:<name>]] for a tool result of this turn, [[state]] for STATE. Tags are hidden.
 - Numbers: only numbers that appear in STATE, a tool result, the FAQ or the employee's own messages. Never
   calculate, round or estimate. Results come from the system, never from you.
+- Never call a car "the best" or "the most worthwhile" for the employee. Say what is known: which option leaves
+  the highest estimated monthly net (from STATE), that this ranks by net alone, and what is still waiting.
 - Questions about which cars exist ("יש לכם קורולה?", "איזה רכבים חשמליים יש?"): answer only from CATALOG
   (model, year, group, drive, family track), tagged [[catalog]]. Never give prices, specs or anything else
   about a car. A model that is not in CATALOG: "לא מצאתי את הדגם הזה בקטלוג הרכבים הזמין במערכת." Never
@@ -114,6 +122,10 @@ def state_block(state: ConversationState, snapshot: RulesSnapshot, parser_hint: 
         drive = DRIVE_HE.get(c.drive.value, "") if c.drive else ""
         lines.append(f"current car: {c.label} group {c.group or '-'} {drive}; use value {_v(c.use_value)}; "
                      f"copay {_v(c.copay) if c.copay is not None else ('unknown' if c.copay_unknown else 'missing')}")
+    elif c.has_car and not c.choices:
+        lines.append("current car: the employee HAS a company car; only its model is missing (never ask whether "
+                     "they have a car, never offer \"no car\")"
+                     + (f"; not {', '.join(c.rejected)}" if c.rejected else ""))
     elif c.choices:
         lines.append("current car: several versions, the employee picks a number: "
                      + "; ".join(f"{i}. {ch.label} use value {_v(ch.use_value)}" for i, ch in enumerate(c.choices, 1)))
@@ -133,9 +145,13 @@ def state_block(state: ConversationState, snapshot: RulesSnapshot, parser_hint: 
         lines.append(f"waiting: is {state.pending_clarification.label} the car today or an alternative?")
     if state.pending_rep is not None:
         lines.append(f"waiting for the transport representative: {state.pending_rep.reason.value}")
+    stale = results_stale(state)
     for r in state.results:
         res = r.result
-        if res.get("status") == "OK":
+        if stale:
+            lines.append(f"result {r.label}: out of date (calculated before the last change; it is recalculated "
+                         "once the missing details are known). Never quote its numbers or recommend from it")
+        elif res.get("status") == "OK":
             lines.append(f"result {r.label}: net today {res['today']['net_display']}, net with it "
                          f"{res['alternative']['net_display']}, change {res['delta_display']}; why: {res.get('why', '')}")
             if res.get("copay_pending"):
@@ -143,6 +159,22 @@ def state_block(state: ConversationState, snapshot: RulesSnapshot, parser_hint: 
                              "approval (the question was already sent; the result may change after the answer)")
         else:
             lines.append(f"result {r.label}: {res.get('status')} — {res.get('reason', '')}")
+    m = state.option_map
+    if m is not None:
+        if not m.fresh:
+            lines.append("option map (every eligible option): out of date (built before the last change); "
+                         "never quote it")
+        else:
+            lines.append("option map (every eligible option, estimated monthly net from the engine, high to low; "
+                         "ranked by net only):")
+            for e in sorted([e for e in m.entries if e.status in ("full", "catalog_copay")],
+                            key=lambda e: Decimal(str(e.result["delta_display"])), reverse=True):
+                lines.append(f"  {e.label}: net {e.result['alternative']['net_display']}, change "
+                             f"{e.result['delta_display']}" + (" (catalog copay, not yet approved)"
+                                                                if e.status == "catalog_copay" else ""))
+            waiting = [e.label for e in m.entries if e.status == "incomplete"]
+            if waiting:
+                lines.append("  waiting for a value (not ranked): " + ", ".join(waiting))
     if state.pace == "one_at_a_time":
         lines.append("pace: the employee asked for ONE question at a time; ask exactly one field, never two")
     fields = paced(state, fields)

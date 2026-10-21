@@ -124,7 +124,10 @@ class Extensions(_Strict):
     family_gap_adds_to_copay: bool
     copay_policy: Literal["CATALOG_DEFAULT_CONFIRM_ASYNC", "CATALOG_DEFAULT", "REP_REQUIRED"]
     plug_in_counts_as_electric: bool
-    # "להעלות תלוש": offered next to a field the employee does not know; empty = no link (no upload yet)
+    # "להעלות תלוש": offered next to a field the employee does not know.
+    # payslip_upload_enabled turns the link on for the built-in uploader (POST /api/payslip/extract).
+    # payslip_upload_url points the link at an external pilot page instead; a non-empty URL implies enabled.
+    payslip_upload_enabled: bool = False
     payslip_upload_url: str = ""
     child_age_inclusive: bool
     default_vehicle_type: str
@@ -152,7 +155,9 @@ class Extensions(_Strict):
     small_amount_below: dict[str, Decimal] = Field(default_factory=dict)
     pace_cues: list[str] = Field(default_factory=list)          # "שאלה אחת כל פעם"
     pace_reset_cues: list[str] = Field(default_factory=list)    # "הכול ביחד"
+    defer_cues: list[str] = Field(default_factory=list)         # "את השכר אבדוק אחר כך"
     all_at_once_cues: list[str] = Field(default_factory=list)   # "תן לי את כל השאלות בפעם אחת"
+    option_map_cues: list[str] = Field(default_factory=list)    # STRAUSS DRIVE 360°: "השווה את כל האפשרויות שלי"
     zero_cues: list[str] = Field(default_factory=list)          # a zero the employee said ("אין", "בלי"...)
 
 

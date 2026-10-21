@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Sequence
 
 from pydantic import BaseModel, Field
 
@@ -60,6 +60,20 @@ class Profile(BaseModel):
     unknown_fields: list[str] = Field(default_factory=list)
 
 
+# The one map between a save_profile argument and the Profile attribute it fills (the seven salary fields).
+# Every other map of these fields is derived from it, so a field is never added in one place only.
+PROFILE_ARGS: dict[str, str] = {
+    "base_salary": "base", "commissions": "commissions", "bonus": "bonus", "pension_percent": "pension_percent",
+    "study_fund_percent": "study_fund_percent", "credit_points": "credit_points", "children_under_23": "children",
+}
+ARG_OF: dict[str, str] = {attr: arg for arg, attr in PROFILE_ARGS.items()}   # Profile attribute → argument
+
+
+def profile_args(p: "Profile") -> dict[str, Any]:
+    """The salary fields as save_profile arguments (None = not given)."""
+    return {arg: getattr(p, attr) for arg, attr in PROFILE_ARGS.items()}
+
+
 class CarChoice(BaseModel):
     label: str
     description: str = ""     # קוד הדגם מרישיון הרכב — מבדיל בין גרסאות
@@ -86,7 +100,16 @@ class CurrentCar(BaseModel):
     choices: list[CarChoice] = Field(default_factory=list)
     copay: Optional[Decimal] = None
     copay_unknown: bool = False
-    maintenance: Optional[Decimal] = None     # כשאין רכב היום: אחזקה בתלוש
+    # When there is no company car today: does the employee receive a car-maintenance allowance?
+    # maintenance=Decimal: the confirmed amount (0 = the employee said they do NOT receive one).
+    # maintenance=None + maintenance_unknown=True: "אבדוק בהמשך" — unknown, never assumed, blocks the net.
+    # maintenance=None + maintenance_unknown=False: not asked yet.
+    maintenance: Optional[Decimal] = None
+    maintenance_unknown: bool = False
+    # "יש לי רכב חברה" before the model is known, or a model the employee said was wrong ("התכוונתי לרכב
+    # אחר"): there IS a company car, only the model is missing. Never asked "אם אין רכב" again.
+    has_car: bool = False
+    rejected: list[str] = Field(default_factory=list)   # catalog codes the employee said are not their car
 
 
 class PendingRep(BaseModel):
@@ -103,6 +126,33 @@ class OptionResult(BaseModel):
     label: str
     run_id: Optional[str] = None
     result: dict[str, Any]                    # ScenarioResult במבנה JSON
+
+
+class MapEntry(BaseModel):
+    """STRAUSS DRIVE 360°: one eligible option and the engine's result for it.
+    status: full (calculated, copay final) / catalog_copay (calculated with the catalog copay, waiting for the
+    representative's approval) / incomplete (a value is missing) / not_eligible (the engine's own check)."""
+
+    option_id: str
+    label: str
+    group: Optional[str] = None
+    drive: Optional[str] = None
+    status: Literal["full", "catalog_copay", "incomplete", "not_eligible"]
+    result: dict[str, Any]
+
+
+class ExcludedOption(BaseModel):
+    """A catalog car the employee cannot choose, and why (from the eligibility rules, never a guess)."""
+
+    label: str
+    group: Optional[str] = None
+    reason: str
+
+
+class OptionMap(BaseModel):
+    entries: list[MapEntry] = Field(default_factory=list)
+    excluded: list[ExcludedOption] = Field(default_factory=list)
+    fresh: bool = True        # False once any value the engine uses changes (tools._invalidate_results)
 
 
 class ConfirmedCopay(BaseModel):
@@ -177,6 +227,14 @@ class ConversationState(BaseModel):
     pace: Literal["normal", "one_at_a_time"] = "normal"   # "שאלה אחת כל פעם": kept until the employee changes it
     links_shown: list[str] = Field(default_factory=list)  # links already offered (each one once)
     link_now: Optional[str] = None                        # the link of the reply on screen (kept on reload)
+    # Fields the employee asked to answer later ("את השכר אבדוק אחר כך"). They are skipped as the next
+    # question while any other field can still be asked, and come back when nothing else is askable or a
+    # calculation needs them. Never a default, never dropped — just postponed. A value given later clears it.
+    deferred_fields: list[str] = Field(default_factory=list)
+    # STRAUSS DRIVE 360°: "השווה את כל האפשרויות שלי". Kept once asked; recalculated whenever it is out of date
+    # and every value it needs is known. Never changes the selection.
+    map_requested: bool = False
+    option_map: Optional[OptionMap] = None
 
 
 # ---------- מה חסר ----------
@@ -199,6 +257,10 @@ def missing_current_car(c: CurrentCar) -> list[str]:
     if c.source is None:
         return ["use_value"] if c.query else ["car"]
     if c.source == "none":
+        # the maintenance-allowance question: "כן" (an amount) or "לא" (maintenance=0, a confirmed value)
+        # answers it. "אבדוק בהמשך" postpones it via deferred_fields (hidden_deferred skips it while
+        # alternatives are chosen, and brings it back before the net is shown) — never a silent 0, never a
+        # net on an unverified assumption.
         return [] if c.maintenance is not None else ["maintenance"]
     missing: list[str] = []
     if c.use_value is None and not c.use_value_unknown:
@@ -252,20 +314,45 @@ def needs_opt_out_occupation(state: ConversationState) -> bool:
             and p.group is not None and state.pending_occupation is None)
 
 
+def _all_askable(state: ConversationState) -> list[str]:
+    """Every field still open now (profile + current car), unknown fields excluded. The raw list before
+    deferral is applied — used to decide whether a deferred field can still be postponed."""
+    return [*open_profile(state.profile), *missing_current_car(state.current)]
+
+
+def hidden_deferred(state: ConversationState) -> set[str]:
+    """Deferred fields to skip as the next question RIGHT NOW. A field stays hidden only while something
+    else is still askable; once the deferred field(s) are all that is left, they come back (returned empty),
+    so a deferral never becomes a dead end and never blocks the flow forever."""
+    deferred = [f for f in state.deferred_fields if f in _all_askable(state)]
+    if not deferred:
+        return set()
+    others = [f for f in _all_askable(state) if f not in deferred]
+    can_choose_options = not state.selected and not state.rank_requested
+    # if there is other work to do (another field, or still choosing options), keep the deferred ones hidden
+    return set(deferred) if (others or can_choose_options) else set()
+
+
+def _visible(fields: Sequence[str], hidden: set[str]) -> list[str]:
+    return [f for f in fields if f not in hidden]
+
+
 def next_stage(state: ConversationState) -> Stage:
-    """השלב נגזר מהנתונים בלבד."""
+    """השלב נגזר מהנתונים בלבד. שדות שהעובד ביקש לדחות מדולגים כל עוד יש עבודה אחרת (hidden_deferred)."""
     if state.pending_rep is not None:
         return Stage.WAITING_FOR_REP
-    missing = open_profile(state.profile)
+    hidden = hidden_deferred(state)
+    missing = _visible(open_profile(state.profile), hidden)
     q1 = [f for f in missing if f in Q1_FIELDS]
     q2 = [f for f in missing if f in Q2_FIELDS]
+    car_missing = _visible(missing_current_car(state.current), hidden)
     if q1 or (q2 and not _q2_deferred(state)):
         return Stage.COLLECT_PROFILE
-    if missing_current_car(state.current):
+    if car_missing:
         return Stage.COLLECT_CURRENT_CAR
     if q2 or needs_opt_out_occupation(state):
         return Stage.COLLECT_PROFILE
-    if not state.selected:
+    if not state.selected and not (state.rank_requested and unknown_missing(state.profile)):
         return Stage.CHOOSE_OPTIONS
     if unknown_missing(state.profile):
         return Stage.COLLECT_PROFILE       # no calculation without them, and never a default
@@ -274,11 +361,24 @@ def next_stage(state: ConversationState) -> Stage:
     return Stage.PRESENTED
 
 
+def results_stale(state: ConversationState) -> bool:
+    """The results on record were calculated before the last change (a saved value, another car, another
+    selection) and could not be recalculated yet. Kept as history, marked "לא מעודכן"; never a current
+    recommendation, never ranked, never quoted as current, never the base of a decision."""
+    return bool(state.results) and state.calculated_for != state.selected
+
+
+def map_stale(state: ConversationState) -> bool:
+    """The option map was built before the last change of a value the engine uses."""
+    return state.option_map is not None and not state.option_map.fresh
+
+
 def current_group(state: ConversationState) -> tuple[Optional[str], list[str]]:
     """השאלה המקובצת הנוכחית ושדותיה החסרים: ("Q1" | "Q2" | "Q3" | "car_detail", [...])."""
     stage = next_stage(state)
     p, c = state.profile, state.current
-    missing = open_profile(p)
+    hidden = hidden_deferred(state)
+    missing = _visible(open_profile(p), hidden)
     q1 = [f for f in missing if f in Q1_FIELDS]
     q2 = [f for f in missing if f in Q2_FIELDS]
     options = [] if state.selected or state.rank_requested else ["options"]
@@ -290,10 +390,10 @@ def current_group(state: ConversationState) -> tuple[Optional[str], list[str]]:
         rest = q2 + (["opt_out_occupation"] if needs_opt_out_occupation(state) else []) + options
         return ("Q3", rest) if rest else ("unknown", unknown_missing(p))
     if stage == Stage.COLLECT_CURRENT_CAR:
-        car = missing_current_car(c)
-        if car[0] in CAR_DETAILS:
+        car = _visible(missing_current_car(c), hidden)
+        if car and car[0] in CAR_DETAILS:
             return "car_detail", [car[0]]
-        if car[0] == "car":
+        if car and car[0] == "car":
             car = ["car"] + ([] if c.copay is not None or c.copay_unknown else ["copay"])
         return "Q3", car + options + q2
     if stage in (Stage.CHOOSE_OPTIONS, Stage.PRESENTED):

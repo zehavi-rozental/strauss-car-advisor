@@ -7,7 +7,6 @@ machine, the calculation, the rep flow and the template path (no LLM / outage / 
 """
 from __future__ import annotations
 
-import json
 import logging
 import re
 import secrets
@@ -24,16 +23,18 @@ from app.modules.rules.public import catalog_names as catalog_names_of
 
 
 from .expects import build_expects, choice_calls
-from .fallback import (ZERO_ALLOWED, fields_plan, ParserPlan, car_roles, correction_plan, fallback_plan, named_cars, none_plan,
+from .fallback import (ZERO_ALLOWED, ParserPlan, car_roles, correction_plan, fallback_plan, named_cars, none_plan,
                        recorded_text)
 from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
 from .grounding import grounded_number, group_named, occupation_named, option_named, zero_grounded
-from .parsing import (YEAR_RE, match_drive, match_occupation, no_car_span, occupation_match, parse_copay, read_profile,
-                      redact_id_numbers)
+from .parsing import (YEAR_RE, has_all_scope, mask_ages, match_drive, match_occupation, no_car_span, occupation_match,
+                      parse_copay, read_profile, redact_id_numbers)
 from .guards import (FIELD_WORDS, SINGULAR_RE, TAG_RE, Check, Violation, ask_lines, check, content_sentences, drop,
                      has_statement, sentences, strip_tags, verify)
 from .turn import LLM_TOOLS, Candidate, parser_hint, render_catalog, render_faq, run_rounds, state_block, system_message, user_message
+from .option_map import build_option_map, dump_result as _dump, evaluate_option, map_reply
+from .option_map import with_assumptions as _with_assumptions
 from .understanding import NO_CAR_OR_ZERO, NOT_IN_CATALOG, Understanding, understand
 from .stage import (
     allowed_tools,
@@ -51,40 +52,43 @@ from .stage import (
     missing_profile,
     open_profile,
     next_stage,
+    results_stale,
+    ARG_OF,
+    PROFILE_ARGS,
+    profile_args,
     Q2_FIELDS,
 )
 from .templates import (
     ALL_AT_ONCE,
     UNANSWERED,
-    to_plural,
     compare_needs_text,
     unknown_ack_text,
     call_to_action,
     money,
     plan_reply,
     GREETING,
-    OPT_OUT_DENIED,
     RANK_DEFERRED,
     REP_DEFERRED,
     chosen_options_text,
     confirm_group_text,
-    approximate_assumptions,
     clarify_car_text,
     confirmed_assumption,
-    group_question,
+    paced,
     conflict_text,
     queued_option_text,
     range_problem_text,
+    range_refused_text,
     render,
     rep_changed_text,
-    rep_amount_assumption,
     rep_confirmed_text,
     rep_current_text,
     rep_maintenance_text,
+    rep_note_text,
+    rep_copay_text,
+    form_saved_text,
     rep_opt_out_text,
     results_text,
     unusual_fix_text,
-    why_sentence,
 )
 from .tools import (
     GENERIC_CAR_LABEL,
@@ -93,9 +97,11 @@ from .tools import (
     TOOL_SPECS,
     ToolContext,
     VehicleGetter,
+    ToolError,
     VehicleLookup,
     available_options,
     engine_inputs,
+    invalidate_results,
     option_state,
     rep_car_label,
     safe_car_label,
@@ -158,26 +164,6 @@ def _clarification_answer(text: str) -> Optional[str]:
     return None
 
 
-def _dump(result: Any) -> dict[str, Any]:
-    """The stored result: the engine's fields plus `why`, one plain sentence about the main cause
-    (built from the drivers, so the client never builds text from numbers)."""
-    out = result.model_dump(mode="json")
-    out["why"] = why_sentence(out.get("drivers") or [])
-    if out.get("reason"):
-        out["reason"] = to_plural(out["reason"])     # the engine keeps the reference wording
-    return out
-
-
-def _with_assumptions(result: Any, state: ConversationState, option_id: str, label: str) -> Any:
-    """הנחות שהמנוע לא יודע עליהן: ערכים משוערים, והשתתפות שהנציג אישר או קבע."""
-    extra = approximate_assumptions(state)
-    confirmed = state.confirmed_copays.get(option_id)
-    if confirmed is not None:
-        extra.append(rep_amount_assumption(label, confirmed.value, confirmed.effective_date) if confirmed.changed
-                     else confirmed_assumption(label, confirmed.effective_date))
-    return result.model_copy(update={"assumptions": result.assumptions + extra}) if extra else result
-
-
 _YES = {"כן", "נכון", "בדיוק", "אכן", "yes", "לאשר", "אשר"}
 _NO = {"לא", "no", "לתקן", "תקן"}
 
@@ -211,8 +197,11 @@ def _confirmation_plan(state: ConversationState, text: str) -> Optional[ParserPl
         return ParserPlan([ToolCall("save_profile", args, "confirmed")], True, direct=True)
     if ws[0] in _NO:
         state.pending_confirmation = None
-        notice = unusual_fix_text(pending.field) if pending.unusual else None
-        return ParserPlan(complete=True, notice=notice, direct=True)
+        if pending.unusual:
+            # "לתקן": the same field is asked again, and it is the only question of the reply
+            return ParserPlan(complete=True, notice=unusual_fix_text(pending.field), direct=True,
+                              asks=pending.field)
+        return ParserPlan(complete=True, direct=True)
     return None
 
 
@@ -376,17 +365,29 @@ def _is_zero(value: Any) -> bool:
 
 
 # missing item (stage.py) → the save_profile argument a bare value answers
-_ASKED_ARG = {"base": "base_salary", "commissions": "commissions", "bonus": "bonus",
-              "pension_percent": "pension_percent", "study_fund_percent": "study_fund_percent",
-              "credit_points": "credit_points", "children": "children_under_23", "copay": "current_copay",
+_ASKED_ARG = {**ARG_OF, "copay": "current_copay",
               "use_value": "current_use_value", "maintenance": "current_maintenance", "car": "car"}
 _NUMERIC_ARGS = {a for a in _ASKED_ARG.values() if a != "car"}
 _BARE_RE = re.compile(r"^\s*(?:בערך|כ-?|בסביבות)?\s*[\d.,]+\s*(?:%|אחוז(?:ים)?|₪|ש\"ח|שח|שקל(?:ים)?)?\s*\.?\s*$")
+
+# save_profile arg name (asked_field) → the Q2 field name used in unknown_fields
+_ASKED_Q2 = {arg: attr for arg, attr in PROFILE_ARGS.items() if attr in Q2_FIELDS}
+# Hebrew words that name each Q2 field, to tell which field a "לא יודע" refers to
+_Q2_WORDS = {"commissions": ("עמל",), "bonus": ("בונוס",), "pension_percent": ("פנסי",),
+             "study_fund_percent": ("השתלמות",), "credit_points": ("זיכוי", "נקוד"), "children": ("ילד",)}
+
+
+def _q2_fields_named(text: str) -> list[str]:
+    """Which Q2 fields a message explicitly names (so 'לא יודע כמה עמלות' marks only commissions)."""
+    return [f for f, words_ in _Q2_WORDS.items() if any(w in text for w in words_)]
 
 
 # profile fields a question must not name once they are saved (guards.FIELD_WORDS keys = Profile attributes)
 _CLOSED_FIELDS = ("base", "commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points", "children")
 NO_CAR_ACK = "רשמתי: אין לכם רכב צמוד היום."
+HAS_CAR_ACK = "רשמתי שיש לכם רכב צמוד."
+MAP_UPDATED = "עדכנתי את מפת האפשרויות לפי הנתונים החדשים."
+MAP_DEFERRED = "אמפה את כל האפשרויות שלכם ברגע שתגיע תשובת נציג התחבורה."
 PACE_ONE = "בסדר, אשאל שאלה אחת בכל פעם."
 PACE_NORMAL = "בסדר, אפשר לענות על כמה דברים יחד."
 
@@ -402,6 +403,36 @@ def _pace_change(state: ConversationState, snapshot: RulesSnapshot, text: str) -
         state.pace = "one_at_a_time"
         return PACE_ONE
     return None
+
+
+# a deferral names at most these profile fields explicitly ("את השכר אבדוק אחר כך"); otherwise it defers
+# whatever is being asked now. Car details are deferred only as the group currently on screen.
+_DEFERRABLE = ("base", "commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points",
+               "children")
+_DEFER_NAMES = {"base": "שכר הבסיס", "commissions": "העמלות", "bonus": "הבונוס", "pension_percent": "הפנסיה",
+                "study_fund_percent": "קרן ההשתלמות", "credit_points": "נקודות הזיכוי", "children": "הילדים"}
+
+
+def _defer_change(state: ConversationState, snapshot: RulesSnapshot, text: str, saved_this_turn: set[str]) -> str:
+    """"את השכר אבדוק אחר כך": postpone a field. The field named in the message, else the fields being
+    asked now. A field saved this turn is never deferred (the value wins). Returns an acknowledgement, or
+    "" when nothing was deferred. The stage machine (stage.hidden_deferred) does the skipping."""
+    ext = snapshot.extensions
+    if not ext.defer_cues or not any(c in text for c in ext.defer_cues):
+        return ""
+    # which field(s)? a field named in the message (by its words), else the fields currently open
+    named = [f for f in _DEFERRABLE if any(w in text for w in FIELD_WORDS.get(f, ()))]
+    if not named:
+        open_now = [f for f in open_profile(state.profile) if f in _DEFERRABLE]
+        named = open_now
+    # never defer something the employee just supplied, or something already known
+    to_defer = [f for f in named if getattr(state.profile, f) is None and f not in saved_this_turn
+                and f not in state.deferred_fields]
+    if not to_defer:
+        return ""
+    state.deferred_fields.extend(to_defer)
+    names = _DEFER_NAMES.get(to_defer[0], "זה") if len(to_defer) == 1 else "השדות האלה"
+    return f"בסדר, נחזור ל{names} בהמשך."
 
 
 def asked_field(state: ConversationState, reply: str) -> Optional[str]:
@@ -479,9 +510,7 @@ def rep_text_ok(text: str) -> bool:
 
 
 # שדות Q2 בפרופיל → שם הארגומנט ב-save_profile (כפי ש-recorded_text מצפה)
-_HIDDEN_ARGS = {"commissions": "commissions", "bonus": "bonus", "pension_percent": "pension_percent",
-                "study_fund_percent": "study_fund_percent", "credit_points": "credit_points",
-                "children": "children_under_23"}
+_HIDDEN_ARGS = {attr: ARG_OF[attr] for attr in Q2_FIELDS}
 
 
 _ACK_FIELDS = ("base", "commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points", "children")
@@ -493,6 +522,11 @@ def _values(state: ConversationState) -> dict[str, Any]:
     # a catalog / tax-file use value is looked up, not said: acknowledged only when the employee states it
     out.update(copay=c.copay, use_value=c.use_value if c.source == "stated" else None, maintenance=c.maintenance)
     return out
+
+
+def _form_values(state: ConversationState) -> dict[str, Any]:
+    """The profile values a form can change, by save_profile argument name."""
+    return profile_args(state.profile)
 
 
 def ack_text(changed: dict[str, Any], group: Optional[str] = None) -> str:
@@ -507,6 +541,21 @@ def ack_text(changed: dict[str, Any], group: Optional[str] = None) -> str:
         if f in changed:
             parts.append(f"{label} {money(changed[f])}")
     return f"רשמתי: {', '.join(parts)}." if parts else ""
+
+
+def _dedup_lines(reply: str) -> str:
+    """Safety net on an assembled reply: never emit the same non-empty line twice. Order preserved, the
+    first occurrence wins. Blank lines (paragraph breaks) are kept as-is."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for line in reply.splitlines():
+        key = line.strip()
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        out.append(line)
+    return "\n".join(out)
 
 
 def _answers_catalog(reply: str, answers: Sequence[str], snapshot: RulesSnapshot) -> bool:
@@ -525,6 +574,9 @@ def _audit_text(state: ConversationState) -> str:
                      state.profile.group if state.profile.group else None)
     if state.current.label and state.current.source in ("catalog", "tax", "stated"):
         saved = (saved[:-1] + f", רכב היום {state.current.label}.") if saved else f"רשמתי: רכב היום {state.current.label}."
+    elif state.current.has_car and state.current.source is None:
+        car = "יש לכם רכב צמוד, וחסר לי רק הדגם שלו."
+        saved = (saved[:-1] + f". {car}") if saved else f"רשמתי: {car}"
     return ("בדקתי: " + saved.replace("רשמתי: ", "עד עכשיו רשמתי ")) if saved else "בדקתי: עוד לא רשמתי אף ערך."
 
 
@@ -627,18 +679,26 @@ class Agent:
         return self._finish(ctx, (), label, plan, before, record_run, choice=True)
 
     def run_fields(self, snapshot: RulesSnapshot, find_vehicle: VehicleLookup, get_vehicle: VehicleGetter,
-                   state: ConversationState, values: dict[str, Any], label: str, record_run: RecordRun) -> TurnOutcome:
+                   state: ConversationState, values: dict[str, Any], label: str, record_run: RecordRun,
+                   source: Optional[str] = None) -> TurnOutcome:
         """הטופס המובנה (שדות הפרופיל, כבר נבדקו): נשמרים ישירות בכלי save_profile — בלי הקורא ובלי מודל
         השפה. אחרי תיקון, השלב נגזר מהנתונים: תוצאה קיימת מחושבת מחדש."""
-        ctx = ToolContext(snapshot=snapshot, find_vehicle=find_vehicle, state=state, get_vehicle=get_vehicle)
+        ctx = ToolContext(snapshot=snapshot, find_vehicle=find_vehicle, state=state, get_vehicle=get_vehicle,
+                          exact_amounts=True)
         before = next_stage(state)
+        previous = _form_values(state)
+        # A value held from chat ("פנסיה 0": לאשר?) is older than the form: a form value for the same field
+        # replaces it; a held value for another field stays held (never dropped silently).
+        held_before = state.pending_confirmation
         state.pending_confirmation = None
         # הטופס הוא פעולה מפורשת של העובד (גם תיקון אחרי תוצאה), לכן לא עובר דרך _run ומגבלת הכלים של
         # השלב; run_tool נשאר השער היחיד לשמירה. השלב נגזר מהנתונים: calculated_for מתאפס ← חישוב מחדש.
-        run_tool(ctx, "save_profile", values)
-        held = state.pending_confirmation.field if state.pending_confirmation is not None else None
-        saved = {k: v for k, v in values.items() if k != held}      # a rare value waits for "לאשר"
-        plan = fields_plan(saved) if saved else ParserPlan([], True, direct=True)
+        facts = run_tool(ctx, "save_profile", values)
+        if state.pending_confirmation is None and held_before is not None and held_before.field not in values:
+            state.pending_confirmation = held_before
+        saved = {k: values[k] for k in facts.get("saved", []) if k in values}   # only what really changed state
+        notice = form_saved_text(previous, saved, source)
+        plan = ParserPlan([], True, notice=notice, direct=True, acked=True) if notice             else ParserPlan([], True, direct=True)
         return self._finish(ctx, (), label, plan, before, record_run, choice=True)
 
     def run_turn(self, snapshot: RulesSnapshot, find_vehicle: VehicleLookup, state: ConversationState,
@@ -660,9 +720,13 @@ class Agent:
                 # A question asked while waiting is still answered first.
                 state.unanswered_question = und.unanswered[0] if und.unanswered else None
                 extra = [UNANSWERED] if und.unanswered else [snapshot.faq.redirect] if und.redirect else []
+                if und.map_all:
+                    state.map_requested = True       # 360°: built as soon as the representative answers
+                    extra.append(MAP_DEFERRED)
                 reply = "\n\n".join([*self._answers(snapshot, und)[0], *extra, reply])
                 return TurnOutcome(reply=reply, source="template", path="waiting")
-            before = self._start_correction(ctx)
+            reset_only = all(c.name == "match_current_car" and c.args.get("reset") for c in correction.calls)
+            before = self._start_correction(ctx, keep_copay_unknown=reset_only)
             plan = correction
         elif state.pending_rep_question is not None and (send := _send_answer(text)) is not None:
             return self._rep_question_decision(ctx, send, record_run)
@@ -701,12 +765,16 @@ class Agent:
         return self._finish(ctx, history, text, plan, before, record_run, und=und, extra=[pace] if pace else ())
 
     @staticmethod
-    def _start_correction(ctx: ToolContext) -> Stage:
+    def _start_correction(ctx: ToolContext, keep_copay_unknown: bool = False) -> Stage:
         """העובד מתקן את הרכב בזמן המתנה: השאלות על הרכב הקודם מתבטלות, ונשאל שוב על הרכב החדש."""
         state = ctx.state
         ctx.cancel_question_ids.extend(state.pending_rep.question_ids)
         state.pending_rep = None
-        state.current.copay_unknown = state.current.use_value_unknown = False
+        # A use value that was unknown belonged to the old car. The copay stays unknown only when the same car
+        # is being renamed ("התכוונתי לרכב אחר"); for another car named now, its copay is asked again.
+        state.current.use_value_unknown = False
+        if not keep_copay_unknown:
+            state.current.copay_unknown = False
         return next_stage(state)
 
     def _finish(self, ctx: ToolContext, history: Sequence[ChatMessage], text: str, plan: ParserPlan,
@@ -722,6 +790,9 @@ class Agent:
             state.link_now = "profile_form"  # the form is the way to answer everything together
         car_before = _car_key(state)
         before_turn = _Before.of(state)
+        has_car_said = und.has_car and state.current.source is None and not state.current.has_car
+        if has_car_said:
+            state.current.has_car = True     # "יש לי רכב חברה": a fact; the model is asked, never "אם אין רכב"
         used_llm = False
         candidate: Optional[Candidate] = None
         llm_failed = False
@@ -734,6 +805,10 @@ class Agent:
             path = "choice" if choice else "parser" if plan.complete else "templates"
             # a direct answer to the code's own question ("לא" to a confirmation) is understood
             understood = self._execute(ctx, plan.calls) or plan.notice is not None or (plan.direct and plan.complete)
+            if plan.clarify_scope:
+                # a blanket "לא ידוע" / "אין לי כלום" / "הכל 5" on a grouped question: nothing is saved,
+                # and from here the fields are asked one at a time, so each answer is unambiguous.
+                state.pace = "one_at_a_time"
             if plan.clarify is not None:
                 state.pending_clarification = plan.clarify     # "<רכב> הוא הרכב שלכם היום, או חלופה?"
                 state.role_asked.append(plan.clarify.catalog_code)
@@ -776,6 +851,9 @@ class Agent:
 
         if before_turn.group == "Q2" and any(f in Q2_FIELDS for f in before_turn.changed(state)):
             state.q2_answered = True             # Q2 answered in part: its leftovers wait for Q3
+        # "את השכר אבדוק אחר כך": postpone a field, after this turn's values were saved (so a field just
+        # supplied is never deferred). The acknowledgement is added to the reply below.
+        defer_ack = _defer_change(state, snapshot, text, set(before_turn.changed(state)))
         if (candidate is not None and und.unanswered and state.unanswered_question is None and not state.rep_skipped
                 and not has_statement(strip_tags(candidate.text or ""))):
             # the reply only re-asks the flow question: the employee's question is not left unanswered
@@ -785,28 +863,48 @@ class Agent:
         if candidate is None:
             state.unanswered_question = (und.unanswered[0] if und.unanswered
                                          else before_turn_unanswered if und.complaint else None)
+        # "הכי משתלם" / "תמליץ" / "דרג": a request to rank ALL eligible cars. Recorded now (even mid-profile)
+        # so the options step is auto-ranked and the employee is never asked to pick cars to compare. A set of
+        # cars the employee already chose is left as is — ranking only fills an empty choice.
+        if und.rank and not state.selected and next_stage(state) not in (Stage.WAITING_FOR_REP,):
+            state.rank_requested = True
         self._open_blocking_rep(ctx)
         self._resolve_rank(ctx)
         just_calculated = False
         if next_stage(state) == Stage.CALCULATING:
             self._calculate(ctx, record_run)
             just_calculated = True
+        if und.map_all:
+            state.map_requested = True       # 360°: kept; the map is built as soon as every value is known
+        map_had = state.option_map is not None
+        map_built = self._resolve_map(ctx)
+        # the map is shown when asked for (and ready), and said to be updated when a change rebuilt it
+        map_shown = ((und.map_all or (map_built and not map_had))      # asked now, or asked earlier and ready now
+                     and state.option_map is not None and state.option_map.fresh)
+        map_line = map_reply(state) if map_shown else MAP_UPDATED if (map_built and map_had) else ""
         state.stage = next_stage(state)
-        understood = understood or state.stage != before
+        understood = understood or state.stage != before or map_shown
         notice = _plan_notice(plan, path)
         if (notice and notice.startswith("רשמתי") and plan.fallback_notice and path in ("fallback", "templates")
-                and state.pending_confirmation is not None):
+                and (state.pending_confirmation is not None or ctx.range_problems)):
             # a partly read sentence: the parser's fallback notice lists every value it read, written before the
             # checks, so it also names a value held for confirmation ("עמלות 15 ₪": 15 or 15,000?) as recorded.
             # The acknowledgement comes from the state instead (only what was really saved).
             notice = None
-        said = (notice or "").startswith("רשמתי")
+        said = (notice or "").startswith("רשמתי") or plan.acked
         confirmations = before_turn.confirmations(state, snapshot, just_calculated, said)
 
         # רכב שזוהה בתור הזה (מהקורא, מהמודל או מהגיבוי) — אומרים איזה, כדי שטעות לא תעבור בשקט
         matched_car = state.current.source in ("catalog", "tax") and _car_key(state) != car_before
         rep_opened = any(r.mode == Mode.REQUIRED for r in ctx.question_requests)
-        problems = [conflict_text(c) for c in conflicts] + [range_problem_text(*p) for p in ctx.range_problems]
+        # One question per reply. A value held for confirmation ("לאשר 0 נקודות זיכוי?") is that question; a
+        # value refused by its range is then said as a statement, and its field is asked again afterwards.
+        held = state.pending_confirmation is not None
+        refused = [range_refused_text(*p) for p in ctx.range_problems] if held else []
+        problems = [conflict_text(c) for c in conflicts] + (
+            [] if held else [range_problem_text(*p) for p in ctx.range_problems])
+        asks_field = plan.asks or (ctx.range_problems[0][0] if ctx.range_problems and not held and not conflicts
+                                   else None)
         answers, terms = self._answers(snapshot, und)
         # "אין רכב": said now, or said again ("כתבתי שאין לי רכב"): acknowledged first; said again while the
         # maintenance question is open, the question is explained in its own words (never a stale field)
@@ -817,19 +915,27 @@ class Agent:
             entry = snapshot.faq.get("maintenance")
             if restated_no_car and entry is not None and current_group(state)[1] == ["maintenance"]:
                 no_car_lines.append(entry.answer)
-        lines = [*extra, *no_car_lines, *(["צודקים, סליחה."] if und.complaint else []),
+        if has_car_said and state.current.source is None and not state.current.choices:
+            no_car_lines.append(HAS_CAR_ACK)
+        lines = [*extra, *([defer_ack] if defer_ack else []), *no_car_lines,
+                 *(["צודקים, סליחה."] if und.complaint else []),
                  *([_audit_text(state)] if und.audit else []),
                  *([ALL_AT_ONCE] if und.all_at_once else []),
                  *([snapshot.faq.redirect] if und.redirect and not und.complaint else [])]   # the rep offer: plan_reply
         # a request the bot cannot do yet ("תשווה ביניהם" before the profile is complete): what is needed
-        if (und.compare and not just_calculated and state.stage not in (Stage.PRESENTED, Stage.WAITING_FOR_REP)
-                and RANK_DEFERRED not in confirmations):
+        if (und.compare and not just_calculated and not map_shown
+                and state.stage not in (Stage.PRESENTED, Stage.WAITING_FOR_REP) and RANK_DEFERRED not in confirmations):
             lines.append(compare_needs_text(state))
         reply_plan = plan_reply(
             state, snapshot, understood=understood or bool(problems) or und.anything, just_calculated=just_calculated,
             matched_car=matched_car, notice="\n".join(problems) or notice, rep_opened=rep_opened,
-            notice_asks=bool(problems), confirmations=confirmations, answers=list(zip(answers, terms)),
+            notice_asks=bool(problems) or plan.asks is not None, cta_field=asks_field,
+            confirmations=[*confirmations, *refused], answers=list(zip(answers, terms)),
             follow_up=und.presence, explain=und.help or len(no_car_lines) > 1, extra=lines)
+        if map_line:
+            reply_plan.ack.append(map_line)  # after what was saved and identified this turn
+        if map_shown and state.stage in (Stage.CHOOSE_OPTIONS, Stage.PRESENTED):
+            reply_plan.ask = []      # the map answered the request; the call to action still offers a comparison
         _mark_asked(state)
         # the reply about unknown fields alternates its wording: "לא יודע" twice never gets the same text
         state.unknown_told = state.unknown_told + 1 if current_group(state)[0] == "unknown" else 0
@@ -847,7 +953,7 @@ class Agent:
         draft = reply_plan.text()
         # results and the rep messages keep their exact template text; buttons get the template (fast)
         if (choice or reply_plan.fixed or rep_opened or candidate is None or not self.llm.available
-                or self.mode == "parser_first"):
+                or self.mode == "parser_first" or map_shown):     # the map's summary is code's, like results
             say = ("outage" if llm_failed else "not_tried" if candidate is None or not used_llm else "fixed")
             state.asked_field = asked_field(state, draft)
             return TurnOutcome(reply=draft, source="template", just_calculated=just_calculated, path=path,
@@ -862,6 +968,8 @@ class Agent:
         if source == "llm" and und.catalog and not _answers_catalog(reply, und.catalog, snapshot):
             # the catalog sentence was trimmed by a guard: the code's answer (from the catalog) comes first
             reply = "\n".join([*und.catalog, reply])
+        if source == "llm":
+            reply = _dedup_lines(reply)       # safety net: the live model sometimes repeats a line
         state.asked_field = asked_field(state, reply)
         return TurnOutcome(reply=reply, source=source, guard_blocked=blocked, just_calculated=just_calculated,
                            path=path, say=say, **requests)
@@ -879,10 +987,7 @@ class Agent:
             return False
         state, ext = ctx.state, ctx.snapshot.extensions
         reading = read_profile(text, ctx.snapshot.occupations.keys(), ext.correction_cues, ext.value_qualifiers)
-        p = state.profile
-        current = {"base_salary": p.base, "commissions": p.commissions, "bonus": p.bonus,
-                   "pension_percent": p.pension_percent, "study_fund_percent": p.study_fund_percent,
-                   "credit_points": p.credit_points, "children_under_23": p.children}
+        current = profile_args(state.profile)
         # labelled values ("פנסיה 6%") and explicit zeros ("אין לי ילדים") — never a bare number
         said = {**{k: v for k, v in reading.fields.items() if _is_zero(v)}, **reading.labelled}
         kids = _CHILDREN_WORDS_RE.search(text)        # "שני ילדים": a number in words
@@ -955,11 +1060,13 @@ class Agent:
         snap = ctx.snapshot
         ext = snap.extensions
         kept, refused = dict(args), []
+        numbers_text = mask_ages(text)       # "ילדים מתחת גיל 23": the age is part of the field's name
         for key in _NUMERIC_ARGS:
             value = kept.get(key)
             if value is None:
                 continue
-            ok = zero_grounded(key, text, ext.zero_cues) if _is_zero(value) else grounded_number(value, text)
+            ok = (zero_grounded(key, text, ext.zero_cues) if _is_zero(value)
+                  else grounded_number(value, numbers_text))
             if not ok:
                 refused.append(key)
         if kept.get("eligibility_group") and not group_named(text, snap.calc.group_order, FAMILY_GROUP):
@@ -1016,6 +1123,37 @@ class Agent:
                 log.info("copay 0 before the car is known; asked, not saved")
                 if not any(v not in (None, [], False) for k, v in args.items() if k != "approximate_fields"):
                     return None
+            # A blanket answer to a grouped Q2 is never spread silently across every field. The model tends
+            # to over-apply a bare "לא ידוע" (unknown_fields=all) or a sweeping "אין לי כלום" / "הכל 5"
+            # (zeros / one value on several fields). Policy:
+            #   - a named field ("לא יודע כמה עמלות")                → that field only
+            #   - one Q2 field on screen                             → that field
+            #   - several on screen + an explicit "all" scope        → all of them (the employee said so)
+            #   - several on screen, no scope ("לא ידוע", "הכל 5")   → ambiguous: save nothing, ask one at a time
+            on_screen = [f for f in paced(state, current_group(state)[1]) if f in Q2_FIELDS]
+            grouped = len(on_screen) > 1
+            if args.get("unknown_fields"):
+                named = _q2_fields_named(text)
+                asked_q2 = _ASKED_Q2.get(state.asked_field or "")
+                if named:
+                    args = {**args, "unknown_fields": [f for f in args["unknown_fields"] if f in named]}
+                elif asked_q2:
+                    args = {**args, "unknown_fields": [asked_q2]}
+                elif not grouped and on_screen:
+                    args = {**args, "unknown_fields": on_screen}
+                elif grouped and not has_all_scope(text):
+                    log.info("blanket 'unknown' on a grouped question: not spread; asking one at a time")
+                    state.pace = "one_at_a_time"
+                    args = {k: v for k, v in args.items() if k != "unknown_fields"}
+            # the model spread one value / zeros across several Q2 fields for a sweeping message with no
+            # per-field wording ("הכל 5", "אין לי כלום"): refuse the spread, ask one at a time
+            if grouped and not _q2_fields_named(text):
+                spread = [k for k in args if k in _ASKED_Q2 and args.get(k) is not None]
+                if len(spread) > 1 and (has_all_scope(text) or bare_value(text)):
+                    log.info("blanket value spread across %d Q2 fields: refused; asking one at a time",
+                             len(spread))
+                    state.pace = "one_at_a_time"
+                    args = {k: v for k, v in args.items() if k not in spread}
             args = Agent._grounded(ctx, args, text)
             if args is None:
                 return None
@@ -1056,7 +1194,9 @@ class Agent:
             return {"ok": False, "error": "tool not allowed at this stage"}
         return run_tool(ctx, call.name, call.args)
     def _execute(self, ctx: ToolContext, calls: Sequence[ToolCall]) -> bool:
-        return any([_recorded(self._run(ctx, call)) for call in calls])
+        # a call tagged "combined" reads an explicitly-stated fact (e.g. "no company car" said during the
+        # salary questions) that is valid at any stage, so it runs through the relaxed stage gate
+        return any([_recorded(self._run(ctx, call, relaxed=(call.id == "combined"))) for call in calls])
 
     # ---------- נציג ----------
 
@@ -1082,7 +1222,7 @@ class Agent:
         others = [c for c in named_cars(text, snapshot.catalog) if c.catalog_code != state.current.catalog_code]
         if not others:
             return None, waiting_reply
-        calls = self._llm_waiting_correction(state, text)
+        calls = self._llm_waiting_correction(state, snapshot, text)
         if calls:
             return ParserPlan(list(calls), True, direct=True), ""
         # בלי מודל, או שהמודל לא בטוח: לא מנחשים — שואלים, וזוכרים על איזה רכב
@@ -1108,9 +1248,17 @@ class Agent:
             state.queued_options.append(clarification.catalog_code)
         return None, queued_option_text(clarification.label)
 
-    def _llm_waiting_correction(self, state: ConversationState, text: str) -> Optional[tuple[ToolCall, ...]]:
+    def _llm_waiting_correction(self, state: ConversationState, snapshot: RulesSnapshot,
+                                text: str) -> Optional[tuple[ToolCall, ...]]:
         """המודל מקבל רק את match_current_car: יקרא לו רק אם ההודעה מתקנת את הרכב של היום."""
         if not self.llm.available:
+            return None
+        # the model may call match_current_car only when the message is a correction of the car today. Code
+        # double-checks: a bare alternative name ("אטו 3") with no correction cue and no "my car" wording is
+        # NOT a correction — it is probably an alternative, so we ignore the call and ask (never guess).
+        ws = words(text)
+        says_my_car = ("הרכב" in ws and "שלי" in ws) or ("יש" in ws and "לי" in ws)
+        if not (_has_cue(text, snapshot.extensions.correction_cues) or says_my_car):
             return None
         system = WAITING_CORRECTION_PROMPT.format(car=state.current.label or "")
         try:
@@ -1129,6 +1277,22 @@ class Agent:
         ctx.question_requests.append(QuestionRequest(field, mode, answer_type, text, clean, suggested, option_id))
 
     @staticmethod
+    def _resolve_map(ctx: ToolContext) -> bool:
+        """360°: (re)build the option map once it was asked for, when it is missing or out of date and every
+        value the engine needs is known (never on a guessed value). True when it was built now."""
+        state = ctx.state
+        if not state.map_requested or (state.option_map is not None and state.option_map.fresh):
+            return False
+        if (missing_profile(state.profile) or missing_current_car(state.current)
+                or blocking_rep_reason(state) is not None):
+            return False
+        try:
+            state.option_map = build_option_map(ctx.snapshot, state)
+        except ToolError:
+            return False
+        return True
+
+    @staticmethod
     def _resolve_rank(ctx: ToolContext) -> None:
         """"הכי משתלם" שנרשם לפני שהפרטים היו ידועים: עכשיו, כשרק החלופות חסרות, הבחירה נעשית."""
         state = ctx.state
@@ -1139,8 +1303,8 @@ class Agent:
     def _open_blocking_rep(self, ctx: ToolContext) -> None:
         """שאלה לנציג רק אחרי שהפרופיל מלא: קודם משלימים את מה שהעובד יודע."""
         state = ctx.state
-        if state.pending_rep is not None or open_profile(state.profile):
-            return
+        if state.pending_rep is not None or open_profile(state.profile) or state.current.source is None:
+            return              # first the profile and the car itself; a question about "which car?" waits
         reason = blocking_rep_reason(state)
         if reason is None:
             return
@@ -1185,6 +1349,8 @@ class Agent:
             default = next((c.default_copay for c in snapshot.catalog if c.catalog_code == event.option_id), None)
             state.confirmed_copays[event.option_id] = ConfirmedCopay(
                 value=amount, effective_date=event.effective_date, changed=default is None or amount != default)
+            if state.option_map is not None:
+                state.option_map.fresh = False      # this option's copay is no longer the catalog's
             line = self._apply_new_car_copay(ctx, event, amount, record_run)
             if line:
                 lines.append(line)
@@ -1196,20 +1362,23 @@ class Agent:
             else:
                 c.source, c.label = "stated", c.label or safe_car_label(c.query)
                 c.use_value, c.use_value_unknown = amount, False
-            state.calculated_for = []
+            invalidate_results(state)
             lines.append(rep_current_text(field.value, c.label or "", amount))
         elif field == MissingField.OCCUPATION_OPT_OUT:
             allowed = event.value == "true"
             state.profile.rep_opt_out_allowed = allowed
-            state.calculated_for = []
+            invalidate_results(state)
             lines.append(rep_opt_out_text(allowed))
         elif field == MissingField.MAINTENANCE_AMOUNT:
             state.profile.rep_opt_out_maintenance = amount
-            state.calculated_for = []
+            invalidate_results(state)
             lines.append(rep_maintenance_text(amount))
         elif field == MissingField.GENERAL_QUESTION:
             # the representative's own words; nothing in the state changes
             lines.append(f"נציג התחבורה ענה על השאלה שלכם:\n{event.value}")
+        note = rep_note_text(event.note)
+        if note:
+            lines.append(note)               # the representative's own words to the employee, plain text
 
         state.applied_answers.append(qid)
         if state.pending_rep is None and state.queued_options:
@@ -1224,6 +1393,8 @@ class Agent:
         if next_stage(state) == Stage.CALCULATING:
             self._calculate(ctx, record_run)
             just_calculated = True
+        if self._resolve_map(ctx):
+            lines.append(MAP_UPDATED)          # the representative's answer completed or changed a value
         state.stage = next_stage(state)
         rep_opened = any(r.mode == Mode.REQUIRED for r in ctx.question_requests)
         if field == MissingField.NEW_CAR_COPAY:
@@ -1244,6 +1415,10 @@ class Agent:
         item = next((r for r in state.results if r.option_id == event.option_id), None)
         if item is None:
             return None                        # החלופה כבר לא מוצגת; ההשתתפות נשמרה לפעם הבאה
+        if results_stale(state):
+            # the result on record predates a change: no before/after from it. The amount is kept
+            # (confirmed_copays) and used by the recalculation that follows.
+            return rep_copay_text(item.label, amount, event.effective_date)
         used = (item.result.get("alternative") or {}).get("copay")
         if used is not None and Decimal(str(used)) == amount:
             pending_text = f"השתתפות ב-{item.label} לפי הקטלוג — ממתינה לאישור נציג"
@@ -1283,12 +1458,7 @@ class Agent:
             option = options.get(option_id)
             if option is None:
                 continue
-            confirmed = state.confirmed_copays.get(option_id)
-            alternative = option_state(option, policy, confirmed.value if confirmed else None)
-            result = _with_assumptions(evaluate(employee, current, alternative, snap.calc, occupation), state,
-                                       option_id, option.label)
-            if option.car is None and state.profile.rep_opt_out_allowed is False:
-                result = result.model_copy(update={"reason": OPT_OUT_DENIED})   # לפי תשובת הנציג
+            alternative, result = evaluate_option(snap, state, option, employee, current, occupation)
             inputs = {
                 "employee": employee.model_dump(mode="json"),
                 "current": current.model_dump(mode="json"),
@@ -1427,7 +1597,9 @@ class Agent:
         """Numbers the reply may contain: STATE, this turn's tool results, the FAQ, the catalog names and the
         employee's own messages (and the template of this turn, which code built from the same data)."""
         snap = ctx.snapshot
-        sources: list[Any] = [ctx.state.model_dump(mode="json"), cand.tool_results, draft, text,
+        # numbers of a result that is out of date are not allowed in a reply: they are not current
+        dump = ctx.state.model_dump(mode="json", exclude={"results"} if results_stale(ctx.state) else None)
+        sources: list[Any] = [dump, cand.tool_results, draft, text,
                               [m.content for m in history if m.role == "user"],
                               [e.answer for e in snap.faq.entries], [c.label for c in snap.catalog], MAX_OPTIONS,
                               len([o for o in available_options(snap, ctx.state) if o.car])]

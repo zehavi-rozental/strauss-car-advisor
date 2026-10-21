@@ -130,14 +130,46 @@ BARE_ZERO_OK = {"commissions", "bonus", "study_fund_percent", "children_under_23
 _BARE_FILLERS = {"לי", "כלום", "בכלל", "אצלי", "פה"}
 
 
+# words that may stand between a zero cue and the field's word ("אין לי קרן השתלמות", "אפס נקודות זיכוי")
+_BETWEEN = {"לי", "לנו", "בכלל", "שום", "קרן", "נקודות", "נקודת", "הפרשה", "הפרשות", "ל", "את", "עליו", "עליה"}
+
+
+def _zero_next_to_field(field: str, toks: list[str], cues: Sequence[str]) -> bool:
+    """The zero belongs to this field: a cue right before its word (only connecting words between: "אין לי
+    ילדים", "ואין בונוס"), or a zero right after it ("ילדים: 0"). A cue for another phrase does not reach
+    across to a word joined with "ו" ("אין נקודות זיכוי וילדים" is not "no children")."""
+    stems = ZERO_WORDS.get(field, ())
+    seqs = [words(c) for c in cues if words(c)]
+
+    def bare(t: str) -> str:
+        return t[1:] if len(t) > 2 and t[0] == _PREFIX else t
+
+    for i, tok in enumerate(toks):
+        if not any(s in tok for s in stems):
+            continue
+        if toks[i + 1:i + 2] and toks[i + 1] in ("0", "אפס", "אין"):
+            return True
+        for seq in seqs:                      # a cue that includes the field's word: "לא משלמת"
+            n = len(seq)
+            if i - n + 1 >= 0 and [bare(t) for t in toks[i - n + 1:i + 1]] == seq:
+                return True
+        j = i - 1
+        while j >= 0 and toks[j] in _BETWEEN:
+            j -= 1
+        for seq in [*seqs, ["0"]]:
+            n = len(seq)
+            if j - n + 1 >= 0 and [bare(t) for t in toks[j - n + 1:j + 1]] == seq:
+                return True
+    return False
+
+
 def zero_grounded(field: str, text: str, cues: Sequence[str]) -> bool:
     """A zero for this field is said: a zero cue ("אין", "בלי", "ללא", "אפס", "0") together with the field's word
     ("אין עמלות", "ילדים: 0"), or a bare "אין" for a field that may be answered so. A cue for another field is
     not a zero for this one."""
     if not has_zero_cue(text, cues):
         return False
-    low = text.lower()
-    if any(w in low for w in ZERO_WORDS.get(field, ())):
+    if _zero_next_to_field(field, words(text.lower()), cues):
         return True
     cue_tokens = {t for c in cues for t in words(c)} | _BARE_FILLERS | {"0"}
     toks = [t[1:] if len(t) > 2 and t[0] == _PREFIX and t[1:] in cue_tokens else t for t in words(text)]
