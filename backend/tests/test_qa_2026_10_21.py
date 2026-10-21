@@ -307,3 +307,14 @@ def test_a_note_is_plain_text(client):
     content = [m for m in _messages(client, cid) if m["source"] == "rep"][-1]["content"]
     note = content.split("הערת הנציג: ", 1)[1].split("\n")[0]
     assert "**" not in note and "<script>" not in note and "\x07" not in note and "](" not in note
+
+
+def test_a_rep_answer_on_a_stale_result_reports_the_amount_not_an_old_difference(client):
+    cid, qid = _rep_flow(client)                              # ATTO 3 calculated with the catalog copay
+    client.post(f"/api/conversations/{cid}/messages", json={"text": "זה לא הרכב שלי"})
+    assert client.get(f"/api/conversations/{cid}").json()["results_stale"] is True
+    client.post(f"/api/rep/questions/{qid}/answer", headers=AUTH, json={"value": "350"})
+    content = [m for m in _messages(client, cid) if m["source"] == "rep"][-1]["content"]
+    assert "ההפרש עודכן" not in content and "350" in content     # no before/after from an out-of-date result
+    view = client.get(f"/api/conversations/{cid}").json()
+    assert view["results_stale"] is True                       # recalculated only once the car is known again
