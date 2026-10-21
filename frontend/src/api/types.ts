@@ -246,6 +246,7 @@ export interface ExtractedField {
  *  only after the employee reviews, edits, and confirms. ok=false → fall back to manual entry. */
 export interface ExtractionResult {
   ok: boolean
+  status?: 'found' | 'partial' | 'nothing_found' | 'failed'   // absent from an older server
   fields: ExtractedField[]
   message_he: string
 }

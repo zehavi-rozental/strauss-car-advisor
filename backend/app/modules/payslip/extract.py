@@ -42,7 +42,12 @@ _ENCRYPTED = "הקובץ מוגן בסיסמה. צריך להסיר את ההג�
 _CORRUPT = "לא הצלחנו לקרוא את הקובץ. ודאו שזה תלוש תקין ונסו שוב, או מלאו ידנית."
 
 _EXTRACT_OK = "סקרו את מה שזוהה מהתלוש, תקנו מה שצריך ואשרו. התלוש עצמו לא נשמר."
-_EXTRACT_FAIL = "לא הצלחנו לקרוא נתונים מהתלוש. אפשר למלא את השדות ידנית."
+_EXTRACT_PARTIAL = ("זיהינו חלק מהנתונים. שדה ריק לא נמצא בתלוש: מלאו אותו ידנית או השאירו ריק. "
+                    "התלוש עצמו לא נשמר.")
+_EXTRACT_NOTHING = ("לא מצאנו בתלוש אף אחד מהנתונים שהמערכת קוראת: עמלות, בונוס, אחוז הפרשה לפנסיה, "
+                    "אחוז קרן השתלמות, נקודות זיכוי ומספר ילדים. שכר הבסיס לא נקרא מהתלוש. "
+                    "אפשר למלא ידנית או לנסות קובץ אחר.")
+_EXTRACT_FAIL = ("לא הצלחנו לקרוא את התלוש כרגע. אפשר לנסות שוב בעוד רגע, או למלא את הנתונים ידנית.")
 _OUT_OF_RANGE = "מחוץ לטווח הסביר — נא לבדוק"
 _LOW_CONFIDENCE = "לא ודאי — נא לבדוק"
 
@@ -144,17 +149,18 @@ def _coerce_number(raw: Any) -> Optional[Decimal]:
     return None
 
 
-def _parse_json(text: str) -> dict[str, Any]:
-    """JSON מהמודל, גם אם עטוף ב-```json … ``` או בטקסט. מחזיר {} כשאין אובייקט תקין."""
+def _parse_json(text: str) -> Optional[dict[str, Any]]:
+    """JSON מהמודל, גם אם עטוף ב-```json … ``` או בטקסט. None כשאין אובייקט תקין (a failure, not an
+    empty payslip)."""
     text = text.strip()
     start, end = text.find("{"), text.rfind("}")
     if start == -1 or end == -1 or end < start:
-        return {}
+        return None
     try:
         parsed = json.loads(text[start:end + 1])
     except (ValueError, TypeError):
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 def _in_range(snapshot: RulesSnapshot, field: str, value: Decimal) -> bool:
@@ -191,15 +197,23 @@ def extract(data: bytes, mime: str, vision: Optional[VisionPort], snapshot: Rule
     """מריץ חילוץ על קובץ שכבר עבר validate_file. אין מודל ראייה/כשל → ok=False (מילוי ידני).
     אף פעם לא זורק — מחזיר ExtractionResult כדי שה-API תמיד יחזיר תשובה ברורה."""
     if vision is None:
-        return ExtractionResult(ok=False, fields=[], message_he=_EXTRACT_FAIL)
+        return ExtractionResult(ok=False, fields=[], message_he=_EXTRACT_FAIL, status="failed")
     try:
         raw = vision.extract(data, mime, _SYSTEM_PROMPT, timeout_s)
     except Exception as exc:  # כשל ספק / timeout — עוברים למילוי ידני, בלי לחשוף פרטים
-        log.warning("payslip extraction failed: %s", type(exc).__name__)
-        return ExtractionResult(ok=False, fields=[], message_he=_EXTRACT_FAIL)
+        # the reason (HTTP status / timeout), never the file or the model's text
+        log.warning("payslip extraction failed: %s (%s)", type(exc).__name__, exc)
+        return ExtractionResult(ok=False, fields=[], message_he=_EXTRACT_FAIL, status="failed")
     parsed = _parse_json(raw)
+    if parsed is None:
+        log.warning("payslip extraction failed: the model's answer is not a JSON object (%d chars)", len(raw))
+        return ExtractionResult(ok=False, fields=[], message_he=_EXTRACT_FAIL, status="failed")
     fields = _build_fields(snapshot, parsed)
-    if not any(f.value is not None for f in fields):
-        # המודל ענה אבל לא זיהה אף שדה נתמך — עדיין מצליח, אבל הטופס ריק לסקירה
-        return ExtractionResult(ok=True, fields=fields, message_he=_EXTRACT_FAIL)
-    return ExtractionResult(ok=True, fields=fields, message_he=_EXTRACT_OK)
+    found = sum(f.value is not None for f in fields)
+    log.info("payslip extraction: %d of %d supported fields found", found, len(fields))   # a count, no values
+    if found == 0:
+        # the model read the payslip and none of the supported fields is on it: not a failure, but say so
+        return ExtractionResult(ok=True, fields=fields, message_he=_EXTRACT_NOTHING, status="nothing_found")
+    if found < len(fields):
+        return ExtractionResult(ok=True, fields=fields, message_he=_EXTRACT_PARTIAL, status="partial")
+    return ExtractionResult(ok=True, fields=fields, message_he=_EXTRACT_OK, status="found")

@@ -47,6 +47,20 @@ class GeminiVisionAdapter:
                                  timeout=min(self.timeout_s, timeout_s) if timeout_s else self.timeout_s)
             r.raise_for_status()
             parts = r.json()["candidates"][0]["content"].get("parts", [])
+        except httpx.TimeoutException as exc:
+            raise GeminiVisionError("timeout") from exc
+        except httpx.HTTPStatusError as exc:
+            raise GeminiVisionError(f"HTTP {exc.response.status_code}: {_provider_message(exc.response)}") from exc
         except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
-            raise GeminiVisionError(type(exc).__name__) from exc
+            # no candidates usually means the answer was blocked (finishReason / promptFeedback)
+            raise GeminiVisionError(f"{type(exc).__name__}: no usable answer") from exc
         return "".join(p.get("text", "") for p in parts if not p.get("thought"))
+
+
+def _provider_message(response: httpx.Response) -> str:
+    """Google's {"error": {"status", "message"}} describes the request (bad key, quota, size), never the file."""
+    try:
+        error = response.json()["error"]
+        return f"{error.get('status', '')} {str(error.get('message', ''))[:200]}".strip()
+    except Exception:
+        return ""

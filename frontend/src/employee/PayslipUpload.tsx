@@ -10,6 +10,8 @@ import { ApiError, api } from '../api/client'
 import type { ExtractedField, ProfileFields } from '../api/types'
 import { FORM_FIELDS, buildFields, emptyValues } from './formFields'
 import type { FormKey, FormValues } from './formFields'
+import { NOT_ON_PAYSLIP, payslipOutcome } from './payslipOutcome'
+import type { PayslipOutcome } from './payslipOutcome'
 
 interface Props {
   onSubmit: (fields: ProfileFields) => Promise<boolean>
@@ -21,11 +23,9 @@ interface Props {
 const ACCEPT = 'application/pdf,image/jpeg,image/png,image/webp'
 const UPLOAD_HINT = 'מעלים צילום או PDF של התלוש. קוראים ממנו רק את השדות שבטופס — לא שם, לא ת"ז, לא שכר הבסיס. ' +
   'התלוש עצמו לא נשמר.'
-const REVIEW_HINT = 'אלה הערכים שזוהו מהתלוש. בדקו כל שדה, תקנו מה שצריך, ואז אשרו. ' +
-  'שדה שמסומן "נא לבדוק" לא זוהה בוודאות.'
-const NOTHING_FOUND = 'לא זוהו ערכים מהתלוש. אפשר למלא ידנית למטה ולאשר, או לבטל ולכתוב בצ׳אט.'
+const MANUAL_HINT = 'מלאו את הנתונים ידנית ואשרו. אפשר גם לבטל ולכתוב בצ׳אט.'
 
-type Step = 'pick' | 'review'
+type Step = 'pick' | 'failed' | 'review'
 
 /** The extracted field value as an input string (null → empty; counts shown as integers). */
 function toInput(f: ExtractedField): string {
@@ -50,14 +50,26 @@ export function PayslipUpload({ onSubmit, onCancel, disabled }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [extracted, setExtracted] = useState<ExtractedField[]>([])
+  const [outcome, setOutcome] = useState<PayslipOutcome | null>(null)
   const [values, setValues] = useState<FormValues>(emptyValues)
   const [errors, setErrors] = useState<Partial<Record<FormKey, string>>>({})
   const inputRef = useRef<HTMLInputElement>(null)
 
   const noteFor = (key: FormKey): string => {
     const ex = extracted.find((f) => f.field === key)
-    if (!ex || ex.value === null) return ''
+    if (!ex) return ''
+    if (ex.value === null) return outcome?.status === 'partial' ? NOT_ON_PAYSLIP : ''
     return ex.confident ? '' : (ex.note || 'לא ודאי — נא לבדוק')
+  }
+
+  // manual entry after a failure: the same review form, empty, with no claim that anything was read
+  const manual = () => {
+    setExtracted([])
+    setOutcome(null)
+    setValues(emptyValues())
+    setErrors({})
+    setError(null)
+    setStep('review')
   }
 
   const pick = () => inputRef.current?.click()
@@ -68,9 +80,16 @@ export function PayslipUpload({ onSubmit, onCancel, disabled }: Props) {
     setError(null)
     try {
       const result = await api.extractPayslip(file)
+      const next = payslipOutcome(result)
+      setOutcome(next)
+      setErrors({})
+      if (next.view === 'failed') {
+        setExtracted([])
+        setStep('failed')
+        return
+      }
       setExtracted(result.fields)
       setValues(prefillFromExtraction(result.fields))
-      setErrors({})
       setStep('review')
     } catch (e) {
       setError(e instanceof ApiError ? e.message_he : 'ההעלאה נכשלה. נסו שוב או מלאו ידנית.')
@@ -101,30 +120,41 @@ export function PayslipUpload({ onSubmit, onCancel, disabled }: Props) {
   }
 
   const working = busy || disabled
-  const nothingFound = step === 'review' && extracted.every((f) => f.value === null)
+  const fileInput = (
+    <input ref={inputRef} type="file" accept={ACCEPT} className="visually-hidden" tabIndex={-1}
+           aria-hidden="true" onChange={(e) => void onFile(e.target.files?.[0])} />
+  )
 
-  if (step === 'pick') {
+  if (step === 'pick' || step === 'failed') {
+    const failed = step === 'failed'
     return (
       <div className="profile-form payslip-upload" aria-label="העלאת תלוש">
-        <h3>העלאת תלוש</h3>
-        <p className="form-hint">{UPLOAD_HINT}</p>
-        <input ref={inputRef} type="file" accept={ACCEPT} className="visually-hidden" tabIndex={-1}
-               aria-hidden="true" onChange={(e) => void onFile(e.target.files?.[0])} />
+        <h3>{failed ? 'לא הצלחנו לקרוא את התלוש' : 'העלאת תלוש'}</h3>
+        {failed
+          ? <p className="field-error" role="alert">{outcome?.message}</p>
+          : <p className="form-hint">{UPLOAD_HINT}</p>}
+        {fileInput}
         {error && <p className="field-error" role="alert">{error}</p>}
         <div className="form-actions">
           <button type="button" className="chip chip-primary" disabled={working} onClick={pick}>
-            {busy ? 'קורא את התלוש…' : 'בחירת קובץ'}
+            {busy ? 'קורא את התלוש…' : failed ? 'לנסות שוב' : 'בחירת קובץ'}
           </button>
+          {failed && (
+            <button type="button" className="chip chip-quiet" disabled={working} onClick={manual}>מילוי ידני</button>
+          )}
           <button type="button" className="chip chip-quiet" disabled={working} onClick={onCancel}>ביטול</button>
         </div>
       </div>
     )
   }
 
+  const title = outcome ? 'בדיקת הנתונים מהתלוש' : 'מילוי ידני'
+  const hint = outcome ? outcome.message : MANUAL_HINT
   return (
     <form className="profile-form payslip-review" onSubmit={confirm} aria-label="סקירת נתוני התלוש">
-      <h3>בדיקת הנתונים מהתלוש</h3>
-      <p className="form-hint">{nothingFound ? NOTHING_FOUND : REVIEW_HINT}</p>
+      <h3>{title}</h3>
+      <p className="form-hint" role={outcome?.status === 'nothing_found' ? 'status' : undefined}>{hint}</p>
+      {fileInput}
       <div className="form-grid">
         {FORM_FIELDS.map((f) => {
           const note = noteFor(f.key)
@@ -151,6 +181,9 @@ export function PayslipUpload({ onSubmit, onCancel, disabled }: Props) {
         <button type="submit" className="chip chip-primary" disabled={working}>
           {busy ? 'שומר…' : 'אישור ושמירה'}
         </button>
+        {outcome && outcome.status !== 'found' && (
+          <button type="button" className="chip chip-quiet" disabled={working} onClick={pick}>לנסות קובץ אחר</button>
+        )}
         <button type="button" className="chip chip-quiet" disabled={working} onClick={onCancel}>ביטול</button>
       </div>
     </form>

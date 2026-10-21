@@ -58,15 +58,21 @@ class ExtractedField:
 @dataclass(frozen=True)
 class ExtractionResult:
     """תוצאת החילוץ. fields תמיד מכיל את כל השדות הנתמכים (חסר = value=None).
-    ok=False כשהחילוץ נכשל (Gemini לא זמין/timeout/תשובה לא תקינה) — הלקוח עובר למילוי ידני."""
+    ok=False כשהחילוץ נכשל (Gemini לא זמין/timeout/תשובה לא תקינה) — הלקוח עובר למילוי ידני.
+
+    status tells the client which of four different outcomes this is, so a failure never looks like an
+    empty extraction: "found" (every field), "partial", "nothing_found" (the model read the payslip and none
+    of the supported fields is on it), "failed" (no usable answer from the model: error, timeout, not JSON)."""
 
     ok: bool
     fields: list[ExtractedField] = field(default_factory=list)
     message_he: str = ""            # הודעה עברית (הצלחה או כשל); לעולם לא מכילה ערכים מהתלוש
+    status: str = "failed"
 
     def as_dict(self) -> dict:
         return {
             "ok": self.ok,
+            "status": self.status,
             "fields": [f.as_dict() for f in self.fields],
             "message_he": self.message_he,
         }
