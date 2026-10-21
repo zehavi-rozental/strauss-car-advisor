@@ -18,6 +18,7 @@ from app.modules.conversation.public import (
     ConversationService,
     FieldsInvalid,
     TurnResult,
+    results_stale,
 )
 from app.modules.payslip.public import PayslipError
 
@@ -61,6 +62,7 @@ def _turn(t: TurnResult) -> dict[str, Any]:
                     for r in t.results],
         "pending_rep": t.pending_rep.value if t.pending_rep else None,
         "expects": t.expects,
+        "results_stale": t.results_stale,
     }
 
 
@@ -212,6 +214,7 @@ def get_conversation(conversation_id: str, request: Request) -> dict[str, Any]:
     return {"conversation_id": view.conversation_id, "stage": view.stage.value, "profile": state["profile"],
             "current_car": {k: v for k, v in state["current"].items() if k != "choices"},
             "selected": state["selected"], "results": state["results"],
+            "results_stale": results_stale(view.state),
             "pending_rep": state["pending_rep"]["reason"] if state["pending_rep"] else None,
             "expects": view.expects, "messages": view.messages}
 

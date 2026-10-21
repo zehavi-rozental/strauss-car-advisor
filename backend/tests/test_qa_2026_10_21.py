@@ -240,7 +240,7 @@ def test_a_payslip_value_replaces_the_chat_value_with_an_explicit_update(client)
 
 # ---------- results that are out of date ----------
 
-@pytest.mark.xfail(strict=True, reason="RC4: stale results served as current")
+@pytest.mark.xfail(strict=True, reason="RC5: a car correction after a result is not read")
 def test_a_result_that_cannot_be_recalculated_is_marked_stale(client):
     cid, body = _chat(client, PROFILE, "יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש", "אטו 3")
     assert body["results"] and body["results_stale"] is False
@@ -251,7 +251,7 @@ def test_a_result_that_cannot_be_recalculated_is_marked_stale(client):
     assert view["results_stale"] is True
 
 
-@pytest.mark.xfail(strict=True, reason="RC4: STATE quotes stale numbers")
+@pytest.mark.xfail(strict=True, reason="RC5: a car correction after a result is not read")
 def test_the_model_never_sees_a_stale_result_as_current(sessions):
     from app.modules.conversation.turn import state_block
     from app.modules.rules.public import load_snapshot
@@ -260,6 +260,20 @@ def test_the_model_never_sees_a_stale_result_as_current(sessions):
     turn = svc.send(turn.conversation_id, token, "זה לא הרכב שלי")
     block = state_block(state(svc, turn, token), load_snapshot(CONFIG))
     assert "net today" not in block and "out of date" in block
+
+
+def test_an_invalidated_result_is_stale_until_recalculated_and_never_quoted(sessions):
+    from app.modules.conversation.public import results_stale
+    from app.modules.conversation.turn import state_block
+    from app.modules.rules.public import load_snapshot
+    svc = service(sessions)
+    turn, token = talk(svc, PROFILE, "יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש", "אטו 3")
+    s = state(svc, turn, token)
+    assert s.results and not results_stale(s)
+    s.calculated_for = []                     # what every save does (tools._invalidate_results)
+    assert results_stale(s)
+    block = state_block(s, load_snapshot(CONFIG))
+    assert "out of date" in block and "net today" not in block
 
 
 # ---------- the representative's note ----------

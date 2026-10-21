@@ -15,7 +15,8 @@ from typing import Any, Optional, Sequence
 from app.modules.rules.public import FAMILY_GROUP, RulesSnapshot
 
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
-from .stage import ConversationState, Stage, current_group, missing_current_car, next_stage, open_profile, unknown_missing
+from .stage import (ConversationState, Stage, current_group, missing_current_car, next_stage, open_profile,
+                    results_stale, unknown_missing)
 from .templates import DRIVE_HE, FIELD_NAMES, group_question, money, paced
 from .tools import TOOL_SPECS, available_options
 
@@ -138,9 +139,13 @@ def state_block(state: ConversationState, snapshot: RulesSnapshot, parser_hint: 
         lines.append(f"waiting: is {state.pending_clarification.label} the car today or an alternative?")
     if state.pending_rep is not None:
         lines.append(f"waiting for the transport representative: {state.pending_rep.reason.value}")
+    stale = results_stale(state)
     for r in state.results:
         res = r.result
-        if res.get("status") == "OK":
+        if stale:
+            lines.append(f"result {r.label}: out of date (calculated before the last change; it is recalculated "
+                         "once the missing details are known). Never quote its numbers or recommend from it")
+        elif res.get("status") == "OK":
             lines.append(f"result {r.label}: net today {res['today']['net_display']}, net with it "
                          f"{res['alternative']['net_display']}, change {res['delta_display']}; why: {res.get('why', '')}")
             if res.get("copay_pending"):

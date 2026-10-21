@@ -312,6 +312,13 @@ def next_stage(state: ConversationState) -> Stage:
     return Stage.PRESENTED
 
 
+def results_stale(state: ConversationState) -> bool:
+    """The results on record were calculated before the last change (a saved value, another car, another
+    selection) and could not be recalculated yet. Kept as history, marked "לא מעודכן"; never a current
+    recommendation, never ranked, never quoted as current, never the base of a decision."""
+    return bool(state.results) and state.calculated_for != state.selected
+
+
 def current_group(state: ConversationState) -> tuple[Optional[str], list[str]]:
     """השאלה המקובצת הנוכחית ושדותיה החסרים: ("Q1" | "Q2" | "Q3" | "car_detail", [...])."""
     stage = next_stage(state)

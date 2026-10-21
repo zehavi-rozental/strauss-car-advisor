@@ -463,6 +463,12 @@ def rep_changed_text(label: str, amount: Decimal, effective: Optional[date], old
             f"ההפרש עודכן: במקום {signed(old_delta)}, עכשיו {signed(new_delta)} בחודש.")
 
 
+def rep_copay_text(label: str, amount: Decimal, effective: Optional[date]) -> str:
+    """The representative's copay when the result on record is out of date: the amount only (the net
+    comes from the recalculation, never from the old result)."""
+    return f"נציג התחבורה קבע השתתפות של {money(amount)} בחודש {in_label(label)}{_effective(effective)}."
+
+
 def rep_current_text(field: str, label: str, amount: Decimal) -> str:
     what = "ההשתתפות הנוכחית שלכם" if field == "CURRENT_COPAY" else "שווי השימוש"
     return f"נציג התחבורה השיב: {what} ב-{label} היא {money(amount)}."

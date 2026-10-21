@@ -51,6 +51,7 @@ from .stage import (
     missing_profile,
     open_profile,
     next_stage,
+    results_stale,
     Q2_FIELDS,
 )
 from .templates import (
@@ -83,6 +84,7 @@ from .templates import (
     rep_current_text,
     rep_maintenance_text,
     rep_note_text,
+    rep_copay_text,
     form_saved_text,
     rep_opt_out_text,
     results_text,
@@ -1380,6 +1382,10 @@ class Agent:
         item = next((r for r in state.results if r.option_id == event.option_id), None)
         if item is None:
             return None                        # החלופה כבר לא מוצגת; ההשתתפות נשמרה לפעם הבאה
+        if results_stale(state):
+            # the result on record predates a change: no before/after from it. The amount is kept
+            # (confirmed_copays) and used by the recalculation that follows.
+            return rep_copay_text(item.label, amount, event.effective_date)
         used = (item.result.get("alternative") or {}).get("copay")
         if used is not None and Decimal(str(used)) == amount:
             pending_text = f"השתתפות ב-{item.label} לפי הקטלוג — ממתינה לאישור נציג"
@@ -1563,7 +1569,9 @@ class Agent:
         """Numbers the reply may contain: STATE, this turn's tool results, the FAQ, the catalog names and the
         employee's own messages (and the template of this turn, which code built from the same data)."""
         snap = ctx.snapshot
-        sources: list[Any] = [ctx.state.model_dump(mode="json"), cand.tool_results, draft, text,
+        # numbers of a result that is out of date are not allowed in a reply: they are not current
+        dump = ctx.state.model_dump(mode="json", exclude={"results"} if results_stale(ctx.state) else None)
+        sources: list[Any] = [dump, cand.tool_results, draft, text,
                               [m.content for m in history if m.role == "user"],
                               [e.answer for e in snap.faq.entries], [c.label for c in snap.catalog], MAX_OPTIONS,
                               len([o for o in available_options(snap, ctx.state) if o.car])]

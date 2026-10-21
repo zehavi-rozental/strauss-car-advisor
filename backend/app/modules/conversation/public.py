@@ -49,7 +49,7 @@ from .repository import (
     combined_hash,
     token_hash,
 )
-from .stage import ConversationState, OptionResult, RepReason, Stage
+from .stage import ConversationState, OptionResult, RepReason, Stage, results_stale
 
 
 log = logging.getLogger(__name__)
@@ -78,6 +78,7 @@ class TurnResult:
     path: str = ""            # parser / llm / fallback / templates / waiting / choice (ללוג; לא נשלח ב-API)
     say: str = ""             # SAY: llm, or why the template was used (ללוג; לא נשלח ב-API)
     expects: dict[str, Any] = field(default_factory=dict)   # מה השאלה הבאה מצפה לקבל (כפתורים, סוג)
+    results_stale: bool = False   # the results on record predate the last change (stage.results_stale)
 
 
 @dataclass
@@ -300,7 +301,8 @@ class ConversationService:
                           source=outcome.source,
                           results=state.results if outcome.just_calculated else [],
                           pending_rep=state.pending_rep.reason if state.pending_rep else None,
-                          path=outcome.path, say=outcome.say, expects=build_expects(state, snapshot))
+                          path=outcome.path, say=outcome.say, expects=build_expects(state, snapshot),
+                          results_stale=results_stale(state))
 
     def _store_questions(self, session, repo: ConversationRepository, conv_id: uuid.UUID,
                          state: ConversationState, outcome) -> None:
@@ -378,7 +380,8 @@ class ConversationService:
                    for q in self.cases.list_for_conversation(str(conv_id), QuestionStatus.OPEN)]
         return {"conversation_id": str(conv_id), "stage": state.stage.value, "messages": messages,
                 "pending_questions": pending, "expects": build_expects(state, self.rules.current),
-                "results": [r.model_dump(mode="json") for r in state.results]}
+                "results": [r.model_dump(mode="json") for r in state.results],
+                "results_stale": results_stale(state)}
 
     def view(self, conversation_id: str, token: str) -> ConversationView:
         self._apply_pending(self._authorized(conversation_id, token))
@@ -429,5 +432,5 @@ __all__ = [
     "ConversationConflict", "ConversationLimitReached", "ConversationNotFound", "ConversationService",
     "ConversationState",
     "ConversationView", "LLMChain", "LLMPort", "OptionResult", "RepReason", "Stage",
-    "TurnResult", "build_llm_chain", "reproduce_run", "ChoiceInvalid", "FieldsInvalid",
+    "TurnResult", "build_llm_chain", "results_stale", "reproduce_run", "ChoiceInvalid", "FieldsInvalid",
 ]
