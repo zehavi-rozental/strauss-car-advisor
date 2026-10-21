@@ -176,7 +176,11 @@ Both cloud conversations replayed message by message (template mode + a FakeLLM 
 
 - A payslip upload (the "להעלות תלוש" link is ready behind `payslip_upload_url`).
 - Browser checks of the session-2 UI (desktop + 375px): progress header, links, closed buttons only.
-- `llm.intro_deadline` / `intro_budget_s` in `LLMChain` and `MAX_TOOL_ROUNDS` / `FORCED_TOOL_STAGES` in `agent.py` are unused; delete them in a cleanup.
+- `LLMChain.intro_deadline` and the `LLM_INTRO_BUDGET_S` setting are unused (the results intro call was removed); remove them together with the setting in a cleanup that also checks the Render environment.
+- The save_profile argument → Profile attribute map exists in several copies (`agent._ASKED_ARG`, `_HIDDEN_ARGS`, `_form_values`, `fallback._PROFILE_ARG`, `_CORRECTABLE`); one shared map in `stage.py` would remove the risk of a field added to one copy only.
+- The payslip conflict ("differs") is computed in the browser from the profile; the server's "עדכנתי: X במקום Y" is the authoritative record of what changed. If the profile cannot be read the review preselects nothing.
+- `ProfileForm` silently shows empty fields when its prefill request fails (nothing is lost: only changed fields are sent).
+- The Docker image could not be built on the development machine (TLS inspection by the local network filter breaks `pip` inside the container); CI builds it.
 - The rep screen shows `GENERAL_QUESTION` with the generic TEXT answer field; a dedicated layout (the employee's question as the title) would read better.
 
 ## Known limitations (מגבלות ידועות)
