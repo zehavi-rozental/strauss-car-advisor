@@ -407,6 +407,9 @@
   border: 1px solid var(--line-2);
   border-radius: 28px;
   background: var(--card);
+  /* its own text colour with its own light background: never inherit the hero's white (.chat.is-intro) */
+  color: var(--ink);
+  caret-color: var(--brand);
   box-shadow: var(--shadow-2);
   transition: border-color var(--t-fast) var(--ease-soft), box-shadow var(--t-med) var(--ease-soft);
 }
