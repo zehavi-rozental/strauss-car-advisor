@@ -378,6 +378,29 @@ def range_problem_text(field: str, value: Decimal, side: str) -> str:
     return f"{_show(field, value)} נראה {'נמוך' if side == 'low' else 'גבוה'} מאוד {reason}. {follow_up}"
 
 
+def range_refused_text(field: str, value: Decimal, side: str) -> str:
+    """A refused value said as a statement (another question is open): "לא רשמתי קרן השתלמות 6%, כי זה גבוה
+    מהטווח שהמערכת מאפשרת. אשאל על זה שוב." The field stays missing and is asked again later."""
+    return (f"לא רשמתי {_VALUE_LABELS[field][0]} {_show(field, value)}, כי זה "
+            f"{'נמוך' if side == 'low' else 'גבוה'} מהטווח שהמערכת מאפשרת. אשאל על זה שוב.")
+
+
+_FIELD_CTA = {
+    "base_salary": "כתבו את הסכום מהתלוש, למשל: 18,500.", "commissions": "כתבו את הסכום, למשל: 1,000, או \"אין\".",
+    "bonus": "כתבו את הסכום, למשל: 1,000, או \"אין\".", "pension_percent": "כתבו את האחוז, למשל: 6.",
+    "study_fund_percent": "כתבו את האחוז, למשל: 2.5, או \"אין\".",
+    "credit_points": "כתבו את מספר הנקודות מהתלוש, למשל: 2.25.",
+    "children_under_23": "כתבו את המספר, למשל: 2, או \"אין\".",
+    "current_use_value": "כתבו את הסכום מהתלוש, למשל: 4,000.", "current_copay": "כתבו את הסכום, למשל: 300.",
+    "current_maintenance": "כתבו את הסכום, למשל: 1,500, או \"אין\".",
+}
+
+
+def field_cta(field: str) -> str:
+    """The call to action for a question about one field (a re-ask after "לתקן" or a refused value)."""
+    return _FIELD_CTA.get(field, "כתבו כאן את התשובה.")
+
+
 def confirm_occupation_text(text: str, suggestions: list[str]) -> str:
     if suggestions:
         return f"לא מצאתי את \"{text}\" בטבלת העיסוקים. התכוונתם לאחד מאלה: {', '.join(suggestions)}?"
@@ -883,7 +906,8 @@ def options_ask(state: ConversationState, snapshot: RulesSnapshot) -> str:
 
 def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood: bool,
                just_calculated: bool, matched_car: bool = False, notice: Optional[str] = None,
-               rep_opened: bool = False, notice_asks: bool = False, confirmations: Sequence[str] = (),
+               rep_opened: bool = False, notice_asks: bool = False, cta_field: Optional[str] = None,
+               confirmations: Sequence[str] = (),
                answers: Sequence[tuple[str, str]] = (), follow_up: Sequence[str] = (),
                explain: bool = False, extra: Sequence[str] = ()) -> ReplyPlan:
     """The next reply, from the state only. answers: (FAQ answer, term) pairs; extra: lines that come
@@ -931,6 +955,8 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
     fields = current_group(state)[1]
     if notice_asks and notice:
         plan.ask.append(notice)                        # range problem / conflict: the sentence asks
+        if cta_field:
+            plan.cta = field_cta(cta_field)            # the call to action answers that same question
         return plan
     if state.pending_confirmation is not None:
         pending = state.pending_confirmation

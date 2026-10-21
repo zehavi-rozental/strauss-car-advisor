@@ -194,6 +194,9 @@ _PROFILE_PATTERNS = (
 )
 # "אין עמלות ואין בונוס" / "בלי עמלות ובונוסים" → 0
 _ZERO_PATTERNS = (
+    # an explicit "אין נקודות זיכוי" / "אין פנסיה" is a value (0); save_profile asks to confirm it (rare)
+    ("credit_points", r"(?:אין|בלי|ללא)(?:\s+לי)?\s*נקודות\s*(?:ה)?זיכוי"),
+    ("pension_percent", r"(?:אין|בלי|ללא)(?:\s+לי)?\s*(?:הפרשה\s+ל)?פנסיה"),
     ("commissions", rf"{_NEG}(?:\s+לי)?\s*עמלות"),
     ("bonus", rf"{_NEG}(?:\s+[^\s,]+){{0,2}}?\s*ו?(?:{_NEG}\s*)?בונוס"),
     ("study_fund_percent", rf"{_NEG}(?:\s+לי)?\s*(?:קרן\s*)?השתלמות"),
@@ -270,6 +273,14 @@ NAME_PREFIX_LETTERS = "והבלמשכ"  # כמו mentions: "הקורולה", "ו
 
 
 _NOT_KNOWING = ("זוכר", "יודע", "בטוח", "ידוע")
+
+# "ילדים מתחת גיל 23", "עד גיל 23", "בני 23": an age that is part of the field's name, never a value
+_AGE_RE = re.compile(r"(?:ה?גיל|בני|בנות)\s*-?\s*(\d{1,2})(?!\d)")
+
+
+def mask_ages(text: str) -> str:
+    """The text with ages ("גיל 23") blanked out, same length (spans stay valid)."""
+    return _AGE_RE.sub(lambda m: m.group(0)[:m.start(1) - m.start(0)] + " " * len(m.group(1)), text)
 
 
 def negates(text: str) -> bool:
@@ -374,6 +385,8 @@ _LABELLED = (
     ("children_under_23", r"(?<![\d.,])(\d+)\s*(?:ילדים|ילדות|ילד)(?![א-ת])"),
 )
 _LABELLED_ZERO = (
+    ("credit_points", r"(?:אין|בלי|ללא)\s+(?:לי\s+)?נקודות\s*(?:ה)?זיכוי"),
+    ("pension_percent", r"(?:אין|בלי|ללא)\s+(?:לי\s+)?(?:הפרשה\s+ל)?פנסיה"),
     ("commissions", r"(?:אין|בלי|ללא)\s+(?:לי\s+)?עמלות"),
     ("bonus", r"(?:אין|בלי|ללא)\s+(?:לי\s+)?בונוס"),
     ("study_fund_percent", r"(?:אין|בלי|ללא)\s+(?:לי\s+)?(?:קרן\s+)?השתלמות"),
@@ -386,6 +399,7 @@ _NEGATIONS = {"לא"}
 
 def _labelled_values(text: str, cues: Iterable[str], qualifiers: Iterable[str] = ()) -> dict[str, object]:
     """ערכים שאין ספק בהם: מילת מפתח + מספר אחד, בלי שלילה, תיקון, הערכה או מספר שני."""
+    text = mask_ages(text)
     stop = _NEGATIONS | {w for c in cues for w in words(c)}
     qualify = {w for q in qualifiers for w in words(q)}
     found: dict[str, set] = {}
@@ -419,6 +433,7 @@ def _labelled_values(text: str, cues: Iterable[str], qualifiers: Iterable[str] =
 
 def read_profile(text: str, occupations: Iterable[str], cues: Iterable[str] = (),
                  qualifiers: Iterable[str] = ()) -> ProfileReading:
+    text = mask_ages(text)
     fields: dict[str, object] = {}
     spans: list[Span] = []
     phrases: list[str] = []

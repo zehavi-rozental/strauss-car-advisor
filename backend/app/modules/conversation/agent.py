@@ -29,7 +29,7 @@ from .fallback import (ZERO_ALLOWED, fields_plan, ParserPlan, car_roles, correct
 from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
 from .grounding import grounded_number, group_named, occupation_named, option_named, zero_grounded
-from .parsing import (YEAR_RE, has_all_scope, match_drive, match_occupation, no_car_span, occupation_match,
+from .parsing import (YEAR_RE, has_all_scope, mask_ages, match_drive, match_occupation, no_car_span, occupation_match,
                       parse_copay, read_profile, redact_id_numbers)
 from .guards import (FIELD_WORDS, SINGULAR_RE, TAG_RE, Check, Violation, ask_lines, check, content_sentences, drop,
                      has_statement, sentences, strip_tags, verify)
@@ -77,6 +77,7 @@ from .templates import (
     conflict_text,
     queued_option_text,
     range_problem_text,
+    range_refused_text,
     render,
     rep_changed_text,
     rep_amount_assumption,
@@ -216,8 +217,11 @@ def _confirmation_plan(state: ConversationState, text: str) -> Optional[ParserPl
         return ParserPlan([ToolCall("save_profile", args, "confirmed")], True, direct=True)
     if ws[0] in _NO:
         state.pending_confirmation = None
-        notice = unusual_fix_text(pending.field) if pending.unusual else None
-        return ParserPlan(complete=True, notice=notice, direct=True)
+        if pending.unusual:
+            # "לתקן": the same field is asked again, and it is the only question of the reply
+            return ParserPlan(complete=True, notice=unusual_fix_text(pending.field), direct=True,
+                              asks=pending.field)
+        return ParserPlan(complete=True, direct=True)
     return None
 
 
@@ -898,7 +902,7 @@ class Agent:
         understood = understood or state.stage != before
         notice = _plan_notice(plan, path)
         if (notice and notice.startswith("רשמתי") and plan.fallback_notice and path in ("fallback", "templates")
-                and state.pending_confirmation is not None):
+                and (state.pending_confirmation is not None or ctx.range_problems)):
             # a partly read sentence: the parser's fallback notice lists every value it read, written before the
             # checks, so it also names a value held for confirmation ("עמלות 15 ₪": 15 or 15,000?) as recorded.
             # The acknowledgement comes from the state instead (only what was really saved).
@@ -909,7 +913,14 @@ class Agent:
         # רכב שזוהה בתור הזה (מהקורא, מהמודל או מהגיבוי) — אומרים איזה, כדי שטעות לא תעבור בשקט
         matched_car = state.current.source in ("catalog", "tax") and _car_key(state) != car_before
         rep_opened = any(r.mode == Mode.REQUIRED for r in ctx.question_requests)
-        problems = [conflict_text(c) for c in conflicts] + [range_problem_text(*p) for p in ctx.range_problems]
+        # One question per reply. A value held for confirmation ("לאשר 0 נקודות זיכוי?") is that question; a
+        # value refused by its range is then said as a statement, and its field is asked again afterwards.
+        held = state.pending_confirmation is not None
+        refused = [range_refused_text(*p) for p in ctx.range_problems] if held else []
+        problems = [conflict_text(c) for c in conflicts] + (
+            [] if held else [range_problem_text(*p) for p in ctx.range_problems])
+        asks_field = plan.asks or (ctx.range_problems[0][0] if ctx.range_problems and not held and not conflicts
+                                   else None)
         answers, terms = self._answers(snapshot, und)
         # "אין רכב": said now, or said again ("כתבתי שאין לי רכב"): acknowledged first; said again while the
         # maintenance question is open, the question is explained in its own words (never a stale field)
@@ -934,7 +945,8 @@ class Agent:
         reply_plan = plan_reply(
             state, snapshot, understood=understood or bool(problems) or und.anything, just_calculated=just_calculated,
             matched_car=matched_car, notice="\n".join(problems) or notice, rep_opened=rep_opened,
-            notice_asks=bool(problems), confirmations=confirmations, answers=list(zip(answers, terms)),
+            notice_asks=bool(problems) or plan.asks is not None, cta_field=asks_field,
+            confirmations=[*confirmations, *refused], answers=list(zip(answers, terms)),
             follow_up=und.presence, explain=und.help or len(no_car_lines) > 1, extra=lines)
         _mark_asked(state)
         # the reply about unknown fields alternates its wording: "לא יודע" twice never gets the same text
@@ -1063,11 +1075,13 @@ class Agent:
         snap = ctx.snapshot
         ext = snap.extensions
         kept, refused = dict(args), []
+        numbers_text = mask_ages(text)       # "ילדים מתחת גיל 23": the age is part of the field's name
         for key in _NUMERIC_ARGS:
             value = kept.get(key)
             if value is None:
                 continue
-            ok = zero_grounded(key, text, ext.zero_cues) if _is_zero(value) else grounded_number(value, text)
+            ok = (zero_grounded(key, text, ext.zero_cues) if _is_zero(value)
+                  else grounded_number(value, numbers_text))
             if not ok:
                 refused.append(key)
         if kept.get("eligibility_group") and not group_named(text, snap.calc.group_order, FAMILY_GROUP):

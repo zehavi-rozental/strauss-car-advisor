@@ -82,6 +82,7 @@ class ParserPlan:
     guess: bool = False                      # "כל ההודעה היא הערך" (תפקיד/דגם קצר) — רק כשהמודל לא זמין
     clarify: Optional[CarClarification] = None   # רכב שלא ברור אם הוא של היום או חלופה — שואלים
     acked: bool = False                      # the notice already names every value saved (no second "רשמתי")
+    asks: Optional[str] = None               # the notice IS the question, about this save_profile field
     clarify_scope: bool = False              # a blanket answer ("לא ידוע", "אין לי כלום", "הכל 5") to a
     #   grouped Q2: too broad to split silently — save nothing, switch to one field at a time, ask again
 
@@ -154,7 +155,43 @@ def fallback_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) 
     unknown = _unknown_plan(snapshot, fields, t, group)
     if unknown is not None:
         return unknown
+    bound = _bound_value_plan(state, snapshot, t)
+    if bound is not None:
+        return bound
     return _fallback_plan_rest(state, snapshot, group, fields, t)
+
+
+# the one profile field the last reply asked about (state.asked_field) → a bare value answers it
+_BOUND_ARGS = {"base_salary", "commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points",
+               "children_under_23"}
+_FIRST_LINE_RE = re.compile(r"^\s*(.+?)\s*(?:(?:\n|;|,(?!\s*\d))\s*(.*))?$", re.S)   # "14,200" / "2,25": one number
+
+
+def _bound_value_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Optional[ParserPlan]:
+    """A bare value as the whole message, or as its first line ("3\nיש קורולה…"), answers the one field the
+    last question asked (state.asked_field), even inside a grouped question. The rest of the message is read
+    as usual. Never remapped to another field."""
+    arg = state.asked_field
+    if arg not in _BOUND_ARGS:
+        return None
+    m = _FIRST_LINE_RE.match(text)
+    if m is None:
+        return None
+    head, rest = m.group(1), (m.group(2) or "").strip()
+    read = read_value(head, snapshot.extensions.answer_fillers)
+    if read is None:
+        return None
+    value, approximate = read
+    if arg == "children_under_23":
+        if approximate or Decimal(value) != int(Decimal(value)):
+            return None
+        value = int(Decimal(value))
+    calls = _call("save_profile", **{arg: value}, approximate_fields=[arg] if approximate else [])
+    if not rest:
+        return ParserPlan(calls, True)
+    others = _fallback_plan_rest(state, snapshot, *current_group(state), rest)
+    return ParserPlan([*calls, *others.calls], others.complete, notice=others.notice,
+                      fallback_notice=others.fallback_notice, direct=others.direct, clarify=others.clarify)
 
 
 def _profile_and_no_car_plan(state: ConversationState, snapshot: RulesSnapshot,

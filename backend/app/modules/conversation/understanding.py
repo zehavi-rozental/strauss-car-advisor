@@ -264,7 +264,7 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
                 u.faq_ids.append(entry)
             continue
         kept.append(clause)
-    remainder = " ".join(kept).strip()
+    remainder = "\n".join(c.strip() for c in kept).strip()      # clause boundaries stay (a first-line value)
     u.compare = _asks_to_compare(remainder)
     # a ranking / recommendation request ("הכי משתלם", "תמליץ", "דרג") is a request to rank ALL eligible
     # cars — distinct from a plain "תשווה ביניהם" that asks to compare a chosen set

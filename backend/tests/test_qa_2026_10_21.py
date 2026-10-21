@@ -59,7 +59,6 @@ def _to_q2(svc):
     return talk(svc, "יש לי רכב חברה ואני בקבוצה ב", "16000")
 
 
-@pytest.mark.xfail(strict=True, reason="RC6/RC7: label digits, one clarification")
 def test_a_mixed_q2_message_saves_the_valid_values_and_says_what_was_refused(sessions):
     svc = service(sessions)
     turn, token = _to_q2(svc)
@@ -79,7 +78,6 @@ def test_a_mixed_q2_message_saves_the_valid_values_and_says_what_was_refused(ses
     assert turn.reply.rstrip().endswith("או כתבו את הערך הנכון.") and "לאשר" in turn.reply
 
 
-@pytest.mark.xfail(strict=True, reason="RC6/RC7: fix asks two things; negates")
 def test_fixing_the_held_value_asks_only_that_field_and_binds_the_answer(sessions):
     svc = service(sessions)
     turn, token = _to_q2(svc)
@@ -95,7 +93,6 @@ def test_fixing_the_held_value_asks_only_that_field_and_binds_the_answer(session
     assert [c.label for c in s.current.choices] == ["COROLLA (2026)", "COROLLA CROSS (2025)"]
 
 
-@pytest.mark.xfail(strict=True, reason="RC7: age grounding, zero proximity")
 def test_the_model_cannot_read_an_age_as_a_child_count_or_a_far_zero(sessions):
     fake = FakeLLM()
     svc = service(sessions, fake)
