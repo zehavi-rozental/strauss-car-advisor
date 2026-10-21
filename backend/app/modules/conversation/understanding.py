@@ -71,6 +71,7 @@ class Understanding:
     all_at_once: bool = False                               # "תן לי את כל השאלות בפעם אחת": about the conversation
     audit: bool = False                                     # "כבר כתבתי לך": say what is saved and missing
     has_car: bool = False                                   # "יש לי רכב חברה": there is a car (model unknown)
+    map_all: bool = False                                   # 360°: "השווה את כל האפשרויות שלי"
     remainder: str = ""                                     # the message without questions (read by the parser)
     catalog: list[str] = field(default_factory=list)        # answers from the company catalog ("יש לכם קורולה?")
 
@@ -233,7 +234,8 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
     # correction, never an audit — it must not be swallowed as one.
     audit = any(cue in text for cue in _AUDIT_CUES) and "טעיתי" not in text
     u = Understanding(complaint=not audit and any(cue in text for cue in _COMPLAINT_CUES), audit=audit,
-                      has_car=bool(_HAS_CAR_RE.search(text)) and not no_car_span(text))
+                      has_car=bool(_HAS_CAR_RE.search(text)) and not no_car_span(text),
+                      map_all=any(cue in text for cue in snapshot.extensions.option_map_cues))
     if _contains_any(text, faq.injection_patterns) or (
             _contains_any(text, faq.off_topic_patterns) and not named_cars(text, snapshot.catalog)):
         u.redirect = True
@@ -255,7 +257,7 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
                 u.help = True
             elif catalog:
                 u.catalog.append(catalog)
-            elif entry is None and u.audit:
+            elif entry is None and (u.audit or u.map_all):    # a request ("מה כל האפשרויות שלי?"), not for the rep
                 pass          # "כתבתי לך שיש לי רכב, למה אתה שואל שוב?": rhetorical; answered from the state
             elif entry is None:
                 u.unanswered.append(clause.strip())
@@ -264,7 +266,7 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
             continue
         kept.append(clause)
     remainder = "\n".join(c.strip() for c in kept).strip()      # clause boundaries stay (a first-line value)
-    u.compare = _asks_to_compare(remainder)
+    u.compare = _asks_to_compare(remainder) or u.map_all
     # a ranking / recommendation request ("הכי משתלם", "תמליץ", "דרג") is a request to rank ALL eligible
     # cars — distinct from a plain "תשווה ביניהם" that asks to compare a chosen set
     u.rank = bool(_RANK_RE.search(text))

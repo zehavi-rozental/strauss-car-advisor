@@ -38,6 +38,7 @@ from .llm.port import ToolSpec
 from .parsing import match_drive, match_group, match_occupation, parse_decimal, similar_occupations
 from .stage import (
     PROFILE_ARGS,
+    ExcludedOption,
     MAX_OPTIONS,
     Q2_FIELDS,
     OPT_OUT_ID,
@@ -363,9 +364,15 @@ def _drive_enum(text: str) -> Optional[Drive]:
         return None
 
 
-def _invalidate_results(state: ConversationState) -> None:
-    """נתון השתנה → התוצאות הקודמות כבר לא תקפות; יחושבו מחדש לאותן חלופות."""
+def _invalidate_results(state: ConversationState, data: bool = True) -> None:
+    """נתון השתנה → התוצאות הקודמות כבר לא תקפות; יחושבו מחדש לאותן חלופות. data=False: only the
+    selection changed (the option map, which covers every option, is still valid)."""
     state.calculated_for = []
+    if data and state.option_map is not None:
+        state.option_map.fresh = False
+
+
+invalidate_results = _invalidate_results     # for the agent (rep answers change data outside the tools)
 
 
 # ---------- match_current_car ----------
@@ -496,23 +503,41 @@ class Option:
     car: Optional[CatalogCar] = None
 
 
-def available_options(snapshot: RulesSnapshot, state: ConversationState) -> list[Option]:
-    """רכבים מהקבוצה של העובד ומטה, רכבי המסלול המשפחתי ל-4+ ילדים, וויתור כשהעיסוק מאפשר."""
+def classify_options(snapshot: RulesSnapshot, state: ConversationState
+                     ) -> tuple[list[Option], list[ExcludedOption]]:
+    """The eligibility rules in one place: the options the employee may choose (their group and lower, the
+    family track from the minimum number of children, opting out when the occupation allows it) and every
+    other catalog car with the rule that excludes it. The car today is neither."""
     p = state.profile
     order = snapshot.calc.group_order
     rank = order.index(p.group) if p.group in order else -1
     family = (p.children or 0) >= snapshot.calc.family_min_children
     out: list[Option] = []
+    excluded: list[ExcludedOption] = []
     for car in snapshot.catalog:
         if car.catalog_code == state.current.catalog_code:
             continue
         own_or_lower = car.group in order and order.index(car.group) <= rank
         if own_or_lower or (car.group == FAMILY_GROUP and family):
             out.append(Option(id=car.catalog_code, label=car.label, group=car.group, drive=car.drive, car=car))
+        elif car.group == FAMILY_GROUP:
+            excluded.append(ExcludedOption(label=car.label, group=car.group, reason=(
+                f"מסלול משפחתי: מ-{snapshot.calc.family_min_children} ילדים "
+                f"עד גיל {snapshot.strauss.family_track.child_max_age}")))
+        else:
+            excluded.append(ExcludedOption(label=car.label, group=car.group,
+                                           reason=f"קבוצה {car.group}, מעל קבוצת הזכאות שלכם"))
     occ = snapshot.occupations.get(p.occupation or "")
     if state.current.source != "none" and (occ is None or (occ.opt_out_allowed and not occ.car_mandatory)):
         out.append(Option(id=OPT_OUT_ID, label=OptOutState().label, group=None, drive=None))
-    return out
+    elif state.current.source != "none":
+        excluded.append(ExcludedOption(label=OptOutState().label, reason="בעיסוק שלכם לא ניתן לוותר על הרכב"))
+    return out, excluded
+
+
+def available_options(snapshot: RulesSnapshot, state: ConversationState) -> list[Option]:
+    """רכבים מהקבוצה של העובד ומטה, רכבי המסלול המשפחתי ל-4+ ילדים, וויתור כשהעיסוק מאפשר."""
+    return classify_options(snapshot, state)[0]
 
 
 MIN_PARTIAL_CHARS = 3        # a fragment shorter than this ("3", "a", "ev") is never a car
@@ -575,7 +600,7 @@ def calculate(ctx: ToolContext, args: CalculateArgs) -> dict[str, Any]:
     ctx.state.selected = chosen[:MAX_OPTIONS]
     ctx.state.rank_requested = False
     ctx.state.ranked_count = 0
-    _invalidate_results(ctx.state)
+    _invalidate_results(ctx.state, data=False)
     return {"selected": ctx.state.selected, "not_recognized": unknown, "ambiguous": ambiguous,
             "note": "the system calculates now; do not compute anything yourself"}
 
@@ -598,7 +623,7 @@ def rank_options(ctx: ToolContext, args: NoArgs) -> dict[str, Any]:
         raise ToolError("אין חלופות זכאיות לדירוג")
     ctx.state.selected = top
     ctx.state.ranked_count = len([r for r in ranked if r.alternative is not None])
-    _invalidate_results(ctx.state)
+    _invalidate_results(ctx.state, data=False)
     return {"selected": top, "note": "the system calculates the top options now"}
 
 

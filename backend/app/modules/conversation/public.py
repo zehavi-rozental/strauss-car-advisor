@@ -49,6 +49,7 @@ from .repository import (
     combined_hash,
     token_hash,
 )
+from .option_map import map_json
 from .stage import ConversationState, OptionResult, RepReason, Stage, results_stale
 
 
@@ -381,7 +382,7 @@ class ConversationService:
         return {"conversation_id": str(conv_id), "stage": state.stage.value, "messages": messages,
                 "pending_questions": pending, "expects": build_expects(state, self.rules.current),
                 "results": [r.model_dump(mode="json") for r in state.results],
-                "results_stale": results_stale(state)}
+                "results_stale": results_stale(state), "option_map": map_json(state)}
 
     def view(self, conversation_id: str, token: str) -> ConversationView:
         self._apply_pending(self._authorized(conversation_id, token))
@@ -432,5 +433,5 @@ __all__ = [
     "ConversationConflict", "ConversationLimitReached", "ConversationNotFound", "ConversationService",
     "ConversationState",
     "ConversationView", "LLMChain", "LLMPort", "OptionResult", "RepReason", "Stage",
-    "TurnResult", "build_llm_chain", "results_stale", "reproduce_run", "ChoiceInvalid", "FieldsInvalid",
+    "TurnResult", "build_llm_chain", "map_json", "results_stale", "reproduce_run", "ChoiceInvalid", "FieldsInvalid",
 ]

@@ -33,6 +33,8 @@ from .parsing import (YEAR_RE, has_all_scope, mask_ages, match_drive, match_occu
 from .guards import (FIELD_WORDS, SINGULAR_RE, TAG_RE, Check, Violation, ask_lines, check, content_sentences, drop,
                      has_statement, sentences, strip_tags, verify)
 from .turn import LLM_TOOLS, Candidate, parser_hint, render_catalog, render_faq, run_rounds, state_block, system_message, user_message
+from .option_map import build_option_map, dump_result as _dump, evaluate_option, map_reply
+from .option_map import with_assumptions as _with_assumptions
 from .understanding import NO_CAR_OR_ZERO, NOT_IN_CATALOG, Understanding, understand
 from .stage import (
     allowed_tools,
@@ -59,19 +61,16 @@ from .stage import (
 from .templates import (
     ALL_AT_ONCE,
     UNANSWERED,
-    to_plural,
     compare_needs_text,
     unknown_ack_text,
     call_to_action,
     money,
     plan_reply,
     GREETING,
-    OPT_OUT_DENIED,
     RANK_DEFERRED,
     REP_DEFERRED,
     chosen_options_text,
     confirm_group_text,
-    approximate_assumptions,
     clarify_car_text,
     confirmed_assumption,
     paced,
@@ -81,7 +80,6 @@ from .templates import (
     range_refused_text,
     render,
     rep_changed_text,
-    rep_amount_assumption,
     rep_confirmed_text,
     rep_current_text,
     rep_maintenance_text,
@@ -91,7 +89,6 @@ from .templates import (
     rep_opt_out_text,
     results_text,
     unusual_fix_text,
-    why_sentence,
 )
 from .tools import (
     GENERIC_CAR_LABEL,
@@ -100,9 +97,11 @@ from .tools import (
     TOOL_SPECS,
     ToolContext,
     VehicleGetter,
+    ToolError,
     VehicleLookup,
     available_options,
     engine_inputs,
+    invalidate_results,
     option_state,
     rep_car_label,
     safe_car_label,
@@ -163,26 +162,6 @@ def _clarification_answer(text: str) -> Optional[str]:
     if ws == ["לא"] or "חלופה" in ws:
         return "alternative"
     return None
-
-
-def _dump(result: Any) -> dict[str, Any]:
-    """The stored result: the engine's fields plus `why`, one plain sentence about the main cause
-    (built from the drivers, so the client never builds text from numbers)."""
-    out = result.model_dump(mode="json")
-    out["why"] = why_sentence(out.get("drivers") or [])
-    if out.get("reason"):
-        out["reason"] = to_plural(out["reason"])     # the engine keeps the reference wording
-    return out
-
-
-def _with_assumptions(result: Any, state: ConversationState, option_id: str, label: str) -> Any:
-    """הנחות שהמנוע לא יודע עליהן: ערכים משוערים, והשתתפות שהנציג אישר או קבע."""
-    extra = approximate_assumptions(state)
-    confirmed = state.confirmed_copays.get(option_id)
-    if confirmed is not None:
-        extra.append(rep_amount_assumption(label, confirmed.value, confirmed.effective_date) if confirmed.changed
-                     else confirmed_assumption(label, confirmed.effective_date))
-    return result.model_copy(update={"assumptions": result.assumptions + extra}) if extra else result
 
 
 _YES = {"כן", "נכון", "בדיוק", "אכן", "yes", "לאשר", "אשר"}
@@ -407,6 +386,8 @@ def _q2_fields_named(text: str) -> list[str]:
 _CLOSED_FIELDS = ("base", "commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points", "children")
 NO_CAR_ACK = "רשמתי: אין לכם רכב צמוד היום."
 HAS_CAR_ACK = "רשמתי שיש לכם רכב צמוד."
+MAP_UPDATED = "עדכנתי את מפת האפשרויות לפי הנתונים החדשים."
+MAP_DEFERRED = "אמפה את כל האפשרויות שלכם ברגע שתגיע תשובת נציג התחבורה."
 PACE_ONE = "בסדר, אשאל שאלה אחת בכל פעם."
 PACE_NORMAL = "בסדר, אפשר לענות על כמה דברים יחד."
 
@@ -739,6 +720,9 @@ class Agent:
                 # A question asked while waiting is still answered first.
                 state.unanswered_question = und.unanswered[0] if und.unanswered else None
                 extra = [UNANSWERED] if und.unanswered else [snapshot.faq.redirect] if und.redirect else []
+                if und.map_all:
+                    state.map_requested = True       # 360°: built as soon as the representative answers
+                    extra.append(MAP_DEFERRED)
                 reply = "\n\n".join([*self._answers(snapshot, und)[0], *extra, reply])
                 return TurnOutcome(reply=reply, source="template", path="waiting")
             reset_only = all(c.name == "match_current_car" and c.args.get("reset") for c in correction.calls)
@@ -890,8 +874,16 @@ class Agent:
         if next_stage(state) == Stage.CALCULATING:
             self._calculate(ctx, record_run)
             just_calculated = True
+        if und.map_all:
+            state.map_requested = True       # 360°: kept; the map is built as soon as every value is known
+        map_had = state.option_map is not None
+        map_built = self._resolve_map(ctx)
+        # the map is shown when asked for (and ready), and said to be updated when a change rebuilt it
+        map_shown = ((und.map_all or (map_built and not map_had))      # asked now, or asked earlier and ready now
+                     and state.option_map is not None and state.option_map.fresh)
+        map_line = map_reply(state) if map_shown else MAP_UPDATED if (map_built and map_had) else ""
         state.stage = next_stage(state)
-        understood = understood or state.stage != before
+        understood = understood or state.stage != before or map_shown
         notice = _plan_notice(plan, path)
         if (notice and notice.startswith("רשמתי") and plan.fallback_notice and path in ("fallback", "templates")
                 and (state.pending_confirmation is not None or ctx.range_problems)):
@@ -925,14 +917,14 @@ class Agent:
                 no_car_lines.append(entry.answer)
         if has_car_said and state.current.source is None and not state.current.choices:
             no_car_lines.append(HAS_CAR_ACK)
-        lines = [*extra, *([defer_ack] if defer_ack else []), *no_car_lines,
+        lines = [*extra, *([map_line] if map_line else []), *([defer_ack] if defer_ack else []), *no_car_lines,
                  *(["צודקים, סליחה."] if und.complaint else []),
                  *([_audit_text(state)] if und.audit else []),
                  *([ALL_AT_ONCE] if und.all_at_once else []),
                  *([snapshot.faq.redirect] if und.redirect and not und.complaint else [])]   # the rep offer: plan_reply
         # a request the bot cannot do yet ("תשווה ביניהם" before the profile is complete): what is needed
-        if (und.compare and not just_calculated and state.stage not in (Stage.PRESENTED, Stage.WAITING_FOR_REP)
-                and RANK_DEFERRED not in confirmations):
+        if (und.compare and not just_calculated and not map_shown
+                and state.stage not in (Stage.PRESENTED, Stage.WAITING_FOR_REP) and RANK_DEFERRED not in confirmations):
             lines.append(compare_needs_text(state))
         reply_plan = plan_reply(
             state, snapshot, understood=understood or bool(problems) or und.anything, just_calculated=just_calculated,
@@ -957,7 +949,7 @@ class Agent:
         draft = reply_plan.text()
         # results and the rep messages keep their exact template text; buttons get the template (fast)
         if (choice or reply_plan.fixed or rep_opened or candidate is None or not self.llm.available
-                or self.mode == "parser_first"):
+                or self.mode == "parser_first" or map_shown):     # the map's summary is code's, like results
             say = ("outage" if llm_failed else "not_tried" if candidate is None or not used_llm else "fixed")
             state.asked_field = asked_field(state, draft)
             return TurnOutcome(reply=draft, source="template", just_calculated=just_calculated, path=path,
@@ -1281,6 +1273,22 @@ class Agent:
         ctx.question_requests.append(QuestionRequest(field, mode, answer_type, text, clean, suggested, option_id))
 
     @staticmethod
+    def _resolve_map(ctx: ToolContext) -> bool:
+        """360°: (re)build the option map once it was asked for, when it is missing or out of date and every
+        value the engine needs is known (never on a guessed value). True when it was built now."""
+        state = ctx.state
+        if not state.map_requested or (state.option_map is not None and state.option_map.fresh):
+            return False
+        if (missing_profile(state.profile) or missing_current_car(state.current)
+                or blocking_rep_reason(state) is not None):
+            return False
+        try:
+            state.option_map = build_option_map(ctx.snapshot, state)
+        except ToolError:
+            return False
+        return True
+
+    @staticmethod
     def _resolve_rank(ctx: ToolContext) -> None:
         """"הכי משתלם" שנרשם לפני שהפרטים היו ידועים: עכשיו, כשרק החלופות חסרות, הבחירה נעשית."""
         state = ctx.state
@@ -1337,6 +1345,8 @@ class Agent:
             default = next((c.default_copay for c in snapshot.catalog if c.catalog_code == event.option_id), None)
             state.confirmed_copays[event.option_id] = ConfirmedCopay(
                 value=amount, effective_date=event.effective_date, changed=default is None or amount != default)
+            if state.option_map is not None:
+                state.option_map.fresh = False      # this option's copay is no longer the catalog's
             line = self._apply_new_car_copay(ctx, event, amount, record_run)
             if line:
                 lines.append(line)
@@ -1348,16 +1358,16 @@ class Agent:
             else:
                 c.source, c.label = "stated", c.label or safe_car_label(c.query)
                 c.use_value, c.use_value_unknown = amount, False
-            state.calculated_for = []
+            invalidate_results(state)
             lines.append(rep_current_text(field.value, c.label or "", amount))
         elif field == MissingField.OCCUPATION_OPT_OUT:
             allowed = event.value == "true"
             state.profile.rep_opt_out_allowed = allowed
-            state.calculated_for = []
+            invalidate_results(state)
             lines.append(rep_opt_out_text(allowed))
         elif field == MissingField.MAINTENANCE_AMOUNT:
             state.profile.rep_opt_out_maintenance = amount
-            state.calculated_for = []
+            invalidate_results(state)
             lines.append(rep_maintenance_text(amount))
         elif field == MissingField.GENERAL_QUESTION:
             # the representative's own words; nothing in the state changes
@@ -1379,6 +1389,8 @@ class Agent:
         if next_stage(state) == Stage.CALCULATING:
             self._calculate(ctx, record_run)
             just_calculated = True
+        if self._resolve_map(ctx):
+            lines.append(MAP_UPDATED)          # the representative's answer completed or changed a value
         state.stage = next_stage(state)
         rep_opened = any(r.mode == Mode.REQUIRED for r in ctx.question_requests)
         if field == MissingField.NEW_CAR_COPAY:
@@ -1442,12 +1454,7 @@ class Agent:
             option = options.get(option_id)
             if option is None:
                 continue
-            confirmed = state.confirmed_copays.get(option_id)
-            alternative = option_state(option, policy, confirmed.value if confirmed else None)
-            result = _with_assumptions(evaluate(employee, current, alternative, snap.calc, occupation), state,
-                                       option_id, option.label)
-            if option.car is None and state.profile.rep_opt_out_allowed is False:
-                result = result.model_copy(update={"reason": OPT_OUT_DENIED})   # לפי תשובת הנציג
+            alternative, result = evaluate_option(snap, state, option, employee, current, occupation)
             inputs = {
                 "employee": employee.model_dump(mode="json"),
                 "current": current.model_dump(mode="json"),

@@ -128,6 +128,33 @@ class OptionResult(BaseModel):
     result: dict[str, Any]                    # ScenarioResult במבנה JSON
 
 
+class MapEntry(BaseModel):
+    """STRAUSS DRIVE 360°: one eligible option and the engine's result for it.
+    status: full (calculated, copay final) / catalog_copay (calculated with the catalog copay, waiting for the
+    representative's approval) / incomplete (a value is missing) / not_eligible (the engine's own check)."""
+
+    option_id: str
+    label: str
+    group: Optional[str] = None
+    drive: Optional[str] = None
+    status: Literal["full", "catalog_copay", "incomplete", "not_eligible"]
+    result: dict[str, Any]
+
+
+class ExcludedOption(BaseModel):
+    """A catalog car the employee cannot choose, and why (from the eligibility rules, never a guess)."""
+
+    label: str
+    group: Optional[str] = None
+    reason: str
+
+
+class OptionMap(BaseModel):
+    entries: list[MapEntry] = Field(default_factory=list)
+    excluded: list[ExcludedOption] = Field(default_factory=list)
+    fresh: bool = True        # False once any value the engine uses changes (tools._invalidate_results)
+
+
 class ConfirmedCopay(BaseModel):
     """השתתפות שהנציג אישר או קבע לחלופה (לפי מזהה קטלוג)."""
 
@@ -204,6 +231,10 @@ class ConversationState(BaseModel):
     # question while any other field can still be asked, and come back when nothing else is askable or a
     # calculation needs them. Never a default, never dropped — just postponed. A value given later clears it.
     deferred_fields: list[str] = Field(default_factory=list)
+    # STRAUSS DRIVE 360°: "השווה את כל האפשרויות שלי". Kept once asked; recalculated whenever it is out of date
+    # and every value it needs is known. Never changes the selection.
+    map_requested: bool = False
+    option_map: Optional[OptionMap] = None
 
 
 # ---------- מה חסר ----------
@@ -335,6 +366,11 @@ def results_stale(state: ConversationState) -> bool:
     selection) and could not be recalculated yet. Kept as history, marked "לא מעודכן"; never a current
     recommendation, never ranked, never quoted as current, never the base of a decision."""
     return bool(state.results) and state.calculated_for != state.selected
+
+
+def map_stale(state: ConversationState) -> bool:
+    """The option map was built before the last change of a value the engine uses."""
+    return state.option_map is not None and not state.option_map.fresh
 
 
 def current_group(state: ConversationState) -> tuple[Optional[str], list[str]]:

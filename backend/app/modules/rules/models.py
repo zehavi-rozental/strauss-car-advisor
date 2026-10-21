@@ -157,6 +157,7 @@ class Extensions(_Strict):
     pace_reset_cues: list[str] = Field(default_factory=list)    # "הכול ביחד"
     defer_cues: list[str] = Field(default_factory=list)         # "את השכר אבדוק אחר כך"
     all_at_once_cues: list[str] = Field(default_factory=list)   # "תן לי את כל השאלות בפעם אחת"
+    option_map_cues: list[str] = Field(default_factory=list)    # STRAUSS DRIVE 360°: "השווה את כל האפשרויות שלי"
     zero_cues: list[str] = Field(default_factory=list)          # a zero the employee said ("אין", "בלי"...)
 
 

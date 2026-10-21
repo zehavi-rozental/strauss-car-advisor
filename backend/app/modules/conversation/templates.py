@@ -734,15 +734,16 @@ def missing_names(state: ConversationState) -> list[str]:
 
     p = state.profile
     fields = [*open_profile(p), *missing_current_car(state.current), *unknown_missing(p)]
-    if not state.selected and not state.rank_requested:
-        fields.append("options")
+    if not state.selected and not state.rank_requested and not state.map_requested:
+        fields.append("options")       # the option map needs no choice of cars
     return [FIELD_NAMES[f] for f in fields if f in FIELD_NAMES]
 
 
 def compare_needs_text(state: ConversationState) -> str:
     """A request the bot cannot do yet ("תשווה ביניהם" before the profile is complete): what is needed."""
     names = missing_names(state)
-    return f"כדי להשוות, חסרים לי עוד: {_list(names)}." if names else ""
+    what = "למפות את כל האפשרויות" if state.map_requested else "להשוות"
+    return f"כדי {what}, חסרים לי עוד: {_list(names)}." if names else ""
 
 
 ALL_AT_ONCE = "אני שואל בשלבים כדי שלא יחסר דבר, אבל אפשר לענות על הכול בהודעה אחת."
