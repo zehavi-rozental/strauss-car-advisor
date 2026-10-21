@@ -91,7 +91,7 @@ img, svg { display: block; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field > label, .form-field > label { font-size: var(--fs-small); font-weight: 500; color: var(--ink-2); }
 .form-field .unit, .field .unit { color: var(--ink-3); font-weight: 400; }
-.input, .form-field input:not([type='checkbox']), .rep-login input, .reply-select {
+.input, .form-field input:not([type='checkbox']):not([type='radio']), .rep-login input, .reply-select {
   inline-size: 100%;
   min-inline-size: 0;
   min-block-size: 44px;
@@ -104,8 +104,8 @@ img, svg { display: block; }
   font-variant-numeric: tabular-nums;
   transition: border-color var(--t-fast) var(--ease-soft), box-shadow var(--t-fast) var(--ease-soft);
 }
-.input:hover, .form-field input:hover:not(:disabled) { border-color: var(--ink-3); }
-.input:focus, .form-field input:focus, .rep-login input:focus, .reply-select:focus {
+.input:hover, .form-field input:not([type='radio']):hover:not(:disabled) { border-color: var(--ink-3); }
+.input:focus, .form-field input:not([type='radio']):focus, .rep-login input:focus, .reply-select:focus {
   outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--petal-blue) 22%, transparent);
 }
 .form-field input[aria-invalid='true'] { border-color: var(--down); box-shadow: 0 0 0 3px var(--down-tint); }
