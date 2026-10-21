@@ -307,7 +307,7 @@ def next_stage(state: ConversationState) -> Stage:
         return Stage.COLLECT_CURRENT_CAR
     if q2 or needs_opt_out_occupation(state):
         return Stage.COLLECT_PROFILE
-    if not state.selected:
+    if not state.selected and not (state.rank_requested and unknown_missing(state.profile)):
         return Stage.CHOOSE_OPTIONS
     if unknown_missing(state.profile):
         return Stage.COLLECT_PROFILE       # no calculation without them, and never a default

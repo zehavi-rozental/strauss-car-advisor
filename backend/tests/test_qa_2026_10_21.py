@@ -435,3 +435,33 @@ def test_the_rep_sees_no_salary_and_no_conversation_even_after_a_note(client):
     assert "conversation_id" not in q and cid not in text
     assert "18500" not in text and "18,500" not in text and "profile" not in q
     assert client.get(f"/api/rep/questions/{qid}").status_code == 401                         # still needs the token
+
+
+# ---------- the engine never ranks or calculates on a value the employee did not give (rule 4) ----------
+
+def test_best_option_waits_for_an_unknown_salary_field_and_then_ranks_on_the_real_value(sessions):
+    svc = service(sessions)
+    turn, token = talk(svc, "מנהלת מוצר, שכר בסיס 18,500, אין בונוס, פנסיה 6%, קרן השתלמות 2.5%, "
+                            "2.75 נקודות זיכוי, 2 ילדים", "לא יודעת כמה עמלות", "יש לי קורולה קרוס", "300")
+    turn = svc.send(turn.conversation_id, token, "הכי משתלם")
+    s = state(svc, turn, token)
+    assert s.selected == [] and s.ranked_count == 0 and s.rank_requested     # nothing chosen on a guessed 0
+    assert "עמלות" in turn.reply                                            # says what is missing
+    turn = svc.send(turn.conversation_id, token, "עמלות 3,000")
+    s = state(svc, turn, token)
+    assert s.profile.commissions == Decimal(3000) and len(s.selected) == 3 and turn.results
+
+
+@pytest.mark.parametrize("missing", ["commissions", "bonus", "study_fund_percent", "children"])
+def test_engine_inputs_refuse_a_missing_value_instead_of_reading_zero(missing):
+    from app.modules.conversation.stage import ConversationState, CurrentCar, Profile
+    from app.modules.conversation.tools import MissingInputs, engine_inputs
+    from app.modules.rules.public import load_snapshot
+    values = dict(group="ג", base=Decimal(18500), commissions=Decimal(0), bonus=Decimal(0),
+                  pension_percent=Decimal(6), study_fund_percent=Decimal("2.5"), credit_points=Decimal("2.75"),
+                  children=2)
+    state_ = ConversationState(profile=Profile(**values), current=CurrentCar(source="none", maintenance=Decimal(0)))
+    engine_inputs(load_snapshot(CONFIG), state_)                           # complete: accepted
+    state_.profile = Profile(**{**values, missing: None})
+    with pytest.raises(MissingInputs):
+        engine_inputs(load_snapshot(CONFIG), state_)                       # never read as 0

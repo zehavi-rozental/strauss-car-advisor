@@ -87,6 +87,11 @@ class ToolError(Exception):
     pass
 
 
+class MissingInputs(ToolError):
+    """The engine was asked to calculate with a profile field still unknown. The engine's Employee would read
+    an absent commissions / bonus / study fund / children as 0, so the conversation never sends one (rule 4)."""
+
+
 # ---------- free-text car name → a label that may be shown and sent to the representative ----------
 
 GENERIC_CAR_LABEL = "רכב שלא זוהה בקטלוג"
@@ -577,7 +582,9 @@ def calculate(ctx: ToolContext, args: CalculateArgs) -> dict[str, Any]:
 
 
 def rank_options(ctx: ToolContext, args: NoArgs) -> dict[str, Any]:
-    if next_stage(ctx.state) in (Stage.COLLECT_PROFILE, Stage.COLLECT_CURRENT_CAR):
+    # the ranking needs every value it ranks on: a field the employee does not know yet defers it too
+    if (next_stage(ctx.state) in (Stage.COLLECT_PROFILE, Stage.COLLECT_CURRENT_CAR)
+            or missing_profile(ctx.state.profile)):
         # הדירוג צריך את הפרופיל ואת הרכב של היום: הבקשה נרשמת, והבחירה נעשית ברגע שהם ידועים
         ctx.state.rank_requested = True
         return {"deferred": True, "note": "ranked as soon as the profile and the current car are known"}
@@ -601,11 +608,14 @@ def rank_options(ctx: ToolContext, args: NoArgs) -> dict[str, Any]:
 def engine_inputs(snapshot: RulesSnapshot, state: ConversationState
                   ) -> tuple[Employee, State, Optional[OccupationRule]]:
     p, c = state.profile, state.current
+    missing = [f for f in ("commissions", "bonus", "study_fund_percent", "children") if getattr(p, f) is None]
+    if missing:
+        raise MissingInputs("חסרים פרטי שכר לחישוב: " + ", ".join(missing))   # never a silent 0
     employee = Employee(
-        group=p.group, base=p.base, commissions=p.commissions or Decimal(0), bonus=p.bonus or Decimal(0),
+        group=p.group, base=p.base, commissions=p.commissions, bonus=p.bonus,
         pension_rate=None if p.pension_percent is None else p.pension_percent / 100,
-        study_fund_rate=(p.study_fund_percent or Decimal(0)) / 100,
-        credit_points=p.credit_points, eligible_children=p.children or 0,
+        study_fund_rate=p.study_fund_percent / 100,
+        credit_points=p.credit_points, eligible_children=p.children,
     )
     if c.source == "none":
         current: State = OptOutState(label="ללא רכב", maintenance=c.maintenance)
