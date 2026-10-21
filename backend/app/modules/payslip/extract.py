@@ -346,7 +346,8 @@ def extract(data: bytes, mime: str, vision: Optional[VisionPort], snapshot: Rule
         log.warning("payslip extraction failed: %s", exc)        # the reason (HTTP status / timeout), no content
         return failed(exc.reason if exc.reason in _FAIL_MESSAGES else "unavailable")
     except Exception as exc:  # כשל ספק לא צפוי — עוברים למילוי ידני, בלי לחשוף פרטים
-        log.warning("payslip extraction failed: %s (%s)", type(exc).__name__, exc)
+        # the type only: an unexpected exception's text may carry anything, including what the file said
+        log.warning("payslip extraction failed: %s", type(exc).__name__)
         return failed("unavailable")
     parsed = _parse_json(raw)
     items = _items(parsed) if parsed is not None else None
