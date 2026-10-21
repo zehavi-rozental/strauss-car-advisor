@@ -19,6 +19,7 @@ export function ProfileForm({ mode, loadProfile, onSubmit, onCancel, disabled }:
   const [values, setValues] = useState<FormValues>(emptyValues)
   const [original, setOriginal] = useState<FormValues>(emptyValues)
   const [errors, setErrors] = useState<Partial<Record<FormKey, string>>>({})
+  const [prefillFailed, setPrefillFailed] = useState(false)
 
   // known values come from the server; what the employee already typed is not overwritten
   useEffect(() => {
@@ -29,7 +30,7 @@ export function ProfileForm({ mode, loadProfile, onSubmit, onCancel, disabled }:
       setOriginal(known)
       setValues((current) => Object.fromEntries(
         FORM_FIELDS.map((f) => [f.key, current[f.key] !== '' ? current[f.key] : known[f.key]])) as FormValues)
-    }).catch(() => undefined)
+    }).catch(() => { if (live) setPrefillFailed(true) })   // said on screen, never an unexplained empty form
     return () => { live = false }
   }, [loadProfile])
 
@@ -58,6 +59,11 @@ export function ProfileForm({ mode, loadProfile, onSubmit, onCancel, disabled }:
           ? 'ממלאים מה שיודעים. אם אין, לוחצים "אין". אפשר גם להמשיך בכתיבה חופשית.'
           : 'משנים רק מה שצריך. הנטו יחושב מחדש.'}
       </p>
+      {prefillFailed && (
+        <p className="field-error" role="alert">
+          לא הצלחתי לטעון את הערכים שכבר רשומים. מה שתמלאו יישלח; שדה ריק לא משנה דבר.
+        </p>
+      )}
       <div className="form-grid">
         {FORM_FIELDS.map((f) => (
           <div key={f.key} className="form-field">

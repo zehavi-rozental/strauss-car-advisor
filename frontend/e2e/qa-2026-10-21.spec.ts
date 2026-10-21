@@ -230,3 +230,20 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 375, height: 740 
     await context.close()
   })
 }
+
+test('when the form cannot read the saved values it says so, and an edit is still saved', async ({ page }) => {
+  await open(page)
+  for (const m of [NOA, 'יש לי קורולה קרוס', '300', 'אטו 3']) await send(page, m)
+  const id = await page.evaluate(() => localStorage.getItem('sca.conversationId'))
+  await page.route(`**/api/conversations/${id}`, (route) =>
+    route.request().method() === 'GET' ? route.fulfill({ status: 500, body: '{}' }) : route.continue())
+  await page.getByRole('button', { name: 'פירוט מלא' }).first().click()
+  await page.getByRole('button', { name: 'תיקון נתונים' }).click()
+  const form = page.locator('form[aria-label="תיקון נתונים"]')
+  await expect(form.getByRole('alert')).toContainText('לא הצלחתי לטעון את הערכים שכבר רשומים')
+  await page.unroute(`**/api/conversations/${id}`)
+  await page.locator('#pf-bonus').fill('1200')
+  await form.getByRole('button', { name: 'שליחה' }).click()
+  await expect.poll(async () => (await state(page)).profile.bonus).toBe('1200')
+  expect((await state(page)).profile.pension_percent).toBe('6')         // the empty fields changed nothing
+})
