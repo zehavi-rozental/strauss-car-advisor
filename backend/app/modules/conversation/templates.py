@@ -14,7 +14,8 @@ from typing import Any, Optional, Sequence
 from app.modules.rules.public import RulesSnapshot
 from app.shared.money import to_shekel
 
-from .stage import MAX_OPTIONS, Q2_FIELDS, ConversationState, RepReason, Stage, current_group, next_stage
+from .stage import (MAX_OPTIONS, Q2_FIELDS, ConversationState, RepReason, Stage, current_group,
+                    missing_current_car, next_stage, open_profile, unknown_missing)
 from .tools import available_options
 
 DRIVE_HE = {"PETROL": "בנזין", "HYBRID": "היברידי", "PLUG_IN": "פלאג-אין", "ELECTRIC": "חשמלי"}
@@ -28,6 +29,27 @@ def signed(value: Any) -> str:
 
 def money(value: Any) -> str:
     return f"{to_shekel(Decimal(str(value))):,} ₪"
+
+
+_LABEL_ORDER = ("base_salary", "commissions", "bonus", "pension_percent", "study_fund_percent",
+                "credit_points", "children_under_23")
+
+
+def recorded_text(labelled: dict[str, object]) -> str:
+    """"אין עמלות, פנסיה 6%, 2 ילדים" — הערכים כפי שנרשמו (המספרים מההודעה), בסדר קבוע."""
+    def text(f: str, v: object) -> str:
+        zero = v == 0
+        return {
+            "base_salary": lambda: f"שכר בסיס {money(v)}",
+            "commissions": lambda: "אין עמלות" if zero else f"עמלות {money(v)}",
+            "bonus": lambda: "אין בונוס" if zero else f"בונוס {money(v)}",
+            "pension_percent": lambda: f"פנסיה {Decimal(str(v)).normalize():f}%",
+            "study_fund_percent": lambda: "אין קרן השתלמות" if zero else f"קרן השתלמות {Decimal(str(v)).normalize():f}%",
+            "credit_points": lambda: f"{Decimal(str(v)).normalize():f} נקודות זיכוי",
+            "children_under_23": lambda: "אין ילדים" if zero else "ילד אחד" if v == 1 else f"{v} ילדים",
+        }[f]()
+
+    return ", ".join(text(f, labelled[f]) for f in _LABEL_ORDER if f in labelled)
 
 
 CAR_AGAIN = "לא זיהיתי את דגם הרכב."
@@ -524,8 +546,6 @@ def rep_note_text(note: Optional[str]) -> str:
 def form_saved_text(previous: dict[str, Any], saved: dict[str, Any], source: Optional[str] = None) -> str:
     """What the form / a reviewed payslip changed: "עדכנתי: שכר בסיס 18,000 ₪ במקום 15,000 ₪." for a value
     that replaced another, "רשמתי: …" for a new one. A value equal to the one already saved is not repeated."""
-    from .fallback import recorded_text
-
     def same(a: Any, b: Any) -> bool:
         return a is not None and b is not None and Decimal(str(a)) == Decimal(str(b))
 
@@ -714,7 +734,6 @@ def _list(names: Sequence[str]) -> str:
 
 def missing_names(state: ConversationState) -> list[str]:
     """What is still needed before a calculation, in the order it is asked."""
-    from .stage import missing_current_car, open_profile, unknown_missing
 
     p = state.profile
     fields = [*open_profile(p), *missing_current_car(state.current), *unknown_missing(p)]
@@ -739,8 +758,6 @@ _PROFILE_ARGS = (("base_salary", "base"), ("commissions", "commissions"), ("bonu
 def progress_text(state: ConversationState, fields: Sequence[str]) -> str:
     """The same compound question again: what is already saved, then only what is still missing
     ("רשמתי: שכר בסיס 18,500 ₪, פנסיה 5%. עדיין חסרים לי: עמלות, בונוס…"), never the full question verbatim."""
-    from .fallback import recorded_text
-
     p = state.profile
     saved = {arg: getattr(p, attr) for arg, attr in _PROFILE_ARGS if getattr(p, attr) is not None}
     missing = still_missing_text(paced(state, fields))

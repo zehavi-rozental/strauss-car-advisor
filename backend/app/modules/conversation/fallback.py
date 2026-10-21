@@ -43,6 +43,7 @@ from .parsing import (
     year_spans,
 )
 from .stage import Q2_FIELDS, CarClarification, ConversationState, current_group
+from .templates import money, paced, recorded_text   # recorded_text: re-exported (agent, public)
 from .tools import OPT_OUT_WORDS, available_options
 
 _RANK_RE = re.compile(r"(?:מה\s+)?הכי\s*(?:משתלם|כדאי|טוב)(?:\s+לי)?|תמליץ|המלצ|דרג", re.IGNORECASE)
@@ -132,8 +133,6 @@ def named_cars(text: str, cars: Iterable[CatalogCar]) -> list[CatalogCar]:
 
 
 def fallback_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) -> ParserPlan:
-    from .templates import paced
-
     group, fields = current_group(state)
     fields = paced(state, fields)        # one-at-a-time: only the field on screen is answered / scoped
     t = text.strip()
@@ -270,8 +269,6 @@ def _profile_value_correction_plan(state: ConversationState, snapshot: RulesSnap
     at any stage — including after a result is on screen. Needs an explicit correction cue and a labelled
     value for a field that already has a (different) value; the whole message must carry nothing else to
     act on. save_profile clears calculated_for, so the net is recomputed with the corrected value."""
-    from .templates import money
-
     ext = snapshot.extensions
     if not _has_correction_cue(text, ext.correction_cues):
         return None
@@ -583,29 +580,6 @@ def _profile_plan(snapshot: RulesSnapshot, question: str, text: str) -> ParserPl
         return ParserPlan(_call("save_profile", children_under_23=int(Decimal(value))), True)
     return ParserPlan(_call("save_profile", **{asked: value},
                             approximate_fields=[asked] if approximate else []), True)
-
-
-_LABEL_ORDER = ("base_salary", "commissions", "bonus", "pension_percent", "study_fund_percent",
-                "credit_points", "children_under_23")
-
-
-def recorded_text(labelled: dict[str, object]) -> str:
-    """"אין עמלות, פנסיה 6%, 2 ילדים" — הערכים כפי שנרשמו (המספרים מההודעה), בסדר קבוע."""
-    from .templates import money
-
-    def text(f: str, v: object) -> str:
-        zero = v == 0
-        return {
-            "base_salary": lambda: f"שכר בסיס {money(v)}",
-            "commissions": lambda: "אין עמלות" if zero else f"עמלות {money(v)}",
-            "bonus": lambda: "אין בונוס" if zero else f"בונוס {money(v)}",
-            "pension_percent": lambda: f"פנסיה {Decimal(str(v)).normalize():f}%",
-            "study_fund_percent": lambda: "אין קרן השתלמות" if zero else f"קרן השתלמות {Decimal(str(v)).normalize():f}%",
-            "credit_points": lambda: f"{Decimal(str(v)).normalize():f} נקודות זיכוי",
-            "children_under_23": lambda: "אין ילדים" if zero else "ילד אחד" if v == 1 else f"{v} ילדים",
-        }[f]()
-
-    return ", ".join(text(f, labelled[f]) for f in _LABEL_ORDER if f in labelled)
 
 
 def _labelled_fallback(labelled: dict[str, object]) -> ParserPlan:
