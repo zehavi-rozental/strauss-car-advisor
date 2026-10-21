@@ -131,10 +131,50 @@ def fallback_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) 
     correction = _group_correction_plan(state, snapshot, t)
     if correction is not None:
         return correction
+    combined = _profile_and_no_car_plan(state, snapshot, t)
+    if combined is not None:
+        return combined
     unknown = _unknown_plan(snapshot, fields, t)
     if unknown is not None:
         return unknown
     return _fallback_plan_rest(state, snapshot, group, fields, t)
+
+
+def _profile_and_no_car_plan(state: ConversationState, snapshot: RulesSnapshot,
+                             text: str) -> Optional[ParserPlan]:
+    """One natural sentence that states both profile data AND "no company car" ("אני בקבוצה ב ואין לי רכב
+    היום"): read the group / salary fields and set no-car together. Only when the car is not yet known and
+    no catalog car is named (a named car is handled by the Q3 car reader). Any stage — a no-car fact is
+    valid whenever stated."""
+    c = state.current
+    if c.source is not None or c.query is not None:
+        return None                                  # the car situation is already known
+    span = no_car_span(text)
+    if span is None or named_cars(text, snapshot.catalog):
+        return None                                  # no clear "no car", or a car is named
+    ext = snapshot.extensions
+    calls: list[ToolCall] = []
+    read_spans = [span]
+    # read any profile fields stated in the same sentence (group in Q1, labelled Q2 values)
+    reading = read_profile(text, snapshot.occupations.keys(), ext.correction_cues, ext.value_qualifiers)
+    found = dict(reading.fields)
+    read_spans += list(reading.spans)
+    hit = _group_reading(text, snapshot.calc.group_order)
+    if hit and "occupation" not in found and state.profile.group is None:
+        found["eligibility_group"] = hit[0]
+        read_spans.append(hit[1])
+    # only act if the remainder (beyond what we read + the no-car span) is just fillers — never guess
+    fillers = [*ext.profile_fillers, *ext.car_message_fillers, *ext.answer_fillers, "אני", "ו", "גם", "היום"]
+    if unread_words(text, read_spans, reading.phrases, fillers, leading_no=True):
+        return None
+    # only the COMBINED case is handled here (profile data + no-car in one sentence); a bare "אין רכב" is
+    # left to the normal car reader, so existing single-fact flows are unchanged
+    if not found:
+        return None
+    calls.append(ToolCall("save_profile", {**found, "approximate_fields": list(reading.approximate)},
+                          "combined"))
+    calls.append(ToolCall("match_current_car", {"no_car": True}, "combined"))
+    return ParserPlan(calls, True, direct=True)
 
 
 def _group_correction_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Optional[ParserPlan]:
