@@ -1107,7 +1107,9 @@ class Agent:
             return {"ok": False, "error": "tool not allowed at this stage"}
         return run_tool(ctx, call.name, call.args)
     def _execute(self, ctx: ToolContext, calls: Sequence[ToolCall]) -> bool:
-        return any([_recorded(self._run(ctx, call)) for call in calls])
+        # a call tagged "combined" reads an explicitly-stated fact (e.g. "no company car" said during the
+        # salary questions) that is valid at any stage, so it runs through the relaxed stage gate
+        return any([_recorded(self._run(ctx, call, relaxed=(call.id == "combined"))) for call in calls])
 
     # ---------- נציג ----------
 
