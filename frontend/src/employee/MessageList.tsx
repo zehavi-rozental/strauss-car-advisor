@@ -65,6 +65,9 @@ export function MessageList({ messages, results, resultsAnchor, typing, onOpenTa
     if (await copyText(text)) setCopied(m.seq)
   }
 
+  // "תיקון נתונים" sits on the employee's latest message only (as editing the last message does elsewhere); it
+  // opens the correction form, which the server saves and recalculates (the text of a sent message never changes)
+  const lastUserSeq = [...messages].reverse().find((m) => m.role === 'user' && !m.pending && !m.failed)?.seq ?? null
   const anchored = resultsAnchor != null && messages.some((m) => m.seq === resultsAnchor)
   const cards = results.length > 0 && (
     <div className="result-cards">
@@ -120,7 +123,7 @@ export function MessageList({ messages, results, resultsAnchor, typing, onOpenTa
                   {!m.pending && (
                     <span className="msg-actions">
                       {copyButton}
-                      {onCorrect && !m.failed && /\d/.test(m.content) && (
+                      {onCorrect && m.seq === lastUserSeq && (
                         <button type="button" className="msg-action" onClick={onCorrect} disabled={busy}
                                 aria-label="תיקון נתונים" title="תיקון נתונים: הערכים נשמרים מחדש והנטו מחושב מחדש">
                           <Icon name="edit" size={16} />
