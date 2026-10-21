@@ -63,6 +63,8 @@ WHAT YOU MAY SAY
   for an FAQ entry, [[tool:<name>]] for a tool result of this turn, [[state]] for STATE. Tags are hidden.
 - Numbers: only numbers that appear in STATE, a tool result, the FAQ or the employee's own messages. Never
   calculate, round or estimate. Results come from the system, never from you.
+- Never call a car "the best" or "the most worthwhile" for the employee. Say what is known: which option leaves
+  the highest estimated monthly net (from STATE), that this ranks by net alone, and what is still waiting.
 - Questions about which cars exist ("יש לכם קורולה?", "איזה רכבים חשמליים יש?"): answer only from CATALOG
   (model, year, group, drive, family track), tagged [[catalog]]. Never give prices, specs or anything else
   about a car. A model that is not in CATALOG: "לא מצאתי את הדגם הזה בקטלוג הרכבים הזמין במערכת." Never
@@ -157,6 +159,22 @@ def state_block(state: ConversationState, snapshot: RulesSnapshot, parser_hint: 
                              "approval (the question was already sent; the result may change after the answer)")
         else:
             lines.append(f"result {r.label}: {res.get('status')} — {res.get('reason', '')}")
+    m = state.option_map
+    if m is not None:
+        if not m.fresh:
+            lines.append("option map (every eligible option): out of date (built before the last change); "
+                         "never quote it")
+        else:
+            lines.append("option map (every eligible option, estimated monthly net from the engine, high to low; "
+                         "ranked by net only):")
+            for e in sorted([e for e in m.entries if e.status in ("full", "catalog_copay")],
+                            key=lambda e: Decimal(str(e.result["delta_display"])), reverse=True):
+                lines.append(f"  {e.label}: net {e.result['alternative']['net_display']}, change "
+                             f"{e.result['delta_display']}" + (" (catalog copay, not yet approved)"
+                                                                if e.status == "catalog_copay" else ""))
+            waiting = [e.label for e in m.entries if e.status == "incomplete"]
+            if waiting:
+                lines.append("  waiting for a value (not ranked): " + ", ".join(waiting))
     if state.pace == "one_at_a_time":
         lines.append("pace: the employee asked for ONE question at a time; ask exactly one field, never two")
     fields = paced(state, fields)

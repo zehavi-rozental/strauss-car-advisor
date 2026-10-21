@@ -33,22 +33,22 @@ def assert_style(t):
 
 def test_all_up_two_and_three():
     t = text(_item("A", 100), _item("MG4 (2025)", 1013))
-    assert t == "בדקתי 2 רכבים, ובשניהם הנטו שלכם יגדל. הכי משתלם: MG4 (2025), תוספת של 1,013 ₪ בחודש."
+    assert t == "בדקתי 2 רכבים, ובשניהם הנטו שלכם יגדל. הנטו הגבוה ביותר: MG4 (2025), תוספת של 1,013 ₪ בחודש."
     t = text(_item("A", 100), _item("B", 300), _item("C", 200))
-    assert t == "בדקתי 3 רכבים, ובכולם הנטו שלכם יגדל. הכי משתלם: B, תוספת של 300 ₪ בחודש."
+    assert t == "בדקתי 3 רכבים, ובכולם הנטו שלכם יגדל. הנטו הגבוה ביותר: B, תוספת של 300 ₪ בחודש."
     assert_style(t)
 
 
 def test_all_down_names_the_least_bad():
     t = text(_item("A", -923), _item("B", -1200), _item("C", -1500))
-    assert t == "בדקתי 3 רכבים, ובכולם הנטו שלכם יקטן. הכי משתלם: A, רק 923 ₪ פחות בחודש."
+    assert t == "בדקתי 3 רכבים, ובכולם הנטו שלכם יקטן. הנטו הגבוה ביותר: A, רק 923 ₪ פחות בחודש."
     assert text(_item("A", -923), _item("B", -1200)).startswith("בדקתי 2 רכבים, ובשניהם הנטו שלכם יקטן.")
     assert_style(t)
 
 
 def test_mixed_names_the_best():
     t = text(_item("A", -50), _item("B", 70))
-    assert t == "בדקתי 2 רכבים. הכי משתלם: B, תוספת של 70 ₪ בחודש."
+    assert t == "בדקתי 2 רכבים. הנטו הגבוה ביותר: B, תוספת של 70 ₪ בחודש."
     assert_style(t)
 
 
@@ -68,8 +68,8 @@ def test_zero_and_single():
 def test_rank_says_how_many_were_ranked():
     state = ConversationState(results=[_item("A", 100), _item("B", 300), _item("C", 200)], ranked_count=13)
     assert T.results_text(state).splitlines() == [
-        "בדקתי את כל 13 הרכבים שאתם זכאים להם. אלה 3 המשתלמים ביותר:",
-        "הכי משתלם: B, תוספת של 300 ₪ בחודש."]
+        "בדקתי את כל 13 הרכבים שאתם זכאים להם. אלה 3 החלופות עם הנטו המשוער הגבוה ביותר:",
+        "הנטו הגבוה ביותר: B, תוספת של 300 ₪ בחודש."]
 
 def test_three_options_with_pending_copay_are_two_lines():
     t = text(_item("A", 100, pending=True), _item("B", -300, pending=True), _item("C", 5))

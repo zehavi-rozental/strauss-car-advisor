@@ -82,7 +82,7 @@ def test_the_example_lists_only_missing_fields(sessions):
 def test_rank_says_how_many_cars_were_ranked(sessions):
     turn, _, _ = talk(service(sessions), PROFILE + ["מה הכי משתלם לי?"])
     assert turn.results and turn.reply.startswith("בדקתי את כל ")
-    assert "הרכבים שאתם זכאים להם. אלה 3 המשתלמים ביותר:" in turn.reply
+    assert "הרכבים שאתם זכאים להם. אלה 3 החלופות עם הנטו המשוער הגבוה ביותר:" in turn.reply
 
 
 # ---------- 7. an FAQ answer only when the entry answers the question ----------

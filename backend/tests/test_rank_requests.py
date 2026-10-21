@@ -31,7 +31,7 @@ def test_rank_as_a_question_ranks_all_eligible_cars(sessions):
     st = _state(svc, turn, token)
     # it ranked every eligible car and presented the best ones — it did not ask the employee to choose
     assert st.ranked_count > 3 and turn.results
-    assert "המשתלמים ביותר" in turn.reply and "בחרו" not in turn.reply.split("\n")[0]
+    assert "עם הנטו המשוער הגבוה ביותר" in turn.reply and "בחרו" not in turn.reply.split("\n")[0]
 
 
 def test_bare_rank_request_at_options(sessions):

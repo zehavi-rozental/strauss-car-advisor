@@ -246,3 +246,15 @@ def test_a_request_while_waiting_for_the_rep_is_kept(sessions):
     turn = svc.send(turn.conversation_id, token, ASK)
     s = svc.view(turn.conversation_id, token).state
     assert s.map_requested and s.option_map is None and "ברגע שתגיע תשובת נציג התחבורה" in turn.reply
+
+
+def test_the_model_sees_the_map_as_engine_figures_and_never_a_stale_one(sessions):
+    from app.modules.conversation.turn import SYSTEM_PROMPT, state_block
+    svc = service(sessions)
+    turn, token = talk(svc, profile("מנהלת מוצר"), CAR, ASK)
+    s = svc.view(turn.conversation_id, token).state
+    block = state_block(s, SNAP)
+    assert "ranked by net only" in block and "MG4 (2025): net" in block
+    s.option_map.fresh = False
+    assert "out of date" in state_block(s, SNAP) and "MG4 (2025): net" not in state_block(s, SNAP)
+    assert 'Never call a car "the best"' in SYSTEM_PROMPT

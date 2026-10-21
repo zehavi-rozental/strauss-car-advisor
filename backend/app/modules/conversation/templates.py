@@ -290,13 +290,14 @@ def _among(n: int) -> str:
 
 
 def _best_line(best: Any) -> str:
-    """"הכי משתלם: MG4 (2025), תוספת של 1,013 ₪ בחודש." — one phrase, never the net sentence twice."""
+    """"הנטו הגבוה ביותר: MG4 (2025), תוספת של 1,013 ₪ בחודש." — a fact about the estimated net, never a verdict
+    on which car is best for the employee (STRAUSS DRIVE 360°); one phrase, never the net sentence twice."""
     d = to_shekel(Decimal(str(best.result["delta_display"])))
     if d > 0:
-        return f"הכי משתלם: {best.label}, תוספת של {money(d)} בחודש."
+        return f"הנטו הגבוה ביותר: {best.label}, תוספת של {money(d)} בחודש."
     if d < 0:
-        return f"הכי משתלם: {best.label}, רק {money(-d)} פחות בחודש."
-    return f"הכי משתלם: {best.label}, בלי שינוי בנטו."
+        return f"הנטו הגבוה ביותר: {best.label}, רק {money(-d)} פחות בחודש."
+    return f"הנטו הגבוה ביותר: {best.label}, בלי שינוי בנטו."
 
 
 def results_text(state: ConversationState) -> str:
@@ -310,7 +311,8 @@ def results_text(state: ConversationState) -> str:
     best = max(ok, key=lambda i: Decimal(str(i.result["delta_display"]))) if ok else None
     if state.ranked_count and ok:
         # "הכי משתלם": how many were ranked, and that only the top ones are shown
-        top = f"אלה {len(ok)} המשתלמים ביותר:" if len(ok) > 1 else "זה המשתלם ביותר:"
+        top = (f"אלה {len(ok)} החלופות עם הנטו המשוער הגבוה ביותר:" if len(ok) > 1
+               else "זו החלופה עם הנטו המשוער הגבוה ביותר:")
         lines.append(f"בדקתי את כל {state.ranked_count} הרכבים שאתם זכאים להם. {top}")
         lines.append(_best_line(best))
     elif len(ok) == 1:
@@ -672,7 +674,7 @@ class ReplyPlan:
 
 
 CTA_STARTS = ("כתבו", "בחרו", "אפשר לכתוב")
-NEXT_AFTER_RESULTS = "רוצים לראות מה הכי משתלם מכל הרכבים שאתם זכאים להם?"
+NEXT_AFTER_RESULTS = "רוצים לראות אילו רכבים משאירים לכם את הנטו הגבוה ביותר?"
 NEXT_AFTER_RANK = "רוצים להשוות רכבים אחרים? כתבו את השמות שלהם."
 LINK_LABELS = {"profile_form": "למלא בטופס", "selection": "להציג את הרכבים בקבוצה שלכם",
                "payslip_upload": "להעלות תלוש"}
