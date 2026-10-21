@@ -63,6 +63,7 @@ class Understanding:
     redirect: bool = False                                  # off-topic or an attempt to change the rules
     ambiguity: Optional[str] = None                         # NO_CAR_OR_ZERO
     compare: bool = False                                   # asks for a comparison / a result ("תשווה ביניהם")
+    rank: bool = False                                      # asks to rank / recommend ("הכי משתלם", "תמליץ", "דרג")
     complaint: bool = False                                 # "אתה בוט שעונה לא לפי השאלה"
     all_at_once: bool = False                               # "תן לי את כל השאלות בפעם אחת": about the conversation
     audit: bool = False                                     # "כבר כתבתי לך": say what is saved and missing
@@ -145,12 +146,19 @@ def _is_help(text: str) -> bool:
     return (not ws and "?" in text) or ws in _HELP
 
 
+# Hebrew number words that state an amount ("ילד אחד", "שני ילדים"): then it is a count, not bare presence
+_COUNT_WORDS = {"אחד", "אחת", "שני", "שתי", "שניים", "שתיים", "שלושה", "שלוש", "ארבעה", "ארבע",
+                "חמישה", "חמש", "שישה", "שש", "שבעה", "שבע", "שמונה", "תשעה", "תשע", "עשרה", "עשר"}
+
+
 def _presence(clause: str) -> list[str]:
     if any(ch.isdigit() for ch in clause):
         return []
     ws = words(clause)
     if any(w in _NEGATIONS for w in ws) or not any(w in _PRESENCE_CUES for w in ws):
         return []
+    if any(w in _COUNT_WORDS for w in ws):
+        return []                               # an amount in words ("ילד אחד") — a count, read by the parser
     found = []
     for w in ws:
         name = w if w in _PRESENCE_WORDS else (w[1:] if len(w) > 1 and w[0] in _PREFIX else "")
@@ -217,7 +225,9 @@ def catalog_answer(snapshot: RulesSnapshot, clause: str) -> Optional[str]:
 
 def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Understanding:
     faq = snapshot.faq
-    audit = any(cue in text for cue in _AUDIT_CUES)
+    # "טעית"/"טעיתם" (you got it wrong) is an audit cue; "טעיתי" (I made a mistake) is a first-person
+    # correction, never an audit — it must not be swallowed as one.
+    audit = any(cue in text for cue in _AUDIT_CUES) and "טעיתי" not in text
     u = Understanding(complaint=not audit and any(cue in text for cue in _COMPLAINT_CUES), audit=audit)
     if _contains_any(text, faq.injection_patterns) or (
             _contains_any(text, faq.off_topic_patterns) and not named_cars(text, snapshot.catalog)):
@@ -248,6 +258,11 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
         kept.append(clause)
     remainder = " ".join(kept).strip()
     u.compare = _asks_to_compare(remainder)
+    # a ranking / recommendation request ("הכי משתלם", "תמליץ", "דרג") is a request to rank ALL eligible
+    # cars — distinct from a plain "תשווה ביניהם" that asks to compare a chosen set
+    u.rank = bool(_RANK_RE.search(text))
+    if u.rank:
+        u.compare = True
     for part in re.split(r"[,;]|\s+ו(?=אין|יש|גם)", remainder):
         for f in _presence(part):
             if f not in u.presence:

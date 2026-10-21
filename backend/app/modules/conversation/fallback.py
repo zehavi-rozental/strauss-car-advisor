@@ -28,6 +28,7 @@ from .parsing import (
     copay_span,
     drive_span,
     find_year,
+    has_all_scope,
     is_approximate,
     leftover_words,
     match_group,
@@ -49,6 +50,8 @@ _NOT_THIS_CAR_RE = re.compile(r"לא\s+(?:זה\s+)?(?:הרכב|הדגם)|(?:זה
 # בזמן שאוספים את פרטי הרכב הנוכחי, הודעה שמזכירה רכב אחר היא תיקון — לא תשובה לשאלה
 _CAR_DETAIL_QUESTIONS = {"copay", "use_value", "drive", "maintenance", "car_choice"}
 _ONLY_NUMBERS_RE = re.compile(r"^\s*\d+(?:\s*(?:,|ו-?|and|&)\s*\d+)*\s*[.!]?\s*$")
+# a blanket answer to a grouped question: we do not split it silently — we ask one field at a time
+SCOPE_CLARIFY = "בוא נעבור על זה אחד-אחד, כדי לא לפספס."
 SHORT_MODEL_WORDS = 3     # תשובה קצרה בלי שם מוכר → כל ההודעה היא שם הדגם (גיבוי: חיפוש במאגר)
 SHORT_TITLE_WORDS = 3     # תשובה קצרה לשאלת התפקיד → כל ההודעה היא שם התפקיד (גיבוי: עיסוק לא ידוע)
 
@@ -76,6 +79,8 @@ class ParserPlan:
     direct: bool = False                     # תשובה לשאלה של הקוד (אישור, הבהרה, כפתור) — לא עוברת למודל
     guess: bool = False                      # "כל ההודעה היא הערך" (תפקיד/דגם קצר) — רק כשהמודל לא זמין
     clarify: Optional[CarClarification] = None   # רכב שלא ברור אם הוא של היום או חלופה — שואלים
+    clarify_scope: bool = False              # a blanket answer ("לא ידוע", "אין לי כלום", "הכל 5") to a
+    #   grouped Q2: too broad to split silently — save nothing, switch to one field at a time, ask again
 
 
 def _key(text: str) -> str:
@@ -124,17 +129,23 @@ def named_cars(text: str, cars: Iterable[CatalogCar]) -> list[CatalogCar]:
 
 
 def fallback_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) -> ParserPlan:
+    from .templates import paced
+
     group, fields = current_group(state)
+    fields = paced(state, fields)        # one-at-a-time: only the field on screen is answered / scoped
     t = text.strip()
     if not t or not fields:
         return ParserPlan()
     correction = _group_correction_plan(state, snapshot, t)
     if correction is not None:
         return correction
+    value_correction = _profile_value_correction_plan(state, snapshot, t)
+    if value_correction is not None:
+        return value_correction
     combined = _profile_and_no_car_plan(state, snapshot, t)
     if combined is not None:
         return combined
-    unknown = _unknown_plan(snapshot, fields, t)
+    unknown = _unknown_plan(snapshot, fields, t, group)
     if unknown is not None:
         return unknown
     return _fallback_plan_rest(state, snapshot, group, fields, t)
@@ -205,15 +216,81 @@ def _group_correction_plan(state: ConversationState, snapshot: RulesSnapshot, te
                       notice=f"עדכנתי: קבוצה {new_group}.")
 
 
+# save_profile arg name → the Profile attribute it corrects (for a value correction after it was set)
+_CORRECTABLE = {"base_salary": "base", "commissions": "commissions", "bonus": "bonus",
+                "pension_percent": "pension_percent", "study_fund_percent": "study_fund_percent",
+                "credit_points": "credit_points", "children_under_23": "children"}
+
+
+def _profile_value_correction_plan(state: ConversationState, snapshot: RulesSnapshot,
+                                   text: str) -> Optional[ParserPlan]:
+    """Correcting a profile value after it was already saved ("טעיתי, השכר שלי 16,000", "בעצם פנסיה 7%"),
+    at any stage — including after a result is on screen. Needs an explicit correction cue and a labelled
+    value for a field that already has a (different) value; the whole message must carry nothing else to
+    act on. save_profile clears calculated_for, so the net is recomputed with the corrected value."""
+    from .templates import money
+
+    ext = snapshot.extensions
+    if not _has_correction_cue(text, ext.correction_cues):
+        return None
+    reading = read_profile(text, snapshot.occupations.keys(), ext.correction_cues, ext.value_qualifiers)
+    p = state.profile
+    changes: dict[str, object] = {}
+    for arg, attr in _CORRECTABLE.items():
+        if arg not in reading.fields:
+            continue
+        current = getattr(p, attr)
+        if current is None:
+            continue                                 # not a correction — the field was never set
+        new = reading.fields[arg]
+        same = (current == int(new)) if attr == "children" else (Decimal(str(current)) == Decimal(str(new)))
+        if same:
+            continue                                 # same value — nothing to change
+        changes[arg] = new
+    if not changes:
+        return None
+    # nothing else of meaning beyond what we read, the correction cue, and plain fillers
+    fillers = [*ext.answer_fillers, *ext.profile_fillers, *ext.correction_cues, "שלי", "הוא", "היא", "אבל",
+               "למעשה", "בעצם", "זה", "הם"]
+    if unread_words(text, reading.spans, reading.phrases, fillers):
+        return None
+    def _label(arg: str, v: object) -> str:
+        names = {"base_salary": "שכר בסיס", "commissions": "עמלות", "bonus": "בונוס",
+                 "pension_percent": "פנסיה", "study_fund_percent": "קרן השתלמות",
+                 "credit_points": "נקודות זיכוי", "children_under_23": "ילדים"}
+        pct = arg in ("pension_percent", "study_fund_percent")
+        return f"{names[arg]} {v}%" if pct else f"{names[arg]} {money(Decimal(str(v)))}" if arg == "base_salary" else f"{names[arg]} {v}"
+    notice = "עדכנתי: " + ", ".join(_label(a, v) for a, v in changes.items()) + "."
+    # tagged "combined" so the stage gate is relaxed: a correction is a valid fact at any stage, including
+    # after a result is on screen (save_profile then clears calculated_for and the net is recomputed).
+    # fallback_notice (not notice) so the generic "רשמתי" acknowledgement built from the saved state is not
+    # duplicated — the state-based confirmation line is the single source of truth for what changed.
+    return ParserPlan([ToolCall("save_profile", changes, "combined")], True, direct=True,
+                      fallback_notice=notice)
+
+
+def _has_correction_cue(text: str, cues: Iterable[str]) -> bool:
+    """A correction word among the first few words of the message ("טעיתי, ...", "בעצם ...")."""
+    first = words(text)[:3]
+    cue_tokens = {w for c in cues for w in words(c)}
+    return any(w in cue_tokens for w in first)
+
+
 # words that name a Q2 field ("לא יודעת כמה נקודות זיכוי")
 _FIELD_WORDS = {"עמלות": "commissions", "עמלה": "commissions", "בונוס": "bonus", "בונוסים": "bonus",
                 "פנסיה": "pension_percent", "השתלמות": "study_fund_percent", "זיכוי": "credit_points",
                 "ילדים": "children"}
 
 
-def _unknown_plan(snapshot: RulesSnapshot, fields: list[str], text: str) -> Optional[ParserPlan]:
+def _unknown_plan(snapshot: RulesSnapshot, fields: list[str], text: str,
+                  group: Optional[str] = None) -> Optional[ParserPlan]:
     """"לא יודע" when the question on screen asks only Q2 fields: recorded per field as unknown (never a
-    value). The fields the message names, or else every Q2 field on screen."""
+    value).
+      - a named field ("לא יודעת כמה נקודות זיכוי")      → only that field.
+      - one Q2 field on screen                           → that field.
+      - several on screen + a sweeping scope ("לא יודע כלום", "לא יודע אף אחד") → all of them.
+      - several on screen, no scope ("לא ידוע", "לא ידוע לי") → AMBIGUOUS: save nothing, ask one at a time.
+    """
     if not fields or any(f not in Q2_FIELDS for f in fields):
         return None
     span = unknown_span(text)
@@ -226,9 +303,24 @@ def _unknown_plan(snapshot: RulesSnapshot, fields: list[str], text: str) -> Opti
             named.append(f)
     ext = snapshot.extensions
     fillers = [*ext.answer_fillers, *ext.profile_fillers, *_FIELD_WORDS, "כמה", "נקודות", "את", "מה", "שלי"]
-    if unread_words(text, [span], (), fillers):
+    # "כלום"/"אף אחד"/"הכל" are allowed extra words when they set the all-of-them scope
+    scope_words = ["כלום", "אף", "אחד", "אחת", "הכל", "כולם", "כולן", "שום", "דבר", "פרט", "רכיב",
+                   "מהם", "מהן", "מאלה", "מאלו", "אלה", "אלו", "האלה", "האלו", "עדיין", "עוד"]
+    if unread_words(text, [span], (), [*fillers, *scope_words]):
         return None
-    return ParserPlan(_call("save_profile", unknown_fields=named or [f for f in fields]), True, direct=True)
+    # the "unknown" group is shown when the only fields left are ones the employee already said they do not
+    # know. Repeating "לא יודע" there is understood (acknowledged, pointing to the payslip), never a failure
+    # and never a demand to answer again (rule 5).
+    if group == "unknown":
+        return ParserPlan([], True, direct=True)
+    if named:
+        return ParserPlan(_call("save_profile", unknown_fields=named), True, direct=True)
+    if len(fields) == 1:
+        return ParserPlan(_call("save_profile", unknown_fields=[fields[0]]), True, direct=True)
+    if has_all_scope(text):                 # "לא יודע כלום / אף אחד מהם" — explicitly all of them
+        return ParserPlan(_call("save_profile", unknown_fields=[f for f in fields]), True, direct=True)
+    # a bare "לא ידוע" on a grouped question: ambiguous — do not spread. Ask one field at a time.
+    return ParserPlan([], True, direct=True, clarify_scope=True, notice=SCOPE_CLARIFY)
 
 
 def _fallback_plan_rest(state: ConversationState, snapshot: RulesSnapshot, group: Optional[str],
@@ -262,6 +354,10 @@ def _grouped_plan(state: ConversationState, snapshot: RulesSnapshot, group: Opti
     כתשובה לכל שדה בנפרד, ופועלים רק אם בדיוק שדה אחד קורא אותה במלואה ("300" כשחסרים רכב
     והשתתפות = השתתפות; "אין" כשחסרים עמלות ובונוס — שואלים שוב)."""
     if group == "Q2" or all(f in Q2_FIELDS for f in fields):    # גם כשכל מה שנשאר הוא מ-Q2 (אחרי הרכב והחלופות)
+        # "הכל 5" — a sweeping value for a whole group of fields: too broad to spread one number across
+        # several fields. Save nothing; ask them one at a time.
+        if len([f for f in fields if f in Q2_FIELDS]) > 1 and has_all_scope(t):
+            return ParserPlan([], True, direct=True, clarify_scope=True, notice=SCOPE_CLARIFY)
         plan = _bare_none_plan(snapshot, fields, t)
         if plan is not None:
             return plan
@@ -297,9 +393,15 @@ def _grouped_plan(state: ConversationState, snapshot: RulesSnapshot, group: Opti
 
 def _bare_none_plan(snapshot: RulesSnapshot, fields: list[str], text: str) -> Optional[ParserPlan]:
     """"אין" לבד כתשובה ל-Q2: אפס בשדות שבהם אפס הוא ערך סביר (עמלות, בונוס, קרן השתלמות, ילדים).
-    פנסיה ונקודות זיכוי לא מקבלות ערך — הן נשאלות שוב במפורש."""
+    פנסיה ונקודות זיכוי לא מקבלות ערך — הן נשאלות שוב במפורש.
+    אבל "אין לי כלום" על שאלה מקובצת הוא מענה גורף ועמום — לא מאפסים בשקט כמה שדות; שואלים אחד-אחד."""
     span = none_span(text)
-    if not span or unread_words(text, [span], (), snapshot.extensions.answer_fillers):
+    if not span:
+        return None
+    multi = len([f for f in fields if f in Q2_FIELDS]) > 1
+    if multi and has_all_scope(text):            # "אין לי כלום" — too broad to split across the group
+        return ParserPlan([], True, direct=True, clarify_scope=True, notice=SCOPE_CLARIFY)
+    if unread_words(text, [span], (), snapshot.extensions.answer_fillers):
         return None
     zero = [f for f in fields if f in ZERO_ALLOWED]
     return none_plan(zero) if zero else None
@@ -477,7 +579,9 @@ def _car_plan(snapshot: RulesSnapshot, text: str) -> ParserPlan:
     copay = parse_copay(text)
     cars = named_cars(text, snapshot.catalog)
     if cars:
-        if leftover_words(text, matched_name(text, cars[0]) or cars[0].model_name, fillers):
+        # the manufacturer's name next to its model ("קיה נירו", "טויוטה קורולה") is not extra meaning
+        car_fillers = fillers + _descriptors(cars[0], ext.manufacturer_brands)
+        if leftover_words(text, matched_name(text, cars[0]) or cars[0].model_name, car_fillers):
             return ParserPlan()                     # יש עוד משמעות ("הקרוסאובר", "הגבוהה") — המודל
         calls = _call("match_current_car", model=cars[0].model_name, registration_year=year)
         complete = True
@@ -575,7 +679,7 @@ def _q3_car_plan(state: ConversationState, snapshot: RulesSnapshot, fields: list
     phrases = [*reading.phrases, *(matched_name(text, c) or c.model_name for c in cars)]
     fillers = [*ext.profile_fillers, *ext.car_message_fillers, *ext.option_message_fillers, *ext.correction_cues,
                *ext.car_role_cues.current, *ext.car_role_cues.alternative]
-    for car in alternatives:
+    for car in cars:         # the manufacturer's name next to any named car ("קיה נירו") is not extra meaning
         fillers += _descriptors(car, ext.manufacturer_brands)
     if unread_words(text, spans, phrases, fillers, leading_no=True):
         return ParserPlan()
@@ -661,6 +765,11 @@ def _option_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) -
     rank = _RANK_RE.search(text)
     if rank:
         if not unread_words(text, [rank.span()], (), fillers):
+            return ParserPlan(_call("rank_options"), True)
+        # "הכי משתלם — אתה משווה את כל סוגי הרכבים?" — a ranking request phrased as a question, with extra
+        # words but no specific car named and no list number chosen: still a request to rank all eligible
+        # cars, never a re-ask. A named car / a chosen number is handled below as a specific comparison.
+        if not named_cars(text, snapshot.catalog) and not re.search(r"\d", text):
             return ParserPlan(_call("rank_options"), True)
         return ParserPlan()
 
