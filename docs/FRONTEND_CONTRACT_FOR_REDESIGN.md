@@ -26,7 +26,9 @@ it is lost (`npx vitest run`, `npx playwright test` against a server without an 
 | `employee/OptionMapPanel.tsx` | UI | every entry listed (not only 3); status per entry; no car pictures; the net-only note; excluded cars with the reason | `option-map-360.spec.ts` (1280 and 375 px) |
 | `rep/QuestionCard.tsx` | UI | no salary notice line; the note shown on an answered card; still no salary data | rep journeys |
 | `api/types.ts`, `api/client.ts` | contract | the fields above; `ApiError.errors` | type check (`tsc -p tsconfig.app.json`) |
-| `styles.css` | style | classes used by tests: `.stale-note`, `.result-stale`, `.map-entry`, `.map-lead`, `.map-card`, `.payslip-row[data-field]`, `.car-card` | the journeys above |
+| `styles/qa-360.css` | style | the QA and 360° states on the design's tokens; classes used by tests: `.stale-note`, `.result-stale`, `.map-entry`, `.map-lead`, `.map-card`, `.payslip-row[data-field]`, `.car-card` | the journeys above |
+| `styles/results.css` | style | a selection card never moves on hover (no transform); border and shadow only | selection-card journey (hovers a card) |
+| `styles/base.css` | style | the text-input rule excludes radio buttons (`:not([type='radio'])`): the payslip choices are radios | payslip journeys, screenshots |
 
 ## Rules the redesign must not break
 
@@ -34,3 +36,14 @@ it is lost (`npx vitest run`, `npx playwright test` against a server without an 
 - Buttons that send are disabled while a message is in flight (no double actions).
 - The map never selects cars; comparing from the map does not change `selected`.
 - Hebrew, RTL, usable at 375 px with no horizontal scroll.
+
+## Integration notes (`integration/qa-360-premium-ui`, 21/10)
+
+- Old tokens map to the design's: `--muted` → `--ink-3`, `--brand-soft` → `--brand-tint`, `--surface` → `--card`,
+  `--pending-bg` → `--pending-tint`, `--pending-ink` → `--pending`, `--error-bg` → `--down-tint`, `--negative` → `--down`,
+  `--radius` → `--r-md` / `--r-sm`, `--shadow` → `--shadow-1`.
+- Dialogs (the comparison and the 360° map) render through `createPortal` with `ui/useDialog`, above the top bar.
+- The design's "לשלוח שוב" lives inside `useConversation.deliver`: a typed message lost on the way counts as handled;
+  the form's field errors still come back from `sendFields`.
+- A result or comparison that is not current is never ranked and has no "הנטו הגבוה ביותר" tag (`current` /
+  `stale` props); the wording is never "הכי משתלם" as a verdict.
