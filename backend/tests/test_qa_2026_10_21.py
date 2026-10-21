@@ -11,7 +11,7 @@ from decimal import Decimal
 import pytest
 
 from app.modules.conversation.llm.fake import FakeLLM, call
-from app.modules.conversation.public import ConversationService, LLMChain, Stage
+from app.modules.conversation.public import ConversationService, LLMChain, Stage, results_stale
 from app.modules.rules.public import RulesStore
 
 from .conftest import CONFIG, make_client
@@ -327,3 +327,85 @@ def test_the_model_is_told_there_is_a_company_car(sessions):
     turn, token = talk(svc, "יש לי רכב חברה ואני בקבוצה ב")
     block = state_block(state(svc, turn, token), load_snapshot(CONFIG))
     assert "HAS a company car" in block
+
+
+# ---------- the two scenarios left open in the first report ----------
+
+Q2_OPEN = ("commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points", "children")
+
+
+def test_all_5_in_template_mode_saves_nothing_and_asks_one_field_at_a_time(sessions):
+    svc = service(sessions)
+    turn, token = talk(svc, "אני בקבוצה ג, מרוויחה 15,000 ואין לי רכב היום")
+    turn = svc.send(turn.conversation_id, token, "הכל 5")
+    s = state(svc, turn, token)
+    assert all(getattr(s.profile, f) is None for f in Q2_OPEN)            # nothing confirmed by a blanket value
+    assert s.pending_confirmation is None and s.pace == "one_at_a_time"
+    assert len(asking_lines(turn.reply)) == 1 and s.asked_field is not None   # one field, named
+    turn = svc.send(turn.conversation_id, token, "5")                      # answers only that field
+    s = state(svc, turn, token)
+    assert sum(getattr(s.profile, f) is not None for f in Q2_OPEN) + (s.pending_confirmation is not None) == 1
+
+
+def test_another_car_after_a_result_waits_for_the_model_and_only_then_recalculates(sessions):
+    svc = service(sessions)
+    turn, token = talk(svc, PROFILE, "יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש", "אטו 3")
+    before = state(svc, turn, token).results[0].result["delta_display"]
+    turn = svc.send(turn.conversation_id, token, "התכוונתי לרכב אחר")
+    s = state(svc, turn, token)
+    assert s.current.source is None and s.current.has_car and results_stale(s)
+    assert not turn.results and turn.stage == Stage.COLLECT_CURRENT_CAR     # no result shown as current
+    turn = svc.send(turn.conversation_id, token, "הכי משתלם")              # not ranked from the old result
+    s = state(svc, turn, token)
+    assert results_stale(s) and s.selected == ["CAR-10"] and not turn.results
+    turn = svc.send(turn.conversation_id, token, "קורולה 2026")
+    s = state(svc, turn, token)
+    assert not results_stale(s) and turn.results and s.current.label == "COROLLA (2026)"
+    assert s.results[0].result["delta_display"] != before                  # calculated for the new car
+
+
+# ---------- every path that changes calculation data: a fresh result, or one marked stale ----------
+
+def _fresh_or_stale(svc, cid, token):
+    from app.modules.calculation.public import evaluate
+    from app.modules.conversation.tools import available_options, engine_inputs, option_state
+    from app.modules.rules.public import load_snapshot
+    s = svc.view(cid, token).state
+    if results_stale(s):
+        return "stale"
+    snap = load_snapshot(CONFIG)
+    employee, current, occupation = engine_inputs(snap, s)
+    options = {o.id: o for o in available_options(snap, s)}
+    for item in s.results:
+        confirmed = s.confirmed_copays.get(item.option_id)
+        fresh = evaluate(employee, current, option_state(options[item.option_id], snap.extensions.copay_policy,
+                                                         confirmed.value if confirmed else None), snap.calc, occupation)
+        assert str(fresh.delta_display) == str(item.result["delta_display"]), item.label
+    return "fresh"
+
+
+@pytest.mark.parametrize("kind, change", [
+    ("text", "טעיתי, השכר שלי 21,000"),                      # salary in chat
+    ("text", "בעצם פנסיה 7%"),                                # another salary field in chat
+    ("fields", {"bonus": 1500}),                              # the correction form
+    ("payslip", {"base_salary": 19000, "credit_points": 3}),  # a reviewed payslip
+    ("text", "זה לא הרכב שלי"),                               # the car today reset
+    ("text", "התבלבלתי, יש לי קורולה 2026"),                  # the car today corrected
+    ("text", "MG4"),                                          # another alternative
+])
+def test_no_path_shows_an_old_result_as_current(sessions, kind, change):
+    svc = service(sessions)
+    turn, token = talk(svc, PROFILE, "יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש", "אטו 3")
+    cid = turn.conversation_id
+
+    def data(st):
+        return (st.profile.model_dump(), st.current.label, st.current.source, list(st.selected))
+
+    before = data(state(svc, turn, token))
+    if kind == "text":
+        svc.send(cid, token, change)
+    else:
+        svc.send_fields(cid, token, dict(change), "payslip" if kind == "payslip" else None)
+    s = svc.view(cid, token).state
+    assert data(s) != before, "the change was not applied"
+    assert _fresh_or_stale(svc, cid, token) in ("fresh", "stale")   # fresh = equal to the engine now
