@@ -24,6 +24,12 @@ _UNKNOWN_RE = re.compile(r"לא\s*(?:ידוע|יודעים|יודע|יודעת|�
 _NONE_RE = re.compile(r"^\s*(?:אין|לא|ללא|אפס|0|none|no)\s*[.!]?\s*$|^\s*(?:אין|ללא)(?:\s|$)", re.IGNORECASE)
 # "אין/בלי/ללא [לי] רכב" — the "לי" tolerates a light typo ("ליר", "ליי") via up to 2 trailing letters
 _NO_CAR_RE = re.compile(r"(?:אין|בלי|ללא)\s*(?:ל[יי][א-ת]{0,2}\s+)?רכב|no\s+car", re.IGNORECASE)
+# a sweeping "all / none-of-them / everything" scope: "אין לי כלום", "אף אחד מהם", "הכל", "כולם",
+# "שום דבר", "את כולם", "everything", "nothing", "none". Marks a blanket answer that covers many fields
+# at once — too broad to split silently across a grouped question.
+_ALL_SCOPE_RE = re.compile(
+    r"כלום|שום\s*דבר|שום\s*אחד|אף\s*(?:אחד|פרט|רכיב)|(?:את\s*)?כול[םן]|הכל|everything|nothing|none",
+    re.IGNORECASE)
 
 _DRIVE_WORDS = {
     Drive.PLUG_IN: ("פלאג", "plug"),
@@ -80,6 +86,13 @@ def none_span(text: str) -> Optional[Span]:
 def no_car_span(text: str) -> Optional[Span]:
     m = _NO_CAR_RE.search(text)
     return m.span() if m else None
+
+
+def has_all_scope(text: str) -> bool:
+    """A sweeping scope word ("כלום", "אף אחד", "הכל", "כולם"): the answer is meant to cover everything
+    asked, not a single field. Used to tell "לא יודע כלום" (all unknown) from a bare "לא ידוע" (one field),
+    and to catch "אין לי כלום" / "הכל 5" as blanket claims that must not be split silently."""
+    return bool(_ALL_SCOPE_RE.search(text))
 
 
 def drive_span(text: str) -> Optional[tuple[Drive, Span]]:
@@ -170,7 +183,7 @@ _NEG = r"(?:אין|בלי|ללא|לא)"
 _GAP = r"(?P<gap>[^\d,;.\n]{0,12}?)"
 # כל ביטוי: (שדה ב-save_profile, תבנית). המספר הוא הקבוצה הראשונה.
 _PROFILE_PATTERNS = (
-    ("base_salary", rf"(?:שכר(?:\s*(?:ה)?בסיס)?|ברוטו|משכורת){_GAP}{_NUM}"),
+    ("base_salary", rf"(?:שכר(?:\s*(?:ה)?בסיס)?|ברוטו|משכורת|מרוויח(?:ה|ים|ות)?|מקבל(?:ת|ים|ות)?\s*(?:שכר|משכורת|ברוטו)){_GAP}{_NUM}"),
     ("pension_percent", rf"פנסי(?:ה|ת){_GAP}{_NUM}"),
     ("study_fund_percent", rf"השתלמות{_GAP}{_NUM}"),
     ("credit_points", rf"{_NUM}\s*נקוד(?:ות|ה)\s*(?:ה)?זיכוי"),
@@ -397,6 +410,12 @@ def read_profile(text: str, occupations: Iterable[str], cues: Iterable[str] = ()
         fields["occupation"], variant = hit
         phrases.append(variant)
     approximate: list[str] = []
+    # "ילד אחד" / "ילדה אחת" — one child stated in words, not digits
+    if "children_under_23" not in fields:
+        m = re.search(r"(?:ילד|ילדה)\s+(אחד|אחת)(?![א-ת])", text)
+        if m:
+            fields["children_under_23"] = 1
+            spans.append(m.span())
     for field, pattern in _PROFILE_PATTERNS:          # סכום מפורש קודם ל"אין"
         m = re.search(pattern, text)
         if m and field not in fields:

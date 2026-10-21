@@ -1,4 +1,4 @@
-""""לא יודע" at Q2: recorded per field as unknown, never a default, never a loop; and why SAY fell back."""
+﻿""""לא יודע" at Q2: recorded per field as unknown, never a default, never a loop; and why SAY fell back."""
 from __future__ import annotations
 
 import shutil
@@ -28,9 +28,22 @@ def profile(svc, turn, token):
     return svc.view(turn.conversation_id, token).state.profile
 
 
-def test_unknown_at_q2_is_recorded_per_field_and_the_flow_goes_on(sessions):
+def test_bare_unknown_on_the_grouped_question_is_not_spread(sessions):
+    """A bare "לא ידוע" to the whole Q2 question is ambiguous: nothing is marked unknown, and the bot
+    switches to asking one field at a time (never spreads it silently over all six)."""
     svc = service(sessions)
-    turn, token = talk(svc, [PROFILE_Q1, "לא יודע"])
+    turn, token = talk(svc, [PROFILE_Q1, "לא ידוע"])
+    p = profile(svc, turn, token)
+    assert p.unknown_fields == []                                   # not spread across the group
+    st = svc.view(turn.conversation_id, token).state
+    assert st.pace == "one_at_a_time" and turn.stage == Stage.COLLECT_PROFILE
+    assert "עמלות" in turn.reply and "?" in turn.reply              # it asks the first field, not re-asks all
+
+
+def test_explicit_all_unknown_marks_every_field(sessions):
+    """"אני לא יודע אף אחד מהם" is an explicit "none of these are known": all are recorded unknown."""
+    svc = service(sessions)
+    turn, token = talk(svc, [PROFILE_Q1, "אני לא יודע אף אחד מהם"])
     p = profile(svc, turn, token)
     assert set(p.unknown_fields) == {"commissions", "bonus", "pension_percent", "study_fund_percent",
                                      "credit_points", "children"}
@@ -49,12 +62,12 @@ def test_a_named_field_is_the_only_unknown(sessions):
 
 def test_unknown_twice_never_repeats_and_never_calculates(sessions):
     svc = service(sessions)
-    turn, token = talk(svc, [PROFILE_Q1, "לא יודע", CAR, "אטו 3"])
+    turn, token = talk(svc, [PROFILE_Q1, "אני לא יודע אף אחד מהם", CAR, "אטו 3"])
     assert turn.results == [] and turn.stage == Stage.COLLECT_PROFILE         # no calculation without them
     assert "בלי הערכים האלה אין חישוב" in turn.reply and "כולם מופיעים בתלוש השכר החודשי." in turn.reply
     replies = [turn.reply]
     for _ in range(2):
-        turn = svc.send(turn.conversation_id, token, "לא יודע")
+        turn = svc.send(turn.conversation_id, token, "עדיין לא יודע אף אחד מהם")
         assert turn.results == [] and turn.reply != replies[-1]                  # never the same text twice
         assert turn.reply.split("\n\n")[-1].startswith(CTA_STARTS) and "לא הצלחתי להבין" not in turn.reply
         replies.append(turn.reply)
@@ -75,7 +88,7 @@ def test_the_payslip_upload_link_is_offered_only_when_configured(sessions, tmp_p
                                                                    "payslip_upload_enabled: false"),
                        encoding="utf-8")
     svc = service(sessions, config=off)
-    turn, _ = talk(svc, [PROFILE_Q1, "לא יודע", CAR, "אטו 3"])
+    turn, _ = talk(svc, [PROFILE_Q1, "אני לא יודע אף אחד מהם", CAR, "אטו 3"])
     assert turn.expects["link"] is None                      # no uploader, no external url: no link
     # an external url points the link at a pilot page (url included)
     config = tmp_path / "config"
@@ -87,7 +100,7 @@ def test_the_payslip_upload_link_is_offered_only_when_configured(sessions, tmp_p
                                    'payslip_upload_url: "https://hr.example/upload"'),
                    encoding="utf-8")
     svc = service(sessions, config=config)
-    turn, _ = talk(svc, [PROFILE_Q1, "לא יודע", CAR, "אטו 3"])
+    turn, _ = talk(svc, [PROFILE_Q1, "אני לא יודע אף אחד מהם", CAR, "אטו 3"])
     assert turn.expects["link"] == {"kind": "payslip_upload", "label": "להעלות תלוש",
                                     "url": "https://hr.example/upload"}
     assert turn.reply.endswith("או העלו את התלוש.")
@@ -102,7 +115,7 @@ def test_the_builtin_upload_link_is_offered_without_a_url(sessions, tmp_path):
                                                            "payslip_upload_enabled: true"),
                    encoding="utf-8")
     svc = service(sessions, config=config)
-    turn, _ = talk(svc, [PROFILE_Q1, "לא יודע", CAR, "אטו 3"])
+    turn, _ = talk(svc, [PROFILE_Q1, "אני לא יודע אף אחד מהם", CAR, "אטו 3"])
     # the link is offered, but with no url: the client uses the built-in in-chat uploader
     assert turn.expects["link"] == {"kind": "payslip_upload", "label": "להעלות תלוש"}
     assert turn.reply.endswith("או העלו את התלוש.")
@@ -125,5 +138,5 @@ def test_say_reasons(sessions):
 def test_the_example_keeps_thousands_together(sessions):
     """From the live replay: "עמלות 1,000" was cut to "עמלות 1" at the thousands comma."""
     svc = service(sessions)
-    turn, _ = talk(svc, [PROFILE_Q1, "לא יודע", CAR, "אטו 3"])
+    turn, _ = talk(svc, [PROFILE_Q1, "אני לא יודע אף אחד מהם", CAR, "אטו 3"])
     assert 'למשל: "עמלות 1,000"' in turn.reply

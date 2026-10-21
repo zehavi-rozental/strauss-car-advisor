@@ -109,6 +109,26 @@ def test_group_and_no_car_in_one_natural_sentence(sessions):
         assert c.current.source == "none", f"no-car not saved for: {msg!r}"
 
 
+def test_group_salary_and_no_car_in_one_sentence(sessions):
+    """[integration] Template mode: the real opening line from the live session — group + salary stated with
+    an earning verb ("מרוויחה") + no car, all in one natural sentence — reads all three facts."""
+    svc = service(sessions)
+    turn, token = svc.start()
+    turn = svc.send(turn.conversation_id, token, "אני בקבוצה ג, מרוויחה 15,000 ואין לי רכב היום")
+    st = svc.view(turn.conversation_id, token).state
+    assert st.profile.group == "ג" and st.profile.base == Decimal("15000")
+    assert st.current.source == "none"
+
+
+def test_salary_with_an_earning_verb_without_the_word_salary(sessions):
+    """"מרוויחה 15,000" states the base salary even without the word שכר/ברוטו."""
+    svc = service(sessions)
+    turn, token = svc.start()
+    turn = svc.send(turn.conversation_id, token, "קבוצה ב, מרוויח 20000")
+    st = svc.view(turn.conversation_id, token).state
+    assert st.profile.group == "ב" and st.profile.base == Decimal("20000")
+
+
 # ---------- deferring the maintenance question continues, then it comes back before the net ----------
 
 def test_no_car_defer_maintenance_comes_back(sessions):

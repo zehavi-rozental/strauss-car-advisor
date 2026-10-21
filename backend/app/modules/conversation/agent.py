@@ -29,8 +29,8 @@ from .fallback import (ZERO_ALLOWED, fields_plan, ParserPlan, car_roles, correct
 from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
 from .grounding import grounded_number, group_named, occupation_named, option_named, zero_grounded
-from .parsing import (YEAR_RE, match_drive, match_occupation, no_car_span, occupation_match, parse_copay, read_profile,
-                      redact_id_numbers)
+from .parsing import (YEAR_RE, has_all_scope, match_drive, match_occupation, no_car_span, occupation_match,
+                      parse_copay, read_profile, redact_id_numbers)
 from .guards import (FIELD_WORDS, SINGULAR_RE, TAG_RE, Check, Violation, ask_lines, check, content_sentences, drop,
                      has_statement, sentences, strip_tags, verify)
 from .turn import LLM_TOOLS, Candidate, parser_hint, render_catalog, render_faq, run_rounds, state_block, system_message, user_message
@@ -72,6 +72,7 @@ from .templates import (
     clarify_car_text,
     confirmed_assumption,
     group_question,
+    paced,
     conflict_text,
     queued_option_text,
     range_problem_text,
@@ -382,6 +383,19 @@ _ASKED_ARG = {"base": "base_salary", "commissions": "commissions", "bonus": "bon
               "use_value": "current_use_value", "maintenance": "current_maintenance", "car": "car"}
 _NUMERIC_ARGS = {a for a in _ASKED_ARG.values() if a != "car"}
 _BARE_RE = re.compile(r"^\s*(?:בערך|כ-?|בסביבות)?\s*[\d.,]+\s*(?:%|אחוז(?:ים)?|₪|ש\"ח|שח|שקל(?:ים)?)?\s*\.?\s*$")
+
+# save_profile arg name (asked_field) → the Q2 field name used in unknown_fields
+_ASKED_Q2 = {"commissions": "commissions", "bonus": "bonus", "pension_percent": "pension_percent",
+             "study_fund_percent": "study_fund_percent", "credit_points": "credit_points",
+             "children_under_23": "children"}
+# Hebrew words that name each Q2 field, to tell which field a "לא יודע" refers to
+_Q2_WORDS = {"commissions": ("עמל",), "bonus": ("בונוס",), "pension_percent": ("פנסי",),
+             "study_fund_percent": ("השתלמות",), "credit_points": ("זיכוי", "נקוד"), "children": ("ילד",)}
+
+
+def _q2_fields_named(text: str) -> list[str]:
+    """Which Q2 fields a message explicitly names (so 'לא יודע כמה עמלות' marks only commissions)."""
+    return [f for f, words_ in _Q2_WORDS.items() if any(w in text for w in words_)]
 
 
 # profile fields a question must not name once they are saved (guards.FIELD_WORDS keys = Profile attributes)
@@ -779,6 +793,10 @@ class Agent:
             path = "choice" if choice else "parser" if plan.complete else "templates"
             # a direct answer to the code's own question ("לא" to a confirmation) is understood
             understood = self._execute(ctx, plan.calls) or plan.notice is not None or (plan.direct and plan.complete)
+            if plan.clarify_scope:
+                # a blanket "לא ידוע" / "אין לי כלום" / "הכל 5" on a grouped question: nothing is saved,
+                # and from here the fields are asked one at a time, so each answer is unambiguous.
+                state.pace = "one_at_a_time"
             if plan.clarify is not None:
                 state.pending_clarification = plan.clarify     # "<רכב> הוא הרכב שלכם היום, או חלופה?"
                 state.role_asked.append(plan.clarify.catalog_code)
@@ -833,6 +851,11 @@ class Agent:
         if candidate is None:
             state.unanswered_question = (und.unanswered[0] if und.unanswered
                                          else before_turn_unanswered if und.complaint else None)
+        # "הכי משתלם" / "תמליץ" / "דרג": a request to rank ALL eligible cars. Recorded now (even mid-profile)
+        # so the options step is auto-ranked and the employee is never asked to pick cars to compare. A set of
+        # cars the employee already chose is left as is — ranking only fills an empty choice.
+        if und.rank and not state.selected and next_stage(state) not in (Stage.WAITING_FOR_REP,):
+            state.rank_requested = True
         self._open_blocking_rep(ctx)
         self._resolve_rank(ctx)
         just_calculated = False
@@ -1067,6 +1090,37 @@ class Agent:
                 log.info("copay 0 before the car is known; asked, not saved")
                 if not any(v not in (None, [], False) for k, v in args.items() if k != "approximate_fields"):
                     return None
+            # A blanket answer to a grouped Q2 is never spread silently across every field. The model tends
+            # to over-apply a bare "לא ידוע" (unknown_fields=all) or a sweeping "אין לי כלום" / "הכל 5"
+            # (zeros / one value on several fields). Policy:
+            #   - a named field ("לא יודע כמה עמלות")                → that field only
+            #   - one Q2 field on screen                             → that field
+            #   - several on screen + an explicit "all" scope        → all of them (the employee said so)
+            #   - several on screen, no scope ("לא ידוע", "הכל 5")   → ambiguous: save nothing, ask one at a time
+            on_screen = [f for f in paced(state, current_group(state)[1]) if f in Q2_FIELDS]
+            grouped = len(on_screen) > 1
+            if args.get("unknown_fields"):
+                named = _q2_fields_named(text)
+                asked_q2 = _ASKED_Q2.get(state.asked_field or "")
+                if named:
+                    args = {**args, "unknown_fields": [f for f in args["unknown_fields"] if f in named]}
+                elif asked_q2:
+                    args = {**args, "unknown_fields": [asked_q2]}
+                elif not grouped and on_screen:
+                    args = {**args, "unknown_fields": on_screen}
+                elif grouped and not has_all_scope(text):
+                    log.info("blanket 'unknown' on a grouped question: not spread; asking one at a time")
+                    state.pace = "one_at_a_time"
+                    args = {k: v for k, v in args.items() if k != "unknown_fields"}
+            # the model spread one value / zeros across several Q2 fields for a sweeping message with no
+            # per-field wording ("הכל 5", "אין לי כלום"): refuse the spread, ask one at a time
+            if grouped and not _q2_fields_named(text):
+                spread = [k for k in args if k in _ASKED_Q2 and args.get(k) is not None]
+                if len(spread) > 1 and (has_all_scope(text) or bare_value(text)):
+                    log.info("blanket value spread across %d Q2 fields: refused; asking one at a time",
+                             len(spread))
+                    state.pace = "one_at_a_time"
+                    args = {k: v for k, v in args.items() if k not in spread}
             args = Agent._grounded(ctx, args, text)
             if args is None:
                 return None
