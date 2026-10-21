@@ -55,7 +55,7 @@ def question(field: str, state: ConversationState, snapshot: RulesSnapshot) -> s
         "study_fund_percent": "כמה אחוזים מופרשים מכם לקרן השתלמות?",
         "credit_points": "כמה נקודות זיכוי יש לכם? (מופיע בתלוש)",
         "children": f"כמה ילדים עד גיל {age} יש לכם?",
-        "car": "איזה רכב צמוד יש לכם היום?",
+        "car": "מה הדגם של הרכב הצמוד שלכם?" if c.has_car else "איזה רכב צמוד יש לכם היום?",
         "use_value": (f"מאגר רשות המסים כולל רכבים משנות {c.coverage}, ושנת {c.reg_year} לא נמצאת בו. "
                       "מה שווי השימוש החודשי שמופיע בתלוש שלכם?") if c.coverage else
                      f"לא מצאתי את \"{c.query or ''}\" במאגר. מה שווי השימוש החודשי שמופיע בתלוש שלכם?",
@@ -111,6 +111,7 @@ def _group_or_occupation(snapshot: RulesSnapshot) -> str:
 
 
 Q3_CAR = "איזה רכב צמוד יש לכם היום, וכמה משלמים עליו בחודש?"
+Q3_CAR_KNOWN = "מה הדגם של הרכב הצמוד שלכם, וכמה משלמים עליו בחודש?"
 _Q2_PAY = {"commissions": "עמלות", "bonus": "בונוסים"}
 _Q2_DEDUCTIONS = {"pension_percent": "פנסיה", "study_fund_percent": "קרן השתלמות"}
 # שדה מ-Q2 שנשאר חסר ונשאל בתוך Q3
@@ -201,7 +202,7 @@ def group_question(state: ConversationState, snapshot: RulesSnapshot, skip: Sequ
     if group == "Q2" or _is_q2(fields):
         return _q2(fields, snapshot)
     if "car" in fields:
-        ask = Q3_CAR if "copay" in fields else question("car", state, snapshot)
+        ask = (Q3_CAR_KNOWN if state.current.has_car else Q3_CAR) if "copay" in fields             else question("car", state, snapshot)
         # Q2 fields still open are named once (never dropped silently) and asked after the car
         if any(f in Q2_FIELDS for f in fields) and "Q3" not in state.asked_groups:
             ask += "\n" + _leftover_tail(fields)
@@ -794,10 +795,11 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
     if first == "opt_out_occupation":
         return "כתבו את התפקיד, למשל: מנהלת מוצר.", None
     if first == "car":
+        # a company car the employee already said they have: only the model is asked, never "אם אין רכב"
+        no_car = "" if state.current.has_car else " אם אין רכב, כתבו \"אין רכב\"."
         if "copay" in fields:
-            return (f"כתבו את הדגם וכמה משלמים, למשל: \"{_faq_example(snapshot, 'car')}\". "
-                    "אם אין רכב, כתבו \"אין רכב\"."), None
-        return "כתבו את הדגם, למשל: \"קורולה קרוס 2025\". אם אין רכב, כתבו \"אין רכב\".", None
+            return f"כתבו את הדגם וכמה משלמים, למשל: \"{_faq_example(snapshot, 'car')}\".{no_car}", None
+        return f"כתבו את הדגם, למשל: \"קורולה קרוס 2025\".{no_car}", None
     if first == "copay":
         return "כתבו את הסכום, למשל: 300, או \"לא ידוע\".", None
     if first == "use_value":

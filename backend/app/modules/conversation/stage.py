@@ -92,6 +92,10 @@ class CurrentCar(BaseModel):
     # maintenance=None + maintenance_unknown=False: not asked yet.
     maintenance: Optional[Decimal] = None
     maintenance_unknown: bool = False
+    # "יש לי רכב חברה" before the model is known, or a model the employee said was wrong ("התכוונתי לרכב
+    # אחר"): there IS a company car, only the model is missing. Never asked "אם אין רכב" again.
+    has_car: bool = False
+    rejected: list[str] = Field(default_factory=list)   # catalog codes the employee said are not their car
 
 
 class PendingRep(BaseModel):

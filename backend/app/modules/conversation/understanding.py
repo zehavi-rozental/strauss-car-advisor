@@ -39,7 +39,11 @@ _COMPLAINT_CUES = ("לא עונה", "לא ענית", "לא לפי השאלה", "
                    "זה לא מה ששאלתי")
 # "I already answered that" / "you got it wrong": answered from the state (what is saved and what is missing),
 # with no apology unless something really went wrong
-_AUDIT_CUES = ("כבר כתבתי", "כבר עניתי", "כבר אמרתי", "כבר רשמתי", "כבר נתתי", "טעית", "טעיתם", "רשמת לא נכון")
+_AUDIT_CUES = ("כבר כתבתי", "כבר עניתי", "כבר אמרתי", "כבר רשמתי", "כבר נתתי", "טעית", "טעיתם", "רשמת לא נכון",
+               "כתבתי לך", "אמרתי לך", "עניתי לך", "כתבתי כבר", "אמרתי כבר")
+# "יש לי רכב חברה" without a model: a fact (there is a car), kept so the bot never asks "אם אין רכב" again
+_HAS_CAR_RE = re.compile(r"(?<![א-ת])(?:יש\s+לי|קיבלתי|מקבל(?:ת)?|נוסע(?:ת)?\s+עם)\s+(?:כבר\s+)?(?:רכב|אוטו)"
+                         r"(?:\s+(?:חברה|צמוד|של\s+החברה|מהעבודה))?(?![א-ת])")
 _FILLER = {"ו", "תודה", "שלום", "היי", "אוקיי", "אוקי", "ok", "טוב", "בסדר", "רגע", "אז", "נו", "אה", "אמממ",
            "יופי", "מעולה", "סבבה"}
 # clauses: after "?" / "!" / "." / a new line, and before ", ולמה …" / ", ומה …" (data, then a question)
@@ -67,6 +71,7 @@ class Understanding:
     complaint: bool = False                                 # "אתה בוט שעונה לא לפי השאלה"
     all_at_once: bool = False                               # "תן לי את כל השאלות בפעם אחת": about the conversation
     audit: bool = False                                     # "כבר כתבתי לך": say what is saved and missing
+    has_car: bool = False                                   # "יש לי רכב חברה": there is a car (model unknown)
     remainder: str = ""                                     # the message without questions (read by the parser)
     catalog: list[str] = field(default_factory=list)        # answers from the company catalog ("יש לכם קורולה?")
 
@@ -228,7 +233,8 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
     # "טעית"/"טעיתם" (you got it wrong) is an audit cue; "טעיתי" (I made a mistake) is a first-person
     # correction, never an audit — it must not be swallowed as one.
     audit = any(cue in text for cue in _AUDIT_CUES) and "טעיתי" not in text
-    u = Understanding(complaint=not audit and any(cue in text for cue in _COMPLAINT_CUES), audit=audit)
+    u = Understanding(complaint=not audit and any(cue in text for cue in _COMPLAINT_CUES), audit=audit,
+                      has_car=bool(_HAS_CAR_RE.search(text)) and not no_car_span(text))
     if _contains_any(text, faq.injection_patterns) or (
             _contains_any(text, faq.off_topic_patterns) and not named_cars(text, snapshot.catalog)):
         u.redirect = True
@@ -250,6 +256,8 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
                 u.help = True
             elif catalog:
                 u.catalog.append(catalog)
+            elif entry is None and u.audit:
+                pass          # "כתבתי לך שיש לי רכב, למה אתה שואל שוב?": rhetorical; answered from the state
             elif entry is None:
                 u.unanswered.append(clause.strip())
             elif entry not in u.faq_ids:
@@ -271,6 +279,7 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
         # the presence clauses carry nothing else to save
         remainder = ", ".join(p for p in re.split(r"[,;]", remainder) if not _presence(p)).strip()
     if (_NO_COPAY_RE.search(remainder) and state.current.source is None and not state.current.query
+            and not state.current.has_car and not u.has_car
             and not named_cars(remainder, snapshot.catalog) and not no_car_span(remainder)):
         u.ambiguity = NO_CAR_OR_ZERO
         remainder = ""

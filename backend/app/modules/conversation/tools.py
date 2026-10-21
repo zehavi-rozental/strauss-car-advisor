@@ -378,12 +378,15 @@ def _longest_named(cars: list[CatalogCar], text: str) -> list[CatalogCar]:
 
 def match_current_car(ctx: ToolContext, args: MatchCarArgs) -> dict[str, Any]:
     old = ctx.state.current
-    keep = dict(copay=old.copay, copay_unknown=old.copay_unknown)
+    keep = dict(copay=old.copay, copay_unknown=old.copay_unknown, rejected=list(old.rejected), has_car=old.has_car)
 
     if args.reset:
-        ctx.state.current = CurrentCar(**keep)
+        # "זה לא הרכב שלי" / "התכוונתי לרכב אחר": only the model is wrong. There is a car (has_car), its copay
+        # stays, and the model just rejected is not offered again.
+        rejected = [*old.rejected, *([old.catalog_code] if old.catalog_code else [])]
+        ctx.state.current = CurrentCar(**{**keep, "rejected": rejected, "has_car": True})
         _invalidate_results(ctx.state)
-        return {"status": "RESET", "next": "ask the employee for the exact model"}
+        return {"status": "RESET", "next": "ask the employee for the exact model (they have a company car)"}
 
     if args.no_car:
         ctx.state.current = CurrentCar(source="none", label="ללא רכב")
@@ -426,6 +429,11 @@ def match_current_car(ctx: ToolContext, args: MatchCarArgs) -> dict[str, Any]:
     year = args.registration_year
 
     related = related_cars(ctx.snapshot, model)
+    if len(related) > 1 and old.rejected:
+        # a model the employee already said is not theirs is not offered again ("התכוונתי לרכב אחר" → "קורולה")
+        related = [c for c in related if c.catalog_code not in old.rejected] or related
+        if len(related) == 1:
+            model = related[0].model_name
     by_year = [c for c in related if c.reg_year == year] if year is not None else []
     if len(by_year) == 1:
         related = []                     # the year tells them apart ("COROLLA 2025" → COROLLA CROSS)

@@ -44,7 +44,6 @@ def asking_lines(reply: str) -> list[str]:
 
 # ---------- T1: "יש לי רכב חברה" is a fact, not a filler ----------
 
-@pytest.mark.xfail(strict=True, reason="RC5: no has_car fact")
 def test_a_company_car_said_with_the_group_is_kept(sessions):
     svc = service(sessions)
     turn, token = talk(svc, "יש לי רכב חברה ואני בקבוצה ב")
@@ -120,7 +119,6 @@ def _with_car(svc):
     return svc.send(turn.conversation_id, token, "2"), token          # COROLLA CROSS (2025)
 
 
-@pytest.mark.xfail(strict=True, reason="RC5: has_car lost on reset")
 def test_another_car_meant_resets_only_the_model(sessions):
     svc = service(sessions)
     turn, token = _with_car(svc)
@@ -141,7 +139,6 @@ def test_another_car_meant_resets_only_the_model(sessions):
 
 # ---------- T2: a car named after "no car" ----------
 
-@pytest.mark.xfail(strict=True, reason="RC5: no-car overwritten")
 def test_a_car_named_at_the_maintenance_question_does_not_undo_no_car(sessions):
     svc = service(sessions)
     turn, token = talk(svc, "אני בקבוצה ג, מרוויחה 15,000 ואין לי רכב היום",
@@ -240,7 +237,6 @@ def test_a_payslip_value_replaces_the_chat_value_with_an_explicit_update(client)
 
 # ---------- results that are out of date ----------
 
-@pytest.mark.xfail(strict=True, reason="RC5: a car correction after a result is not read")
 def test_a_result_that_cannot_be_recalculated_is_marked_stale(client):
     cid, body = _chat(client, PROFILE, "יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש", "אטו 3")
     assert body["results"] and body["results_stale"] is False
@@ -251,7 +247,6 @@ def test_a_result_that_cannot_be_recalculated_is_marked_stale(client):
     assert view["results_stale"] is True
 
 
-@pytest.mark.xfail(strict=True, reason="RC5: a car correction after a result is not read")
 def test_the_model_never_sees_a_stale_result_as_current(sessions):
     from app.modules.conversation.turn import state_block
     from app.modules.rules.public import load_snapshot

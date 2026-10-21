@@ -269,10 +269,27 @@ PREFIX_LETTERS = "והבל"          # אות שימוש אחת לפני מיל�
 NAME_PREFIX_LETTERS = "והבלמשכ"  # כמו mentions: "הקורולה", "ואטו 3"
 
 
+_NOT_KNOWING = ("זוכר", "יודע", "בטוח", "ידוע")
+
+
 def negates(text: str) -> bool:
     """ "לא" (או "ולא"/"שלא") בכל מקום חוץ מהמילה הראשונה: "זה לא קורולה קרוס" שולל את הרכב.
-    "לא" כמילה ראשונה הוא תיקון ("לא, זו קורולה קרוס")."""
-    return any(w == "לא" or (len(w) == 3 and w[0] in "וש" and w[1:] == "לא") for w in words(text)[1:])
+    "לא" כמילה ראשונה הוא תיקון ("לא, זו קורולה קרוס"). "לא זוכרת" / "לא יודע" is not knowing, not a
+    negation of the car."""
+    ws = words(text)
+    return any((w == "לא" or (len(w) == 3 and w[0] in "וש" and w[1:] == "לא"))
+               and not (i + 1 < len(ws) and ws[i + 1].startswith(_NOT_KNOWING))
+               for i, w in enumerate(ws) if i > 0)
+
+
+# "משלמת עליו אני לא זוכרת כמה": the copay exists but its amount is not known (never 0, never guessed)
+_COPAY_UNKNOWN_RE = re.compile(r"(?:משלמ(?:ת|ים|ות)?|משלם|משתתפ(?:ת|ים|ות)?|משתתף|השתתפות)[^\d,;\n]{0,15}?"
+                               r"לא\s+(?:זוכר|יודע|בטוח)(?:ת|ה)?(?:\s+כמה)?")
+
+
+def copay_unknown_span(text: str) -> Optional[Span]:
+    m = _COPAY_UNKNOWN_RE.search(text)
+    return m.span() if m else None
 
 
 def _widen(text: str, start: int, end: int) -> Span:

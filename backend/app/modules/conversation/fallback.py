@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from typing import Iterable, Optional
 
@@ -26,6 +26,7 @@ from .parsing import (
     plain_decimal,
     read_number,
     copay_span,
+    copay_unknown_span,
     drive_span,
     find_year,
     has_all_scope,
@@ -46,7 +47,8 @@ from .stage import Q2_FIELDS, CarClarification, ConversationState, current_group
 from .tools import OPT_OUT_WORDS, available_options
 
 _RANK_RE = re.compile(r"(?:מה\s+)?הכי\s*(?:משתלם|כדאי|טוב)(?:\s+לי)?|תמליץ|המלצ|דרג", re.IGNORECASE)
-_NOT_THIS_CAR_RE = re.compile(r"לא\s+(?:זה\s+)?(?:הרכב|הדגם)|(?:זה|זו)\s+לא\s+(?:נכון|הוא|היא)")
+_NOT_THIS_CAR_RE = re.compile(r"לא\s+(?:זה\s+)?(?:הרכב|הדגם)|(?:זה|זו)\s+לא\s+(?:נכון|הוא|היא)"
+                              r"|(?<![א-ת])ל?(?:רכב|דגם)\s+אחר(?![א-ת])")
 # בזמן שאוספים את פרטי הרכב הנוכחי, הודעה שמזכירה רכב אחר היא תיקון — לא תשובה לשאלה
 _CAR_DETAIL_QUESTIONS = {"copay", "use_value", "drive", "maintenance", "car_choice"}
 _ONLY_NUMBERS_RE = re.compile(r"^\s*\d+(?:\s*(?:,|ו-?|and|&)\s*\d+)*\s*[.!]?\s*$")
@@ -143,6 +145,9 @@ def fallback_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) 
     value_correction = _profile_value_correction_plan(state, snapshot, t)
     if value_correction is not None:
         return value_correction
+    car_correction = _car_correction_plan(state, snapshot, t)
+    if car_correction is not None:
+        return car_correction
     combined = _profile_and_no_car_plan(state, snapshot, t)
     if combined is not None:
         return combined
@@ -268,6 +273,35 @@ def _profile_value_correction_plan(state: ConversationState, snapshot: RulesSnap
     # duplicated — the state-based confirmation line is the single source of truth for what changed.
     return ParserPlan([ToolCall("save_profile", changes, "combined")], True, direct=True,
                       fallback_notice=notice)
+
+
+def _says_mine(text: str, cues: Iterable[str]) -> bool:
+    """A correction word, or "יש לי" / "הרכב שלי": the car named is the employee's car today."""
+    return _has_correction_cue(text, cues) or "יש לי" in text or "הרכב שלי" in text
+
+
+def _car_correction_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Optional[ParserPlan]:
+    """Correcting the car today once it is known, at any stage (also after a result): "התכוונתי לרכב אחר" /
+    "זה לא הרכב שלי" resets only the model (the copay and the fact that there is a car stay); another
+    catalog car with a correction word or "יש לי" is matched instead. Tagged "combined": valid at any stage."""
+    c = state.current
+    if c.source not in ("catalog", "tax", "stated"):
+        return None
+    ext = snapshot.extensions
+    cars = [x for x in named_cars(text, snapshot.catalog) if x.catalog_code != c.catalog_code]
+    if not cars:
+        m = _NOT_THIS_CAR_RE.search(text)
+        fillers = [*ext.answer_fillers, *ext.correction_cues, *ext.car_message_fillers,
+                   "התכוונתי", "שלי", "זה", "זו", "בעצם", "למעשה", "סליחה"]
+        if m is None or unread_words(text, [m.span()], (), fillers, leading_no=True):
+            return None
+        return ParserPlan([ToolCall("match_current_car", {"reset": True}, "combined")], True, direct=True)
+    if not _says_mine(text, ext.correction_cues):
+        return None
+    plan = _car_plan(snapshot, text)
+    if not (plan.complete and plan.calls):
+        return None
+    return ParserPlan([ToolCall(x.name, x.args, "combined") for x in plan.calls], True, direct=True)
 
 
 def _has_correction_cue(text: str, cues: Iterable[str]) -> bool:
@@ -557,10 +591,19 @@ def correction_plan(state: ConversationState, snapshot: RulesSnapshot, text: str
     """תיקון הרכב שזוהה: שם רכב אחר מהקטלוג → התאמה מחדש (ההשתתפות שכבר נמסרה נשמרת);
     "זה לא הרכב" בלי דגם → מוחקים את ההתאמה ושואלים שוב. אחרת None — זו תשובה לשאלה."""
     cars = named_cars(text, snapshot.catalog)
+    if state.current.source == "none" and cars and not _says_mine(text, snapshot.extensions.correction_cues):
+        # "אין לי רכב" was said: a catalog car named now is an alternative to check, never the car today
+        available = {o.id for o in available_options(snapshot, state)}
+        codes = [x.catalog_code for x in cars]
+        if state.selected or not all(code in available for code in codes):
+            return ParserPlan()
+        return ParserPlan([ToolCall("select_options", {"options": codes}, "combined")], True, direct=True)
     if cars and cars[0].catalog_code != state.current.catalog_code:
-        return _car_plan(snapshot, text)          # כולל בדיקת "לא" באמצע ומילים נוספות
+        plan = _car_plan(snapshot, text)          # כולל בדיקת "לא" באמצע ומילים נוספות
+        # a correction of the car today is valid at any stage ("combined"), like the reset below
+        return replace(plan, calls=[ToolCall(c.name, c.args, "combined") for c in plan.calls])
     if not cars and _NOT_THIS_CAR_RE.search(text):
-        return ParserPlan(_call("match_current_car", reset=True), True)
+        return ParserPlan([ToolCall("match_current_car", {"reset": True}, "combined")], True)
     return None
 
 
@@ -578,11 +621,14 @@ def _car_plan(snapshot: RulesSnapshot, text: str) -> ParserPlan:
         return ParserPlan()     # "זה לא קורולה קרוס" — לא מתאימים דבר; המודל או שאלה חוזרת
     year = find_year(text)
     copay = parse_copay(text)
+    unknown_copay = copay_unknown_span(text) if copay is None else None
     cars = named_cars(text, snapshot.catalog)
     if cars:
         # the manufacturer's name next to its model ("קיה נירו", "טויוטה קורולה") is not extra meaning
-        car_fillers = fillers + _descriptors(cars[0], ext.manufacturer_brands)
-        if leftover_words(text, matched_name(text, cars[0]) or cars[0].model_name, car_fillers):
+        car_fillers = fillers + _descriptors(cars[0], ext.manufacturer_brands) + ["אני", "עליו", "עליה"]
+        name = matched_name(text, cars[0]) or cars[0].model_name
+        if unread_words(text, [copay_span(text), unknown_copay, *year_spans(text)], [name], car_fillers,
+                        leading_no=True):
             return ParserPlan()                     # יש עוד משמעות ("הקרוסאובר", "הגבוהה") — המודל
         calls = _call("match_current_car", model=cars[0].model_name, registration_year=year)
         complete = True
@@ -594,6 +640,8 @@ def _car_plan(snapshot: RulesSnapshot, text: str) -> ParserPlan:
         calls, complete = _call("match_current_car", model=model, registration_year=year), False
     if copay is not None:
         calls += _call("save_profile", current_copay=str(copay))
+    elif unknown_copay is not None:
+        calls += _call("save_profile", current_copay_unknown=True)
     return ParserPlan(calls, complete, guess=not complete)
 
 
@@ -656,6 +704,7 @@ def _q3_car_plan(state: ConversationState, snapshot: RulesSnapshot, fields: list
     roles = car_roles(text, cars, ext.car_role_cues)
     year = find_year(text)
     copay = parse_copay(text)
+    unknown_copay = copay_unknown_span(text) if copay is None else None
     # רכב יחיד בלי מילה: השתתפות שנמסרה היא תמיד על הרכב של היום ("קורולה קרוס, אין לי השתתפות"),
     # ושנה אחרת מהקטלוג — החלופות הן רכבים חדשים מהקטלוג ("COROLLA CROSS 2023")
     if len(cars) == 1 and roles[cars[0].catalog_code] is None and (
@@ -675,11 +724,11 @@ def _q3_car_plan(state: ConversationState, snapshot: RulesSnapshot, fields: list
         return ParserPlan()                   # חלופה שאינה זמינה (קבוצה גבוהה) — המודל או שאלה
     reading = read_profile(text, snapshot.occupations.keys(), ext.correction_cues, ext.value_qualifiers)
     # השנה שייכת לרכב של היום (או לרכב ששואלים עליו); עם חלופות בלבד היא נשארת לא מובנת
-    spans = [*reading.spans, *approx_spans(text), copay_span(text),
+    spans = [*reading.spans, *approx_spans(text), copay_span(text), unknown_copay,
              *(year_spans(text) if current or unclear else [])]
     phrases = [*reading.phrases, *(matched_name(text, c) or c.model_name for c in cars)]
     fillers = [*ext.profile_fillers, *ext.car_message_fillers, *ext.option_message_fillers, *ext.correction_cues,
-               *ext.car_role_cues.current, *ext.car_role_cues.alternative]
+               *ext.car_role_cues.current, *ext.car_role_cues.alternative, "אני", "עליו", "עליה"]
     for car in cars:         # the manufacturer's name next to any named car ("קיה נירו") is not extra meaning
         fillers += _descriptors(car, ext.manufacturer_brands)
     if unread_words(text, spans, phrases, fillers, leading_no=True):
@@ -690,6 +739,8 @@ def _q3_car_plan(state: ConversationState, snapshot: RulesSnapshot, fields: list
     profile = dict(reading.fields)
     if copay is not None:
         profile["current_copay"] = str(copay)
+    elif unknown_copay is not None and current:
+        profile["current_copay_unknown"] = True
     if profile:
         calls += _call("save_profile", **profile, approximate_fields=list(reading.approximate))
     if alternatives:

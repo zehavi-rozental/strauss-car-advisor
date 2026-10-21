@@ -10,7 +10,7 @@ cases:
   - {text: "תיקון: קורולה קרוס", allowed: [{car: CAR-09, copay_unknown: null, waiting: null}]}
   - {text: "רגע, טעיתי, קורולה קרוס", allowed: [{car: CAR-09, copay_unknown: null, waiting: null}]}
   - {text: "הרכב שלי זה קורולה קרוס", allowed: [{car: CAR-09, copay_unknown: null, waiting: null}, {clarify: CAR-09}]}
-  - {text: "זה לא הרכב שלי", allowed: [{car: null, copay_unknown: null, waiting: null}]}
+  - {text: "זה לא הרכב שלי", allowed: [{car: null, waiting: null}]}   # same car, model wrong: the copay stays unknown
   - {text: "זה לא קורולה קרוס", allowed: []}
   - {text: "אטו 3", allowed: [{clarify: CAR-10}]}
   - {text: "אני רוצה לבדוק גם את EV3", allowed: [{clarify: CAR-11}, {queued: [CAR-11]}]}

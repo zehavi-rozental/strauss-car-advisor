@@ -405,6 +405,7 @@ def _q2_fields_named(text: str) -> list[str]:
 # profile fields a question must not name once they are saved (guards.FIELD_WORDS keys = Profile attributes)
 _CLOSED_FIELDS = ("base", "commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points", "children")
 NO_CAR_ACK = "רשמתי: אין לכם רכב צמוד היום."
+HAS_CAR_ACK = "רשמתי שיש לכם רכב צמוד."
 PACE_ONE = "בסדר, אשאל שאלה אחת בכל פעם."
 PACE_NORMAL = "בסדר, אפשר לענות על כמה דברים יחד."
 
@@ -596,6 +597,9 @@ def _audit_text(state: ConversationState) -> str:
                      state.profile.group if state.profile.group else None)
     if state.current.label and state.current.source in ("catalog", "tax", "stated"):
         saved = (saved[:-1] + f", רכב היום {state.current.label}.") if saved else f"רשמתי: רכב היום {state.current.label}."
+    elif state.current.has_car and state.current.source is None:
+        car = "יש לכם רכב צמוד, וחסר לי רק הדגם שלו."
+        saved = (saved[:-1] + f". {car}") if saved else f"רשמתי: {car}"
     return ("בדקתי: " + saved.replace("רשמתי: ", "עד עכשיו רשמתי ")) if saved else "בדקתי: עוד לא רשמתי אף ערך."
 
 
@@ -741,7 +745,8 @@ class Agent:
                 extra = [UNANSWERED] if und.unanswered else [snapshot.faq.redirect] if und.redirect else []
                 reply = "\n\n".join([*self._answers(snapshot, und)[0], *extra, reply])
                 return TurnOutcome(reply=reply, source="template", path="waiting")
-            before = self._start_correction(ctx)
+            reset_only = all(c.name == "match_current_car" and c.args.get("reset") for c in correction.calls)
+            before = self._start_correction(ctx, keep_copay_unknown=reset_only)
             plan = correction
         elif state.pending_rep_question is not None and (send := _send_answer(text)) is not None:
             return self._rep_question_decision(ctx, send, record_run)
@@ -780,12 +785,16 @@ class Agent:
         return self._finish(ctx, history, text, plan, before, record_run, und=und, extra=[pace] if pace else ())
 
     @staticmethod
-    def _start_correction(ctx: ToolContext) -> Stage:
+    def _start_correction(ctx: ToolContext, keep_copay_unknown: bool = False) -> Stage:
         """העובד מתקן את הרכב בזמן המתנה: השאלות על הרכב הקודם מתבטלות, ונשאל שוב על הרכב החדש."""
         state = ctx.state
         ctx.cancel_question_ids.extend(state.pending_rep.question_ids)
         state.pending_rep = None
-        state.current.copay_unknown = state.current.use_value_unknown = False
+        # A use value that was unknown belonged to the old car. The copay stays unknown only when the same car
+        # is being renamed ("התכוונתי לרכב אחר"); for another car named now, its copay is asked again.
+        state.current.use_value_unknown = False
+        if not keep_copay_unknown:
+            state.current.copay_unknown = False
         return next_stage(state)
 
     def _finish(self, ctx: ToolContext, history: Sequence[ChatMessage], text: str, plan: ParserPlan,
@@ -801,6 +810,9 @@ class Agent:
             state.link_now = "profile_form"  # the form is the way to answer everything together
         car_before = _car_key(state)
         before_turn = _Before.of(state)
+        has_car_said = und.has_car and state.current.source is None and not state.current.has_car
+        if has_car_said:
+            state.current.has_car = True     # "יש לי רכב חברה": a fact; the model is asked, never "אם אין רכב"
         used_llm = False
         candidate: Optional[Candidate] = None
         llm_failed = False
@@ -908,6 +920,8 @@ class Agent:
             entry = snapshot.faq.get("maintenance")
             if restated_no_car and entry is not None and current_group(state)[1] == ["maintenance"]:
                 no_car_lines.append(entry.answer)
+        if has_car_said and state.current.source is None and not state.current.choices:
+            no_car_lines.append(HAS_CAR_ACK)
         lines = [*extra, *([defer_ack] if defer_ack else []), *no_car_lines,
                  *(["צודקים, סליחה."] if und.complaint else []),
                  *([_audit_text(state)] if und.audit else []),
@@ -1274,8 +1288,8 @@ class Agent:
     def _open_blocking_rep(self, ctx: ToolContext) -> None:
         """שאלה לנציג רק אחרי שהפרופיל מלא: קודם משלימים את מה שהעובד יודע."""
         state = ctx.state
-        if state.pending_rep is not None or open_profile(state.profile):
-            return
+        if state.pending_rep is not None or open_profile(state.profile) or state.current.source is None:
+            return              # first the profile and the car itself; a question about "which car?" waits
         reason = blocking_rep_reason(state)
         if reason is None:
             return
