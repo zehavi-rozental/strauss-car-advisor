@@ -8,6 +8,8 @@
 import { useEffect, useRef } from 'react'
 import { TOP_CURVE, WHEELS, bodyOutline, glassOutline } from './aero'
 import { useReducedMotion } from './motion'
+import { hex, readPalette, rgba } from './palette'
+import type { ArtPalette, RGB } from './palette'
 
 export type FlowMode = 'intro' | 'band' | 'login'
 
@@ -38,10 +40,6 @@ function layoutFor(mode: FlowMode, w: number, h: number): Layout {
   return { x0, L, gy: Math.min(h * 0.78, L * 0.5 + 60), width: 2.6, alpha: 1, reach: (x0 - 6) / L }
 }
 
-// the burst, top ribbon to bottom ribbon
-const RIBBONS = ['#ed3024', '#f48326', '#b5d36a', '#78a12f', '#9ed8ef', '#00bae2', '#0390cb']
-const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
-const rgba = (c: number[], a: number) => `rgba(${c[0]},${c[1]},${c[2]},${a})`
 const easeOut = (x: number) => 1 - Math.pow(1 - x, 2.2)
 
 export function FlowCar({ mode }: { mode: FlowMode }) {
@@ -59,7 +57,8 @@ export function FlowCar({ mode }: { mode: FlowMode }) {
     let under: HTMLCanvasElement | null = null
     let over: HTMLCanvasElement | null = null
     const STEP = 3
-    let ribbons: { y: Float32Array; env: Float32Array; alpha: Float32Array; from: number; to: number; color: number[] }[] = []
+    let ribbons: { y: Float32Array; env: Float32Array; alpha: Float32Array; from: number; to: number; color: RGB }[] = []
+    let pal: ArtPalette = readPalette(box)
     let raf = 0, visible = true, running = false
     const start = performance.now()
 
@@ -86,12 +85,13 @@ export function FlowCar({ mode }: { mode: FlowMode }) {
       cv.style.width = `${w}px`
       cv.style.height = `${h}px`
       lay = layoutFor(mode, w, h)
+      pal = readPalette(box)
 
       // seven ribbons leave the rear of the car, stacked from the roof line to the bumper, and fan out a little
       const tail = toX(1)
       const startX = tail + lay.L * 0.16                  // starts hidden behind the body
       const run = Math.max(1, lay.L * lay.reach)
-      ribbons = RIBBONS.map((hex, i) => {
+      ribbons = pal.ribbons.map((color, i) => {
         const y0 = toY(0.245 - i * 0.021)
         const y1 = y0 + lay.L * (i - 3) * 0.028 + lay.L * 0.02
         const n = Math.ceil(w / STEP) + 1
@@ -104,7 +104,7 @@ export function FlowCar({ mode }: { mode: FlowMode }) {
           env[j] = d
           alpha[j] = d < 0.3 ? 1 : Math.max(0, 1 - (d - 0.3) / 0.7) ** 1.6     // a long, soft fade: never cut
         }
-        return { y, env, alpha, from, to, color: rgb(hex) }
+        return { y, env, alpha, from, to, color }
       })
 
       const [u, ug] = layer()
@@ -120,8 +120,8 @@ export function FlowCar({ mode }: { mode: FlowMode }) {
       const cx = toX(0.5)
       const ell = (rx: number, ry: number, a: number, y = lay.gy) => {
         const g = s.createRadialGradient(cx, y, 0, cx, y, rx)
-        g.addColorStop(0, `rgba(2,16,30,${a})`)
-        g.addColorStop(1, 'rgba(2,16,30,0)')
+        g.addColorStop(0, rgba(pal.shadow, a))
+        g.addColorStop(1, rgba(pal.shadow, 0))
         s.save()
         s.translate(cx, y)
         s.scale(1, ry / rx)
@@ -137,8 +137,8 @@ export function FlowCar({ mode }: { mode: FlowMode }) {
       WHEELS.forEach((wh) => {
         const x = toX(wh.u)
         const g = s.createRadialGradient(x, lay.gy, 0, x, lay.gy, wh.r * lay.L * 1.2)
-        g.addColorStop(0, `rgba(2,16,30,${0.6 * lay.alpha})`)
-        g.addColorStop(1, 'rgba(2,16,30,0)')
+        g.addColorStop(0, rgba(pal.shadow, 0.6 * lay.alpha))
+        g.addColorStop(1, rgba(pal.shadow, 0))
         s.fillStyle = g
         s.fillRect(x - wh.r * lay.L * 1.3, lay.gy - 6, wh.r * lay.L * 2.6, 12)
       })
@@ -157,8 +157,8 @@ export function FlowCar({ mode }: { mode: FlowMode }) {
     const drawReflection = (s: CanvasRenderingContext2D) => {
       const [r, c] = layer()
       const paint = c.createLinearGradient(0, lay.gy, 0, lay.gy + lay.L * 0.3)
-      paint.addColorStop(0, '#a9c3d6')
-      paint.addColorStop(1, '#6f97b4')
+      paint.addColorStop(0, hex(pal.reflection[0]))
+      paint.addColorStop(1, hex(pal.reflection[1]))
       c.fillStyle = paint
       outline(c, bodyOutline(), true)
       c.fill()
@@ -176,12 +176,7 @@ export function FlowCar({ mode }: { mode: FlowMode }) {
       const top = toY(0.335), bottom = toY(0.06)
       // pearl paint: bright roof, a soft shoulder highlight, the flank turning away into a cool shadow
       const paint = s.createLinearGradient(0, top, 0, bottom)
-      paint.addColorStop(0, '#ffffff')
-      paint.addColorStop(0.32, '#f4f6f8')
-      paint.addColorStop(0.5, '#e3e8ed')
-      paint.addColorStop(0.62, '#f2f4f7')
-      paint.addColorStop(0.8, '#cdd5de')
-      paint.addColorStop(1, '#a9b4c0')
+      ;[0, 0.32, 0.5, 0.62, 0.8, 1].forEach((at, k) => paint.addColorStop(at, hex(pal.paint[k])))
       s.fillStyle = paint
       outline(s, body)
       s.fill()
@@ -189,64 +184,60 @@ export function FlowCar({ mode }: { mode: FlowMode }) {
       outline(s, body)
       s.clip()
       const lightbox = s.createLinearGradient(toX(1), 0, toX(0), 0)
-      lightbox.addColorStop(0, 'rgba(255,255,255,0)')
-      lightbox.addColorStop(0.35, 'rgba(255,255,255,0.85)')
-      lightbox.addColorStop(0.75, 'rgba(255,255,255,0.4)')
-      lightbox.addColorStop(1, 'rgba(255,255,255,0)')
+      lightbox.addColorStop(0, rgba(pal.highlight, 0))
+      lightbox.addColorStop(0.35, rgba(pal.highlight, 0.85))
+      lightbox.addColorStop(0.75, rgba(pal.highlight, 0.4))
+      lightbox.addColorStop(1, rgba(pal.highlight, 0))
       s.fillStyle = lightbox
       s.fillRect(toX(1), toY(0.205), lay.L, lay.L * 0.022)
       const sky = s.createLinearGradient(0, toY(0.14), 0, bottom)
-      sky.addColorStop(0, 'rgba(158,216,239,0)')
-      sky.addColorStop(1, 'rgba(158,216,239,0.35)')
+      sky.addColorStop(0, rgba(pal.skyTint, 0))
+      sky.addColorStop(1, rgba(pal.skyTint, 0.35))
       s.fillStyle = sky
       s.fillRect(toX(1), toY(0.14), lay.L, lay.L * 0.1)
       s.lineCap = 'round'
-      s.strokeStyle = 'rgba(120,136,152,0.35)'
+      s.strokeStyle = rgba(pal.line, 0.35)
       s.lineWidth = 1
       s.beginPath()
       s.moveTo(toX(0.05), toY(0.17))
       s.bezierCurveTo(toX(0.4), toY(0.178), toX(0.7), toY(0.192), toX(0.985), toY(0.2))
       s.stroke()
-      s.strokeStyle = 'rgba(96,110,126,0.3)'
+      s.strokeStyle = rgba(pal.line, 0.34)
       s.beginPath()
       s.moveTo(toX(0.27), toY(0.1))
       s.lineTo(toX(0.72), toY(0.1))
       s.stroke()
-      s.strokeStyle = 'rgba(96,110,126,0.28)'
+      s.strokeStyle = rgba(pal.line, 0.32)
       s.beginPath()
       s.moveTo(toX(0.592), toY(0.226)); s.lineTo(toX(0.588), toY(0.09))
       s.stroke()
-      s.strokeStyle = 'rgba(70,84,100,0.45)'
+      s.strokeStyle = rgba(pal.line, 0.6)
       s.lineWidth = 2
       ;[0.5, 0.69].forEach((u) => { s.beginPath(); s.moveTo(toX(u + 0.04), toY(0.19)); s.lineTo(toX(u), toY(0.188)); s.stroke() })
       s.restore()
-      s.strokeStyle = 'rgba(120,136,152,0.55)'
+      s.strokeStyle = rgba(pal.line, 0.55)
       s.lineWidth = 1
       outline(s, body)
       s.stroke()
       const glass = glassOutline()
       if (glass.length) {
         const gg = s.createLinearGradient(toX(0.82), toY(0.31), toX(0.36), toY(0.23))
-        gg.addColorStop(0, '#1d2a39')
-        gg.addColorStop(0.4, '#2c3e53')
-        gg.addColorStop(0.47, '#7fa6c4')
-        gg.addColorStop(0.55, '#33465c')
-        gg.addColorStop(1, '#16212d')
+        ;[0, 0.4, 0.47, 0.55, 1].forEach((at, k) => gg.addColorStop(at, hex(pal.glass[k])))
         s.fillStyle = gg
         outline(s, glass)
         s.fill()
-        s.strokeStyle = 'rgba(160,172,186,0.9)'
+        s.strokeStyle = rgba(pal.rim[2], 0.9)
         s.lineWidth = 1.4
         s.stroke()
-        s.fillStyle = '#18222e'
+        s.fillStyle = hex(pal.pillar)
         s.fillRect(toX(0.597), toY(0.33), lay.L * 0.012, lay.L * 0.11)
       }
       s.save()
       s.lineCap = 'round'
       const rim = s.createLinearGradient(toX(0), 0, toX(1), 0)
-      rim.addColorStop(0, 'rgba(255,255,255,0)')
-      rim.addColorStop(0.5, 'rgba(255,255,255,1)')
-      rim.addColorStop(1, 'rgba(255,255,255,0)')
+      rim.addColorStop(0, rgba(pal.highlight, 0))
+      rim.addColorStop(0.5, rgba(pal.highlight, 1))
+      rim.addColorStop(1, rgba(pal.highlight, 0))
       s.strokeStyle = rim
       s.lineWidth = 2
       s.beginPath()
@@ -258,17 +249,15 @@ export function FlowCar({ mode }: { mode: FlowMode }) {
       s.restore()
       WHEELS.forEach((wh) => {
         const cx = toX(wh.u), cy = toY(wh.r), R = wh.r * lay.L
-        s.fillStyle = '#1c242d'
+        s.fillStyle = hex(pal.tyre)
         s.beginPath(); s.arc(cx, cy, R, 0, Math.PI * 2); s.fill()
         const rimG = s.createRadialGradient(cx - R * 0.25, cy - R * 0.3, R * 0.05, cx, cy, R * 0.7)
-        rimG.addColorStop(0, '#f6f8fa')
-        rimG.addColorStop(0.6, '#c3ccd5')
-        rimG.addColorStop(1, '#8794a1')
+        ;[0, 0.6, 1].forEach((at, k) => rimG.addColorStop(at, hex(pal.rim[k])))
         s.fillStyle = rimG
         s.beginPath(); s.arc(cx, cy, R * 0.68, 0, Math.PI * 2); s.fill()
-        s.fillStyle = '#5a6673'
+        s.fillStyle = hex(pal.rimInner)
         s.beginPath(); s.arc(cx, cy, R * 0.6, 0, Math.PI * 2); s.fill()
-        s.strokeStyle = '#dde3e9'
+        s.strokeStyle = hex(pal.spoke)
         s.lineWidth = Math.max(1.4, R * 0.07)
         for (let k = 0; k < 10; k++) {
           const a = (k / 10) * Math.PI * 2
@@ -277,20 +266,20 @@ export function FlowCar({ mode }: { mode: FlowMode }) {
           s.lineTo(cx + Math.cos(a + 0.12) * R * 0.6, cy + Math.sin(a + 0.12) * R * 0.6)
           s.stroke()
         }
-        s.fillStyle = '#eef2f5'
+        s.fillStyle = hex(pal.hub)
         s.beginPath(); s.arc(cx, cy, R * 0.15, 0, Math.PI * 2); s.fill()
-        s.fillStyle = '#ed3024'
+        s.fillStyle = hex(pal.hubDot)
         s.beginPath(); s.arc(cx, cy, R * 0.05, 0, Math.PI * 2); s.fill()
       })
       s.save()
       s.lineCap = 'round'
       s.lineWidth = 2.6
       s.shadowBlur = 10
-      s.shadowColor = 'rgba(0,186,226,0.8)'
-      s.strokeStyle = '#3ccbea'
+      s.shadowColor = rgba(pal.headLight, 0.8)
+      s.strokeStyle = hex(pal.headLight)
       s.beginPath(); s.moveTo(toX(0.012), toY(0.168)); s.lineTo(toX(0.08), toY(0.185)); s.stroke()
-      s.shadowColor = 'rgba(237,48,36,0.7)'
-      s.strokeStyle = '#ed3024'
+      s.shadowColor = rgba(pal.tailLight, 0.7)
+      s.strokeStyle = hex(pal.tailLight)
       s.beginPath(); s.moveTo(toX(0.93), toY(0.222)); s.lineTo(toX(0.996), toY(0.212)); s.stroke()
       s.restore()
     }
@@ -337,8 +326,8 @@ export function FlowCar({ mode }: { mode: FlowMode }) {
         if (hi - lo < 3) return
         const g = ctx.createLinearGradient(hi * STEP, 0, lo * STEP, 0)
         const a = 0.75 * r.alpha[lo]
-        g.addColorStop(0, 'rgba(255,255,255,0)')
-        g.addColorStop(1, `rgba(255,255,255,${a})`)
+        g.addColorStop(0, rgba(pal.highlight, 0))
+        g.addColorStop(1, rgba(pal.highlight, a))
         ctx.strokeStyle = g
         ctx.lineWidth = Math.max(1.2, lay.width - 1.4)
         ctx.beginPath()

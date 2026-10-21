@@ -5,6 +5,7 @@ import { formatTime } from '../format/time'
 import { BrandMark } from '../ui/BrandMark'
 import { Icon } from '../ui/Icon'
 import { ResultCard } from './ResultCard'
+import { bubbleText, copyText, copyableText, lastUserSeq as findLastUserSeq } from './messages'
 import { RichText } from './richText'
 import { SummaryCard } from './SummaryCard'
 import type { ChatMessage } from './useConversation'
@@ -24,31 +25,6 @@ interface Props {
   busy?: boolean
 }
 
-// The compact "חסר עוד" row replaces this server line, so the bubble does not repeat it
-const withoutLeftoverTail = (text: string) =>
-  text.split('\n').filter((l) => !l.startsWith('חסר עוד:')).join('\n').trim()
-
-const plain = (text: string) => text.replace(/\*\*/g, '')
-
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    // older browsers / no permission: the classic way
-    const area = document.createElement('textarea')
-    area.value = text
-    area.setAttribute('readonly', '')
-    area.style.position = 'fixed'
-    area.style.opacity = '0'
-    document.body.appendChild(area)
-    area.select()
-    const ok = document.execCommand('copy')
-    area.remove()
-    return ok
-  }
-}
-
 export function MessageList({ messages, results, resultsAnchor, typing, onOpenTable, tail, onRetry, onCorrect, busy }: Props) {
   const end = useRef<HTMLDivElement>(null)
   const [copied, setCopied] = useState<number | null>(null)
@@ -61,13 +37,13 @@ export function MessageList({ messages, results, resultsAnchor, typing, onOpenTa
     return () => window.clearTimeout(t)
   }, [copied])
 
-  const copy = async (m: ChatMessage, text: string) => {
-    if (await copyText(text)) setCopied(m.seq)
+  const copy = async (m: ChatMessage) => {
+    if (await copyText(copyableText(m))) setCopied(m.seq)
   }
 
-  // "תיקון נתונים" sits on the employee's latest message only (as editing the last message does elsewhere); it
-  // opens the correction form, which the server saves and recalculates (the text of a sent message never changes)
-  const lastUserSeq = [...messages].reverse().find((m) => m.role === 'user' && !m.pending && !m.failed)?.seq ?? null
+  // "תיקון נתונים" sits on the employee's latest message only; it opens the correction form, which the server saves
+  // and recalculates (the text of a sent message never changes)
+  const lastUserSeq = findLastUserSeq(messages)
   const anchored = resultsAnchor != null && messages.some((m) => m.seq === resultsAnchor)
   const cards = results.length > 0 && (
     <div className="result-cards">
@@ -81,10 +57,10 @@ export function MessageList({ messages, results, resultsAnchor, typing, onOpenTa
     <div className="messages" role="log" aria-live="polite">
       {messages.map((m) => {
         const bot = m.role === 'assistant'
-        const text = bot ? withoutLeftoverTail(m.content) : m.content
+        const text = bubbleText(m)
         const done = copied === m.seq
         const copyButton = (
-          <button type="button" className="msg-action" onClick={() => copy(m, plain(text))}
+          <button type="button" className="msg-action" onClick={() => copy(m)}
                   aria-label={done ? 'הועתק' : 'העתקה'} title={done ? 'הועתק' : 'העתקה'}>
             <Icon name={done ? 'check' : 'copy'} size={16} />
           </button>

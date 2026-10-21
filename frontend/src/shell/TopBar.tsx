@@ -6,17 +6,7 @@ import { Link, NavLink, useLocation } from 'react-router-dom'
 import { reducedMotion, setReducedMotion } from '../art/motion'
 import { BrandMark, Wordmark } from '../ui/BrandMark'
 import { Icon } from '../ui/Icon'
-
-const REP_TOKEN_KEY = 'sca.repToken'
-export const REP_LOGOUT_EVENT = 'sca:rep-logout'
-
-function hasRepToken(): boolean {
-  try {
-    return Boolean(sessionStorage.getItem(REP_TOKEN_KEY))
-  } catch {
-    return false
-  }
-}
+import { hasRepToken, requestRepLogout } from './repSession'
 
 export function TopBar() {
   const { pathname } = useLocation()
@@ -88,7 +78,7 @@ function UserMenu({ rep }: { rep: boolean }) {
           </button>
           {rep && signedIn && (
             <button type="button" role="menuitem" className="usermenu-item"
-                    onClick={() => { window.dispatchEvent(new Event(REP_LOGOUT_EVENT)); setOpen(false) }}>
+                    onClick={() => { requestRepLogout(); setOpen(false) }}>
               <Icon name="logout" size={18} />
               <span>יציאה מאזור הנציג</span>
             </button>

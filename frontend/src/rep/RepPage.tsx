@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, repApi } from '../api/client'
 import type { RepQuestion } from '../api/types'
-import { REP_LOGOUT_EVENT } from '../shell/TopBar'
+import { REP_LOGOUT_EVENT } from '../shell/repSession'
 import { BrandMark } from '../ui/BrandMark'
 import { Icon } from '../ui/Icon'
 import { QuestionCard } from './QuestionCard'

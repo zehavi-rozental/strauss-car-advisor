@@ -1,6 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { api } from '../api/client'
-import type { CatalogItem } from '../api/types'
 import { FlowCar } from '../art/FlowCar'
 import { Icon } from '../ui/Icon'
 import { AnswerWidgets } from './AnswerWidgets'
@@ -13,18 +11,11 @@ import { Progress } from './Progress'
 import { SelectionCard } from './SelectionCard'
 import { SelectedBar } from './SummaryCard'
 import { profileFormText } from './formFields'
+import { hasStoredConversation, useCatalog } from './useCatalog'
 import { useConversation } from './useConversation'
 import { linkFor, optionsField, placeholderFor } from './widgets'
 
 const LINK_ICON: Record<string, string> = { profile_form: 'form', selection: 'grid', payslip_upload: 'upload' }
-
-function storedConversation(): boolean {
-  try {
-    return Boolean(localStorage.getItem('sca.conversationId'))
-  } catch {
-    return false
-  }
-}
 
 export function EmployeePage() {
   const c = useConversation()
@@ -46,18 +37,11 @@ export function EmployeePage() {
   // The opening: until the employee writes, the stage is the whole screen (the artwork, the title and the
   // greeting with the box under it). The first message turns it into the consultation. A stored conversation
   // opens straight into the consultation, so it never flashes the opening first.
-  const [resuming] = useState(storedConversation)
+  const [resuming] = useState(hasStoredConversation)
   const intro = c.loading ? !resuming : !c.messages.some((m) => m.role === 'user')
 
   // catalog details for the selection cards (display only; the cards work without them)
-  const [catalog, setCatalog] = useState<Record<string, CatalogItem>>({})
-  const needCatalog = Boolean(options) && Object.keys(catalog).length === 0
-  useEffect(() => {
-    if (!needCatalog) return
-    let live = true
-    api.catalog().then((rows) => { if (live) setCatalog(Object.fromEntries(rows.map((r) => [r.code, r]))) }).catch(() => undefined)
-    return () => { live = false }
-  }, [needCatalog])
+  const catalog = useCatalog(Boolean(options))
 
   // a pilot can point the link at an external upload page; then the link just opens it in a new tab
   const openLink = () => {

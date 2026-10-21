@@ -30,7 +30,7 @@ export function BrandMark({ size = 28, thinking = false, className }: { size?: n
       <g transform="translate(22 23)">
         {PETALS.map(([a, len, c, lean], i) => (
           <g key={i} transform={`rotate(${a})`}>
-            <path d={petal(len, lean)} fill={c} className="petal" style={{ animationDelay: `${i * 0.07}s` }} />
+            <path d={petal(len, lean)} fill={c} className="petal" />
           </g>
         ))}
       </g>

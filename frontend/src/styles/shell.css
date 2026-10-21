@@ -32,6 +32,17 @@
 
 .brandmark .petal { transform-box: fill-box; transform-origin: 50% 100%; }
 .brandmark.is-thinking .petal { animation: petal-breathe 1.4s var(--ease-soft) infinite; }
+.brandmark g g:nth-child(1) .petal { animation-delay: 0.00s; }
+.brandmark g g:nth-child(2) .petal { animation-delay: 0.07s; }
+.brandmark g g:nth-child(3) .petal { animation-delay: 0.14s; }
+.brandmark g g:nth-child(4) .petal { animation-delay: 0.21s; }
+.brandmark g g:nth-child(5) .petal { animation-delay: 0.28s; }
+.brandmark g g:nth-child(6) .petal { animation-delay: 0.35s; }
+.brandmark g g:nth-child(7) .petal { animation-delay: 0.42s; }
+.brandmark g g:nth-child(8) .petal { animation-delay: 0.49s; }
+.brandmark g g:nth-child(9) .petal { animation-delay: 0.56s; }
+.brandmark g g:nth-child(10) .petal { animation-delay: 0.63s; }
+.brandmark g g:nth-child(11) .petal { animation-delay: 0.70s; }
 @keyframes petal-breathe {
   0%, 100% { transform: scale(0.55); opacity: 0.5; }
   45% { transform: scale(1); opacity: 1; }

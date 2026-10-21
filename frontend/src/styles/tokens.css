@@ -54,6 +54,43 @@
   --on-hero-3: #a9cfe6;
   --on-hero-live: #c9f1a0;
 
+  /* the opening artwork (art/FlowCar reads these; no colour lives in the code) */
+  --art-ribbon-1: var(--petal-red);
+  --art-ribbon-2: var(--petal-orange);
+  --art-ribbon-3: var(--petal-leaf);
+  --art-ribbon-4: var(--petal-green);
+  --art-ribbon-5: var(--petal-sky);
+  --art-ribbon-6: var(--petal-turq);
+  --art-ribbon-7: var(--petal-blue);
+  --art-paint-1: #ffffff;
+  --art-paint-2: #f4f6f8;
+  --art-paint-3: #e3e8ed;
+  --art-paint-4: #f2f4f7;
+  --art-paint-5: #cdd5de;
+  --art-paint-6: #a9b4c0;
+  --art-glass-1: #1d2a39;
+  --art-glass-2: #2c3e53;
+  --art-glass-3: #7fa6c4;
+  --art-glass-4: #33465c;
+  --art-glass-5: #16212d;
+  --art-line: #788898;
+  --art-pillar: #18222e;
+  --art-tyre: #1c242d;
+  --art-rim-1: #f6f8fa;
+  --art-rim-2: #c3ccd5;
+  --art-rim-3: #8794a1;
+  --art-rim-inner: #5a6673;
+  --art-spoke: #dde3e9;
+  --art-hub: #eef2f5;
+  --art-hub-dot: var(--petal-red);
+  --art-head-light: #3ccbea;
+  --art-tail-light: var(--petal-red);
+  --art-shadow: #02101e;
+  --art-reflection-1: #a9c3d6;
+  --art-reflection-2: #6f97b4;
+  --art-sky-tint: var(--petal-sky);
+  --art-highlight: #ffffff;
+
   /* frames: every screen sits inside the same container, with side margins */
   --frame-gap: clamp(10px, 2vw, 24px);
   --frame-x: max(var(--frame-gap), calc((100% - var(--container)) / 2));

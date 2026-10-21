@@ -1,14 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../ui/Icon'
+import { readDraft, writeDraft } from './draft'
 
 // Free text is the primary input: the box is always enabled (typing never waits); only sending waits for
 // the previous turn. The backend's settings.max_message_chars (not exposed by the API); the server still enforces it.
 export const MAX_MESSAGE_CHARS = 1000
-
-// An unsent draft survives a trip to the representative area and back (this tab only, never sent anywhere).
-const DRAFT_KEY = 'sca.draft'
-const readDraft = () => { try { return sessionStorage.getItem(DRAFT_KEY) ?? '' } catch { return '' } }
-const writeDraft = (v: string) => { try { if (v) sessionStorage.setItem(DRAFT_KEY, v); else sessionStorage.removeItem(DRAFT_KEY) } catch { /* no storage */ } }
 
 export function Composer({ disabled, onSend, placeholder = 'כתבו הודעה…', autoFocus = false }:
   { disabled: boolean; onSend: (text: string) => Promise<boolean>; placeholder?: string; autoFocus?: boolean }) {

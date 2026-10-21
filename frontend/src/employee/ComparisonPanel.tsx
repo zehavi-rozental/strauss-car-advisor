@@ -2,12 +2,12 @@
 // Top: today and each option side by side with the big numbers. Then the breakdown table (the engine's lines),
 // the assumptions, "למה?", and the actions: another selection or "תיקון נתונים". Built from the same results the
 // cards use, so it updates with the same sync. No amount is calculated here.
-import { useEffect, useRef } from 'react'
 import type { CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import type { CatalogItem, Expects, MessageIn, OptionResult } from '../api/types'
 import { Money } from '../format/Amount'
 import { Icon } from '../ui/Icon'
+import { useDialog } from '../ui/useDialog'
 import type { Cell } from './comparison'
 import { CarName, StateBadge } from './ResultCard'
 import { SelectionCard } from './SelectionCard'
@@ -40,20 +40,7 @@ export function ComparisonPanel({ results, expects, disabled, onClose, onSend, o
   const assumptions = [...new Set(shown.flatMap((i) => i.result.assumptions))].filter((x) => !x.includes('ממתינה לאישור נציג'))
   const optionsField = expects?.fields.find((f) => f.field === 'options') ?? (expects?.field === 'options' ? expects : null)
   const why = shown.filter((i) => i.result.status === 'OK')
-  const closeRef = useRef<HTMLButtonElement>(null)
-
-  useEffect(() => {
-    const before = document.activeElement as HTMLElement | null
-    closeRef.current?.focus()
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', onKey)
-    document.body.classList.add('has-sheet')
-    return () => {
-      document.removeEventListener('keydown', onKey)
-      document.body.classList.remove('has-sheet')
-      before?.focus?.()
-    }
-  }, [onClose])
+  const closeRef = useDialog(onClose)
 
   // rendered at the end of <body>: above the top bar, outside the chat's own stacking context
   return createPortal(
