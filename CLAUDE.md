@@ -40,7 +40,8 @@ Modular monolith (ports & adapters). Every module can later be extracted into a 
 
 Endpoints:
 - Employee (session cookie): `POST /api/conversations`, `POST /api/conversations/{id}/messages`, `GET /api/conversations/{id}`, `GET /api/conversations/{id}/updates?after=<seq>` (polling), plus `GET /api/catalog`, `/api/occupations`, `/api/health`.
-- `POST .../messages` body is exactly one of `{text}` | `{choice, field?}` | `{choices, field?}` | `{fields: {commissions?, bonus?, pension_percent?, study_fund_percent?, credit_points?, children_under_23?}}`. `fields` is the Q2 form / "תיקון נתונים": validated against `value_ranges` (422, nothing saved), saved by `save_profile` directly (no reader, no LLM, at any stage, a result is recalculated), reply = "רשמתי: …" + the next question.
+- `POST .../messages` body is exactly one of `{text}` | `{choice, field?}` | `{choices, field?}` | `{fields: {base_salary?, commissions?, bonus?, pension_percent?, study_fund_percent?, credit_points?, children_under_23?}, source?: "payslip"}`. `fields` is the Q2 form / "תיקון נתונים" / a reviewed payslip: validated against `value_ranges` (all or nothing: 422 `{message_he, errors: {field: message}}` naming every bad field, nothing saved), saved by `save_profile` directly (no reader, no LLM, at any stage, a result is recalculated), reply = "רשמתי: …" for new values, "עדכנתי: X במקום Y." for replaced ones (only what was really saved) + the next question. `source: "payslip"` stores the history line as "מהתלוש (אושר): …".
+- Every turn, view and update carries `results_stale` (see QA round below).
 - Transport representative (header `X-Rep-Token` = `REP_ACCESS_TOKEN`, optional `X-Rep-Name`): `GET /api/rep/questions?status=OPEN`, `GET /api/rep/questions/{id}`, `POST /api/rep/questions/{id}/answer` (200 / 401 / 404 / 409 / 422). The rep sees only the question context, never salary or profile data; answer values and notes are never logged.
 
 A module, and `app/api`, imports another module **only** through that module's `public.py`.
@@ -151,10 +152,22 @@ A module, and `app/api`, imports another module **only** through that module's `
 - **Recorded vision for browser tests**: `PAYSLIP_FAKE_VISION_DIR` → `FixtureVision` answers by file sha256 (`frontend/e2e/fixtures/payslips/make_fixtures.py`); logged as RECORDED at startup; never set in Render. It tests our server path with fixed answers, not Gemini.
 - Browser tests open ~40 conversations a minute: the e2e server needs `CREATE_RATE_LIMIT_PER_MINUTE` / `PAYSLIP_RATE_LIMIT_PER_MINUTE` raised (CI sets them).
 
+### QA round (session 7, 21/10; `tests/test_qa_2026_10_21.py`, `tests/test_qa_properties.py`, `e2e/qa-2026-10-21.spec.ts`)
+
+Both cloud conversations replayed message by message (template mode + a FakeLLM scripted like the live model) and in the browser.
+- **One open question per reply.** A value held for confirmation ("לאשר 0 נקודות זיכוי?") is the question; a value refused by its range is then a statement ("לא רשמתי קרן השתלמות 6%, כי זה גבוה מהטווח… אשאל על זה שוב.") and its field is asked later. A range question alone gets a CTA for that field (`templates.field_cta`). "לתקן" re-asks only the held field (`ParserPlan.asks`).
+- **Field binding in template mode too**: a bare value, or the first line of a message ("3
+יש קורולה…"), answers `state.asked_field`; the rest is read as usual (`fallback._bound_value_plan`). `understand()` keeps clause boundaries as line breaks.
+- **Labels with numbers**: "ילדים מתחת גיל 23" — the age is masked (`parsing.mask_ages`) for the reader and for grounding. "אין נקודות זיכוי" / "אין פנסיה" are read as 0 (then confirmed as rare). A zero is grounded only next to its own field (`grounding._zero_next_to_field`): "אין נקודות זיכוי וילדים" is not "no children".
+- **There is a company car** (`CurrentCar.has_car`): "יש לי רכב חברה" is recorded and acknowledged; the car question then asks only the model ("מה הדגם של הרכב הצמוד שלכם?"), never "אם אין רכב", and "אינני משתתף" is not ambiguous. "התכוונתי לרכב אחר" / "זה לא הרכב שלי" reset only the model at any stage (`fallback._car_correction_plan`, tagged "combined"), keep the copay (and an unknown copay), and the rejected model is not offered again (`CurrentCar.rejected`). "כתבתי לך שיש לי רכב…" is an audit answered from the state. A catalog car named after "אין לי רכב" is an alternative. "משלמת עליו, לא זוכרת כמה" = unknown copay; "לא זוכרת" no longer negates the car. A blocking rep question about the car waits until the car is known.
+- **Forms and payslips**: a value held from chat stays held when the form does not send that field; a form amount is exact (no "3 or 3,000?"). The payslip review has one explicit choice per row instead of "לשמור": a conflict offers "מהשיחה: X" / "מהתלוש: Y" with no default (nothing is sent until decided), any other row "לעדכן" / "לא לעדכן"; a value equal to the chat's is not preselected; the profile is read when the payslip is read, and if it cannot be read nothing is preselected.
+- **Stale results** (`stage.results_stale`: results exist but `calculated_for` no longer matches the selection): kept as history, dimmed with "לא מעודכן" and never ranked in the UI; STATE says "out of date, never quote it"; their numbers are not allowed in an LLM reply; a rep copay applied to a stale result reports only the amount (`rep_copay_text`).
+- **The rep note** (`QuestionAnswered.note`) reaches the employee as one plain line "הערת הנציג: …" (no line without a note; control characters, bold, bullets, links and tags removed; ≤ 500). The rep screen no longer shows the salary notice line (the context filtering is unchanged) and shows the note on an answered card.
+- **Employee UI**: what a link opened (selection card, form, payslip review) resets only when the question changes (`useConversation.questionKey`; `expects` is kept referentially stable across polls) and stays mounted (disabled) while sending. Before, every 3 s poll while waiting for the rep closed the selection card (the QA screen recording).
+
 ## NEXT (not done in this pass)
 
 - Session 6 conversation bugs (salary correction after a result, "קיה נירו", "ילד אחד", "ויתור על הרכב", blanket "לא ידוע לי") were fixed by Kiro in 3b06848 and merged in 50e2195; checked by API tests and browser journeys (`journeys.spec.ts`, "merged conversation acceptance").
-- The payslip origin is not stored: the `{fields}` message has no source, so the history shows the values without "מהתלוש". A `source: "payslip"` on MessageIn would need the conversation module to keep it.
 
 - Validation audit items 4-7 (see Known limitations): range checks on rep answers, minimum use value 1, raise instead of default-to-zero in `engine_inputs`, strict numeric types for LLM-typed values.
 
