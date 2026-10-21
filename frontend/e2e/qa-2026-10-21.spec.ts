@@ -195,6 +195,12 @@ test('a result calculated before a change is marked out of date until it is reca
   await send(page, 'זה לא הרכב שלי')
   await expect(page.locator('.stale-note')).toContainText('לא מעודכן')
   expect((await state(page)).results_stale).toBe(true)
+  await page.getByRole('button', { name: 'פירוט מלא' }).first().click()       // the full detail says so too
+  await expect(page.getByRole('dialog').locator('.stale-note')).toContainText('לא מעודכן')
+  await page.getByRole('button', { name: 'סגירה' }).click()
+  await send(page, 'הכי משתלם')                                     // no ranking from an out-of-date result
+  const waiting = await state(page)
+  expect([waiting.results_stale, waiting.current_car.source]).toEqual([true, null])
   await send(page, 'קורולה 2026')
   await expect(page.locator('.stale-note')).toHaveCount(0)
   expect((await state(page)).results_stale).toBe(false)
