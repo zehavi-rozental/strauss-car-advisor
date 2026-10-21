@@ -182,16 +182,30 @@
 }
 .bubble-main { min-inline-size: 0; flex: 1; padding-block-start: 5px; }
 .bubble-bot .bubble-text { font-size: 1.0625rem; line-height: 1.7; color: var(--ink); }
+/* in the consultation each reply sits on its own white card; the corner by the mark is tucked in, like the
+   employee's bubble on the other side */
+.is-chat .bubble-main {
+  flex: 0 1 auto;
+  max-inline-size: min(100%, 720px);
+  padding-block: 14px 6px;
+  padding-inline: 20px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  border-start-start-radius: 6px;
+  background: var(--card);
+  box-shadow: 0 12px 28px -22px rgb(6 48 77 / 45%);
+}
+.is-chat .bubble-bot .bubble-text { line-height: 1.65; }
 .bubble-user {
   align-self: flex-end;
   max-inline-size: min(80%, 560px);
   padding-block: 12px 8px;
   padding-inline: 18px;
-  background: var(--brand);
+  background: var(--bubble-user);
   color: #fff;
   border-radius: 22px;
   border-end-end-radius: 6px;
-  box-shadow: 0 12px 26px -16px rgb(11 114 168 / 70%);
+  box-shadow: var(--bubble-user-glow);
 }
 .bubble-user[aria-busy='true'] { opacity: 0.72; animation: rise var(--t-med) var(--ease-out) both; }
 .bubble-user.is-failed {
@@ -207,7 +221,7 @@
   font-size: var(--fs-micro);
   color: var(--ink-3);
 }
-.bubble-user .bubble-meta { justify-content: flex-end; color: rgb(255 255 255 / 80%); }
+.bubble-user .bubble-meta { justify-content: flex-end; color: rgb(255 255 255 / 90%); }
 .bubble-user.is-failed .bubble-meta { color: var(--down); }
 .bubble-time { font-variant-numeric: tabular-nums; }
 .bubble-failed { display: inline-flex; align-items: center; gap: 4px; font-weight: 500; }
@@ -526,6 +540,8 @@
   .answer-tail { padding-inline-start: 0; }
   .bubble-avatar { inline-size: 30px; block-size: 30px; }
   .bubble-bot { gap: 10px; }
+  .is-chat .bubble-main { padding-block: 12px 4px; padding-inline: 16px; border-radius: 18px; border-start-start-radius: 6px; }
+  .is-chat .bubble-bot .bubble-text { font-size: 1rem; }
   .messages { padding-block: 22px 12px; gap: 18px; }
   .panel-card { padding: 16px; }
 }

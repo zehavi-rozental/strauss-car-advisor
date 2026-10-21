@@ -1,12 +1,13 @@
 /* STRAUSS DRIVE design tokens: "Bloom".
    White, clean and roomy, with the colours of the Strauss burst. Every petal colour also keeps one job in the
-   product: blue = the advisor and actions, turquoise = electric / live, green = the net grows, red = the net
-   shrinks (and the Strauss word), orange = waiting for the representative (a temporary estimate).
+   product: blue = the advisor and actions, turquoise = electric / live, green = the net grows (and, deeper, the
+   employee's own messages), red = the net shrinks (and the Strauss word), orange = waiting for the
+   representative (a temporary estimate).
    *-ink variants are the text-safe versions (WCAG AA on white and on --paper, measured). */
 :root {
   /* surfaces */
   --page: #ffffff;
-  --paper: #f6f7f9;
+  --paper: #f0f3f6;
   --card: #ffffff;
   --card-2: #f3f5f8;
   --ink: #1b2430;
@@ -35,6 +36,11 @@
   --up: #3e6a10;
   --down: #be2419;
   --pending: #9a4705;
+
+  /* the employee's own messages (the advisor's replies are white cards): the Strauss green, one step deeper
+     than the petal so white text passes AA (5.1:1) */
+  --bubble-user: #4a7a18;
+  --bubble-user-glow: 0 12px 26px -16px rgb(74 122 24 / 55%);
 
   /* tints */
   --brand-tint: #e8f4fb;
