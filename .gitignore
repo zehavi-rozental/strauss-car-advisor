@@ -13,3 +13,4 @@ eval-report.md
 *.db.bak
 backend/tests/phrasings/REPORT.txt
 backend/tests/phrasings/REPORT_LLM.txt
+backend/spec-eval-*.md

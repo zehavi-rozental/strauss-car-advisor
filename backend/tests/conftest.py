@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -48,8 +49,17 @@ def engine():
 
 
 def build_engine():
-    """מסד בזיכרון עם כמה רכבים מדומים ממאגר רשות המסים."""
-    eng = make_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
+    """מסד בזיכרון עם כמה רכבים מדומים ממאגר רשות המסים.
+
+    TEST_DATABASE_URL (e.g. postgresql+psycopg2://...) runs the same tests on PostgreSQL: every test starts
+    from empty tables, as with the in-memory SQLite database (CI runs both, spec section 10).
+    """
+    url = os.environ.get("TEST_DATABASE_URL")
+    if url:
+        eng = make_engine(url)
+        Base.metadata.drop_all(eng)
+    else:
+        eng = make_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
     Base.metadata.create_all(eng)
     with session_factory(eng)() as s, s.begin():
         s.add_all([

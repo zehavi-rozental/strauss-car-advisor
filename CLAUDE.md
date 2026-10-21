@@ -16,6 +16,8 @@ pytest                                      # all tests must pass
 pytest -m eval                              # live LLM eval (skipped when no LLM_CHAIN entry is available)
 python -m app.llm_probe                     # one tiny request per LLM_CHAIN entry: status + latency (no keys printed)
 lint-imports                                # module boundaries must hold
+TEST_DATABASE_URL=postgresql+psycopg2://... pytest   # the same suite on PostgreSQL (CI runs both)
+python -m tests.test_reference_oracle       # Expected / independent oracle / engine table, six reference employees
 uvicorn app.api.main:create_app --factory   # run the API (no LLM key → template mode)
 ```
 
@@ -133,6 +135,13 @@ A module, and `app/api`, imports another module **only** through that module's `
 - **A held value is never reported as recorded**: the parser's fallback notice (a partly read sentence, or an LLM outage) lists every value it read, written before the checks; `_finish` drops it when a value is held and the acknowledgement comes from the state.
 - **"אין רכב"** is acknowledged when said ("רשמתי: אין לכם רכב צמוד היום.") and when said again ("כתבתי שאין לי רכב"); said again while the maintenance question is open, the FAQ explanation and the question in plain words follow. Guard `stale` (`guards.STALE_WORDS`): a model question never names a profile field the employee already answered.
 - Limitation: in template mode (no LLM) "אין רכב" typed while the salary-components question is on screen is not recorded (Q3 answers are read after Q2); with an LLM it is recorded and acknowledged.
+
+### Readiness pass (session 5, 21/10)
+
+- **CI** (`.github/workflows/ci.yml`, every push / PR, no LLM key): secret scan, backend on SQLite and PostgreSQL (matrix), `app.verify`, acceptance, migrations up/down, lint-imports, frontend tests + build, Playwright against `deploy/render_start.py` + PostgreSQL, Docker build. `live-eval.yml` (manual, `live-llm` environment secret) and `deploy.yml` (manual, `render-demo` environment approval, deploys only a branch head whose CI passed, via the Render deploy hook) are separate. `render.yaml` keeps `autoDeploy: false`.
+- **Independent oracle** (`tests/reference_oracle.py`): the net method re-implemented from `strauss-rules.json` + the xlsx with no engine code; `test_reference_oracle.py` pins sheet = oracle (54 figures) and engine = oracle (every component, to the agora).
+- **Spec eval set** (`tests/eval/spec_cases.yaml`, 57 cases): `test_spec_eval_deterministic.py` (template + outage modes, every run: 0 wrong values, 0 invented amounts, 0 dead ends, extraction not below the baseline) and `tests/eval/test_spec_eval_live.py` (pytest -m eval, call cap `EVAL_MAX_CALLS`, targets ≥ 95%).
+- `Money` reads back canonical (`2650`, not PostgreSQL's `2650.0000`); `/api/health` reports `payslip` (true only when extraction can run); the start script trusts `X-Forwarded-For` only from private proxies (never `*`, which made the per-IP limits forgeable).
 
 ## NEXT (not done in this pass)
 

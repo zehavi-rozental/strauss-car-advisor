@@ -30,7 +30,10 @@ test.describe('payslip upload (synthetic)', () => {
     await expect(page.getByRole('heading', { name: 'העלאת תלוש' })).toBeVisible()
   })
 
-  test('uploading a synthetic image shows the review form and allows manual entry + confirm', async ({ page }) => {
+  test('uploading a synthetic image shows the review form and allows manual entry + confirm', async ({ page, request }) => {
+    // extraction needs the vision model (GEMINI_API_KEY on the server): without it the upload answers 503 by design
+    const health = await (await request.get('/api/health')).json()
+    test.skip(health.payslip !== true, 'payslip extraction is off on this server (no vision key) — live check only')
     await openEmployee(page)
     await send(page, 'מנהלת מוצר, שכר בסיס 18500')
     await page.getByRole('button', { name: 'להעלות תלוש' }).click()

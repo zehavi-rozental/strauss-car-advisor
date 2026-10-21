@@ -19,6 +19,9 @@ import sys
 from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[1]
+# Render's proxies reach the service from its private network. Trusting only private ranges makes uvicorn walk
+# X-Forwarded-For from the right and stop at the first public address: the one Render's edge appended.
+TRUSTED_PROXIES = "127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,::1,fc00::/7"
 os.chdir(BACKEND)
 sys.path.insert(0, str(BACKEND))
 
@@ -62,7 +65,9 @@ def main() -> None:
     load_tax_file_if_empty()
     port = os.environ.get("PORT", "10000")
     log(f"uvicorn on :{port}")
-    os.environ.setdefault("FORWARDED_ALLOW_IPS", "*")    # env, not a "*" argument: a shell may glob-expand it
+    # env, not an argument (a shell may glob-expand it). Never "*": with "*" uvicorn takes the LEFTMOST
+    # X-Forwarded-For entry, which the caller writes, so a forged header would dodge every per-IP rate limit.
+    os.environ.setdefault("FORWARDED_ALLOW_IPS", TRUSTED_PROXIES)
     os.execvp(sys.executable, [sys.executable, "-m", "uvicorn", "app.api.serve_spa:create_render_app", "--factory",
                                "--host", "0.0.0.0", "--port", port, "--proxy-headers"])
 
