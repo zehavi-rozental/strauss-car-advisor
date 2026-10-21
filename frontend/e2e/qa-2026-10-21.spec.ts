@@ -216,14 +216,15 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 375, height: 740 
     await page.getByRole('button', { name: 'לשנות בחירה' }).click()
     const cards = page.locator('.car-card')
     await expect(cards.first()).toBeVisible()
-    // the design scrolls the opened card into view once and animates it in; measure after that has settled
+    // opening scrolls the selection into view (the design's smooth scroll, done within ~1.2 s); measure once the
+    // cards have not moved for 1.5 s, then they must not move again through the polls, the mouse and a hover
     let before = await cardBoxes(page)
+    let stillSince = Date.now()
     await expect.poll(async () => {
       const now = await cardBoxes(page)
-      const same = JSON.stringify(now) === JSON.stringify(before)
-      before = now
-      return same
-    }, { intervals: [300], timeout: 10_000 }).toBe(true)
+      if (JSON.stringify(now) !== JSON.stringify(before)) { before = now; stillSince = Date.now() }
+      return Date.now() - stillSince >= 1500
+    }, { intervals: [250], timeout: 15_000 }).toBe(true)
     for (let i = 0; i < 8; i++) {                                     // > two polls, with the mouse moving
       await page.mouse.move(100 + i * 20, 300 + (i % 2) * 15)
       await page.waitForTimeout(1000)
