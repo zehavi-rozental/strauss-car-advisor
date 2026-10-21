@@ -13,6 +13,7 @@ from app.modules.rules.public import RulesSnapshot, RulesStore
 from app.shared.settings import Settings
 
 from .extract import VisionPort, extract, validate_file
+from .fixture_vision import FixtureVision
 from .gemini_vision import GeminiVisionAdapter
 from .models import (
     FIELD_KIND,
@@ -44,6 +45,9 @@ def build_vision(settings: Settings) -> Optional[VisionPort]:
     """
     if not settings.payslip_enabled:
         return None
+    if settings.payslip_fake_vision_dir:
+        log.warning("payslip extraction uses RECORDED answers from PAYSLIP_FAKE_VISION_DIR (tests only, no Gemini)")
+        return FixtureVision(settings.payslip_fake_vision_dir)
     key = settings.gemini_api_key
     if not key:
         log.warning("payslip enabled but GEMINI_API_KEY is missing; upload will fall back to manual entry")

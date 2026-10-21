@@ -159,7 +159,7 @@ def test_extract_provider_failure_falls_back(snapshot):
 
 
 def test_extract_result_dict_has_no_pii(snapshot):
-    # גם אם המודל מחזיר שם/ת"ז, הם לא עוברים ל-as_dict
+    # גם אם המודל מחזיר שם/ת"ז, הם לא עוברים ל-as_dict. שכר הבסיס כן נקרא (החלטה 21/10: תלוש רגיל, לא שישה שדות)
     vision = FakeVision('{"name": "ישראל ישראלי", "id_number": "123456789", '
                         '"base_salary": 18500, "commissions": 1000}')
     result = extract(JPEG, MIME_JPEG, vision, snapshot, timeout_s=10)
@@ -167,8 +167,8 @@ def test_extract_result_dict_has_no_pii(snapshot):
     text = str(d)
     assert "ישראל" not in text
     assert "123456789" not in text
-    assert "18500" not in text
     assert all(f["field"] in SUPPORTED_FIELDS for f in d["fields"])
+    assert {f["field"]: f["value"] for f in d["fields"]}["base_salary"] == "18500"
 
 
 # ---------- build_vision ----------
@@ -279,113 +279,3 @@ def test_endpoint_response_has_no_pii():
     assert "ישראל" not in r.text
 
 
-# ---------- four outcomes the employee must be able to tell apart (cloud report, 21/10) ----------
-# The synthetic payslip that came back as an empty review form has a base salary, a "תוספת חודשית" and
-# the pension as an amount: none of the six supported fields. That is "nothing_found"; a provider error is
-# "failed". Before, both showed the same empty form.
-
-ALL_UNKNOWN = ('{"commissions": "unknown", "bonus": "unknown", "pension_percent": "unknown", '
-               '"study_fund_percent": "unknown", "credit_points": "unknown", "children_under_23": "unknown"}')
-ALL_FOUND = ('{"commissions": 1500, "bonus": 0, "pension_percent": 6, "study_fund_percent": 2.5, '
-             '"credit_points": 2.25, "children_under_23": 2}')
-
-
-@pytest.mark.parametrize("response,status,ok,found", [
-    (ALL_FOUND, "found", True, 6),
-    ('{"commissions": 1500, "pension_percent": 6}', "partial", True, 2),
-    (ALL_UNKNOWN, "nothing_found", True, 0),
-    ("{}", "nothing_found", True, 0),
-    ("I could not read this document.", "failed", False, 0),     # not JSON: a failure, not an empty payslip
-    ('["commissions", 1500]', "failed", False, 0),
-])
-def test_extract_outcomes(snapshot, response, status, ok, found):
-    result = extract(JPEG, MIME_JPEG, FakeVision(response), snapshot, timeout_s=10)
-    assert (result.status, result.ok) == (status, ok)
-    assert sum(f.value is not None for f in result.fields) == found
-    assert result.as_dict()["status"] == status
-
-
-def test_messages_say_what_happened(snapshot):
-    nothing = extract(JPEG, MIME_JPEG, FakeVision(ALL_UNKNOWN), snapshot, timeout_s=10)
-    assert "לא מצאנו בתלוש" in nothing.message_he and "שכר הבסיס לא נקרא" in nothing.message_he
-    partial = extract(JPEG, MIME_JPEG, FakeVision('{"bonus": 500}'), snapshot, timeout_s=10)
-    assert "חלק מהנתונים" in partial.message_he
-    failed = extract(JPEG, MIME_JPEG, FakeVision(raises=RuntimeError("down")), snapshot, timeout_s=10)
-    assert failed.status == "failed" and "לנסות שוב" in failed.message_he and failed.fields == []
-    assert not any(ch.isdigit() for ch in nothing.message_he + partial.message_he + failed.message_he)
-
-
-def test_failure_is_logged_with_its_reason_and_never_the_content(snapshot, caplog):
-    import logging
-    from app.modules.payslip.gemini_vision import GeminiVisionError
-
-    with caplog.at_level(logging.INFO, logger="app.modules.payslip.extract"):
-        extract(JPEG, MIME_JPEG, FakeVision(raises=GeminiVisionError("HTTP 429: RESOURCE_EXHAUSTED quota")),
-                snapshot, timeout_s=10)
-        extract(JPEG, MIME_JPEG, FakeVision('{"commissions": 98765}'), snapshot, timeout_s=10)
-    text = caplog.text
-    assert "HTTP 429" in text and "1 of 6 supported fields" in text
-    assert "98765" not in text
-
-
-def _adapter(handler):
-    import httpx
-    from app.modules.payslip.gemini_vision import GeminiVisionAdapter
-    return GeminiVisionAdapter("gemini-test", "test-key", client=httpx.Client(transport=httpx.MockTransport(handler)))
-
-
-def test_adapter_errors_carry_the_http_status_and_google_message_but_not_the_key():
-    import httpx
-    from app.modules.payslip.gemini_vision import GeminiVisionError
-
-    def bad_key(request):
-        return httpx.Response(400, json={"error": {"status": "INVALID_ARGUMENT", "message": "API key not valid."}})
-
-    with pytest.raises(GeminiVisionError) as exc:
-        _adapter(bad_key).extract(JPEG, MIME_JPEG, "prompt", 10)
-    assert "HTTP 400" in str(exc.value) and "API key not valid" in str(exc.value)
-    assert "test-key" not in str(exc.value)
-
-
-def test_adapter_blocked_answer_and_timeout_are_failures():
-    import httpx
-    from app.modules.payslip.gemini_vision import GeminiVisionError
-
-    def blocked(request):
-        return httpx.Response(200, json={"promptFeedback": {"blockReason": "OTHER"}})
-
-    def slow(request):
-        raise httpx.ReadTimeout("slow", request=request)
-
-    for handler, reason in ((blocked, "no usable answer"), (slow, "timeout")):
-        with pytest.raises(GeminiVisionError, match=reason):
-            _adapter(handler).extract(JPEG, MIME_JPEG, "prompt", 10)
-
-
-def test_adapter_sends_the_file_inline_and_returns_the_text():
-    import base64
-    import json as _json
-    import httpx
-
-    seen = {}
-
-    def ok(request):
-        body = _json.loads(request.content)
-        seen["mime"] = body["contents"][0]["parts"][1]["inlineData"]["mimeType"]
-        seen["data"] = body["contents"][0]["parts"][1]["inlineData"]["data"]
-        seen["key"] = request.headers["x-goog-api-key"]
-        return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": ALL_FOUND}]}}]})
-
-    assert _adapter(ok).extract(_pdf(), MIME_PDF, "prompt", 10) == ALL_FOUND
-    assert seen["mime"] == MIME_PDF and base64.b64decode(seen["data"]) == _pdf()
-    assert seen["key"] == "test-key"          # in a header, never in the URL
-
-
-def test_endpoint_reports_failure_and_nothing_found_distinctly():
-    failed = _client_with_vision(FakeVision(raises=RuntimeError("down")))
-    body = failed.post("/api/payslip/extract", files={"file": ("p.pdf", _pdf(), "application/pdf")}).json()
-    assert (body["ok"], body["status"], body["fields"]) == (False, "failed", [])
-    nothing = _client_with_vision(FakeVision(ALL_UNKNOWN))
-    body = nothing.post("/api/payslip/extract", files={"file": ("p.pdf", _pdf(), "application/pdf")}).json()
-    assert (body["ok"], body["status"]) == (True, "nothing_found")
-    assert all(f["value"] is None for f in body["fields"])

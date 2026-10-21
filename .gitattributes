@@ -8,3 +8,8 @@
 *.csv binary
 # The Strauss rules file is kept exactly as delivered (byte-for-byte, matches their SHA-256).
 backend/config/strauss-rules.json binary
+# Payslip fixtures are matched by their exact bytes (frontend/e2e/fixtures/payslips): never convert them.
+*.pdf binary
+*.png binary
+*.jpg binary
+*.webp binary

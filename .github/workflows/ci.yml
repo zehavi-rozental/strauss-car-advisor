@@ -135,6 +135,11 @@ jobs:
           LLM_MODE: llm_first
           SESSION_COOKIE_SECURE: "false"
           REP_ACCESS_TOKEN: ci-only-rep-token
+          # payslip journeys: RECORDED vision answers per fixture file (no Gemini call, no key)
+          PAYSLIP_ENABLED: "true"
+          PAYSLIP_FAKE_VISION_DIR: ${{ github.workspace }}/frontend/e2e/fixtures/payslips/vision
+          PAYSLIP_RATE_LIMIT_PER_MINUTE: "200"
+          CREATE_RATE_LIMIT_PER_MINUTE: "500"   # the suite opens ~40 conversations a minute from one address
         run: |
           nohup python deploy/render_start.py > ../server.log 2>&1 &
           for i in $(seq 1 180); do

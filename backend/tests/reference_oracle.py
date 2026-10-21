@@ -130,6 +130,7 @@ class Data:
     occupations: dict[str, Decimal]          # name -> opt-out maintenance
     employees: list[Employee]
     references: dict[str, Reference] = field(default_factory=dict)
+    opt_out_allowed: dict[str, bool] = field(default_factory=dict)
 
 
 def load_data() -> Data:
@@ -140,6 +141,7 @@ def load_data() -> Data:
         cars[r[4]] = Car(code=r[0], group=r[1], name=r[4], reg_year=int(r[7]), drive=r[8],
                          use_value=_d(r[10]), monthly_cost=_d(r[11]), default_copay=_d(r[12]))
     occupations = {r[0]: _d(r[4] or 0) for r in rows("עיסוקים")}
+    opt_out_allowed = {r[0]: r[3] == "כן" and r[2] != "כן" for r in rows("עיסוקים")}
     employees = [Employee(id=r[0], name=r[1], occupation=r[3], group=r[4], base=_d(r[5]),
                           commissions=_d(r[6] or 0), bonus=_d(r[7] or 0), pension_pct=_d(r[8]),
                           study_pct=_d(r[9]), points=_d(r[10]), children=int(r[11]),
@@ -150,7 +152,8 @@ def load_data() -> Data:
                             ni_today=_d(r[11]), ni_alt=_d(r[12]), electric_gross=_d(r[13] or 0),
                             family_share=_d(r[14] or 0))
             for r in rows("חישובים")}
-    return Data(cars=cars, occupations=occupations, employees=employees, references=refs)
+    return Data(cars=cars, occupations=occupations, employees=employees, references=refs,
+                opt_out_allowed=opt_out_allowed)
 
 
 _OPT_OUT = re.compile(r"(\d[\d,]*)")

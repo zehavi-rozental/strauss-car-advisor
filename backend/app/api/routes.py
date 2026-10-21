@@ -30,6 +30,7 @@ NOT_FOUND = "השיחה לא נמצאה"
 class ProfileFieldsIn(BaseModel):
     """טופס Q2 / תיקון נתונים: רק מה שנשלח נשמר. הטווחים נבדקים בשירות מול extensions.yaml."""
     model_config = ConfigDict(extra="forbid")
+    base_salary: Optional[Decimal] = None          # from a reviewed payslip (or a correction)
     commissions: Optional[Decimal] = None
     bonus: Optional[Decimal] = None
     pension_percent: Optional[Decimal] = None

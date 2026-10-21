@@ -214,6 +214,7 @@ export interface CarSearchItem {
 /** The structured profile form (Q2 / "תיקון נתונים"). Only the fields that are sent are saved;
  *  the server checks the ranges (422) and saves without the LLM. Keys are the server's names. */
 export interface ProfileFields {
+  base_salary?: number       // from a reviewed payslip
   commissions?: number
   bonus?: number
   pension_percent?: number
@@ -235,19 +236,38 @@ export type MessageIn =
 export interface ExtractedField {
   field: keyof ProfileFields
   label: string              // Hebrew label for the review form
-  value: Decimal | null      // string number, or null when unknown
+  value: Decimal | null      // string number, or null when missing / ambiguous
   kind: 'amount' | 'percent' | 'count'
   confident: boolean         // false → show as "לא ודאי", needs manual review
   in_range: boolean          // passed the extensions.yaml range check
   note: string               // short Hebrew note (e.g. "מחוץ לטווח, נא לבדוק")
+  status?: 'found' | 'missing' | 'ambiguous'
+  source_label?: string      // the label as printed on the payslip ("שכר יסוד")
+  certainty?: 'high' | 'medium' | 'low' | ''
 }
 
+/** What the payslip shows that is not entered automatically (an unclassified addition, the pension as an
+ *  amount, gross, net, taxes), with the reason. Never saved. */
+export interface PayslipInfo {
+  key: string
+  label: string
+  value: Decimal
+  kind: 'amount' | 'percent' | 'count'
+  source_label: string
+  note: string
+}
+
+export type PayslipStatus = 'found' | 'partial' | 'nothing_found' | 'not_payslip' | 'unreadable' | 'failed'
+
 /** POST /payslip/extract. The payslip itself is never stored; saving happens through {fields}
- *  only after the employee reviews, edits, and confirms. ok=false → fall back to manual entry. */
+ *  only after the employee reviews, edits, and confirms. ok=false (status "failed") → retry or manual entry. */
 export interface ExtractionResult {
   ok: boolean
-  status?: 'found' | 'partial' | 'nothing_found' | 'failed'   // absent from an older server
+  status?: PayslipStatus      // absent from an older server
+  reason?: string             // why it failed: timeout / quota / unavailable / rejected / invalid_response / not_configured
+  retry?: boolean             // trying the same file again may help
   fields: ExtractedField[]
+  info?: PayslipInfo[]
   message_he: string
 }
 

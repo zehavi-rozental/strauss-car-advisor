@@ -76,6 +76,7 @@ const pct = (n: number) => `${n}%`
 export function profileFormText(fields: ProfileFields): string {
   const parts: string[] = []
   const f = fields
+  if (f.base_salary !== undefined) parts.push(`שכר בסיס ${formatMoney(f.base_salary)}`)
   if (f.commissions !== undefined) parts.push(f.commissions === 0 ? 'אין עמלות' : `עמלות ${formatMoney(f.commissions)}`)
   if (f.bonus !== undefined) parts.push(f.bonus === 0 ? 'אין בונוס' : `בונוס ${formatMoney(f.bonus)}`)
   if (f.pension_percent !== undefined) parts.push(`פנסיה ${pct(f.pension_percent)}`)

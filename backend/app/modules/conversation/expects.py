@@ -73,8 +73,9 @@ def _pick_field(expects: dict[str, Any], ids: list[str], field: Optional[str]) -
     raise ChoiceInvalid(INVALID)
 
 
-FORM_FIELDS = ("commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points", "children_under_23")
-_FORM_LABELS = {"commissions": "עמלות", "bonus": "בונוס", "pension_percent": "פנסיה",
+FORM_FIELDS = ("base_salary", "commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points",
+               "children_under_23")      # base_salary: from a reviewed payslip (api ProfileFieldsIn)
+_FORM_LABELS = {"base_salary": "שכר בסיס", "commissions": "עמלות", "bonus": "בונוס", "pension_percent": "פנסיה",
                 "study_fund_percent": "קרן השתלמות", "credit_points": "נקודות זיכוי", "children_under_23": "ילדים"}
 
 

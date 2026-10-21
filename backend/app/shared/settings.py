@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     payslip_model: str = ""                # ברירת מחדל: הדגם הראשון מ-LLM_CHAIN של gemini
     payslip_timeout_s: float = 30.0        # חילוץ מתמונה איטי יותר מטקסט; תקרה נדיבה
     payslip_rate_limit_per_minute: int = 6  # העלאות לכתובת IP בדקה (חילוץ יקר)
+    payslip_fake_vision_dir: str = ""      # browser tests only: recorded answers by file hash (no Gemini call)
 
     rep_access_token: str = ""             # כותרת X-Rep-Token; ריק (ברירת המחדל) = ה-API של הנציג סגור
     rep_rate_limit_per_minute: int = 60

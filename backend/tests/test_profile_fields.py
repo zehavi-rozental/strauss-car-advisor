@@ -70,9 +70,16 @@ def test_out_of_range_is_rejected_and_nothing_is_saved(sessions, values):
 
 def test_empty_or_unknown_fields_are_rejected(sessions):
     svc, cid, token = q2(sessions)
-    for values in ({}, {"base_salary": 20000}):
+    # base_salary is a form field since 21/10 (a reviewed payslip); the group and the car never are
+    for values in ({}, {"eligibility_group": "ד"}, {"current_copay": 300}):
         with pytest.raises(ChoiceInvalid):
             svc.send_fields(cid, token, values)
+
+
+def test_the_base_salary_can_come_from_the_form(sessions):
+    svc, cid, token = q2(sessions)
+    svc.send_fields(cid, token, {"base_salary": 20000})
+    assert svc.view(cid, token).state.profile.base == 20000
 
 
 def test_correction_after_a_result_recalculates(sessions):
