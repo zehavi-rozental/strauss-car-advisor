@@ -16,12 +16,12 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional, Protocol
 
 from app.modules.rules.public import RulesSnapshot
 
+from .privacy import plausible, safe_label
 from .models import (
     FIELD_KIND,
     INFO_KEYS,
@@ -253,20 +253,6 @@ def _parse_json(text: str) -> Optional[dict[str, Any]]:
     return parsed if isinstance(parsed, dict) else None
 
 
-_LONG_NUMBER = re.compile(r"\d{3,}")       # an ID, an account or an amount; "עד גיל 23" is fine
-
-
-def _safe_label(raw: Any) -> str:
-    """The printed label, kept only when it is a short label: no number of three digits or more (an ID, an
-    account, an amount) and at most five words. Anything else is dropped rather than shown."""
-    if not isinstance(raw, str):
-        return ""
-    label = " ".join(raw.split())[:40]
-    if not label or _LONG_NUMBER.search(label) or len(label.split()) > 5:
-        return ""
-    return label
-
-
 def _items(parsed: dict[str, Any]) -> Optional[list[dict[str, Any]]]:
     """The answer as items. The schema's {"items": [...]}, or an older flat {"commissions": 1500, ...}.
     None when the answer has neither shape (an invalid response)."""
@@ -295,11 +281,15 @@ def _build(snapshot: RulesSnapshot, items: list[dict[str, Any]]) -> tuple[list[E
         key, value = item.get("key"), _coerce_number(item.get("value"))
         unit = item.get("unit") if item.get("unit") in ("ILS", "percent", "count") else ""
         certainty = item.get("certainty") if item.get("certainty") in ("high", "medium", "low") else "low"
-        label = _safe_label(item.get("label"))
+        label = safe_label(item.get("label"))
         if value is None or value < 0 or not isinstance(key, str):
             dropped += 1
             continue
         field = _KEY_TO_FIELD.get(key)
+        kind = FIELD_KIND[field] if field else INFO_KEYS[key][1] if key in INFO_KEYS else None
+        if kind is None or not plausible(value, "amount" if unit == "ILS" else kind):
+            dropped += 1                      # not a value of one monthly payslip line (an ID, an account)
+            continue
         if field is not None:
             if field in _AMOUNT_OF and unit == "ILS":           # a pension amount: information, not a percent
                 info.append(InfoItem(_AMOUNT_OF[field], value, "amount", label))
