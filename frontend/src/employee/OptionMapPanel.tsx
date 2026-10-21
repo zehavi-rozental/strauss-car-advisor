@@ -1,8 +1,11 @@
 // STRAUSS DRIVE 360°: every option the employee may choose, as the server calculated it. Display only: the
 // numbers are the engine's, the order and filters only rearrange them, and nothing is chosen for the employee.
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { MapEntry, OptionMap, OptionResult } from '../api/types'
 import { Money } from '../format/Amount'
+import { Icon } from '../ui/Icon'
+import { useDialog } from '../ui/useDialog'
 import { driveLabel } from './labels'
 import { STALE_NOTE } from './MessageList'
 import {
@@ -57,11 +60,7 @@ export function OptionMapPanel({ map, onClose, onCompare }: Props) {
   const { ranked, waiting, notEligible } = mapSections(map, filter, sort)
   const { drives, groups } = filterValues(map)
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
+  const closeRef = useDialog(onClose)      // Escape, focus, and the page under it held still (the design's dialogs)
 
   const card = (e: MapEntry) => (
     <EntryCard key={e.option_id} entry={e} lead={!map.stale && map.leaders.includes(e.option_id)}
@@ -69,13 +68,19 @@ export function OptionMapPanel({ map, onClose, onCompare }: Props) {
                onToggle={() => setPicked((p) => toggleCompare(p, e))} />
   )
 
-  return (
+  // rendered at the end of <body>, like the design's panels: above the top bar and the chat's stacking context
+  return createPortal(
     <div className="panel-backdrop" onClick={onClose}>
       <aside className="comparison-panel option-map" role="dialog" aria-modal="true" aria-label="מפת האפשרויות שלכם"
              onClick={(e) => e.stopPropagation()}>
         <header className="panel-header">
-          <h2>מפת האפשרויות שלכם</h2>
-          <button type="button" className="panel-close" onClick={onClose} aria-label="סגירה">×</button>
+          <div>
+            <p className="panel-kicker">STRAUSS DRIVE 360°</p>
+            <h2>מפת האפשרויות שלכם</h2>
+          </div>
+          <button ref={closeRef} type="button" className="panel-close" onClick={onClose} aria-label="סגירה">
+            <Icon name="close" size={22} />
+          </button>
         </header>
         <div className={map.stale ? 'panel-body result-stale' : 'panel-body'}>
           {map.stale && <p className="stale-note" role="status">{STALE_NOTE}</p>}
@@ -148,7 +153,8 @@ export function OptionMapPanel({ map, onClose, onCompare }: Props) {
           <span className="form-hint">אפשר לבחור עד {MAX_COMPARE} חלופות להשוואה זו לצד זו. הרשימה המלאה נשארת כאן.</span>
         </div>
       </aside>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
