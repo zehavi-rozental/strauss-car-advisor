@@ -507,6 +507,8 @@
   .is-intro .progress { inline-size: 100%; }
 }
 @media (max-width: 720px) {
+  /* on a phone the band is all route: the car would sit under the stops, so it stays on the opening only */
+  .chat.is-chat > .flowcar { display: none; }
   .chat-header { gap: 10px; padding-inline: 18px; }
   .is-chat .chat-header { flex-wrap: wrap; align-content: center; row-gap: 10px; }
   .chat-title h1 { font-size: 1.25rem; }

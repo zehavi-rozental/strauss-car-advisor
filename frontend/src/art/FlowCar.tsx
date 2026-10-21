@@ -390,7 +390,7 @@ export function FlowCar({ mode }: { mode: FlowMode }) {
       else pause()
     })
     io.observe(box)
-    const onVis = () => (document.hidden ? pause() : !reduce && play())
+    const onVis = () => (document.hidden ? pause() : visible && !reduce && play())
     document.addEventListener('visibilitychange', onVis)
 
     return () => {
