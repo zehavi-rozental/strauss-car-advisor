@@ -395,17 +395,8 @@ table.compare tr:last-child > * { border-block-end: none; }
   border-block-start: 1px solid var(--line);
   background: var(--card);
 }
-.swap-box { flex: 0 0 auto; }
-.swap-box[open] { flex-basis: 100%; order: 2; }
-.swap-box > summary {
-  display: inline-flex; align-items: center; gap: 8px;
-  min-block-size: 40px; padding-inline: 16px;
-  border: 1px solid var(--line-2); border-radius: var(--r-pill);
-  font-weight: 500; font-size: var(--fs-small);
-  cursor: pointer; list-style: none;
-}
-.swap-box > summary::-webkit-details-marker { display: none; }
-.swap-box[open] > summary { background: var(--hero); color: #fff; border-color: var(--hero); margin-block-end: 12px; }
+.swap-box { display: grid; gap: 12px; }
+.swap-box h3 { display: inline-flex; align-items: center; gap: 8px; margin: 0; font-size: var(--fs-small); font-weight: 600; color: var(--ink-3); }
 .swap-box .card-grid { max-block-size: 40dvh; }
 
 @media (max-width: 760px) {

@@ -1,6 +1,5 @@
-// Geometry of the opening artwork: an imaginary fastback, never a real model, seen from the side and shown
-// only through the air that flows over it (wind-tunnel smoke lines). Units are car lengths: u = 0 at the
-// nose (screen left, the direction a Hebrew reader moves in), u = 1 at the tail; heights above the ground.
+// Geometry of the opening artwork: an imaginary fastback, never a real model, seen from the side.
+// Units are car lengths: u = 0 at the nose, u = 1 at the tail; heights above the ground.
 
 type Pt = [number, number]
 
@@ -79,59 +78,4 @@ export function glassOutline(): Pt[] {
   if (top.length < 2) return []
   const bottom: Pt[] = [[top[top.length - 1][0], belt(top[top.length - 1][0])], [top[0][0], belt(top[0][0])]]
   return [...top, ...bottom]
-}
-
-/** Smoothed displacement the body imposes on the air above it: never below the body (plus a gap). */
-export function displacement(grid: { from: number; to: number; step: number }, gap = 0.012, sigma = 0.075): {
-  at: (u: number) => number
-} {
-  const n = Math.ceil((grid.to - grid.from) / grid.step) + 1
-  const raw = new Float32Array(n)
-  for (let i = 0; i < n; i++) raw[i] = topAt(grid.from + i * grid.step)
-  const radius = Math.ceil((sigma * 3) / grid.step)
-  const kernel: number[] = []
-  let sum = 0
-  for (let k = -radius; k <= radius; k++) {
-    const w = Math.exp(-((k * grid.step) ** 2) / (2 * sigma * sigma))
-    kernel.push(w)
-    sum += w
-  }
-  const out = new Float32Array(n)
-  for (let i = 0; i < n; i++) {
-    let acc = 0
-    for (let k = -radius; k <= radius; k++) {
-      const j = i + k
-      if (j >= 0 && j < n) acc += raw[j] * kernel[k + radius]
-    }
-    const blurred = (acc / sum) * 1.12
-    out[i] = Math.max(raw[i] > 0 ? raw[i] + gap : 0, blurred)
-    // the wake: behind the tail the air comes down slowly instead of falling off the rear face
-    const u = grid.from + i * grid.step
-    if (u > 0.95) out[i] = Math.max(out[i], (topAt(0.95) + gap) * Math.exp(-(((u - 0.95) / 0.5) ** 1.4)))
-  }
-  return {
-    at(u: number) {
-      const f = (u - grid.from) / grid.step
-      if (f <= 0) return out[0]
-      if (f >= n - 1) return out[n - 1]
-      const i = Math.floor(f)
-      return out[i] + (out[i + 1] - out[i]) * (f - i)
-    },
-  }
-}
-
-/** Base heights of the streamlines: dense near the body, opening up with height. */
-export function lineHeights(count: number, first = 0.017): number[] {
-  const hs: number[] = []
-  let h = 0
-  for (let i = 0; i < count; i++) {
-    hs.push(h)
-    h += first * (1 + i * 0.085)
-  }
-  return hs
-}
-
-/** Height of streamline h above the ground at u: lifted by the body, the lift fading with height. */
-export function streamY(h: number, lift: number, falloff = 0.55): number {
-  return h + lift * Math.exp(-h / falloff)
 }

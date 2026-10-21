@@ -27,13 +27,8 @@
 .chat > .flowcar { z-index: 0; pointer-events: none; overflow: hidden; }
 
 /* ---------- the artwork ---------- */
-.flowcar { perspective: 1400px; overflow: hidden; }
-.flowcar canvas {
-  display: block;
-  transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
-  transform-origin: 40% 70%;
-  will-change: transform;
-}
+.flowcar { overflow: hidden; }
+.flowcar canvas { display: block; }
 .flowcar-intro canvas { animation: fade 1s var(--ease-soft) both; }
 
 /* ---------- header: title, availability, route, actions ---------- */
@@ -490,7 +485,8 @@
 .is-intro .bubble-bot .bubble-text { color: var(--on-hero); font-size: var(--fs-lead); line-height: 1.6; }
 .is-intro .bubble-bot .amt { color: inherit; }
 .is-intro .bubble-avatar { background: #fff; border-color: transparent; }
-.is-intro .bubble-meta { display: none; }
+.is-intro .bubble-meta { color: var(--on-hero-3); }
+.is-intro .msg-action:hover:not(:disabled) { background: rgb(255 255 255 / 14%); }
 .is-intro .message-group.from-bot { animation: rise 0.9s 0.3s var(--ease-out) both; }
 .is-intro .loading { color: var(--on-hero-2); }
 .is-intro .loading-bar { background: rgb(255 255 255 / 18%); }
@@ -508,15 +504,14 @@
   .is-intro .chat-column { inline-size: auto; margin-inline: clamp(18px, 5vw, 32px); }
   .is-intro .chat-header { gap: 12px; }
   .is-intro .chat-title h1 { font-size: clamp(2.75rem, 12.5vw, 4.25rem); }
-  .is-intro .progress { display: none; }
-  .is-intro .chat-actions { display: none; }
+  .is-intro .progress { inline-size: 100%; }
 }
 @media (max-width: 720px) {
   .chat-header { gap: 10px; padding-inline: 18px; }
   .is-chat .chat-header { flex-wrap: wrap; align-content: center; row-gap: 10px; }
   .chat-title h1 { font-size: 1.25rem; }
   .chat-title h1::after { inline-size: 48px; block-size: 3px; margin-block-start: 5px; }
-  .is-chat .status { display: none; }
+  .is-chat .status { font-size: var(--fs-micro); }
   .is-chat .progress { order: 3; flex-basis: 100%; inline-size: 100%; }
   .is-chat .progress-label { font-size: 0.6875rem; }
   .is-chat .progress li { gap: 3px; }

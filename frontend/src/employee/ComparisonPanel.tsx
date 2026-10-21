@@ -172,16 +172,17 @@ export function ComparisonPanel({ results, expects, disabled, onClose, onSend, o
               ))}
             </section>
           )}
+
+          {optionsField && optionsField.choices.length > 0 && (
+            <section className="swap-box" aria-labelledby="swap-title">
+              <h3 id="swap-title"><Icon name="swap" size={18} />לשנות בחירה</h3>
+              <SelectionCard f={optionsField} fieldParam="options" disabled={disabled} onSend={onSend}
+                             initial={shown.map((i) => i.option_id)} onDone={onClose} details={details} />
+            </section>
+          )}
         </div>
 
         <footer className="panel-actions">
-          {optionsField && optionsField.choices.length > 0 && (
-            <details className="swap-box">
-              <summary><Icon name="swap" size={18} />לשנות בחירה</summary>
-              <SelectionCard f={optionsField} fieldParam="options" disabled={disabled} onSend={onSend}
-                             initial={shown.map((i) => i.option_id)} onDone={onClose} details={details} />
-            </details>
-          )}
           <button type="button" className="chip chip-quiet" disabled={disabled} onClick={onCorrect}>
             <Icon name="edit" size={16} />תיקון נתונים
           </button>
