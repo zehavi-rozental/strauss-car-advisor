@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { ApiError, repApi } from '../api/client'
 import type { RepQuestion } from '../api/types'
+import { Icon } from '../ui/Icon'
 import { checkMoney } from './repForm'
 
 interface Props {
@@ -55,9 +56,10 @@ export function AnswerForm({ question: q, token, onAnswered, onUnauthorized, onC
       {confirmValue !== null && (
         <div className="confirm-row">
           <button type="button" className="chip chip-primary" disabled={busy} onClick={() => submit(confirmValue)}>
-            אישור {Number(confirmValue).toLocaleString('he-IL')} ₪
+            <Icon name="check" size={18} />
+            אישור <bdi className="num">{Number(confirmValue).toLocaleString('he-IL')} ₪</bdi>
           </button>
-          {!other && <button type="button" className="chip" disabled={busy} onClick={() => setOther(true)}>סכום אחר</button>}
+          {!other && <button type="button" className="chip chip-quiet" disabled={busy} onClick={() => setOther(true)}>סכום אחר</button>}
         </div>
       )}
 
@@ -84,7 +86,7 @@ export function AnswerForm({ question: q, token, onAnswered, onUnauthorized, onC
         </div>
       )}
 
-      <div className="form-grid">
+      <div className="form-grid answer-extras">
         <div className="form-field">
           <label htmlFor={`d-${q.id}`}>בתוקף מתאריך</label>
           <input id={`d-${q.id}`} type="date" value={date} disabled={busy} onChange={(e) => setDate(e.target.value)} />
@@ -96,7 +98,13 @@ export function AnswerForm({ question: q, token, onAnswered, onUnauthorized, onC
       </div>
 
       {error && <p className="field-error" role="alert">{error}</p>}
-      {other && <button type="submit" className="chip chip-primary" disabled={busy || !value.trim()}>שליחת תשובה</button>}
+      {other && (
+        <div className="form-actions">
+          <button type="submit" className="chip chip-primary" disabled={busy || !value.trim()}>
+            {busy ? 'שולח…' : 'שליחת תשובה'}
+          </button>
+        </div>
+      )}
     </form>
   )
 }

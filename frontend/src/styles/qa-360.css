@@ -1,0 +1,55 @@
+/* QA round 21/10 and STRAUSS DRIVE 360°: the states the design must show (docs/FRONTEND_CONTRACT_FOR_REDESIGN.md).
+   Only the design's tokens (styles/tokens.css). Class names are used by the browser tests. */
+
+/* the representative's note on an answered card */
+.answered-note { display: block; margin-block-start: 4px; color: var(--ink); overflow-wrap: anywhere; }
+
+/* results calculated before the last change: history, visibly not current, never ranked */
+.result-stale .result-card, .result-stale .summary-card, .result-stale .table-scroll,
+.result-stale .compare-stage { opacity: 0.55; filter: grayscale(0.6); }
+.stale-note {
+  margin: 0 0 8px; padding-block: 8px; padding-inline: 12px; border-radius: var(--r-sm);
+  background: var(--pending-tint); color: var(--pending); font-size: var(--fs-small);
+}
+
+/* the payslip review: one explicit decision per row */
+.review-choice { display: flex; flex-wrap: wrap; gap: 6px; margin-block-start: 6px; }
+.choice-option {
+  display: inline-flex; align-items: center; gap: 6px; padding-block: 6px; padding-inline: 10px;
+  border: 1px solid var(--line-2); border-radius: var(--r-pill); cursor: pointer; font-size: var(--fs-small);
+  background: var(--card);
+}
+.choice-option.chosen { border-color: var(--brand); background: var(--brand-tint); color: var(--brand); }
+.choice-option input { margin: 0; accent-color: var(--brand); }
+
+/* STRAUSS DRIVE 360°: the option map (information and typography, no car pictures) */
+.map-request { margin-block-start: 8px; }
+.map-card p { margin: 4px 0; }
+.map-lead-line { font-weight: 600; color: var(--brand); }
+.map-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin: 0 0 8px; }
+.map-summary div { background: var(--brand-tint); border-radius: var(--r-sm); padding: 8px 10px; }
+.map-summary dt { font-size: var(--fs-micro); color: var(--ink-3); }
+.map-summary dd { margin: 0; font-size: 1.125rem; font-weight: 700; }
+.map-controls { display: flex; flex-wrap: wrap; gap: 12px; margin-block: 8px 4px; }
+.map-controls label { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-small); color: var(--ink-3); }
+.map-section { font-size: 0.9375rem; margin-block: 14px 6px; }
+.map-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.map-entry {
+  border: 1px solid var(--line); border-radius: var(--r-md); padding: 10px 12px; background: var(--card);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.map-entry.map-lead { border-color: var(--brand); box-shadow: var(--shadow-1); }
+.map-entry-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.map-name { font-weight: 700; }
+.map-meta { display: flex; flex-wrap: wrap; gap: 6px; font-size: var(--fs-small); }
+.chip-static { border: 1px solid var(--line); border-radius: var(--r-pill); padding: 2px 8px; color: var(--ink-3); }
+.map-status { border-radius: var(--r-pill); padding: 2px 8px; }
+.status-full { background: var(--brand-tint); color: var(--brand); }
+.status-catalog_copay, .status-incomplete { background: var(--pending-tint); color: var(--pending); }
+.status-not_eligible { background: var(--down-tint); color: var(--down); }
+.map-figures { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.map-figures .positive { color: var(--up); }
+.map-figures .negative { color: var(--down); }
+.map-why { margin: 0; color: var(--ink-3); font-size: var(--fs-small); }
+.map-entry .chip { align-self: flex-start; }
+.map-excluded { margin-block-start: 12px; color: var(--ink-3); font-size: var(--fs-small); }

@@ -1,0 +1,154 @@
+/* App shell: the top bar, the area switch and the user menu. White, contained, with the page's side margins. */
+.app { min-block-size: 100dvh; display: flex; flex-direction: column; background: var(--page); }
+
+.topbar {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 40;
+  block-size: var(--topbar-h);
+  background: rgb(255 255 255 / 92%);
+  border-block-end: 1px solid var(--line);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+}
+.topbar-inner {
+  display: flex;
+  align-items: center;
+  gap: var(--s5);
+  block-size: 100%;
+  inline-size: 100%;
+  max-inline-size: calc(var(--container) + 2 * var(--gutter));
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+/* ---------- brand ---------- */
+.brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; flex: none; }
+.brand .brandmark { transition: transform var(--t-slow) var(--ease-spring); }
+.brand:hover .brandmark { transform: rotate(-14deg) scale(1.06); }
+.wordmark { display: inline-flex; align-items: baseline; gap: 0.38em; line-height: 1; font-size: 1rem; }
+.wordmark-strauss { font-weight: 800; letter-spacing: 0.06em; color: var(--red); }
+.wordmark-drive { font-weight: 300; letter-spacing: 0.22em; color: var(--ink); }
+
+.brandmark .petal { transform-box: fill-box; transform-origin: 50% 100%; }
+.brandmark.is-thinking .petal { animation: petal-breathe 1.4s var(--ease-soft) infinite; }
+.brandmark g g:nth-child(1) .petal { animation-delay: 0.00s; }
+.brandmark g g:nth-child(2) .petal { animation-delay: 0.07s; }
+.brandmark g g:nth-child(3) .petal { animation-delay: 0.14s; }
+.brandmark g g:nth-child(4) .petal { animation-delay: 0.21s; }
+.brandmark g g:nth-child(5) .petal { animation-delay: 0.28s; }
+.brandmark g g:nth-child(6) .petal { animation-delay: 0.35s; }
+.brandmark g g:nth-child(7) .petal { animation-delay: 0.42s; }
+.brandmark g g:nth-child(8) .petal { animation-delay: 0.49s; }
+.brandmark g g:nth-child(9) .petal { animation-delay: 0.56s; }
+.brandmark g g:nth-child(10) .petal { animation-delay: 0.63s; }
+.brandmark g g:nth-child(11) .petal { animation-delay: 0.70s; }
+@keyframes petal-breathe {
+  0%, 100% { transform: scale(0.55); opacity: 0.5; }
+  45% { transform: scale(1); opacity: 1; }
+}
+
+/* ---------- area switch ---------- */
+.zones {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 4px;
+  margin-inline: auto;
+  border-radius: var(--r-pill);
+  background: var(--card-2);
+}
+.zones-thumb {
+  position: absolute;
+  inset-block: 4px;
+  inset-inline-start: 4px;
+  inline-size: calc((100% - 8px) / 2);
+  border-radius: var(--r-pill);
+  background: var(--card);
+  box-shadow: var(--shadow-1), inset 0 0 0 1px var(--line);
+  transition: transform var(--t-med) var(--ease-out);
+}
+.zones[data-active='rep'] .zones-thumb { transform: translateX(-100%); }
+.zone {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding-block: 7px;
+  padding-inline: 16px 20px;
+  border-radius: var(--r-pill);
+  color: var(--ink-3);
+  text-decoration: none;
+  transition: color var(--t-fast) var(--ease-soft);
+}
+.zone:hover { color: var(--ink); }
+.zone.active { color: var(--ink); }
+.zone .ico { color: var(--ink-3); transition: color var(--t-fast) var(--ease-soft); }
+.zone.active .ico { color: var(--brand); }
+.zone-text { display: flex; flex-direction: column; line-height: 1.2; }
+.zone-name { font-size: 0.875rem; font-weight: 600; }
+.zone-sub { font-size: 0.6875rem; color: var(--ink-3); }
+
+/* ---------- user menu ---------- */
+.usermenu { position: relative; flex: none; }
+.usermenu-button {
+  display: grid; place-items: center;
+  inline-size: 42px; block-size: 42px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--card);
+  color: var(--ink-2);
+  transition: background var(--t-fast) var(--ease-soft), border-color var(--t-fast) var(--ease-soft), color var(--t-fast);
+}
+.usermenu-button:hover, .usermenu-button[aria-expanded='true'] { border-color: var(--line-2); background: var(--card-2); color: var(--ink); }
+.usermenu-pop {
+  position: absolute;
+  inset-block-start: calc(100% + 10px);
+  inset-inline-end: 0;
+  z-index: 60;
+  min-inline-size: 260px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: var(--shadow-3);
+  animation: rise var(--t-med) var(--ease-out);
+}
+.usermenu-role { margin: 0; padding: 8px 12px 10px; font-size: var(--fs-micro); color: var(--ink-3); border-block-end: 1px solid var(--line); }
+.usermenu-item {
+  display: flex; align-items: center; gap: 10px;
+  inline-size: 100%;
+  margin-block-start: 4px;
+  padding: 10px 12px;
+  border: 0; border-radius: var(--r-sm);
+  background: transparent;
+  font-size: 0.9375rem;
+  text-align: start;
+}
+.usermenu-item:hover { background: var(--card-2); }
+.usermenu-item > span:nth-child(2) { flex: 1; }
+.switch {
+  position: relative; inline-size: 34px; block-size: 20px; border-radius: var(--r-pill);
+  background: var(--line-2); transition: background var(--t-fast) var(--ease-soft); flex: none;
+}
+.switch::after {
+  content: ''; position: absolute; inset-block-start: 3px; inset-inline-start: 3px;
+  inline-size: 14px; block-size: 14px; border-radius: 50%; background: #fff; box-shadow: var(--shadow-1);
+  transition: transform var(--t-fast) var(--ease-out);
+}
+.switch.is-on { background: var(--brand); }
+.switch.is-on::after { transform: translateX(-14px); }
+
+@media (max-width: 720px) {
+  .topbar-inner { gap: var(--s2); }
+  .zone-sub { display: none; }
+  .zone { padding-inline: 12px 14px; gap: 6px; }
+  .zone-name { font-size: 0.8125rem; }
+  .wordmark { font-size: 0.875rem; }
+}
+@media (max-width: 560px) {
+  .wordmark { display: none; }
+  .zone .ico { display: none; }
+  .zone { padding-inline: 14px; }
+}

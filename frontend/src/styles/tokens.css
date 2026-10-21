@@ -1,0 +1,168 @@
+/* STRAUSS DRIVE design tokens: "Bloom".
+   White, clean and roomy, with the colours of the Strauss burst. Every petal colour also keeps one job in the
+   product: blue = the advisor and actions, turquoise = electric / live, green = the net grows (and, deeper, the
+   employee's own messages), red = the net shrinks (and the Strauss word), orange = waiting for the
+   representative (a temporary estimate).
+   *-ink variants are the text-safe versions (WCAG AA on white and on --paper, measured). */
+:root {
+  /* surfaces */
+  --page: #ffffff;
+  --paper: #f0f3f6;
+  --card: #ffffff;
+  --card-2: #f3f5f8;
+  --ink: #1b2430;
+  --ink-2: #48525e;
+  --ink-3: #5e6873;
+  --line: #e6e9ed;
+  --line-2: #d5dae0;
+
+  /* the burst: decorative colour, large shapes, lines */
+  --petal-red: #ed3024;
+  --petal-orange: #f48326;
+  --petal-green: #78a12f;
+  --petal-leaf: #b5d36a;
+  --petal-blue: #0390cb;
+  --petal-turq: #00bae2;
+  --petal-sky: #9ed8ef;
+  /* the burst in the order of the mark, as one rule: titles, the route, loading */
+  --burst: linear-gradient(90deg, var(--petal-red) 0 14.3%, var(--petal-orange) 0 28.6%, var(--petal-leaf) 0 42.9%,
+                           var(--petal-green) 0 57.2%, var(--petal-sky) 0 71.5%, var(--petal-turq) 0 85.8%, var(--petal-blue) 0);
+
+  /* the burst as text and UI */
+  --brand: #0b72a8;
+  --brand-deep: #085a85;
+  --red: #d7281c;
+  --electric: #007a96;
+  --up: #3e6a10;
+  --down: #be2419;
+  --pending: #9a4705;
+
+  /* the employee's own messages (the advisor's replies are white cards): the Strauss green, one step deeper
+     than the petal so white text passes AA (5.1:1) */
+  --bubble-user: #4a7a18;
+  --bubble-user-glow: 0 12px 26px -16px rgb(74 122 24 / 55%);
+
+  /* tints */
+  --brand-tint: #e8f4fb;
+  --sky-tint: #eef8fc;
+  --up-tint: #eff6e4;
+  --down-tint: #fdecea;
+  --pending-tint: #fef2e6;
+  --electric-tint: #e4f7fb;
+  --sky-surface: #ddf1f9;   /* the petal sky on white */
+  --orange-surface: #fdebdc; /* the petal orange on white */
+
+  /* surfaces by meaning: every card that shows today / a gain / a loss uses these (the best one is the hero blue) */
+  --surface-today: var(--orange-surface);
+  --surface-up: var(--up-tint);
+  --surface-up-line: color-mix(in srgb, var(--petal-green) 28%, transparent);
+  --surface-down: var(--down-tint);
+  --surface-down-line: color-mix(in srgb, var(--petal-red) 22%, transparent);
+
+  /* the hero blue: the opening, the consultation band, the rep header */
+  --hero-light: #0b5a8a;
+  --hero: #073d5f;
+  --hero-deep: #06304d;
+  --hero-grad: radial-gradient(90% 120% at 28% 78%, #0d6aa0 0%, var(--hero) 55%, var(--hero-deep) 100%);
+  --on-hero: #ffffff;
+  --on-hero-2: #d6eaf6;
+  --on-hero-3: #a9cfe6;
+  --on-hero-live: #c9f1a0;   /* also the net grows, on blue */
+  --on-hero-down: #ffc4ba;   /* the net shrinks, on blue */
+
+  /* the opening artwork (art/FlowCar reads these; no colour lives in the code) */
+  --art-ribbon-1: var(--petal-red);
+  --art-ribbon-2: var(--petal-orange);
+  --art-ribbon-3: var(--petal-leaf);
+  --art-ribbon-4: var(--petal-green);
+  --art-ribbon-5: var(--petal-sky);
+  --art-ribbon-6: var(--petal-turq);
+  --art-ribbon-7: var(--petal-blue);
+  --art-paint-1: #ffffff;
+  --art-paint-2: #f4f6f8;
+  --art-paint-3: #e3e8ed;
+  --art-paint-4: #f2f4f7;
+  --art-paint-5: #cdd5de;
+  --art-paint-6: #a9b4c0;
+  --art-glass-1: #1d2a39;
+  --art-glass-2: #2c3e53;
+  --art-glass-3: #7fa6c4;
+  --art-glass-4: #33465c;
+  --art-glass-5: #16212d;
+  --art-line: #788898;
+  --art-pillar: #18222e;
+  --art-tyre: #1c242d;
+  --art-rim-1: #f6f8fa;
+  --art-rim-2: #c3ccd5;
+  --art-rim-3: #8794a1;
+  --art-rim-inner: #5a6673;
+  --art-spoke: #dde3e9;
+  --art-hub: #eef2f5;
+  --art-hub-dot: var(--petal-red);
+  --art-head-light: #3ccbea;
+  --art-tail-light: var(--petal-red);
+  --art-shadow: #02101e;
+  --art-reflection-1: #a9c3d6;
+  --art-reflection-2: #6f97b4;
+  --art-sky-tint: var(--petal-sky);
+  --art-highlight: #ffffff;
+
+  /* frames: every screen sits inside the same container, with side margins */
+  --frame-gap: clamp(10px, 2vw, 24px);
+  --frame-x: max(var(--frame-gap), calc((100% - var(--container)) / 2));
+
+  /* type */
+  --font: 'Assistant', system-ui, sans-serif;
+  --fs-micro: 0.75rem;     /* 12 */
+  --fs-small: 0.8125rem;   /* 13 */
+  --fs-body: 1rem;         /* 16 */
+  --fs-lead: clamp(1.0625rem, 0.98rem + 0.4vw, 1.25rem);
+  --fs-title: clamp(1.375rem, 1.1rem + 1vw, 1.875rem);
+  --fs-display: clamp(2.75rem, 1.4rem + 4.6vw, 5.75rem);
+  --fs-number: clamp(2.75rem, 1.8rem + 3.4vw, 4.75rem);
+  --fs-answer: clamp(2.25rem, 1.7rem + 2.2vw, 3.25rem);          /* the one number a screen is about */
+  --fs-answer-compact: clamp(1.625rem, 1.4rem + 0.8vw, 2rem);   /* the same, in a list or a column */
+
+  /* space */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s7: 32px; --s8: 40px; --s9: 56px; --s10: 72px;
+  --gutter: clamp(16px, 4vw, 56px);
+  --container: 1240px;
+
+  /* shape: one radius scale, round and calm */
+  --r-xs: 6px;
+  --r-sm: 10px;
+  --r-md: 16px;
+  --r-lg: 24px;
+  --r-xl: 32px;
+  --r-pill: 999px;
+  --petal: var(--r-lg);
+  --petal-lg: var(--r-lg);
+
+  /* depth: soft, neutral */
+  --shadow-1: 0 1px 2px rgb(27 36 48 / 5%), 0 2px 8px rgb(27 36 48 / 4%);
+  --shadow-2: 0 2px 6px rgb(27 36 48 / 5%), 0 14px 34px -12px rgb(27 36 48 / 14%);
+  --shadow-3: 0 4px 10px rgb(27 36 48 / 6%), 0 30px 70px -24px rgb(27 36 48 / 24%);
+
+  /* motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-soft: cubic-bezier(0.33, 1, 0.68, 1);
+  --ease-inout: cubic-bezier(0.87, 0, 0.13, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --t-fast: 160ms;
+  --t-med: 320ms;
+  --t-slow: 640ms;
+
+  /* layout */
+  --topbar-h: 72px;
+  --band-h: 132px;
+  --column: 820px;
+}
+
+@media (max-width: 720px) {
+  :root { --topbar-h: 60px; --band-h: 112px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --t-fast: 1ms; --t-med: 1ms; --t-slow: 1ms; }
+}
+:root[data-motion='reduce'] { --t-fast: 1ms; --t-med: 1ms; --t-slow: 1ms; }

@@ -1,0 +1,100 @@
+/* Shared building blocks. A new feature is built from these and looks like the rest of the product with no new
+   CSS: a card (its surface says what it is), a section title, the answer (one big number with its meaning in
+   words), a change line, label / value rows, a fold for detail, and a data table. Colours and sizes come from
+   tokens.css only. See DESIGN-SYSTEM.md, "בונים פיצ'ר חדש". */
+
+/* ---------- card ---------- */
+.card {
+  padding: var(--s5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--card);
+}
+.card.is-today { background: var(--surface-today); border-color: transparent; }
+.card.is-up { background: var(--surface-up); border-color: var(--surface-up-line); }
+.card.is-down { background: var(--surface-down); border-color: var(--surface-down-line); }
+.card.is-hero { background: var(--hero-grad); border-color: transparent; color: var(--on-hero); }
+
+/* ---------- section title: bold, with the burst rule under it ---------- */
+.section-title { margin: 0 0 12px; font-size: var(--fs-small); font-weight: 700; color: var(--ink); letter-spacing: 0.01em; }
+.section-title::after {
+  content: '';
+  display: block;
+  inline-size: 32px;
+  block-size: 3px;
+  margin-block-start: 6px;
+  border-radius: 3px;
+  background: var(--burst);
+}
+
+/* ---------- the answer: what it is, the number, what it means ---------- */
+.answer { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-inline-size: 0; }
+.answer-label { font-size: var(--fs-small); font-weight: 600; color: var(--ink-2); }
+.answer-figure { position: relative; display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.answer-figure .money {
+  font-size: var(--fs-answer);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--ink);
+  animation: figure-in 0.8s var(--ease-out) both;
+}
+.answer-unit { font-size: var(--fs-small); font-weight: 500; color: var(--ink-3); }
+.answer-change { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-weight: 600; color: var(--ink-2); }
+.answer-change .ico { flex: none; }
+.answer-change.is-up { color: var(--up); }
+.answer-change.is-down { color: var(--down); }
+.answer-change .money { color: inherit; }
+.answer-meta { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 2px 0 0; font-size: var(--fs-micro); color: var(--ink-3); }
+.answer-meta .money { font-weight: 600; color: var(--ink-2); }
+.answer.is-compact .answer-figure .money { font-size: var(--fs-answer-compact); }
+.answer.is-compact .answer-change { font-size: var(--fs-small); }
+@keyframes figure-in { from { opacity: 0; transform: translateY(10px); filter: blur(5px); } to { opacity: 1; transform: none; filter: none; } }
+
+/* the answer on the hero blue */
+.is-hero .answer-label, .is-best .answer-label { color: var(--on-hero-2); }
+.is-hero .answer-figure .money, .is-best .answer-figure .money { color: var(--on-hero); }
+.is-hero .answer-unit, .is-best .answer-unit, .is-hero .answer-meta, .is-best .answer-meta { color: var(--on-hero-3); }
+.is-hero .answer-meta .money, .is-best .answer-meta .money { color: var(--on-hero-2); }
+.is-hero .answer-change.is-up, .is-best .answer-change.is-up { color: var(--on-hero-live); }
+.is-hero .answer-change.is-down, .is-best .answer-change.is-down { color: var(--on-hero-down); }
+
+/* ---------- label / value rows ---------- */
+.kv { display: grid; gap: 6px; margin: 0; }
+.kv-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: var(--fs-small); }
+.kv-row > :first-child { margin-inline-end: auto; color: var(--ink-3); }
+.kv-row .money { font-weight: 600; color: var(--ink); }
+
+/* ---------- fold: detail one click away ---------- */
+.fold > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-block-size: 52px;
+  padding-block: 12px;
+  padding-inline: 18px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--card);
+  font-weight: 600;
+  color: var(--ink);
+  list-style: none;
+  cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease-soft), background var(--t-fast) var(--ease-soft);
+}
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary:hover { border-color: var(--line-2); background: var(--card-2); }
+.fold-title { flex: 1; margin: 0; font-size: var(--fs-body); font-weight: 600; }
+.fold-hint { display: block; font-size: var(--fs-micro); font-weight: 400; color: var(--ink-3); }
+.fold-chevron { flex: none; color: var(--brand); transition: transform var(--t-med) var(--ease-out); }
+.fold[open] > summary { border-end-start-radius: var(--r-xs); border-end-end-radius: var(--r-xs); }
+.fold[open] .fold-chevron { transform: rotate(180deg); }
+.fold-body { padding-block-start: 12px; animation: rise var(--t-med) var(--ease-out) both; }
+
+/* ---------- data table: any table looks like this unless it says otherwise ---------- */
+:where(table) { inline-size: 100%; border-collapse: collapse; font-size: 0.9375rem; }
+:where(thead tr) { background: var(--burst) bottom / 100% 3px no-repeat, var(--card); }
+:where(th, td) { padding-block: 12px; padding-inline: 16px; border-block-end: 1px solid var(--line); text-align: start; vertical-align: top; }
+:where(thead th) { font-size: var(--fs-micro); font-weight: 700; color: var(--ink); }
+:where(tbody th) { font-weight: 600; color: var(--ink); }
+:where(td) { font-variant-numeric: tabular-nums; }

@@ -2,6 +2,7 @@
 import type {
   ApiErrorBody,
   CarSearchItem,
+  CatalogItem,
   ConversationView,
   ExtractionResult,
   MessageIn,
@@ -62,6 +63,8 @@ export const api = {
     request<TurnResponse>(`${conv(id)}/messages`, { method: 'POST', body: JSON.stringify(body) }),
   getUpdates: (id: string, after: number) => request<UpdatesResponse>(`${conv(id)}/updates?after=${after}`),
   searchCars: (q: string) => request<CarSearchItem[]>(`/api/catalog/search?q=${encodeURIComponent(q)}`),
+  /** The company catalog (GET /api/catalog), for display details on the selection cards only. */
+  catalog: () => request<CatalogItem[]>('/api/catalog'),
   /** Upload a payslip for extraction only. The file is never stored; the result is reviewed and
    *  confirmed before anything is saved. */
   extractPayslip: (file: File) => {

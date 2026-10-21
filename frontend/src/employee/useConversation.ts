@@ -10,7 +10,14 @@ const POLL_MS = 3000
 
 export interface ChatMessage extends Message {
   pending?: boolean          // optimistic bubble, not yet saved by the server
+  failed?: boolean           // a typed message the server did not confirm; it can be sent again ("לשלוח שוב")
 }
+
+/** A typed message whose request failed on the way (no connection, a server error, too many requests). */
+interface Failed { body: MessageIn; display: string }
+
+// worth sending again: the request may never have arrived. A 422 / 404 / 409 is the server's answer, not a loss.
+const RETRYABLE = (status: number) => status === 0 || status === 429 || status >= 500
 
 function readStoredId(): string | null {
   try {
@@ -68,6 +75,7 @@ export function useConversation() {
   const runKeyRef = useRef('')
   const syncChain = useRef<Promise<void>>(Promise.resolve())
   const started = useRef(false)
+  const failedRef = useRef(new Map<number, Failed>())
 
   const applyView = useCallback((view: ConversationView) => {
     const res = normalizeResults(view.results)
@@ -88,10 +96,10 @@ export function useConversation() {
 
   /** New messages after the last seq, plus the current stage, expects, results and open questions.
    *  Calls are chained so polling and sending never apply updates out of order. */
-  const sync = useCallback((): Promise<void> => {
-    const run = async () => {
+  const sync = useCallback((): Promise<Message[]> => {
+    const run = async (): Promise<Message[]> => {
       const id = idRef.current
-      if (!id) return
+      if (!id) return []
       const u = await api.getUpdates(id, lastSeqRef.current)
       const fresh = u.messages.filter((m) => m.seq > lastSeqRef.current)
       if (fresh.length) lastSeqRef.current = Math.max(...fresh.map((m) => m.seq))
@@ -111,15 +119,17 @@ export function useConversation() {
         // the card moves to the message in which the results changed (e.g. the rep's answer)
         setResultsAnchor(res.length ? lastAssistantRef.current : null)
       }
+      return fresh
     }
     const next = syncChain.current.then(run, run)
-    syncChain.current = next.catch(() => undefined)
+    syncChain.current = next.then(() => undefined, () => undefined)
     return next
   }, [setExpects, setOptionMap])
 
   const reload = useCallback(async () => {
     const id = idRef.current
     if (!id) return
+    failedRef.current.clear()
     applyView(await api.getConversation(id))
     await sync()
   }, [applyView, sync])
@@ -159,8 +169,9 @@ export function useConversation() {
     })()
   }, [applyView, sync, setExpects])
 
-  /** Sends one message. The result says whether it was saved, and (for the profile form) which fields the
-   *  server refused, so the form can show each error next to its field and keep everything typed. */
+  /** Sends one message. The result says whether it was handled, and (for the profile form) which fields the server
+   *  refused, so the form can show each error next to its field and keep everything typed. A typed message lost on
+   *  the way stays on screen as "not sent" with "לשלוח שוב", and counts as handled. */
   const deliver = useCallback(async (body: MessageIn, display: string): Promise<SendResult> => {
     const id = idRef.current
     if (!id || sending) return { ok: false, errors: {} }
@@ -175,6 +186,15 @@ export function useConversation() {
       await sync()
       return { ok: true }
     } catch (e) {
+      if (e instanceof ApiError && RETRYABLE(e.status) && 'text' in body) {
+        // keep the bubble, marked as not sent, with "לשלוח שוב"
+        const seq = -Date.now()
+        failedRef.current.set(seq, { body, display })
+        setMessages((prev) => [...prev.filter((m) => !m.pending),
+          { seq, role: 'user', source: 'user', content: display, created_at: new Date().toISOString(), failed: true }])
+        setError(e.message_he)
+        return { ok: true }                    // handled: kept on screen with "לשלוח שוב"
+      }
       setMessages((prev) => prev.filter((m) => !m.pending))
       if (e instanceof ApiError) {
         setError(e.message_he)
@@ -196,6 +216,37 @@ export function useConversation() {
   const sendFields = useCallback((fields: ProfileFields, display: string, source?: 'payslip') =>
     deliver(source ? { fields, source } : { fields }, display), [deliver])
 
+  /** "לשלוח שוב" for a message that failed on the way. First asks the server what it has: if the message did
+   *  arrive (only the answer was lost), nothing is sent twice. */
+  const retry = useCallback(async (seq: number): Promise<void> => {
+    const id = idRef.current
+    const f = failedRef.current.get(seq)
+    if (!id || !f || sending) return
+    setError(null)
+    setSending(true)
+    const drop = () => {
+      failedRef.current.delete(seq)
+      setMessages((prev) => prev.filter((m) => m.seq !== seq))
+    }
+    try {
+      const fresh = await sync()
+      if (fresh.some((m) => m.role === 'user' && m.content.trim() === f.display.trim())) {
+        drop()
+        return
+      }
+      const turn = await api.sendMessage(id, f.body)
+      setStage(turn.stage)
+      setExpects(turn.expects)
+      drop()
+      await sync()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message_he : String(e))
+      if (e instanceof ApiError && e.status === 409) await reload().catch(() => undefined)
+    } finally {
+      setSending(false)
+    }
+  }, [sending, sync, reload, setExpects])
+
   /** The profile as the server holds it, for prefilling the form (the updates feed does not carry it). */
   const loadProfile = useCallback(async (): Promise<Record<string, unknown>> => {
     const id = idRef.current
@@ -211,6 +262,7 @@ export function useConversation() {
     }
     setError(null)
     setLoading(true)
+    failedRef.current.clear()
     try {
       const turn = await api.createConversation()
       storeId(turn.conversation_id)
@@ -271,7 +323,8 @@ export function useConversation() {
   const questionKey = `${lastAssistant ?? ''}|${JSON.stringify(expects)}`
 
   return {
-    messages, stage, expects, questionKey, results, resultsStale, optionMap: optionMapState, resultsAnchor, pendingQuestions, waitingForRep,
-    sending, loading, error, send, sendFields, loadProfile, newConversation, dismissError: () => setError(null),
+    messages, stage, expects, questionKey, results, resultsStale, optionMap: optionMapState, resultsAnchor, pendingQuestions,
+    waitingForRep, sending, loading, error, send, sendFields, retry, loadProfile, newConversation,
+    dismissError: () => setError(null),
   }
 }

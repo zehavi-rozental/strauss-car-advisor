@@ -216,6 +216,16 @@ export interface CarSearchItem {
   drive: Drive | string | null
 }
 
+/** GET /api/catalog: one company car. Shown on the selection cards; never used to calculate anything. */
+export interface CatalogItem {
+  code: string               // the same id as expects.choices (CAR-01 …)
+  label: string
+  group: string
+  drive: Drive | string
+  use_value: Decimal          // monthly taxable use value (tax authority)
+  default_copay: Decimal      // the catalog copay, until the representative confirms another amount
+}
+
 /** The structured profile form (Q2 / "תיקון נתונים"). Only the fields that are sent are saved;
  *  the server checks the ranges (422) and saves without the LLM. Keys are the server's names. */
 export interface ProfileFields {
