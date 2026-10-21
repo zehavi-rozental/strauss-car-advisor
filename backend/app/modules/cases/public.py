@@ -112,6 +112,7 @@ class QuestionAnswered:
     option_id: str
     value: str
     effective_date: Optional[date]
+    note: Optional[str] = None      # the representative's note to the employee ("הערה לעובד"), as typed
 
 
 def _view(row: RepQuestionRow) -> QuestionView:
@@ -290,7 +291,7 @@ class CasesService:
         log.info("rep answered question %s field=%s", view.id, view.missing_field.value)
         self.publish(QuestionAnswered(
             conversation_id=view.conversation_id, question_id=view.id, missing_field=view.missing_field,
-            option_id=view.option_id, value=normalized, effective_date=effective_date))
+            option_id=view.option_id, value=normalized, effective_date=effective_date, note=note))
         return view
 
     # ---------- אירועים ----------

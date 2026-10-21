@@ -337,7 +337,6 @@ table.compare tbody th { font-weight: 500; color: var(--muted); }
 .rep-context div { display: flex; gap: 6px; }
 .rep-context dt { color: var(--muted); }
 .rep-context dd { margin: 0; font-weight: 500; }
-.lock-line { margin: 0 0 10px; color: var(--muted); font-size: 13px; }
 .answer-form { display: flex; flex-direction: column; gap: 10px; }
 .confirm-row { display: flex; gap: 8px; }
 .success-bar { background: var(--brand-soft); color: var(--brand); border-radius: 12px; padding-block: 10px; padding-inline: 14px;
@@ -345,6 +344,7 @@ table.compare tbody th { font-weight: 500; color: var(--muted); }
 .empty-state { text-align: center; color: var(--muted); padding-block: 32px; }
 .rep-subtitle { font-size: 15px; color: var(--muted); margin: 8px 0; }
 .answered-line { margin: 0; color: var(--muted); }
+.answered-note { display: block; margin-block-start: 4px; color: var(--ink); overflow-wrap: anywhere; }
 .rep-login { max-width: 360px; margin: 72px auto; padding-inline: 16px; }
 .rep-login form { display: flex; flex-direction: column; gap: 10px; background: var(--surface); padding: 20px;
   border-radius: var(--radius); box-shadow: var(--shadow); }

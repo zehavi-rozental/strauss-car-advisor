@@ -82,6 +82,7 @@ from .templates import (
     rep_confirmed_text,
     rep_current_text,
     rep_maintenance_text,
+    rep_note_text,
     rep_opt_out_text,
     results_text,
     unusual_fix_text,
@@ -1325,6 +1326,9 @@ class Agent:
         elif field == MissingField.GENERAL_QUESTION:
             # the representative's own words; nothing in the state changes
             lines.append(f"נציג התחבורה ענה על השאלה שלכם:\n{event.value}")
+        note = rep_note_text(event.note)
+        if note:
+            lines.append(note)               # the representative's own words to the employee, plain text
 
         state.applied_answers.append(qid)
         if state.pending_rep is None and state.queued_options:

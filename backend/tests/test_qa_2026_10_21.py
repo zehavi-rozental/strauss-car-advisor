@@ -278,16 +278,17 @@ def _messages(client, cid):
     return client.get(f"/api/conversations/{cid}/updates").json()["messages"]
 
 
-@pytest.mark.xfail(strict=True, reason="RC9: note never published")
-def test_the_reps_note_reaches_the_employee(client):
-    cid, qid = _rep_flow(client)
-    other, _ = _rep_flow(client)
+def test_the_reps_note_reaches_the_employee(client, engine):
+    second = make_client(engine, rep_access_token=TOKEN)          # another employee (another cookie)
+    other, other_qid = _rep_flow(second)
+    cid, _ = _rep_flow(client)
+    qid = next(q["id"] for q in client.get("/api/rep/questions", headers=AUTH).json() if q["id"] != other_qid)
     r = client.post(f"/api/rep/questions/{qid}/answer", headers=AUTH,
                     json={"value": "250", "note": "האישור בתוקף מהחודש הבא"})
     assert r.status_code == 200
     rep = [m for m in _messages(client, cid) if m["source"] == "rep"]
     assert rep and "הערת הנציג: האישור בתוקף מהחודש הבא" in rep[-1]["content"]
-    assert not [m for m in _messages(client, other) if m["source"] == "rep"]     # only that conversation
+    assert not [m for m in _messages(second, other) if m["source"] == "rep"]     # only that conversation
 
 
 def test_no_note_no_line(client):
@@ -297,7 +298,6 @@ def test_no_note_no_line(client):
     assert rep and "הערת הנציג" not in rep[-1]["content"] and "אין תגובה" not in rep[-1]["content"]
 
 
-@pytest.mark.xfail(strict=True, reason="RC9: note never published")
 def test_a_note_is_plain_text(client):
     cid, qid = _rep_flow(client)
     client.post(f"/api/rep/questions/{qid}/answer", headers=AUTH,

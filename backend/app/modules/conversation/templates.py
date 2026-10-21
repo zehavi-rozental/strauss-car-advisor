@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -472,6 +473,22 @@ def rep_opt_out_text(allowed: bool) -> str:
         return ("נציג התחבורה השיב שבעיסוק שלכם מותר לוותר על הרכב. "
                 "שאלתי אותו מה סכום אחזקת הרכב החודשי; אעדכן כשתגיע תשובה.")
     return f"{OPT_OUT_DENIED}."
+
+
+_MARKUP_RE = re.compile(r"\*\*|__|`|<[^>]*>|[<>]")
+_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+NOTE_MAX = 500
+
+
+def rep_note_text(note: Optional[str]) -> str:
+    """The representative's note to the employee, one plain line: no control characters, no markup the chat
+    renders (bold, bullets, links, HTML), at most NOTE_MAX characters. No note → "" (no placeholder line)."""
+    if not note:
+        return ""
+    clean = "".join(" " if unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp") else ch for ch in note)
+    clean = _MARKUP_RE.sub("", _LINK_RE.sub(lambda m: m.group(1), clean))
+    clean = " ".join(w for w in clean.split() if w not in ("-", "*", "•"))[:NOTE_MAX].strip()
+    return f"הערת הנציג: {clean}" if clean else ""
 
 
 def rep_maintenance_text(amount: Decimal) -> str:

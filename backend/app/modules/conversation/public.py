@@ -353,7 +353,8 @@ class ConversationService:
             if q.id not in applied and q.answer_value is not None:
                 self.apply_answer(QuestionAnswered(
                     conversation_id=q.conversation_id, question_id=q.id, missing_field=q.missing_field,
-                    option_id=q.option_id, value=q.answer_value, effective_date=q.effective_date))
+                    option_id=q.option_id, value=q.answer_value, effective_date=q.effective_date,
+                    note=q.answer_note))
 
     def _authorized(self, conversation_id: str, token: str) -> uuid.UUID:
         with self.sessions() as session:
