@@ -12,7 +12,8 @@ export default defineConfig({
   fullyParallel: false,         // one conversation at a time (shared backend state per cookie, but serial is safer)
   workers: 1,
   retries: 0,
-  reporter: [['list']],
+  // in CI also GitHub annotations: each failure (test, line, message) shows on the run page and in the API
+  reporter: process.env.CI ? [['list'], ['github']] : [['list']],
   use: {
     baseURL: BASE,
     headless: true,
