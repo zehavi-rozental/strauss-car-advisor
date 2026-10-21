@@ -409,3 +409,29 @@ def test_no_path_shows_an_old_result_as_current(sessions, kind, change):
     s = svc.view(cid, token).state
     assert data(s) != before, "the change was not applied"
     assert _fresh_or_stale(svc, cid, token) in ("fresh", "stale")   # fresh = equal to the engine now
+
+
+# ---------- API compatibility and the rep boundary ----------
+
+def test_the_message_contract_stays_backward_compatible(client):
+    cid, _ = _chat(client, "אני בקבוצה ג, שכר בסיס 15,000")
+    url = f"/api/conversations/{cid}/messages"
+    assert client.post(url, json={"fields": {"bonus": 1000}}).status_code == 200           # source is optional
+    assert client.post(url, json={"fields": {"bonus": 900}, "source": "payslip"}).status_code == 200
+    assert client.post(url, json={"fields": {"bonus": 800}, "source": "other"}).status_code == 422
+    assert client.post(url, json={"text": "שלום", "source": "payslip"}).status_code == 422  # fields only
+    bad = client.post(url, json={"fields": {"pension_percent": 30}}).json()
+    assert isinstance(bad["detail"], str) and bad["message_he"] == bad["detail"]           # old readers: detail
+    assert set(bad["errors"]) == {"pension_percent"}
+    body = client.post(url, json={"text": "אין עמלות"}).json()
+    assert body["results_stale"] is False and set(body) >= {"reply", "stage", "expects", "results"}
+
+
+def test_the_rep_sees_no_salary_and_no_conversation_even_after_a_note(client):
+    cid, qid = _rep_flow(client)
+    client.post(f"/api/rep/questions/{qid}/answer", headers=AUTH, json={"value": "250", "note": "בתוקף מיד"})
+    q = client.get(f"/api/rep/questions/{qid}", headers=AUTH).json()
+    text = str(q)
+    assert "conversation_id" not in q and cid not in text
+    assert "18500" not in text and "18,500" not in text and "profile" not in q
+    assert client.get(f"/api/rep/questions/{qid}").status_code == 401                         # still needs the token
