@@ -68,7 +68,17 @@ LIVE_FULL = answer(
     item("net_pay", 13188.5, label="נטו לתשלום"),
 )
 
+# a synthetic ID (312456783) everywhere the model could put it: labels, values, an extra key
+LEAKY = answer(
+    item("base_salary", 16000, label="שכר יסוד ת.ז 312-456-783"), item("commissions", 2400, label="עמלות מכירה"),
+    item("credit_points", 2.25, "count", label="נקודות זיכוי"), item("bonus", 312456783, label="בונוס"),
+    item("children_under_23", 312456783, "count", label="ילדים"),
+    item("other_addition", 1000, label="תוספת 31 245 6783"), item("net_pay", 12960, label="נטו לתשלום"),
+    {"key": "id_number", "value": 312456783, "unit": "count", "certainty": "high", "label": "ת\"ז"},
+)
+
 CASES = {
+    "leaky_payslip.pdf": (pdf("an ID in labels and values"), LEAKY),
     # rendered from synthetic_full_payslip.html (Chromium, A4): a real document, read live on 21/10
     "synthetic_full_payslip.pdf": (None, LIVE_FULL),
     "synthetic_payslip.pdf": (None, SYNTHETIC),

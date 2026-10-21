@@ -153,7 +153,7 @@ A module, and `app/api`, imports another module **only** through that module's `
 
 ## NEXT (not done in this pass)
 
-- **Open conversation bugs found in session 6 (Kiro; template mode):** after a result, "טעיתי, השכר 16,000" is caught by `_AUDIT_CUES` and nothing is saved, and "שכר בסיס 16,000" is not read (`test_ranking_copay_corrections.py`, strict xfail); "יש לי קיה נירו" is not read and the next alternative ("קרניבל") becomes the current car; "ילד אחד" in a long profile sentence drops the occupation silently; "ויתור על הרכב" during the profile is taken as an occupation; "לא ידוע לי" at Q2 marks every Q2 field on screen (session-2 rule), not the one asked.
+- Session 6 conversation bugs (salary correction after a result, "קיה נירו", "ילד אחד", "ויתור על הרכב", blanket "לא ידוע לי") were fixed by Kiro in 3b06848 and merged in 50e2195; checked by API tests and browser journeys (`journeys.spec.ts`, "merged conversation acceptance").
 - The payslip origin is not stored: the `{fields}` message has no source, so the history shows the values without "מהתלוש". A `source: "payslip"` on MessageIn would need the conversation module to keep it.
 
 - Validation audit items 4-7 (see Known limitations): range checks on rep answers, minimum use value 1, raise instead of default-to-zero in `engine_inputs`, strict numeric types for LLM-typed values.

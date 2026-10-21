@@ -76,3 +76,22 @@ def test_one_child_stated_in_words_in_a_long_sentence(sessions):
     turn = svc.send(turn.conversation_id, token,
                     "אין עמלות, אין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2 נקודות זיכוי, יש לי ילד אחד")
     assert _state(svc, turn, token).profile.children == 1
+
+
+def test_one_child_is_written_as_one_child_and_saved_as_1():
+    """Wording only ("ילד אחד", not "1 ילדים"); the value stays 1."""
+    from app.modules.conversation.fallback import recorded_text
+    assert recorded_text({"children_under_23": 1}) == "ילד אחד"
+    assert recorded_text({"children_under_23": 2}) == "2 ילדים"
+    assert recorded_text({"children_under_23": 0}) == "אין ילדים"
+
+
+def test_the_why_line_reads_naturally_before_hebrew_and_latin_names():
+    from app.modules.conversation.templates import in_label
+    assert in_label("ATTO 3 (2025)") == "ב-ATTO 3 (2025)"
+    assert in_label("ויתור על רכב") == "בוויתור על רכב"
+
+
+def test_the_one_at_a_time_switch_speaks_in_plural():
+    from app.modules.conversation.fallback import SCOPE_CLARIFY
+    assert SCOPE_CLARIFY.startswith("בואו ")

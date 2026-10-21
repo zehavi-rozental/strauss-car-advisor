@@ -84,6 +84,6 @@ export function profileFormText(fields: ProfileFields): string {
     parts.push(f.study_fund_percent === 0 ? 'אין קרן השתלמות' : `קרן השתלמות ${pct(f.study_fund_percent)}`)
   if (f.credit_points !== undefined) parts.push(`${f.credit_points} נקודות זיכוי`)
   if (f.children_under_23 !== undefined)
-    parts.push(f.children_under_23 === 0 ? 'אין ילדים' : `${f.children_under_23} ילדים`)
+    parts.push(f.children_under_23 === 0 ? 'אין ילדים' : f.children_under_23 === 1 ? 'ילד אחד' : `${f.children_under_23} ילדים`)
   return parts.join(', ')
 }

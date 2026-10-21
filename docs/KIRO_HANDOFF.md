@@ -1,5 +1,10 @@
 # Handoff to Kiro — 21/10 (from the deploy/render-demo branch)
 
+**Status after integration (merge 50e2195 of 3b06848):** items 1 and 2 are done. The `base_salary` contract is
+intact; bugs 1–6 are fixed and covered (API tests + browser journeys). Still open: storing the payslip origin
+(item 1, last bullet). Two wording fixes were made during integration: "בואו נעבור על זה אחד-אחד" (plural) and
+"הסיבה העיקרית בוויתור על רכב" (no hyphen before a Hebrew name); "ילד אחד" instead of "1 ילדים".
+
 Two items for the conversation module (`feature/conversation-reliability`). Claude did not edit your files in
 your branch; the contract change below exists only in `deploy/render-demo` so far.
 

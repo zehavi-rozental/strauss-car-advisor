@@ -138,11 +138,8 @@ def test_a_corrected_salary_from_the_form_reaches_the_calculation(api):
     assert D(view["results"][0]["result"]["delta_display"]) == _oracle_deltas(_employee(D(16000)))["CAR-10"]
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "OPEN BUG (conversation module, Kiro): after a result, in template mode, 'טעיתי, השכר 16,000' is taken as the "
-    "'you made a mistake' audit cue and nothing is saved, and 'שכר בסיס 16,000' is not read at all. The form "
-    "correction works (test above). strict: this fails as soon as the bug is fixed, so the mark gets removed."))
 def test_a_salary_correction_typed_after_the_result_reaches_the_calculation(api):
+    """Fixed by Kiro in 3b06848 ("טעיתי" was taken as the audit cue); was a strict xfail until then."""
     for text in (NOA, "יש לי קורולה קרוס", "300", "אטו 3"):
         api.say(text)
     api.say("סליחה, טעיתי, שכר הבסיס שלי 16,000")

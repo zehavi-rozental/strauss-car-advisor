@@ -404,6 +404,13 @@ def confirm_value_text(field: str, value: Decimal, unusual: bool = False, scale:
     return f"התכוונתם ל-{_show(field, value)}?"
 
 
+def in_label(label: str) -> str:
+    """"ב-ATTO 3 (2025)" before a Latin name; "בוויתור על רכב" before a Hebrew one (no hyphen, ו doubled)."""
+    if label[:1] and "א" <= label[0] <= "ת":
+        return f"בו{label}" if label.startswith("ו") and not label.startswith("וו") else f"ב{label}"
+    return f"ב-{label}"
+
+
 def approximate_assumptions(state: ConversationState) -> list[str]:
     """"עמלות: כ-1,000 ₪, לפי ההערכה שלכם" — לכל ערך שהעובד אמר כהערכה."""
     p, c = state.profile, state.current
@@ -856,7 +863,7 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
         if ok:
             best = max(ok, key=lambda r: Decimal(str(r.result["delta_display"])))
             if best.result.get("why"):
-                plan.ask.append(f"הסיבה העיקרית ב-{best.label}: {best.result['why']}")
+                plan.ask.append(f"הסיבה העיקרית {in_label(best.label)}: {best.result['why']}")
             plan.cta = (NEXT_AFTER_RANK if state.ranked_count else NEXT_AFTER_RESULTS)
         return plan
     cta, _ = call_to_action(state, snapshot)

@@ -72,3 +72,10 @@ describe('payslip review', () => {
     expect(profileFormText({ base_salary: 18000, bonus: 0 })).toBe('שכר בסיס 18,000 ₪, אין בונוס')
   })
 })
+
+describe('the bubble text', () => {
+  it('says "ילד אחד" for one child (the value sent stays 1)', () => {
+    expect(profileFormText({ children_under_23: 1 })).toBe('ילד אחד')
+    expect(profileFormText({ children_under_23: 3 })).toBe('3 ילדים')
+  })
+})

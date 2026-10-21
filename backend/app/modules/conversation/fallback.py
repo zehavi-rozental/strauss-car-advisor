@@ -51,7 +51,7 @@ _NOT_THIS_CAR_RE = re.compile(r"לא\s+(?:זה\s+)?(?:הרכב|הדגם)|(?:זה
 _CAR_DETAIL_QUESTIONS = {"copay", "use_value", "drive", "maintenance", "car_choice"}
 _ONLY_NUMBERS_RE = re.compile(r"^\s*\d+(?:\s*(?:,|ו-?|and|&)\s*\d+)*\s*[.!]?\s*$")
 # a blanket answer to a grouped question: we do not split it silently — we ask one field at a time
-SCOPE_CLARIFY = "בוא נעבור על זה אחד-אחד, כדי לא לפספס."
+SCOPE_CLARIFY = "בואו נעבור על זה אחד-אחד, כדי לא לפספס."
 SHORT_MODEL_WORDS = 3     # תשובה קצרה בלי שם מוכר → כל ההודעה היא שם הדגם (גיבוי: חיפוש במאגר)
 SHORT_TITLE_WORDS = 3     # תשובה קצרה לשאלת התפקיד → כל ההודעה היא שם התפקיד (גיבוי: עיסוק לא ידוע)
 
@@ -536,7 +536,7 @@ def recorded_text(labelled: dict[str, object]) -> str:
             "pension_percent": lambda: f"פנסיה {Decimal(str(v)).normalize():f}%",
             "study_fund_percent": lambda: "אין קרן השתלמות" if zero else f"קרן השתלמות {Decimal(str(v)).normalize():f}%",
             "credit_points": lambda: f"{Decimal(str(v)).normalize():f} נקודות זיכוי",
-            "children_under_23": lambda: "אין ילדים" if zero else f"{v} ילדים",
+            "children_under_23": lambda: "אין ילדים" if zero else "ילד אחד" if v == 1 else f"{v} ילדים",
         }[f]()
 
     return ", ".join(text(f, labelled[f]) for f in _LABEL_ORDER if f in labelled)

@@ -333,3 +333,78 @@ test.describe('payslip journeys', () => {
     expect([p.base, p.pension_percent, p.credit_points, p.children]).toEqual(['18500', '6', '2.75', 2])
   })
 })
+
+// ---------------------------------------------------------------- acceptance of the merged conversation (21/10)
+
+test.describe('merged conversation acceptance', () => {
+  test('an opening sentence with group, salary and no car records all three', async ({ page }) => {
+    await open(page)
+    await send(page, 'אני בקבוצה ב, מרוויחה 15,000 ואין לי רכב')
+    const s = await state(page)
+    expect([s.profile.group, s.profile.base, s.current_car.source]).toEqual(['ב', '15000', 'none'])
+    await expect(page.locator(BOT).last()).toContainText('רשמתי: אין לכם רכב צמוד היום.')
+  })
+
+  for (const blanket of ['לא ידוע לי', 'אין לי כלום', 'הכל 5']) {
+    test(`"${blanket}" to the grouped salary question spreads nothing across the fields`, async ({ page }) => {
+      await open(page)
+      await send(page, 'מנהלת מוצר, שכר בסיס 15,000')
+      await send(page, blanket)
+      const p = (await state(page)).profile
+      expect([p.commissions, p.bonus, p.pension_percent, p.study_fund_percent, p.credit_points, p.children])
+        .toEqual([null, null, null, null, null, null])
+      expect(p.unknown_fields).toEqual([])
+      await expect(page.locator(BOT).last()).toContainText('בואו נעבור על זה אחד-אחד')
+    })
+  }
+
+  test('a salary correction typed after the result is saved and the result is recalculated', async ({ page }) => {
+    await open(page)
+    for (const m of [NOA, 'יש לי קורולה קרוס', '300', 'אטו 3']) await send(page, m)
+    expect(deltas(await state(page))).toEqual([['CAR-10', 661]])
+    await send(page, 'טעיתי, השכר שלי 16,000')
+    const s = await state(page)
+    expect(s.profile.base).toBe('16000')
+    expect(deltas(s)).toEqual([['CAR-10', 656]])
+    await expect(page.locator(BOT).last()).toContainText('יגדל ב-656 ₪')
+  })
+
+  test('"יש לי קיה נירו" is the current car, and the family-track alternative stays an alternative', async ({ page }) => {
+    await open(page)
+    for (const m of ['אני נציג מכירות שטח, שכר בסיס 9,800, עמלות 2,400, אין בונוס, פנסיה 6%, אין קרן השתלמות, 2.25 נקודות זיכוי, 5 ילדים',
+      'יש לי קיה נירו', '250', 'קרניבל']) await send(page, m)
+    const s = await state(page)
+    expect(s.current_car.catalog_code).toBe('CAR-05')
+    expect(deltas(s)).toEqual([['CAR-19', -3522]])
+  })
+
+  test('"ילד אחד" is read and written as one child, and "ויתור על הרכב" opts out', async ({ page }) => {
+    await open(page)
+    await send(page, 'אני מנהלת פיתוח, שכר בסיס 27,000, אין עמלות, אין בונוס, פנסיה 7%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, ילד אחד')
+    await expect(page.locator(BOT).last()).toContainText('ילד אחד')
+    await expect(page.locator(BOT).last()).not.toContainText('1 ילדים')
+    for (const m of ['מאזדה 3', '350', 'ויתור על הרכב']) await send(page, m)
+    const s = await state(page)
+    expect([s.profile.children, s.profile.occupation]).toEqual([1, 'מנהל/ת פיתוח'])
+    expect(deltas(s)).toEqual([['OPT_OUT', 3562]])
+    await expect(page.locator(BOT).last()).toContainText('בוויתור על רכב')
+  })
+
+  test('a payslip with an ID in labels and values shows no ID anywhere and saves only the valid values', async ({ page, request }) => {
+    test.skip(!(await payslipEnabled(request)), 'payslip extraction is off on this server')
+    await open(page)
+    await send(page, 'מנהלת מוצר, שכר בסיס 15,000')
+    await uploadPayslip(page, 'leaky_payslip.pdf')
+    await expect(page.getByRole('heading', { name: 'בדיקת הנתונים מהתלוש' })).toBeVisible()
+    const onScreen = (await page.locator('body').innerText()).replace(/\D/g, '')
+    expect(onScreen).not.toContain('312456783')
+    await expect(page.locator('body')).not.toContainText('ת.ז')
+    await expect(row(page, 'bonus')).toContainText('לא נמצא בתלוש')          // the ID as an "amount": dropped
+    await keep(page, 'base_salary').check()                                   // differs from 15,000: the employee decides
+    await confirmPayslip(page)
+    const s = await state(page)
+    expect([s.profile.base, s.profile.commissions, s.profile.credit_points, s.profile.bonus, s.profile.children])
+      .toEqual(['16000', '2400', '2.25', null, null])
+    expect(JSON.stringify(s).replace(/\D/g, '')).not.toContain('312456783')
+  })
+})
