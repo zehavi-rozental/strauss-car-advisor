@@ -7,7 +7,6 @@ machine, the calculation, the rep flow and the template path (no LLM / outage / 
 """
 from __future__ import annotations
 
-import json
 import logging
 import re
 import secrets
@@ -24,7 +23,7 @@ from app.modules.rules.public import catalog_names as catalog_names_of
 
 
 from .expects import build_expects, choice_calls
-from .fallback import (ZERO_ALLOWED, fields_plan, ParserPlan, car_roles, correction_plan, fallback_plan, named_cars, none_plan,
+from .fallback import (ZERO_ALLOWED, ParserPlan, car_roles, correction_plan, fallback_plan, named_cars, none_plan,
                        recorded_text)
 from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
@@ -72,7 +71,6 @@ from .templates import (
     approximate_assumptions,
     clarify_car_text,
     confirmed_assumption,
-    group_question,
     paced,
     conflict_text,
     queued_option_text,

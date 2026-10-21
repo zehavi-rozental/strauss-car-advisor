@@ -15,12 +15,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
-from typing import Any, Iterable, Optional
+from typing import Iterable, Optional
 
 from app.modules.rules.public import FAMILY_GROUP, CatalogCar, Faq, FaqEntry, RulesSnapshot, matched_name, related_cars, words
 
 from .fallback import _RANK_RE, named_cars
-from .llm.port import ToolSpec
 from .parsing import _NO_COPAY_RE, no_car_span
 from .stage import ConversationState
 

@@ -31,7 +31,6 @@ from .parsing import (
     find_year,
     has_all_scope,
     is_approximate,
-    leftover_words,
     match_group,
     negates,
     no_car_span,
@@ -483,11 +482,6 @@ def none_plan(fields: Iterable[str]) -> ParserPlan:
     """אפס בשדות הפרופיל שנאמר עליהם "אין", עם שורה שאומרת מה נרשם. תשובה לשאלה של הקוד (direct)."""
     zero = {_PROFILE_ARG[f]: 0 for f in fields}
     return ParserPlan(_call("save_profile", **zero), True, notice=f"רשמתי: {recorded_text(zero)}.", direct=True)
-
-
-def fields_plan(values: dict[str, object]) -> ParserPlan:
-    """הטופס המובנה: שורת "רשמתי" לערכים (שכבר נבדקו ונשמרו). הכלי רץ ב-Agent.run_fields, לא כאן."""
-    return ParserPlan([], True, notice=f"רשמתי: {recorded_text(values)}.", direct=True)
 
 
 _NUMERIC_ARGS = {"base_salary", "commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points"}
