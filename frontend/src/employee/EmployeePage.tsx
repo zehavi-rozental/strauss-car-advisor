@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { ComparisonPanel } from './ComparisonPanel'
 import { Composer } from './Composer'
 import { MessageList } from './MessageList'
@@ -20,16 +20,20 @@ function CarIcon() {
   )
 }
 
+type OpenKind = 'selection' | 'profile_form' | 'payslip_upload'
+
 export function EmployeePage() {
   const c = useConversation()
   const busy = c.sending || c.loading
   const [tableOpen, setTableOpen] = useState(false)
   const [correcting, setCorrecting] = useState(false)
   // the selection card, the profile form, and the payslip upload open only from the reply's link
-  const [opened, setOpened] = useState<'selection' | 'profile_form' | 'payslip_upload' | null>(null)
-  // A new question closes what the last one opened. Only a new question: a poll that re-sends the same one
-  // (every 3 s while waiting for the representative) keeps the selection, the form and the review open.
-  useEffect(() => setOpened(null), [c.questionKey])
+  // What a link opened belongs to the question it was opened for: a new question closes it. Only a new
+  // question: a poll that re-sends the same one (every 3 s while waiting for the representative) keeps the
+  // selection, the form and the review open. Derived during render, so nothing stale shows for a frame.
+  const [openedFor, setOpenedFor] = useState<{ kind: OpenKind; question: string } | null>(null)
+  const opened = openedFor?.question === c.questionKey ? openedFor.kind : null
+  const setOpened = (kind: OpenKind | null) => setOpenedFor(kind ? { kind, question: c.questionKey } : null)
   const link = linkFor(c.expects)
   const options = optionsField(c.expects)
   const formOpen = correcting || opened === 'profile_form'
@@ -122,7 +126,7 @@ export function EmployeePage() {
         <Composer disabled={busy} placeholder={placeholderFor(c.expects)} onSend={(text) => c.send({ text }, text)} />
       </footer>
       {tableOpen && c.results.length > 0 && (
-        <ComparisonPanel results={c.results} expects={c.expects} disabled={busy} onClose={() => setTableOpen(false)}
+        <ComparisonPanel results={c.results} stale={c.resultsStale} expects={c.expects} disabled={busy} onClose={() => setTableOpen(false)}
                          onSend={c.send} onCorrect={() => { setTableOpen(false); setCorrecting(true) }} />
       )}
     </div>

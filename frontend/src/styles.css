@@ -407,7 +407,6 @@ p.annual { margin: 0; }
 .link-button:disabled { opacity: 0.5; cursor: default; }
 /* payslip review: the printed source, a kept toggle per field, and what is shown for information only */
 .field-source { color: var(--muted); font-size: 12px; }
-.keep-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; white-space: nowrap; }
 .payslip-missing input[type='text'], .payslip-missing input:not([type]) { background: transparent; }
 .payslip-ambiguous { border-inline-start: 3px solid var(--pending-ink); padding-inline-start: 6px; }
 .payslip-info { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
@@ -416,7 +415,7 @@ p.annual { margin: 0; }
 .payslip-info .chip { margin-inline-start: 6px; padding: 2px 8px; font-size: 12px; }
 
 /* results calculated before the last change: history, visibly not current */
-.result-stale .result-card, .result-stale .summary-card { opacity: 0.55; filter: grayscale(0.6); }
+.result-stale .result-card, .result-stale .summary-card, .result-stale .table-scroll { opacity: 0.55; filter: grayscale(0.6); }
 .stale-note { margin: 0 0 8px; padding-block: 8px; padding-inline: 12px; border-radius: 12px;
   background: var(--pending-bg); color: var(--pending-ink); font-size: 14px; }
 
