@@ -14,6 +14,9 @@ export interface FormFieldSpec {
   profileKey: string
 }
 
+/** The base salary: offered in the payslip review and in "תיקון נתונים" (the {fields} contract accepts it), never in Q2. */
+export const BASE_SALARY_FIELD: FormFieldSpec = { key: 'base_salary', label: 'שכר בסיס', unit: '₪', profileKey: 'base' }
+
 export const FORM_FIELDS: FormFieldSpec[] = [
   { key: 'commissions', label: 'עמלות', unit: '₪', profileKey: 'commissions' },
   { key: 'bonus', label: 'בונוס', unit: '₪', profileKey: 'bonus' },
@@ -23,13 +26,16 @@ export const FORM_FIELDS: FormFieldSpec[] = [
   { key: 'children_under_23', label: 'ילדים עד 23', unit: '', integer: true, profileKey: 'children' },
 ]
 
+/** "תיקון נתונים": the base salary and the Q2 fields; saved through {fields}, so a result is recalculated. */
+export const CORRECTION_FIELDS: FormFieldSpec[] = [BASE_SALARY_FIELD, ...FORM_FIELDS]
+
 /** The field names the server uses in `expects` for these questions (same as the profile keys). */
 export const Q2_FIELD_NAMES = new Set<string>(FORM_FIELDS.map((f) => f.profileKey))
 
 export type FormValues = Record<FormKey, string>
 
-export const emptyValues = (): FormValues =>
-  Object.fromEntries(FORM_FIELDS.map((f) => [f.key, ''])) as FormValues
+export const emptyValues = (specs: FormFieldSpec[] = FORM_FIELDS): FormValues =>
+  Object.fromEntries(specs.map((f) => [f.key, ''])) as FormValues
 
 /** "2.5" / "2,5" → 2.5. Empty or not a non-negative number → null. */
 export function parseNumber(text: string, integer = false): number | null {
@@ -40,9 +46,9 @@ export function parseNumber(text: string, integer = false): number | null {
 }
 
 /** Values already known to the server, as input strings (unknown → empty). */
-export function prefill(profile: Record<string, unknown>): FormValues {
-  const out = emptyValues()
-  for (const f of FORM_FIELDS) {
+export function prefill(profile: Record<string, unknown>, specs: FormFieldSpec[] = FORM_FIELDS): FormValues {
+  const out = emptyValues(specs)
+  for (const f of specs) {
     const v = profile[f.profileKey]
     if (v !== null && v !== undefined && v !== '') out[f.key] = String(Number(v))
   }
@@ -52,18 +58,18 @@ export function prefill(profile: Record<string, unknown>): FormValues {
 export type BuildResult = { fields: ProfileFields; errors: Partial<Record<FormKey, string>> }
 
 /** What to send: empty fields are skipped; with `original` (correction) only changed fields are sent. */
-export function buildFields(values: FormValues, original?: FormValues): BuildResult {
+export function buildFields(values: FormValues, original?: FormValues, specs: FormFieldSpec[] = FORM_FIELDS): BuildResult {
   const fields: ProfileFields = {}
   const errors: BuildResult['errors'] = {}
-  for (const f of FORM_FIELDS) {
-    const raw = values[f.key].trim()
+  for (const f of specs) {
+    const raw = (values[f.key] ?? '').trim()
     if (raw === '') continue
     const n = parseNumber(raw, f.integer)
     if (n === null) {
       errors[f.key] = f.integer ? 'מספר שלם, 0 או יותר' : 'מספר, 0 או יותר'
       continue
     }
-    const before = original ? parseNumber(original[f.key], f.integer) : null
+    const before = original ? parseNumber(original[f.key] ?? '', f.integer) : null
     if (original && before !== null && before === n) continue
     fields[f.key] = n
   }

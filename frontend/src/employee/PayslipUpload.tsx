@@ -10,6 +10,7 @@ import type { FormEvent } from 'react'
 import { ApiError, api } from '../api/client'
 import type { PayslipInfo, ProfileFields } from '../api/types'
 import { formatMoney } from '../format/money'
+import { Icon } from '../ui/Icon'
 import { payslipOutcome } from './payslipOutcome'
 import type { PayslipOutcome } from './payslipOutcome'
 import { assign, assignable, reviewFields, reviewRows } from './payslipReview'
@@ -43,6 +44,7 @@ export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled }: Pro
   const [info, setInfo] = useState<PayslipInfo[]>([])
   const [errors, setErrors] = useState<Partial<Record<keyof ProfileFields, string>>>({})
   const [profile, setProfile] = useState<Record<string, unknown>>({})
+  const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   // what the conversation already knows, to flag a payslip value that differs from it
@@ -118,12 +120,25 @@ export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled }: Pro
   if (step === 'pick' || step === 'failed') {
     const failed = step === 'failed' && outcome !== null
     return (
-      <div className="profile-form payslip-upload" aria-label="העלאת תלוש">
-        <h3>{failed ? outcome.title : 'העלאת תלוש'}</h3>
-        {failed
-          ? <p className="field-error" role="alert">{outcome.message}</p>
-          : <p className="form-hint">{UPLOAD_HINT}</p>}
+      <div className={`profile-form panel-card payslip-upload${failed ? ' is-failed' : ''}`} aria-label="העלאת תלוש">
+        <header className="panel-card-head">
+          <span className="panel-card-icon" aria-hidden="true"><Icon name={failed ? 'alert' : 'doc'} size={20} /></span>
+          <div>
+            <h3>{failed ? outcome.title : 'העלאת תלוש'}</h3>
+            {failed
+              ? <p className="field-error" role="alert">{outcome.message}</p>
+              : <p className="form-hint">{UPLOAD_HINT}</p>}
+          </div>
+        </header>
         {fileInput}
+        <div className={`dropzone${dragging ? ' is-over' : ''}${busy ? ' is-busy' : ''}`}
+             onDragOver={(e) => { e.preventDefault(); if (!working) setDragging(true) }}
+             onDragLeave={() => setDragging(false)}
+             onDrop={(e) => { e.preventDefault(); setDragging(false); void onFile(e.dataTransfer.files?.[0]) }}>
+          <span className="dropzone-art" aria-hidden="true">{busy ? <span className="scan" /> : <Icon name="upload" size={26} />}</span>
+          {!busy && <span className="dropzone-text">אפשר לגרור לכאן קובץ PDF או תמונה</span>}
+          <span className="dropzone-lock"><Icon name="lock" size={14} />התלוש עצמו לא נשמר</span>
+        </div>
         {error && <p className="field-error" role="alert">{error}</p>}
         <div className="form-actions">
           <button type="button" className="chip chip-primary" disabled={working} onClick={pick}>
@@ -140,15 +155,20 @@ export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled }: Pro
 
   const kept = rows.filter((r) => r.keep).length
   return (
-    <form className="profile-form payslip-review" onSubmit={confirm} aria-label="סקירת נתוני התלוש">
-      <h3>{outcome ? outcome.title : 'מילוי ידני'}</h3>
-      <p className="form-hint" role={outcome?.status === 'nothing_found' ? 'status' : undefined}>
-        {outcome ? outcome.message : MANUAL_HINT}
-      </p>
+    <form className="profile-form panel-card payslip-review" onSubmit={confirm} aria-label="סקירת נתוני התלוש">
+      <header className="panel-card-head">
+        <span className="panel-card-icon" aria-hidden="true"><Icon name={outcome ? 'doc' : 'form'} size={20} /></span>
+        <div>
+          <h3>{outcome ? outcome.title : 'מילוי ידני'}</h3>
+          <p className="form-hint" role={outcome?.status === 'nothing_found' ? 'status' : undefined}>
+            {outcome ? outcome.message : MANUAL_HINT}
+          </p>
+        </div>
+      </header>
       {fileInput}
-      <div className="form-grid">
+      <div className="form-grid review-grid">
         {rows.map((r) => (
-          <div key={r.key} className={`form-field payslip-row payslip-${r.status}`} data-field={r.key}>
+          <div key={r.key} className={`form-field payslip-row payslip-${r.status}${r.keep ? ' is-kept' : ''}`} data-field={r.key}>
             <label htmlFor={`ps-${r.key}`}>
               {r.label}{r.unit && <span className="unit"> ({r.unit})</span>}
             </label>
@@ -175,14 +195,14 @@ export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled }: Pro
       </div>
       {info.length > 0 && (
         <section className="payslip-info" aria-label="נמצא בתלוש ולא נכנס לחישוב אוטומטית">
-          <h4>נמצא בתלוש ולא נכנס לחישוב אוטומטית</h4>
+          <h4><Icon name="info" size={16} />נמצא בתלוש ולא נכנס לחישוב אוטומטית</h4>
           <ul>
             {info.map((i, n) => (
               <li key={`${i.key}-${n}`} data-info={i.key}>
-                <strong>{i.source_label || i.label}</strong>: <bdi>{infoValue(i)}</bdi>
+                <span className="info-main"><strong>{i.source_label || i.label}</strong>: <bdi className="num">{infoValue(i)}</bdi></span>
                 <span className="field-source"> {i.note}</span>
                 {assignable(i, rows).map((k) => (
-                  <button key={k} type="button" className="chip chip-quiet" disabled={working}
+                  <button key={k} type="button" className="chip chip-quiet btn-sm" disabled={working}
                           onClick={() => setRows((rs) => assign(rs, k, i))}>{ASSIGN_LABEL[k]}</button>
                 ))}
               </li>

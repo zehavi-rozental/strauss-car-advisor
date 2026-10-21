@@ -1,0 +1,101 @@
+/* STRAUSS DRIVE design tokens: "Petal" (עלי כותרת).
+   The Strauss mark is a burst of petals from one point; here every petal colour has exactly one job:
+   blue = the advisor and actions, turquoise = electric / live, green = the net grows,
+   red = the net shrinks, orange = waiting for the representative (a temporary estimate).
+   *-ink variants are the text-safe versions (WCAG AA on paper and card, measured). */
+:root {
+  /* paper: the financial clarity side */
+  --paper: #f5f4f0;
+  --card: #fcfbf8;
+  --card-2: #f0eee8;
+  --ink: #0e1620;
+  --ink-2: #3a4552;
+  --ink-3: #5f6b77;
+  --line: #e2e0d8;
+  --line-2: #d3d0c6;
+
+  /* studio: the automotive side (opening stage, band, rep login) */
+  --studio: #0a0e13;
+  --studio-2: #111821;
+  --studio-3: #18212c;
+  --studio-line: rgb(255 255 255 / 9%);
+  --on-studio: #eef2f6;
+  --on-studio-2: #a7b2be;
+  --on-studio-3: #7c8996;
+
+  /* petals (decorative / large shapes) */
+  --petal-blue: #0390cb;
+  --petal-turq: #00bae2;
+  --petal-green: #78a12f;
+  --petal-red: #ed3024;
+  --petal-orange: #f48326;
+  --petal-leaf: #c7de8d;
+  --petal-sky: #9ed8ef;
+
+  /* petals as text and UI (AA on paper) */
+  --brand: #0a6e9e;
+  --brand-deep: #075f89;
+  --electric: #007a96;
+  --up: #3e6a10;
+  --down: #be2419;
+  --pending: #9a4705;
+
+  /* tints */
+  --brand-tint: #e6f2f8;
+  --up-tint: #eef4e2;
+  --down-tint: #fbe9e7;
+  --pending-tint: #fdf0e3;
+  --electric-tint: #e3f6fa;
+
+  /* type */
+  --font: 'Heebo', system-ui, sans-serif;
+  --fs-micro: 0.75rem;     /* 12 */
+  --fs-small: 0.8125rem;   /* 13 */
+  --fs-body: 1rem;         /* 16 */
+  --fs-lead: clamp(1.125rem, 1rem + 0.5vw, 1.375rem);
+  --fs-title: clamp(1.375rem, 1.1rem + 1vw, 1.875rem);
+  --fs-display: clamp(3.25rem, 1.6rem + 6.4vw, 7.5rem);
+  --fs-number: clamp(2.75rem, 1.8rem + 3.6vw, 5rem);
+
+  /* space (4px base) */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s7: 32px; --s8: 40px; --s9: 56px; --s10: 72px;
+  --gutter: clamp(16px, 3.2vw, 48px);
+
+  /* shape: the petal (two opposite corners open, two tight), one radius scale */
+  --r-xs: 6px;
+  --r-sm: 10px;
+  --r-md: 16px;
+  --r-lg: 24px;
+  --r-xl: 32px;
+  --r-pill: 999px;
+  --petal: var(--r-lg) var(--r-xs) var(--r-lg) var(--r-xs);
+  --petal-lg: var(--r-xl) var(--r-sm) var(--r-xl) var(--r-sm);
+
+  /* depth */
+  --shadow-1: 0 1px 1px rgb(14 22 32 / 4%), 0 2px 6px rgb(14 22 32 / 4%);
+  --shadow-2: 0 2px 4px rgb(14 22 32 / 4%), 0 12px 32px -8px rgb(14 22 32 / 14%);
+  --shadow-3: 0 4px 8px rgb(14 22 32 / 5%), 0 28px 64px -16px rgb(14 22 32 / 26%);
+
+  /* motion: three curves for the whole product */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-soft: cubic-bezier(0.33, 1, 0.68, 1);
+  --ease-inout: cubic-bezier(0.87, 0, 0.13, 1);
+  --t-fast: 160ms;
+  --t-med: 320ms;
+  --t-slow: 640ms;
+
+  /* layout */
+  --topbar-h: 64px;
+  --band-h: 148px;
+  --column: 820px;
+}
+
+@media (max-width: 720px) {
+  :root { --topbar-h: 56px; --band-h: 112px; }
+}
+
+/* the user's "reduce motion" choice, from the menu or the system */
+@media (prefers-reduced-motion: reduce) {
+  :root { --t-fast: 1ms; --t-med: 1ms; --t-slow: 1ms; }
+}
+:root[data-motion='reduce'] { --t-fast: 1ms; --t-med: 1ms; --t-slow: 1ms; }

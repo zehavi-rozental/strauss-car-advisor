@@ -3,16 +3,13 @@
 // same {fields} message as the manual form.
 import type { ExtractedField, PayslipInfo, ProfileFields } from '../api/types'
 import { formatMoney } from '../format/money'
-import { FORM_FIELDS, parseNumber } from './formFields'
+import { BASE_SALARY_FIELD, FORM_FIELDS, parseNumber } from './formFields'
 import type { FormFieldSpec } from './formFields'
 import { NOT_ON_PAYSLIP } from './payslipOutcome'
 
 type Key = keyof ProfileFields
 
-export const PAYSLIP_FIELDS: FormFieldSpec[] = [
-  { key: 'base_salary', label: 'שכר בסיס', unit: '₪', profileKey: 'base' },
-  ...FORM_FIELDS,
-]
+export const PAYSLIP_FIELDS: FormFieldSpec[] = [BASE_SALARY_FIELD, ...FORM_FIELDS]
 
 export interface ReviewRow {
   key: Key

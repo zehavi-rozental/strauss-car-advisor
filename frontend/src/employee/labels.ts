@@ -44,3 +44,12 @@ export const missingLabel = (code: string) => MISSING[code] ?? code
 
 const DRIVES: Record<string, string> = { ELECTRIC: 'חשמלי', HYBRID: 'היברידי', PLUG_IN: 'פלאג-אין', PETROL: 'בנזין' }
 export const driveLabel = (drive: string | null | undefined) => (drive ? DRIVES[drive] ?? drive : null)
+
+/** Icon names for the drive, next to its Hebrew name. */
+export const DRIVE_ICON: Record<string, string> = { ELECTRIC: 'bolt', HYBRID: 'leaf', PLUG_IN: 'plug', PETROL: 'drop' }
+
+/** "ATTO 3 (2025)" → name and year, for typography only (the label itself is the server's). */
+export function splitLabel(label: string): { name: string; year: string | null } {
+  const m = /^(.*?)\s*\((\d{4})\)\s*$/.exec(label)
+  return m ? { name: m[1], year: m[2] } : { name: label, year: null }
+}
