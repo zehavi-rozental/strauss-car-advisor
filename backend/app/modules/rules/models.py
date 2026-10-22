@@ -33,6 +33,20 @@ class WaiverRule(_Strict):
     maintenance_is_taxable: bool = Field(alias="maintenanceIsTaxable")
     maintenance_is_pensionable: bool = Field(alias="maintenanceIsPensionable")
 
+    @model_validator(mode="after")
+    def _maintenance_pensionable_unsupported(self):
+        # מנוע החישוב מטפל באחזקת הרכב כרכיב לא-פנסיוני בלבד (calculation/tax.py: compute_net מחשב
+        # פנסיה וקרן השתלמות על pensionable_components של העובד — base/commissions/bonus — ולעולם לא
+        # על האחזקה). maintenanceIsPensionable=true אינו מחובר למנוע, ולכן טעינתו תיצור אי-התאמה שקטה
+        # בין ההגדרה לבין החישוב. עד שההתנהגות ל-true תוגדר (פנסיה בלבד? גם קרן השתלמות?) ותמומש עם
+        # ערך ייחוס, הטעינה נכשלת בקול — עדיף על חישוב שאינו תואם להגדרה.
+        if self.maintenance_is_pensionable:
+            raise ValueError(
+                "maintenanceIsPensionable=true אינו נתמך עדיין במנוע החישוב; האחזקה מחושבת כרכיב "
+                "לא-פנסיוני. נדרש מימוש וערך ייחוס לפני שינוי הערך ל-true."
+            )
+        return self
+
 
 class TierRule(_Strict):
     threshold: Decimal

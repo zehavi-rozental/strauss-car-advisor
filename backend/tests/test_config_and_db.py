@@ -253,3 +253,37 @@ def test_unknown_rule_values_fail_with_a_hebrew_message(config_copy, edit, field
     with pytest.raises(ConfigError) as err:
         RulesStore(config_copy, mode="strict").reload()
     assert f"ערך לא נתמך ב-{field}" in str(err.value) and "strauss-rules.json" in str(err.value)
+
+
+# ---------- maintenanceIsPensionable: טעינת true חייבת להיכשל בקול (המנוע אינו תומך) ----------
+
+def test_maintenance_pensionable_true_is_rejected_on_load(config_copy):
+    """true אינו מחובר למנוע; טעינתו דרך נתיב הטעינה האמיתי (לא רק הסכמה) חייבת להיכשל בקול,
+    עם הודעה בעברית ושם הקובץ — במקום חישוב שאינו תואם להגדרה."""
+    _edit_rules(config_copy, lambda d: d["waiver"].update(maintenanceIsPensionable=True))
+    # load_snapshot — נתיב הטעינה האמיתי
+    with pytest.raises(ConfigError) as err:
+        load_snapshot(config_copy)
+    assert "maintenanceIsPensionable" in str(err.value) and "strauss-rules.json" in str(err.value)
+    # RulesStore strict — אותה התנהגות דרך ה-store
+    with pytest.raises(ConfigError):
+        RulesStore(config_copy, mode="strict").reload()
+
+
+def test_maintenance_pensionable_false_loads_and_computes_unchanged(snapshot, config_copy):
+    """false (ברירת המחדל בקובץ) נטען כרגיל; האחזקה נשארת לא-פנסיונית והנטו לא משתנה."""
+    # הקובץ כבר false — load_snapshot על עותק זהה מצליח
+    reloaded = load_snapshot(config_copy)
+    assert reloaded.strauss.waiver.maintenance_is_pensionable is False
+    # חישוב ויתור (E-005: העיסוק מאפשר ויתור, אחזקה 2,000) — פנסיה על הבסיס בלבד, לא על האחזקה
+    from app.modules.calculation.public import evaluate
+    from app.modules.rules.public import occupation_rule, parse_reference_state, reference_employee
+    ref = next(e for e in snapshot.reference_employees if e.employee_id == "E-005")
+    employee = reference_employee(ref)
+    current = parse_reference_state(snapshot, ref.current_car, current_copay=ref.current_copay, for_current=True)
+    res = evaluate(employee, current, parse_reference_state(snapshot, "ויתור - אחזקת רכב 2000 ₪"),
+                   snapshot.calc, occupation_rule(snapshot.occupations.get(ref.occupation)))
+    # הפנסיה בחלופה (ויתור) מחושבת על הברוטו בלבד (בסיס+עמלות+בונוס), לא כולל האחזקה 2,000
+    base = employee.base + employee.commissions + employee.bonus
+    assert res.alternative.pension == base * employee.pension_rate
+    assert res.alternative.maintenance == Decimal(2000)   # האחזקה קיימת כרכיב חייב-מס, לא פנסיוני
