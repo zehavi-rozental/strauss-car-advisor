@@ -12,6 +12,7 @@ import {
   MAX_COMPARE, NET_ONLY_NOTE, STATUS_LABEL, asResults, filterValues, leadText, mapSections, toggleCompare,
 } from './optionMap'
 import type { MapFilter, MapSort } from './optionMap'
+import { isBlocked, limitMessage } from './widgets'
 
 interface Props {
   map: OptionMap
@@ -19,8 +20,8 @@ interface Props {
   onCompare: (results: OptionResult[]) => void
 }
 
-function EntryCard({ entry, lead, picked, canPick, onToggle }:
-  { entry: MapEntry; lead: boolean; picked: boolean; canPick: boolean; onToggle: () => void }) {
+function EntryCard({ entry, lead, picked, onToggle }:
+  { entry: MapEntry; lead: boolean; picked: boolean; onToggle: () => void }) {
   const r = entry.result
   const calculated = entry.status === 'full' || entry.status === 'catalog_copay'
   const delta = calculated ? Number(r.delta_display) : 0
@@ -44,8 +45,7 @@ function EntryCard({ entry, lead, picked, canPick, onToggle }:
       {calculated && r.why && <p className="map-why">{r.why}</p>}
       {!calculated && r.reason && <p className="map-why">{r.reason}</p>}
       {calculated && (
-        <button type="button" className={picked ? 'chip chip-on' : 'chip'} aria-pressed={picked}
-                disabled={!picked && !canPick} onClick={onToggle}>
+        <button type="button" className={picked ? 'chip chip-on' : 'chip'} aria-pressed={picked} onClick={onToggle}>
           {picked ? 'נבחר להשוואה' : 'להשוואה'}
         </button>
       )}
@@ -57,6 +57,17 @@ export function OptionMapPanel({ map, onClose, onCompare }: Props) {
   const [sort, setSort] = useState<MapSort>('net')
   const [filter, setFilter] = useState<MapFilter>({ drive: null, group: null })
   const [picked, setPicked] = useState<string[]>([])
+  // an option chosen while MAX_COMPARE are picked is not added; its button stays enabled and the tap says why.
+  // The count changes on every refused tap, so the message is announced again each time.
+  const [refused, setRefused] = useState(0)
+  const toggle = (e: MapEntry) => {
+    if (isBlocked(picked, e.option_id, MAX_COMPARE)) {
+      setRefused((n) => n + 1)
+      return
+    }
+    setRefused(0)
+    setPicked((p) => toggleCompare(p, e))
+  }
   const { ranked, waiting, notEligible } = mapSections(map, filter, sort)
   const { drives, groups } = filterValues(map)
 
@@ -64,8 +75,7 @@ export function OptionMapPanel({ map, onClose, onCompare }: Props) {
 
   const card = (e: MapEntry) => (
     <EntryCard key={e.option_id} entry={e} lead={!map.stale && map.leaders.includes(e.option_id)}
-               picked={picked.includes(e.option_id)} canPick={picked.length < MAX_COMPARE}
-               onToggle={() => setPicked((p) => toggleCompare(p, e))} />
+               picked={picked.includes(e.option_id)} onToggle={() => toggle(e)} />
   )
 
   // rendered at the end of <body>, like the design's panels: above the top bar and the chat's stacking context
@@ -146,6 +156,11 @@ export function OptionMapPanel({ map, onClose, onCompare }: Props) {
           )}
         </div>
         <div className="panel-actions">
+          {refused > 0 && (
+            <p key={refused} className="selection-limit" role="alert">
+              <Icon name="info" size={18} />{limitMessage(MAX_COMPARE)}
+            </p>
+          )}
           <button type="button" className="chip chip-primary" disabled={picked.length === 0}
                   onClick={() => onCompare(asResults(map, picked))}>
             השוואה מפורטת{picked.length ? ` (${picked.length})` : ''}
