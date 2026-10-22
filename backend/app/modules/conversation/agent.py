@@ -23,8 +23,8 @@ from app.modules.rules.public import catalog_names as catalog_names_of
 
 
 from .expects import build_expects, choice_calls
-from .fallback import (ZERO_ALLOWED, ParserPlan, asks_base, car_roles, correction_plan, fallback_plan, named_cars,
-                       none_plan, recorded_text)
+from .fallback import (ZERO_ALLOWED, ParserPlan, _profile_value_correction_plan, asks_base, car_roles, correction_plan,
+                       fallback_plan, named_cars, none_plan, recorded_text)
 from .free_text import looks_like_title
 from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
@@ -790,6 +790,10 @@ class Agent:
                                 record_run, und=Understanding(remainder=""))
         if before == Stage.WAITING_FOR_REP:
             correction, reply = self._waiting(state, snapshot, text)
+            fix = _profile_value_correction_plan(state, snapshot, text) if correction is None else None
+            values = {k: v for c in (fix.calls if fix else []) if c.name == "save_profile" for k, v in c.args.items()}
+            if values:
+                return self._save_while_waiting(ctx, text, values, before, record_run)
             if correction is None:
                 # ממתינים לנציג: תשובה קצרה (או שאלת הבהרה), בלי שינוי בשלב, ברכב או בשאלות.
                 # A question asked while waiting is still answered first.
@@ -851,6 +855,19 @@ class Agent:
                 # הקורא הדטרמיניסטי קודם, על ההודעה בלי השאלות שבה. מה שהוא קורא במלואו לא מגיע למודל.
                 plan = fallback_plan(state, snapshot, und.remainder)
         return self._finish(ctx, history, text, plan, before, record_run, und=und, extra=[pace] if pace else ())
+
+    def _save_while_waiting(self, ctx: ToolContext, text: str, values: dict[str, Any], before: Stage,
+                            record_run: RecordRun) -> TurnOutcome:
+        """A labelled correction typed while waiting for the representative ("טעיתי, השכר שלי 20,000"): saved like
+        the correction form (same gate, same "עדכנתי" line); the wait goes on, and the calculation that follows the
+        answer uses it. Before, it was dropped with only the waiting line."""
+        previous = _form_values(ctx.state)
+        facts = run_tool(ctx, "save_profile", values)
+        saved = {k: values[k] for k in facts.get("saved", []) if k in values}
+        notice = form_saved_text(previous, saved, None)
+        plan = (ParserPlan([], True, notice=notice, direct=True, acked=True) if notice
+                else ParserPlan([], True, direct=True))
+        return self._finish(ctx, (), text, plan, before, record_run, choice=True)
 
     @staticmethod
     def _start_correction(ctx: ToolContext, keep_copay_unknown: bool = False) -> Stage:

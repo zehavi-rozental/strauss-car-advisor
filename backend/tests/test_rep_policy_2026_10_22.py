@@ -443,3 +443,21 @@ def test_a_car_taken_out_of_the_comparison_cancels_only_its_open_question(sessio
     r = chat.state.results[0].result
     assert r["copay_source"] == "representative" and r["alternative"]["copay"] == "260"
     assert chat.open() == []
+
+
+# ---------- a correction typed in chat while waiting for the representative is saved, like the form ----------
+
+def test_a_chat_correction_while_waiting_for_the_rep_is_saved_and_used_after_the_answer(sessions):
+    chat = Chat(sessions)
+    for m in ["קבוצה ב, שכר בסיס 18,500", "אני מנהלת מוצר",
+              "אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים",
+              "יש לי קורולה קרוס, משלמת 300"]:
+        chat.say(m)
+    [q] = chat.open()
+    turn = chat.say("טעיתי, השכר שלי 20,000")
+    assert chat.state.profile.base == Decimal("20000") and "עדכנתי" in turn.reply
+    assert turn.stage == Stage.WAITING_FOR_REP and [x.id for x in chat.open()] == [q.id]    # still one question
+    chat.svc.cases.answer(q.id, "ג")
+    chat.choose(["CAR-10"])
+    r = chat.state.results[0].run_id
+    assert r and chat.state.results[0].result["status"] == "OK" and chat.state.profile.base == Decimal("20000")

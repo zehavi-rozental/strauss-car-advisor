@@ -243,7 +243,7 @@ Only deterministic code opens a question to the representative; the LLM never do
 
 ## Known limitations (מגבלות ידועות)
 
-- **While the conversation waits for the representative** (a group conflict, an opt-out, its maintenance amount, or the `REP_REQUIRED` policy), a value typed in chat ("טעיתי, השכר שלי 20,000") or a car named is not saved; the reply is only the waiting line. The correction form ("תיקון נתונים") still saves. Waits on a question opened before rule A also take a car correction.
+- **While the conversation waits for the representative**, a labelled correction typed in chat ("טעיתי, השכר שלי 20,000") is saved like the form (`agent._save_while_waiting`, via `fallback._profile_value_correction_plan`) and the wait goes on. Anything else typed then (a car named, an unlabelled value) still gets only the waiting line.
 
 - **A rep's copay for a new car has no maximum**: today's copay, use value and maintenance meet `value_ranges` (22/10), but no range is configured for a new car's copay, so a typo there would still flow into the calculation.
 - Scope is word lists (`faq.yaml`), not understanding: a concrete in-scope question with none of the domain words gets the `clarify` line (14% of the blind corpus, 37% of the seen one), and an off-topic question with a follow-up word ("כמה זה 20% מ-50?") is explained instead of redirected (never sent to the rep). New words go in the lists.
