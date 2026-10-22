@@ -9,8 +9,8 @@ cases:
   - {text: "שווי שימוש 3000", allowed: [{use_value: 3000}]}
   - {text: "בתלוש מופיע 3,100", allowed: [{use_value: 3100}]}
   - {text: "בערך 3000", allowed: [{use_value: 3000, approximate: [current_use_value]}]}
-  - {text: "לא יודע", allowed: [{use_value_unknown: true, waiting: true}]}
-  - {text: "אין לי מושג", allowed: [{use_value_unknown: true, waiting: true}]}
+  - {text: "לא יודע", allowed: [{use_value_unknown: true}]}   # rule A: asked again from the employee
+  - {text: "אין לי מושג", allowed: [{use_value_unknown: true}]}   # rule A: asked again from the employee
   - {text: "25,000", allowed: []}
   - {text: "אולי 3000 אולי 3500", allowed: []}
   - {text: "שלושת אלפים", allowed: [{use_value: 3000}]}

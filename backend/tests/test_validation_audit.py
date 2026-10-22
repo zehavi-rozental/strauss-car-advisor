@@ -11,7 +11,7 @@ import pytest
 from app.modules.conversation.llm.fake import FakeLLM, call
 from app.modules.conversation.public import ConversationService, LLMChain, Stage
 from app.modules.conversation.tools import (
-    GENERIC_CAR_LABEL, ToolContext, available_options, resolve_option, run_tool, safe_car_label)
+    GENERIC_CAR_LABEL, ToolContext, available_options, rep_car_label, resolve_option, run_tool, safe_car_label)
 from app.modules.conversation.stage import ConversationState
 from app.modules.rules.public import RulesStore, load_snapshot
 
@@ -68,13 +68,15 @@ def test_pay_data_typed_as_a_car_never_reaches_the_representative(sessions):
 
 
 def test_a_real_car_name_still_reaches_the_representative(sessions):
+    """The car label a question to the representative carries (a general question's context). The unknown use
+    value itself is the employee's to find and is never sent (rule A, 22/10)."""
     fake = FakeLLM()
     svc = service(sessions, fake)
     _, _, s = run(svc, fake, [(PROFILE, [call("save_profile", occupation="מנהלת מוצר")]),
                               ("יש לי פולקסווגן גולף", [call("match_current_car", model="פולקסווגן גולף")]),
                               ("לא ידוע", [call("save_profile", current_use_value_unknown=True)])])
-    [question] = svc.cases.list_open()
-    assert question.context["car_label"] == "פולקסווגן גולף"
+    assert svc.cases.list_open() == [] and s.current.use_value_unknown
+    assert rep_car_label(s.current, SNAP) == "פולקסווגן גולף"
 
 
 # ====================== Fix 1: grounding ======================

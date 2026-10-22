@@ -15,7 +15,7 @@ from app.modules.rules.public import RulesSnapshot
 from app.shared.money import to_shekel
 
 from .stage import (MAX_OPTIONS, PROFILE_ARGS, Q2_FIELDS, profile_args, ConversationState, RepReason, Stage, current_group,
-                    missing_current_car, next_stage, open_profile, unknown_missing)
+                    current_unknown, missing_current_car, next_stage, open_profile, unknown_missing)
 from .tools import available_options
 
 DRIVE_HE = {"PETROL": "בנזין", "HYBRID": "היברידי", "PLUG_IN": "פלאג-אין", "ELECTRIC": "חשמלי"}
@@ -145,6 +145,9 @@ _LEFTOVER = {"commissions": "יש לכם עמלות חודשיות?", "bonus": "
 
 _LEFTOVER_NAMES = {"commissions": "עמלות", "bonus": "בונוס", "pension_percent": "פנסיה",
                    "study_fund_percent": "קרן השתלמות", "credit_points": "נקודות זיכוי", "children": "ילדים"}
+# what is left when only unknown values remain: the Q2 leftovers, and today's car values the employee does not know
+# (rule A, 22/10: asked from the employee, never the representative)
+_UNKNOWN_NAMES = {**_LEFTOVER_NAMES, "copay": "ההשתתפות ברכב של היום", "use_value": "שווי השימוש של הרכב של היום"}
 
 
 def _q1(fields: list[str], state: ConversationState, snapshot: RulesSnapshot) -> str:
@@ -285,6 +288,88 @@ def pending_copay_text(label: str, amount: Any) -> str:
     return WAITING_COPAY_ONLY
 
 
+def pending_copays_text(items: Sequence[tuple[str, Any]]) -> str:
+    """The new cars' copays the calculation used, each with its amount and its source (C1, 22/10): the employee never
+    gave them, so the reply says they come from the catalog, are not approved yet, and were sent to the representative.
+    (Called only after the calculation opened a question for each.)"""
+    if len(items) == 1:
+        label, amount = items[0]
+        return (f"חישבתי עם השתתפות של {money(amount)} בחודש {in_label(label)}, לפי הסכום שבקטלוג שטראוס.\n"
+                "הסכום עוד לא אושר עבורכם: שלחתי לנציג התחבורה בקשה לאשר אותו, וכשיענה אעדכן כאן את החישוב.")
+    parts = ", ".join(f"{label} {money(amount)}" for label, amount in items)
+    return (f"חישבתי לפי ההשתתפות שבקטלוג שטראוס: {parts}.\n"
+            "הסכומים עוד לא אושרו עבורכם: שלחתי לנציג התחבורה בקשה לאשר כל אחד, וכשיענה אעדכן כאן את החישוב.")
+
+
+def missing_copay_text(label: str) -> str:
+    """A car the catalog has no copay for (C2): not calculated, never an invented amount."""
+    return f"חסר לי סכום ההשתתפות {in_label(label)}, ולכן לא חישבתי אותו. שאלתי את נציג התחבורה, וכשיענה אחשב."
+
+
+def map_copay_line(asked: int, total: int) -> str:
+    """The option map's copay line: which cars have a question to the representative (only the ones compared, C1),
+    never a pending approval that was not asked for."""
+    if asked >= total:
+        return "ההשתתפות בכל הרכבים לפי הקטלוג, ושלחתי לנציג התחבורה בקשה לאשר אותה."
+    if asked:
+        return ("במפה חישבתי כל רכב לפי ההשתתפות שבקטלוג. על הרכבים שבחרתם להשוות כבר שלחתי שאלה לנציג התחבורה;"
+                " על השאר אשאל אם תבחרו בהם.")
+    return ("במפה חישבתי כל רכב לפי ההשתתפות שבקטלוג. כשתבחרו רכבים להשוואה, אבקש מנציג התחבורה לאשר את"
+            " ההשתתפות בהם.")
+
+
+def results_explain_text(state: ConversationState, focus: Sequence[str] = ()) -> str:
+    """"למה ההערכה זמנית?" / "זה סופי?" with results on screen: answered from the results themselves (each copay, its
+    source, whether the representative was asked or answered), never by sending the employee back to choosing cars
+    or by asking the representative (C5, 22/10)."""
+    lines: list[str] = []
+    pending = False
+    for item in state.results:
+        r = item.result
+        alt = r.get("alternative") or {}
+        source = r.get("copay_source")
+        if source == "catalog" and alt.get("copay") is not None:
+            pending = True
+            lines.append(f"{in_label(item.label)} חישבתי עם השתתפות של {money(alt['copay'])} בחודש לפי הקטלוג. "
+                         "היא עוד לא אושרה עבורכם, ושאלתי את נציג התחבורה.")
+        elif source == "representative" and alt.get("copay") is not None:
+            effective = r.get("copay_effective_date")
+            lines.append(f"{in_label(item.label)} ההשתתפות של {money(alt['copay'])} בחודש אושרה על ידי נציג התחבורה"
+                         f"{_effective(date.fromisoformat(effective) if effective else None)}.")
+        elif source == "missing":
+            pending = True
+            lines.append(f"{in_label(item.label)} חסר לי סכום ההשתתפות, ושאלתי את נציג התחבורה.")
+    for item in state.results:
+        if item.option_id in focus and item.result.get("why"):
+            lines.append(f"הסיבה העיקרית {in_label(item.label)}: {item.result['why']}")
+    if pending:
+        lines.insert(0, "ההערכה זמנית כי סכום ההשתתפות ברכב החדש עוד לא אושר עבורכם.")
+        lines.append("כשהנציג יענה, אעדכן כאן את החישוב. גם אז הנטו הוא חישוב לפי כללי החברה, לא תלוש שכר.")
+    else:
+        lines.append("החישוב לפי הנתונים שמסרתם וכללי החברה. זה חישוב משוער של הנטו, לא תלוש שכר.")
+    return "\n".join(lines)
+
+
+def stated_copay_text(label: str, stated: Any, catalog: Any) -> str:
+    """A copay the employee expects for a new car (C1): kept apart, the calculation stays on the catalog amount until
+    the representative answers, and the representative gets both amounts."""
+    base = f"רשמתי שאתם מצפים להשתתפות של {money(stated)} בחודש {in_label(label)}."
+    if catalog is None:
+        return base + "\nהחישוב ממתין לתשובת נציג התחבורה, והעברתי לו גם את הסכום שציינתם."
+    return (base + f"\nבקטלוג הסכום הוא {money(catalog)}, והחישוב נשאר לפיו עד שנציג התחבורה יאשר."
+            " העברתי לו גם את הסכום שציינתם.")
+
+
+def group_conflict_text(stated: str, table: str, occupation: str) -> str:
+    """The stated group and the occupations table differ (C4): said once, decided by the representative."""
+    return (f"ציינתם קבוצה {stated}, ולפי טבלת העיסוקים {occupation} שייך לקבוצה {table}.\n"
+            "את זה לא אכריע בעצמי: אשאל את נציג התחבורה איזו קבוצה חלה עליכם, אחרי שנאסוף את שאר הפרטים.")
+
+
+def rep_group_text(group: str) -> str:
+    return f"נציג התחבורה השיב: קבוצת הזכאות שלכם היא {group}."
+
+
 def _among(n: int) -> str:
     return "בשניהם" if n == 2 else "בכולם"
 
@@ -332,9 +417,15 @@ def results_text(state: ConversationState) -> str:
         r = item.result
         if r["status"] == "NOT_ELIGIBLE":
             lines.append(f"{item.label} לא זמין לכם: {r['reason']}")
+        elif r.get("copay_source") == "missing":
+            lines.append(missing_copay_text(item.label))
         else:
             lines.append(f"{item.label}: חסר מידע לחישוב. {r['reason']}")
-    if any(i.result.get("copay_pending") and i.result["status"] == "OK" for i in ok):
+    pending = [(i.label, (i.result.get("alternative") or {}).get("copay")) for i in ok
+               if i.result.get("copay_pending") and i.result.get("copay_source", "catalog") == "catalog"]
+    if pending and all(a is not None for _, a in pending):
+        lines.append(pending_copays_text(pending))
+    elif pending:
         lines.append(pending_copay_text("", None))
     return "\n".join(lines)
 
@@ -483,8 +574,22 @@ def queued_option_text(label: str) -> str:
 OPT_OUT_DENIED = "לפי נציג התחבורה, בעיסוק שלכם לא ניתן לוותר על הרכב"
 
 
-def _effective(effective: Optional[date]) -> str:
-    return f" (בתוקף מ-{effective:%d.%m.%Y})" if effective else ""
+def _effective(effective: Optional[date], today: Optional[date] = None) -> str:
+    """When the representative's amount applies: "יחול מ-" for a future date (never shown as in force today, D7),
+    "בתוקף מ-" once it is."""
+    if not effective:
+        return ""
+    if effective > (today or date.today()):
+        return f" (יחול מ-{effective:%d.%m.%Y})"
+    return f" (בתוקף מ-{effective:%d.%m.%Y})"
+
+
+def _effective_words(effective: Optional[date], today: Optional[date] = None) -> str:
+    """The same, as a sentence for a chat line (no second parenthesis after a car label)."""
+    if not effective:
+        return ""
+    verb = "תחול" if effective > (today or date.today()) else "בתוקף"
+    return f" ההשתתפות {verb} מ-{effective:%d.%m.%Y}."
 
 
 def confirmed_assumption(label: str, effective: Optional[date]) -> str:
@@ -496,22 +601,40 @@ def rep_amount_assumption(label: str, amount: Decimal, effective: Optional[date]
     return f"השתתפות ב-{label}: {money(amount)} לפי נציג התחבורה{_effective(effective)}"
 
 
-def rep_confirmed_text(label: str, effective: Optional[date]) -> str:
-    return f"נציג התחבורה אישר את ההשתתפות ב-{label}{_effective(effective)}."
+def rep_confirmed_text(label: str, effective: Optional[date], amount: Any = None, delta: Any = None) -> str:
+    """The representative approved the catalog amount: the result does not change, and it is now final."""
+    what = f": {money(amount)} בחודש" if amount is not None else ""
+    head = f"נציג התחבורה אישר את ההשתתפות {in_label(label)}{what}.{_effective_words(effective)}"
+    if delta is None:
+        return head
+    return f"{head}\nהחישוב כבר היה לפי הסכום הזה, ולכן לא השתנה: {net_change(delta)}."
 
 
-def rep_changed_text(label: str, amount: Decimal, effective: Optional[date], old_delta: Any, new_delta: Any) -> str:
-    """The demo's key moment: before and after. Numbers come only from the rep's answer, the previous
-    result and the new result."""
-    since = f", מ-{effective.day}/{effective.month}" if effective else ""
-    return (f"הנציג עדכן: השתתפות {money(amount)} בחודש{since}. "
-            f"ההפרש עודכן: במקום {signed(old_delta)}, עכשיו {signed(new_delta)} בחודש.")
+def _delta_words(delta: Any) -> str:
+    v = to_shekel(Decimal(str(delta)))
+    return f"תוספת של {money(v)}" if v > 0 else f"{money(-v)} פחות" if v < 0 else "בלי שינוי"
+
+
+def rep_changed_text(label: str, amount: Decimal, effective: Optional[date], old_delta: Any, new_delta: Any,
+                     catalog: Any = None, today_net: Any = None, new_net: Any = None, why: str = "") -> str:
+    """The demo's key moment (the challenge script, p. 2): the amount the representative set, from when, the net
+    today and with the car after the recalculation, the change before and after, and the main reason. Numbers come
+    only from the representative's answer, the catalog, the previous result and the new result."""
+    was = f", במקום {money(catalog)} לפי הקטלוג" if catalog is not None else ""
+    lines = [f"נציג התחבורה קבע השתתפות של {money(amount)} בחודש {in_label(label)}{was}.{_effective_words(effective)}"]
+    if today_net is not None and new_net is not None:
+        lines.append(f"חישבתי מחדש: עם {label} הנטו יהיה {money(new_net)} בחודש, לעומת {money(today_net)} היום.")
+    before = f" לפני האישור: {_delta_words(old_delta)}." if old_delta is not None else ""
+    lines.append(f"{net_change(new_delta)}.{before}")
+    if why:
+        lines.append(f"הסיבה העיקרית: {why}")
+    return "\n".join(lines)
 
 
 def rep_copay_text(label: str, amount: Decimal, effective: Optional[date]) -> str:
     """The representative's copay when the result on record is out of date: the amount only (the net
     comes from the recalculation, never from the old result)."""
-    return f"נציג התחבורה קבע השתתפות של {money(amount)} בחודש {in_label(label)}{_effective(effective)}."
+    return f"נציג התחבורה קבע השתתפות של {money(amount)} בחודש {in_label(label)}.{_effective_words(effective)}"
 
 
 def rep_current_text(field: str, label: str, amount: Decimal) -> str:
@@ -576,6 +699,7 @@ def asked_text(state: ConversationState) -> str:
         RepReason.CURRENT_USE_VALUE: f"מה שווי השימוש של {labels}",
         RepReason.OCCUPATION_OPT_OUT: "אם בעיסוק שלכם מותר לוותר על הרכב",
         RepReason.MAINTENANCE_AMOUNT: "מה סכום אחזקת הרכב החודשי בוויתור",
+        RepReason.ELIGIBILITY_GROUP: "איזו קבוצת זכאות חלה עליכם",
     }
     if state.pending_rep.reason == RepReason.NEW_CAR_COPAY:
         return WAITING_COPAY
@@ -681,7 +805,7 @@ LINK_LABELS = {"profile_form": "למלא בטופס", "selection": "להציג �
 
 
 def _names(fields: Sequence[str]) -> str:
-    names = [_LEFTOVER_NAMES[f] for f in fields if f in _LEFTOVER_NAMES]
+    names = [_UNKNOWN_NAMES[f] for f in fields if f in _UNKNOWN_NAMES]
     return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " ו" + names[-1]
 
 
@@ -690,12 +814,13 @@ def unknown_text(state: ConversationState, snapshot: RulesSnapshot, fields: Sequ
     where to find each value; asked again ("לא יודע") in other words, never the same text twice in a row."""
     names = _names(fields)
     if state.unknown_told % 2:
-        return f"בסדר. החישוב מחכה רק ל{names}, בלי ערך משוער. אפשר לחזור לכאן בכל זמן ולכתוב את הערך."
+        to = names[1:] if names.startswith("ה") else names        # ל + ההשתתפות = להשתתפות
+        return f"בסדר. החישוב מחכה רק ל{to}, בלי ערך משוער. אפשר לחזור לכאן בכל זמן ולכתוב את הערך."
     these = "הערך הזה" if len(fields) == 1 else "הערכים האלה"
     lines = [f"כדי לחשב חסר לי: {names}. בלי {these} אין חישוב, וגם לא חישוב עם ערך משוער."]
     where = [f for f in fields if (e := snapshot.faq.get(f)) is not None and e.where]
     if len(where) <= 2:           # where on the payslip, field by field — short
-        lines += [f"{_LEFTOVER_NAMES[f]}: {snapshot.faq.get(f).where}" for f in where]
+        lines += [f"{_UNKNOWN_NAMES[f]}: {snapshot.faq.get(f).where}" for f in where]
     else:
         lines.append("כולם מופיעים בתלוש השכר החודשי.")
     return "\n".join(lines)
@@ -738,7 +863,9 @@ def missing_names(state: ConversationState) -> list[str]:
     fields = [*open_profile(p), *missing_current_car(state.current), *unknown_missing(p)]
     if not state.selected and not state.rank_requested and not state.map_requested:
         fields.append("options")       # the option map needs no choice of cars
-    return [FIELD_NAMES[f] for f in fields if f in FIELD_NAMES]
+    # today's copay or use value the employee does not know (rule A): asked from the employee, last
+    return [*(FIELD_NAMES[f] for f in fields if f in FIELD_NAMES),
+            *(_UNKNOWN_NAMES[f] for f in current_unknown(state.current))]
 
 
 def compare_needs_text(state: ConversationState) -> str:
@@ -924,7 +1051,7 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
                rep_opened: bool = False, notice_asks: bool = False, cta_field: Optional[str] = None,
                confirmations: Sequence[str] = (),
                answers: Sequence[tuple[str, str]] = (), follow_up: Sequence[str] = (),
-               explain: bool = False, extra: Sequence[str] = ()) -> ReplyPlan:
+               explain: bool = False, extra: Sequence[str] = (), about_results: bool = False) -> ReplyPlan:
     """The next reply, from the state only. answers: (FAQ answer, term) pairs; extra: lines that come
     from code (an unanswered question, a redirect) and go right after the answers."""
     plan = ReplyPlan(answers=[a for a, _ in answers] + list(extra), terms=[t for _, t in answers],
@@ -958,6 +1085,11 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
             if best.result.get("why"):
                 plan.ask.append(f"הסיבה העיקרית {in_label(best.label)}: {best.result['why']}")
             plan.cta = (NEXT_AFTER_RANK if state.ranked_count else NEXT_AFTER_RESULTS)
+        return plan
+    if about_results and state.stage == Stage.PRESENTED and state.pending_confirmation is None:
+        # a question about the results on screen was answered from them (extra): the reply ends with the results'
+        # next step, never by asking to choose cars again (C5, 22/10)
+        plan.cta = NEXT_AFTER_RANK if state.ranked_count else NEXT_AFTER_RESULTS
         return plan
     cta, _ = call_to_action(state, snapshot)
     plan.cta = cta

@@ -12,7 +12,7 @@ from app.modules.calculation.public import FAMILY_GROUP
 from app.modules.conversation.llm.fake import FakeLLM, call
 from app.modules.conversation.option_map import (NET_ONLY, build_option_map, evaluate_option, leaders, map_json,
                                                  map_reply)
-from app.modules.conversation.public import ConversationService, LLMChain
+from app.modules.conversation.public import ConversationService, LLMChain, Stage
 from app.modules.conversation.stage import ConversationState, CurrentCar, MapEntry, OptionMap, Profile
 from app.modules.conversation.tools import available_options, engine_inputs
 from app.modules.rules.public import RulesStore, load_snapshot
@@ -23,6 +23,10 @@ SNAP = load_snapshot(CONFIG)
 ASK = "השווה את כל האפשרויות שלי"
 CAR = "יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש"
 TOKEN = "rep-secret"
+# a stated group the occupations table contradicts (מנהל מוצר is group ג): the representative is asked and the
+# conversation waits (C4, 22/10)
+CONFLICT = ("קבוצה ב, שכר בסיס 18,500", "אני מנהלת מוצר",
+            "אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים", CAR)
 
 
 def profile(occupation: str, children: int = 2, base: str = "18,500") -> str:
@@ -194,12 +198,12 @@ def test_a_car_change_keeps_the_map_out_of_date_until_the_model_is_known(session
 def test_the_representatives_answer_completes_the_map(engine):
     client = make_client(engine, rep_access_token=TOKEN)
     cid = client.post("/api/conversations").json()["conversation_id"]
-    for text in (profile("מנהלת מוצר"), "יש לי קורולה קרוס", "לא יודעת", ASK):
+    for text in (*CONFLICT, ASK):
         client.post(f"/api/conversations/{cid}/messages", json={"text": text})
     view = client.get(f"/api/conversations/{cid}").json()
-    assert view["option_map"] is None                                     # the copay today is unknown: no map
+    assert view["option_map"] is None                                     # the group is not known yet: no map
     qid = client.get("/api/rep/questions", headers={"X-Rep-Token": TOKEN}).json()[0]["id"]
-    client.post(f"/api/rep/questions/{qid}/answer", headers={"X-Rep-Token": TOKEN}, json={"value": "300"})
+    client.post(f"/api/rep/questions/{qid}/answer", headers={"X-Rep-Token": TOKEN}, json={"value": "ג"})
     view = client.get(f"/api/conversations/{cid}").json()
     assert view["option_map"]["counts"]["eligible"] == 13 and view["option_map"]["stale"] is False
     rep = client.get(f"/api/rep/questions/{qid}", headers={"X-Rep-Token": TOKEN}).json()
@@ -242,10 +246,21 @@ def test_unknown_inputs_never_build_a_map():
 
 def test_a_request_while_waiting_for_the_rep_is_kept(sessions):
     svc = service(sessions)
-    turn, token = talk(svc, profile("מנהלת מוצר"), "יש לי קורולה קרוס", "לא יודעת")
+    turn, token = talk(svc, *CONFLICT)
+    assert turn.stage == Stage.WAITING_FOR_REP
     turn = svc.send(turn.conversation_id, token, ASK)
     s = svc.view(turn.conversation_id, token).state
     assert s.map_requested and s.option_map is None and "ברגע שתגיע תשובת נציג התחבורה" in turn.reply
+
+
+def test_a_request_with_todays_copay_unknown_names_what_is_missing(sessions):
+    """Rule A: today's copay is asked from the employee, so the map waits for it and the reply says so."""
+    svc = service(sessions)
+    turn, token = talk(svc, profile("מנהלת מוצר"), "יש לי קורולה קרוס", "לא יודעת")
+    turn = svc.send(turn.conversation_id, token, ASK)
+    s = svc.view(turn.conversation_id, token).state
+    assert s.map_requested and s.option_map is None and svc.cases.list_open() == []
+    assert "כדי למפות את כל האפשרויות, חסרים לי עוד: ההשתתפות ברכב של היום." in turn.reply
 
 
 def test_the_model_sees_the_map_as_engine_figures_and_never_a_stale_one(sessions):

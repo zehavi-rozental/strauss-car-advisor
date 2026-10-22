@@ -53,7 +53,8 @@ def test_after_an_answer_a_new_question_can_open(sessions):
 
 
 def test_context_keys_are_only_the_allowed_list(sessions):
-    assert ALLOWED_CONTEXT_KEYS == {"group", "car_label", "catalog_code", "suggested_amount", "occupation_text"}
+    assert ALLOWED_CONTEXT_KEYS == {"group", "car_label", "catalog_code", "suggested_amount", "occupation_text",
+                                    "stated_group", "table_group", "employee_stated_amount"}
     cases = CasesService(sessions)
     for forbidden in ({"base_salary": "18500"}, {"message": "שלום"}, {"id_number": "123456782"}):
         with pytest.raises(ValueError):

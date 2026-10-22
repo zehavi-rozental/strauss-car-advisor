@@ -32,6 +32,7 @@ class MissingField(str, Enum):
     OCCUPATION_OPT_OUT = "OCCUPATION_OPT_OUT"
     MAINTENANCE_AMOUNT = "MAINTENANCE_AMOUNT"
     GENERAL_QUESTION = "GENERAL_QUESTION"   # a question the FAQ does not cover (TEXT, non-blocking)
+    ELIGIBILITY_GROUP = "ELIGIBILITY_GROUP"  # the stated group contradicts the occupations table (TEXT: a group letter)
 
 
 class Mode(str, Enum):
@@ -53,7 +54,10 @@ class Status(str, Enum):
 
 
 # רק מה שהנציג צריך. שכר, סכומי פרופיל, ת"ז ותוכן הודעות — אף פעם.
-ALLOWED_CONTEXT_KEYS = frozenset({"group", "car_label", "catalog_code", "suggested_amount", "occupation_text"})
+# what the representative may see: the group, the car, the catalog amount, the role, the two groups of a conflict and a
+# copay the employee expects for a new car. Never pay data (salary, components, deductions) — enforced on every question
+ALLOWED_CONTEXT_KEYS = frozenset({"group", "car_label", "catalog_code", "suggested_amount", "occupation_text",
+                                  "stated_group", "table_group", "employee_stated_amount"})
 MAX_TEXT = 500
 DEFAULT_REP_NAME = "נציג"
 
@@ -79,6 +83,9 @@ class QuestionRequest:
     context: dict[str, Optional[str]]
     suggested_value: Optional[str] = None
     option_id: str = ""
+    # an open question for the same item is cancelled and this one replaces it (new information for the rep,
+    # e.g. a copay the employee expects); otherwise an open question for the same item is reused, never doubled
+    replace: bool = False
 
 
 @dataclass(frozen=True)
@@ -186,6 +193,10 @@ class CasesService:
         _check_context(request.context)
         conv = _uuid(conversation_id)
         existing = self._open_row(session, conv, request.missing_field, request.option_id)
+        if existing is not None and request.replace:
+            existing.status, existing.version = Status.CANCELLED.value, existing.version + 1
+            session.flush()
+            existing = None
         if existing is not None:
             return _view(existing)
         row = RepQuestionRow(

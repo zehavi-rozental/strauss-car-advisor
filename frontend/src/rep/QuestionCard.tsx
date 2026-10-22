@@ -15,7 +15,7 @@ interface Props {
 
 const REASON_ICON: Record<string, string> = {
   NEW_CAR_COPAY: 'swap', CURRENT_COPAY: 'road', CURRENT_USE_VALUE: 'doc', OCCUPATION_OPT_OUT: 'user',
-  MAINTENANCE_AMOUNT: 'form', GENERAL_QUESTION: 'info',
+  MAINTENANCE_AMOUNT: 'form', GENERAL_QUESTION: 'info', ELIGIBILITY_GROUP: 'user',
 }
 
 export function QuestionCard(props: Props) {
@@ -44,6 +44,7 @@ export function QuestionCard(props: Props) {
           <Icon name="check" size={16} />
           נענתה: <bdi>{q.answer_value}</bdi>{q.answered_by ? ` · ${q.answered_by}` : ''}
           {q.answered_at ? ` · ${formatTime(q.answered_at)}` : ''}
+          {q.effective_date ? ` · חלה מ-${q.effective_date.split('-').reverse().join('.')}` : ''}
           {q.answer_note ? <span className="answered-note">הערה לעובד: <bdi>{q.answer_note}</bdi></span> : null}
         </p>
       )}

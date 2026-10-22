@@ -35,7 +35,12 @@ function storeId(id: string): void {
   }
 }
 
-const runKey = (results: OptionResult[]) => results.map((r) => `${r.option_id}:${r.run_id ?? ''}`).join('|')
+/** What makes the result cards change: a new calculation (run_id), or the copay's status without one (the
+ *  representative approves the catalog amount: same run, now "אושר"; or the employee states an expected amount). */
+const runKey = (results: OptionResult[]) => results.map((r) => [
+  r.option_id, r.run_id ?? '', r.result.copay_pending, r.result.copay_source ?? '', r.result.copay_effective_date ?? '',
+  r.result.employee_stated_copay ?? '',
+].join(':')).join('|')
 
 /** The same question as before (polling re-sends it every few seconds): keep the old object, so nothing that
  *  depends on it (an open selection card, a form being filled) is reset by a poll. */

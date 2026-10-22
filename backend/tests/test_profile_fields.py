@@ -113,10 +113,12 @@ def test_api_accepts_fields_and_returns_422_for_bad_bodies(engine):
 
 
 def test_correction_while_waiting_for_the_rep_keeps_waiting(sessions):
-    svc, cid, token = q2(sessions)
+    """The wait: a stated group the occupations table contradicts (C4)."""
+    svc, cid, token = start(sessions)
+    svc.send(cid, token, "קבוצה ב, שכר בסיס 18,500")
+    svc.send(cid, token, "אני מנהלת מוצר")
     svc.send_fields(cid, token, Q2_FORM)
-    svc.send(cid, token, "יש לי קורולה 2026")
-    turn = svc.send(cid, token, "לא יודע")
+    turn = svc.send(cid, token, "יש לי קורולה 2026, משלמת 250")
     assert turn.stage == Stage.WAITING_FOR_REP
     again = svc.send_fields(cid, token, {"children_under_23": 3})
     assert again.stage == Stage.WAITING_FOR_REP and profile(svc, cid, token).children == 3

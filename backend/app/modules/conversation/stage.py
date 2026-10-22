@@ -34,10 +34,11 @@ class RepReason(str, Enum):
     """שאלות לנציג התחבורה (אותם ערכים כמו MissingField במודול cases)."""
 
     NEW_CAR_COPAY = "NEW_CAR_COPAY"
-    CURRENT_COPAY = "CURRENT_COPAY"
-    CURRENT_USE_VALUE = "CURRENT_USE_VALUE"
+    CURRENT_COPAY = "CURRENT_COPAY"            # no longer opened (rule A, 22/10); kept for questions already open
+    CURRENT_USE_VALUE = "CURRENT_USE_VALUE"    # no longer opened (rule A, 22/10); kept for questions already open
     OCCUPATION_OPT_OUT = "OCCUPATION_OPT_OUT"
     MAINTENANCE_AMOUNT = "MAINTENANCE_AMOUNT"
+    ELIGIBILITY_GROUP = "ELIGIBILITY_GROUP"    # the stated group contradicts the occupations table (C4)
 
 
 class Profile(BaseModel):
@@ -166,6 +167,16 @@ class ConfirmedCopay(BaseModel):
     changed: bool = False       # הנציג קבע סכום שונה מהקטלוג
 
 
+class GroupConflict(BaseModel):
+    """The group the employee stated and the group of their role in the occupations table differ (C4): neither code
+    nor the model decides; the transport representative does. Until then nothing is calculated."""
+
+    stated: str
+    table: str
+    occupation: str
+    announced: bool = False     # the employee was told once that the representative will decide
+
+
 class PendingOccupation(BaseModel):
     """תפקיד שאינו בטבלת העיסוקים: לא נשמר עד שהעובד מאשר, או בוחר אחת מההצעות הדומות."""
 
@@ -209,6 +220,9 @@ class ConversationState(BaseModel):
     calculated_for: list[str] = Field(default_factory=list)
     pending_rep: Optional[PendingRep] = None
     confirmed_copays: dict[str, ConfirmedCopay] = Field(default_factory=dict)
+    # a copay the employee expects for a new car (C1): kept apart, never used for the calculation, sent for checking
+    stated_new_copays: dict[str, Decimal] = Field(default_factory=dict)
+    group_conflict: Optional[GroupConflict] = None
     confirmed_unusual: list[str] = Field(default_factory=list)   # fields whose rare value the employee confirmed
     applied_answers: list[str] = Field(default_factory=list)    # תשובות נציג שכבר יושמו (פעם אחת בלבד)
     pending_clarification: Optional[CarClarification] = None
@@ -286,19 +300,28 @@ def missing_current_car(c: CurrentCar) -> list[str]:
 
 
 def blocking_rep_reason(state: ConversationState) -> Optional[RepReason]:
-    """שאלה לנציג שהשיחה לא יכולה להמשיך בלעדיה (מלבד ויתור, שנבדק בחישוב)."""
-    c = state.current
-    if c.use_value_unknown and c.use_value is None:
-        return RepReason.CURRENT_USE_VALUE
-    if c.copay_unknown and c.copay is None:
-        return RepReason.CURRENT_COPAY
+    """שאלה לנציג שהשיחה לא יכולה להמשיך בלעדיה (מלבד ויתור, שנבדק בחישוב). The car the employee has today, its
+    copay and its use value are the employee's own data: when unknown they are asked from the employee, never the
+    representative (rule A, 22/10). Only a group that contradicts the occupations table waits for the rep (C4)."""
+    if state.group_conflict is not None:
+        return RepReason.ELIGIBILITY_GROUP
     return None
+
+
+def current_unknown(c: CurrentCar) -> list[str]:
+    """Values of today's car the employee said they do not know: no calculation without them, never a default."""
+    out = []
+    if c.use_value_unknown and c.use_value is None:
+        out.append("use_value")
+    if c.copay_unknown and c.copay is None:
+        out.append("copay")
+    return out
 
 
 def map_missing(state: ConversationState) -> list[str]:
     """What the 360° option map still needs: every profile value and today's car (each option is a difference
     from today). Unknown fields count: the map is never built on a guess."""
-    return [*missing_profile(state.profile), *missing_current_car(state.current)]
+    return [*missing_profile(state.profile), *missing_current_car(state.current), *current_unknown(state.current)]
 
 
 def map_ready(state: ConversationState) -> bool:
@@ -377,9 +400,10 @@ def next_stage(state: ConversationState) -> Stage:
         return Stage.COLLECT_CURRENT_CAR
     if q2 or needs_opt_out_occupation(state):
         return Stage.COLLECT_PROFILE
-    if not state.selected and not (state.rank_requested and unknown_missing(state.profile)):
+    unknown = unknown_missing(state.profile) + current_unknown(state.current)
+    if not state.selected and not (state.rank_requested and unknown):
         return Stage.CHOOSE_OPTIONS
-    if unknown_missing(state.profile):
+    if unknown:
         return Stage.COLLECT_PROFILE       # no calculation without them, and never a default
     if state.calculated_for != state.selected:
         return Stage.CALCULATING
@@ -413,7 +437,7 @@ def current_group(state: ConversationState) -> tuple[Optional[str], list[str]]:
         if q2 and not _q2_deferred(state):
             return "Q2", q2
         rest = q2 + (["opt_out_occupation"] if needs_opt_out_occupation(state) else []) + options
-        return ("Q3", rest) if rest else ("unknown", unknown_missing(p))
+        return ("Q3", rest) if rest else ("unknown", unknown_missing(p) + current_unknown(c))
     if stage == Stage.COLLECT_CURRENT_CAR:
         car = _visible(missing_current_car(c), hidden)
         if car and car[0] in CAR_DETAILS:

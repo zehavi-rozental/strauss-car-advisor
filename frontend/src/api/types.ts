@@ -18,6 +18,7 @@ export type RepReason =
   | 'OCCUPATION_OPT_OUT'
   | 'MAINTENANCE_AMOUNT'
   | 'GENERAL_QUESTION'
+  | 'ELIGIBILITY_GROUP'
 
 export type Drive = 'PETROL' | 'HYBRID' | 'PLUG_IN' | 'ELECTRIC'
 
@@ -119,6 +120,8 @@ export interface Driver {
   net: boolean
 }
 
+export type CopaySource = 'catalog' | 'catalog_final' | 'representative' | 'missing'
+
 export interface ScenarioResult {
   status: CalcStatus
   eligible: boolean | null
@@ -132,6 +135,12 @@ export interface ScenarioResult {
   drivers: Driver[]
   electric_refund: Decimal | null
   copay_pending: boolean
+  /** where the new car's copay comes from: the catalog default waiting for the representative ("catalog"), the
+   *  representative's amount ("representative", from copay_effective_date), no catalog amount ("missing": not
+   *  calculated), the catalog as final ("catalog_final") or none (opting out). An older server sends nothing. */
+  copay_source?: CopaySource | null
+  copay_effective_date?: string | null       // ISO date the representative's amount applies from
+  employee_stated_copay?: Decimal            // what the employee said they expect: shown, never used
   assumptions: string[]
   /** one plain sentence about the main cause (built by the server from the drivers) */
   why?: string
@@ -306,7 +315,8 @@ export interface RepQuestion {
   question_text: string
   answer_type: AnswerType
   suggested_value: string | null
-  /** group, car_label, catalog_code, suggested_amount, occupation_text; never salary or profile data */
+  /** group, car_label, catalog_code, suggested_amount, occupation_text, stated_group, table_group,
+   *  employee_stated_amount; never salary or profile data */
   context: Record<string, string | null>
   status: QuestionStatus
   created_at: string

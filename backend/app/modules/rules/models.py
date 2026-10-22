@@ -197,7 +197,9 @@ class CatalogCar(_Strict):
     list_price: Decimal
     use_value: Decimal
     monthly_cost: Decimal
-    default_copay: Decimal
+    # the catalog's default employee copay; None when the catalog has none for this car (C2): never invented, the
+    # option is not calculated and the transport representative is asked
+    default_copay: Optional[Decimal] = None
     aliases: tuple[str, ...] = ()           # מ-extensions.yaml (car_aliases)
 
     @property

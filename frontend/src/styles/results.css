@@ -513,3 +513,14 @@ table.compare tr.row-delta > th { border-inline-start: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .confetti { display: none; } }
 :root[data-motion='reduce'] .confetti { display: none; }
+
+/* the new car's copay on one option: amount, source, approval, effect on the net, effective date (C1, 22/10) */
+.state-approved { background: var(--up-tint); color: var(--up); }
+.copay-box { margin-block: 0 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--card); }
+.copay-box.is-pending { border-color: var(--pending-tint); }
+.copay-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 0; font-size: var(--fs-small); }
+.copay-title { color: var(--ink-2); }
+.copay-amount { font-weight: 600; }
+.copay-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 6px 0 0; font-size: var(--fs-micro); color: var(--ink-3); }
+.copay-line { flex-wrap: wrap; }
+.copay-date { font-size: var(--fs-micro); color: var(--ink-3); }

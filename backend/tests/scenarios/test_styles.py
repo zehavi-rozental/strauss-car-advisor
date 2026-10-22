@@ -2,7 +2,8 @@
 
 העובד המדומה עונה רק על מה שהשאלה הנוכחית מבקשת (expects), לפי הנתונים שלו מקובץ הייחוס:
 - buttons: כל מה שיש לו כפתור — בכפתור; מספר בלי כפתור — המספר לבד (או עם תווית בשאלה מקובצת).
-- short:   "אין", "לא ידוע", מספרים ושמות קצרים. ההשתתפות היום תמיד "לא ידוע" — הנציג עונה.
+- short:   "אין", "לא ידוע", מספרים ושמות קצרים. ההשתתפות היום "לא ידוע" בפעם הראשונה; כשהבוט שואל עליה שוב
+           בסוף (אין חישוב בלעדיה), העובד מוצא אותה בתלוש ועונה. נתוני העובד נשאלים מהעובד, לא מהנציג (כלל A, 22/10).
 - free:    משפטים מלאים עם כל מה שהשאלה ביקשה בהודעה אחת.
 
 בכל שיחה: מגיעים לתוצאה (או לשאלת נציג מוצדקת שנענית), אף תשובה לא חוזרת יותר מפעמיים, אין "לא
@@ -170,7 +171,8 @@ def answer(style: str, emp: Employee, expects: dict[str, Any], reply: str, rephr
         if "car" in names:
             return {"text": emp.typed_car(emp.car) if emp.car else "אין רכב"}
         if "copay" in names:
-            return {"text": "לא ידוע" if original == "short" else num(v["copay"])}
+            asked_again = "חסר לי" in reply or "החישוב מחכה" in reply     # the end of the flow: no calculation without it
+            return {"text": "לא ידוע" if original == "short" and not asked_again else num(v["copay"])}
         if "options" in names and "children" in names and v["children"] >= 4:
             return {"text": labelled("children", v["children"])}     # המסלול המשפחתי תלוי במספר הילדים
         if "options" in names:
@@ -237,13 +239,8 @@ def run_conversation(style: str, emp: Employee) -> dict[str, Any]:
             required = [q for q in questions if q["mode"] == "REQUIRED"]
             assert required, f"{emp.id}/{style}: waiting with no required question\n" + "\n".join(log)
             for q in required:
-                # מוצדקת: רק ההשתתפות של היום, אחרי "לא ידוע" (סגנון קצר)
-                assert q["missing_field"] == "CURRENT_COPAY" and style == "short", (
-                    f"{emp.id}/{style}: unjustified rep question {q['missing_field']}\n" + "\n".join(log))
-                r = client.post(f"/api/rep/questions/{q['id']}/answer", headers=REP,
-                                json={"value": num(emp.values["copay"])})
-                assert r.status_code == 200, r.text
-                rep_answered.append(q["missing_field"])
+                # the employee's own data never goes to the representative (rule A, 22/10): no blocking question here
+                raise AssertionError(f"{emp.id}/{style}: unjustified rep question {q['missing_field']}\n" + "\n".join(log))
             body = client.get(f"/api/conversations/{cid}/updates?after=0").json()
             continue
         fields = fields_of(expects)

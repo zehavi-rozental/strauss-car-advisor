@@ -30,17 +30,18 @@ from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
 from .grounding import (grounded_number, group_named, occupation_named, option_named, said_numbers,
                         without_alternatives, zero_grounded)
-from .parsing import (YEAR_RE, has_all_scope, mask_ages, match_drive, match_occupation, no_car_span, occupation_match,
-                      parse_copay, read_profile, redact_id_numbers)
+from .parsing import (YEAR_RE, has_all_scope, mask_ages, match_drive, match_group, match_occupation, no_car_span,
+                      occupation_match, parse_copay, read_profile, redact_id_numbers)
 from .guards import (FIELD_WORDS, SINGULAR_RE, TAG_RE, Check, Violation, ask_lines, check, content_sentences, drop,
                      has_statement, sentences, strip_tags, verify)
 from .turn import LLM_TOOLS, Candidate, parser_hint, render_catalog, render_faq, run_rounds, state_block, system_message, user_message
-from .option_map import build_option_map, dump_result as _dump, evaluate_option, map_reply
+from .option_map import build_option_map, dump_option, dump_result as _dump, evaluate_option, map_reply
 from .option_map import with_assumptions as _with_assumptions
 from .understanding import NO_CAR_OR_ZERO, NOT_IN_CATALOG, Understanding, rep_scope_ok, says_phrase, understand
 from .stage import (
     allowed_tools,
     current_group,
+    current_unknown,
     MAX_OPTIONS,
     CarClarification,
     ConfirmedCopay,
@@ -64,6 +65,7 @@ from .stage import (
 )
 from .templates import (
     ALL_AT_ONCE,
+    NEXT_AFTER_RESULTS,
     UNANSWERED,
     compare_needs_text,
     unknown_ack_text,
@@ -89,13 +91,16 @@ from .templates import (
     rep_maintenance_text,
     rep_note_text,
     rep_copay_text,
+    rep_group_text,
+    results_explain_text,
+    stated_copay_text,
+    group_conflict_text,
     form_saved_text,
     rep_opt_out_text,
     results_text,
     unusual_fix_text,
 )
 from .tools import (
-    GENERIC_CAR_LABEL,
     OPT_OUT_ID,
     OPT_OUT_WORDS,
     TOOL_SPECS,
@@ -622,12 +627,14 @@ class _Before:
     values: dict          # profile and current-car values before the turn
     group: Optional[str] = None
     unknown: tuple = ()   # fields the employee said they do not know, before the turn
+    car_unknown: tuple = ()   # today's car values the employee said they do not know, before the turn
 
     @classmethod
     def of(cls, state: ConversationState) -> "_Before":
         p = state.profile
         return cls((p.occupation, p.group), tuple(state.selected), state.rank_requested, blocking_rep_reason(state),
-                   _values(state), current_group(state)[0], tuple(p.unknown_fields))
+                   _values(state), current_group(state)[0], tuple(p.unknown_fields),
+                   tuple(current_unknown(state.current)))
 
     def changed(self, state: ConversationState) -> dict[str, Any]:
         return {f: v for f, v in _values(state).items() if v is not None and v != self.values.get(f)}
@@ -643,16 +650,47 @@ class _Before:
         unknown = [f for f in p.unknown_fields if f not in self.unknown]
         if unknown:
             lines.append(unknown_ack_text(unknown))
-        if p.occupation and p.group and (p.occupation, p.group) != self.occupation:
+        conflict = state.group_conflict
+        if conflict is not None and not conflict.announced:
+            lines.append(group_conflict_text(conflict.stated, conflict.table, conflict.occupation))
+            conflict.announced = True
+        elif p.occupation and p.group and (p.occupation, p.group) != self.occupation and conflict is None:
             lines.append(confirm_group_text(p.occupation, p.group))
+        if [f for f in current_unknown(state.current) if f not in self.car_unknown]:
+            lines.append(CURRENT_UNKNOWN_ACK)
         if state.selected and tuple(state.selected) != self.selected and not just_calculated:
             labels = {o.id: o.label for o in available_options(snapshot, state)}
             lines.append(chosen_options_text([labels.get(i, i) for i in state.selected]))
         if state.rank_requested and not self.rank_requested:
             lines.append(RANK_DEFERRED)
-        if state.pending_rep is None and self.rep_reason is None and blocking_rep_reason(state) is not None:
+        if (state.pending_rep is None and self.rep_reason is None and blocking_rep_reason(state) is not None
+                and state.group_conflict is None):
             lines.append(REP_DEFERRED)
         return lines
+
+
+# "בפיקנטו אני אשלם 300": a copay the employee expects for a new car (C1) — an amount with a paying word, next to an
+# alternative they may compare (never today's car)
+_EXPECTED_COPAY_RE = re.compile(r"(?:אשלם|נשלם|תשלם|ישלם|לשלם|משלם|משלמת|השתתפות|תעלה\s+לי|יעלה\s+לי)[^\d\n]{0,20}?"
+                                r"(\d[\d,]*)")
+CURRENT_UNKNOWN_ACK = ("רשמתי שזה לא ידוע. בלי הסכום הזה אין חישוב, וגם לא חישוב עם ערך משוער; הוא מופיע בתלוש השכר"
+                       " החודשי. נמשיך, ונחזור אליו בסוף.")
+
+
+def _stated_new_copay(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Optional[tuple[Any, Decimal]]:
+    """The option and the amount when the message gives a copay for one alternative (C1): the car situation is known
+    and cars are being compared, exactly one available alternative is named, and it is not today's car."""
+    if state.current.source is None or not state.selected:
+        return None
+    m = _EXPECTED_COPAY_RE.search(text)
+    if m is None:
+        return None
+    options = {o.car.catalog_code: o for o in available_options(snapshot, state) if o.car is not None}
+    cars = [c for c in named_cars(text, snapshot.catalog)
+            if c.catalog_code in options and c.catalog_code != state.current.catalog_code]
+    if len(cars) != 1:
+        return None
+    return options[cars[0].catalog_code], Decimal(m.group(1).replace(",", ""))
 
 
 class Agent:
@@ -788,6 +826,9 @@ class Agent:
                 # "כן, ופנסיה 6%": the answer, and what else the message says (read in full only)
                 plan = ParserPlan([*plan.calls, *more.calls], True, notice=more.notice, direct=True,
                                   asks=plan.asks)
+        elif (stated := _stated_new_copay(state, snapshot, text)) is not None:
+            plan = self._note_stated_copay(ctx, *stated)
+            und = replace(und, about_results=True, remainder="")
         elif state.pending_occupation is not None and (answer := _occupation_answer(state, text)) is not None:
             plan = _occupation_plan(ctx, answer)  # "כן" / מספר הצעה / "לא" על "לא מצאתי את ... בטבלה"
         elif state.pending_clarification is not None and (answer := _clarification_answer(text)) is not None:
@@ -969,6 +1010,9 @@ class Agent:
                  # a truly unclear question: one line, no buttons, never the representative
                  *([snapshot.faq.clarify] if und.clarify and not (und.redirect or und.unanswered or und.complaint)
                    else [])]
+        about_results = und.about_results and state.stage == Stage.PRESENTED and bool(state.results)
+        if about_results and plan.notice is None:
+            lines.append(results_explain_text(state, und.result_focus))
         # a request the bot cannot do yet ("תשווה ביניהם" before the profile is complete): what is needed
         if (und.compare and not just_calculated and not map_shown
                 and state.stage not in (Stage.PRESENTED, Stage.WAITING_FOR_REP) and RANK_DEFERRED not in confirmations):
@@ -979,7 +1023,8 @@ class Agent:
                 just_calculated=just_calculated, matched_car=matched_car, notice="\n".join(problems) or notice,
                 rep_opened=rep_opened, notice_asks=bool(problems) or plan.asks is not None, cta_field=asks_field,
                 confirmations=[*confirmations, *refused], answers=list(zip(answers, terms)),
-                follow_up=und.presence, explain=und.help or len(no_car_lines) > 1, extra=lines)
+                follow_up=und.presence, explain=und.help or len(no_car_lines) > 1, extra=lines,
+                about_results=about_results)
             if map_line:
                 built.ack.append(map_line)  # after what was saved and identified this turn
             if map_shown and state.stage in (Stage.CHOOSE_OPTIONS, Stage.PRESENTED):
@@ -993,7 +1038,8 @@ class Agent:
         state.unknown_told = state.unknown_told + 1 if current_group(state)[0] == "unknown" else 0
         state.misses = 0 if (understood or problems or und.anything) else state.misses + 1
         state.rep_skipped = False
-        state.offered_rank = reply_plan.fixed and state.stage == Stage.PRESENTED and not state.ranked_count
+        state.offered_rank = ((reply_plan.fixed or reply_plan.cta == NEXT_AFTER_RESULTS)
+                              and state.stage == Stage.PRESENTED and not state.ranked_count)
         state.last_asked = [] if just_calculated else list(current_group(state)[1])
         state.last_ask = reply_plan.ask[-1] if reply_plan.ask else ""
         link = call_to_action(state, snapshot)[1] if not reply_plan.fixed else None
@@ -1013,6 +1059,7 @@ class Agent:
         reply, source, blocked, say = self._guarded(candidate, draft, ctx, history, text, deadline, conflicts,
                                                     check_repeat=not (und.faq_ids or und.catalog or restated_no_car),
                                                     must_answer=bool(und.audit or und.all_at_once or und.faq_ids
+                                                                     or und.about_results
                                                                      or und.catalog or und.unanswered or und.help
                                                                      or und.complaint or restated_no_car))
         if (source == "template" and und.unanswered and state.unanswered_question is None and not rep_skipped
@@ -1228,6 +1275,10 @@ class Agent:
                              len(spread))
                     state.pace = "one_at_a_time"
                     args = {k: v for k, v in args.items() if k not in spread}
+            if args.get("current_copay") is not None and _stated_new_copay(state, ctx.snapshot, text) is not None:
+                args = {k: v for k, v in args.items() if k != "current_copay"}
+                if not any(v not in (None, [], False) for k, v in args.items() if k != "approximate_fields"):
+                    return None
             args = Agent._grounded(ctx, args, text)
             if args is None:
                 return None
@@ -1244,6 +1295,11 @@ class Agent:
                 log.info("bare value for base_salary refused (the group or the role is asked)")
                 return None
             return ToolCall(call.name, args, call.id)
+        if call.name == "rank_options" and not und.rank:
+            # ranking replaces the cars to compare: only when the employee asked for it ("הכי משתלם", "דרג"), never
+            # on "השווה את כל האפשרויות" (the map keeps the choice) — live transcript 22/10
+            log.info("rank_options without a ranking request; refused")
+            return None
         if call.name == "select_options" and not Agent._options_said(ctx, call.args.get("options", []), text):
             log.info("alternatives not named by the employee; not selected")
             return None
@@ -1350,12 +1406,48 @@ class Agent:
         calls = tuple(c for c in response.tool_calls if c.name == "match_current_car")
         return calls or None
 
+    def _request_new_car_copay(self, ctx: ToolContext, option: Any, policy: str, replace: bool = False) -> None:
+        """The representative is asked the copay of a new car compared (C1): the catalog amount to confirm, or — when
+        the catalog has none (C2) — the amount itself; a copay the employee expects goes with it. Context: the group,
+        the car, the catalog amount and that expectation only — never pay data."""
+        state = ctx.state
+        default = option.car.default_copay
+        stated = state.stated_new_copays.get(option.id)
+        context = {"group": state.profile.group, "car_label": option.label, "catalog_code": option.car.catalog_code,
+                   "suggested_amount": str(default) if default is not None else None,
+                   "employee_stated_amount": str(stated) if stated is not None else None}
+        if default is None:
+            text = f"מה ההשתתפות החודשית של העובד ב-{option.label}? אין לרכב הזה סכום בקטלוג."
+            mode = Mode.REQUIRED
+        else:
+            text = f"מה ההשתתפות החודשית של העובד ב-{option.label}? לפי הקטלוג: {default} ₪"
+            mode = Mode.REQUIRED if policy == "REP_REQUIRED" else Mode.CONFIRM
+        if stated is not None:
+            text += f". העובד ציין שהוא מצפה להשתתפות של {stated} ₪"
+        self._request(ctx, MissingField.NEW_CAR_COPAY, mode, AnswerType.MONEY, text, context,
+                      str(default) if default is not None else None, option.id, replace=replace)
+
+    def _note_stated_copay(self, ctx: ToolContext, option: Any, amount: Decimal) -> ParserPlan:
+        """A copay the employee expects for a new car (C1): kept apart from the calculation, which stays on the catalog
+        amount until the representative answers; the open question is replaced with one that carries it."""
+        state = ctx.state
+        state.stated_new_copays[option.id] = amount
+        if option.id in state.calculated_for and option.id not in state.confirmed_copays:
+            self._request_new_car_copay(ctx, option, ctx.snapshot.extensions.copay_policy, replace=True)
+            for item in state.results:          # shown next to the catalog amount on the card, never used
+                if item.option_id == option.id:
+                    item.result["employee_stated_copay"] = str(amount)
+        return ParserPlan(complete=True, notice=stated_copay_text(option.label, amount, option.car.default_copay),
+                          direct=True)
+
     @staticmethod
     def _request(ctx: ToolContext, field: MissingField, mode: Mode, answer_type: AnswerType, text: str,
-                 context: dict[str, Optional[str]], suggested: Optional[str] = None, option_id: str = "") -> None:
+                 context: dict[str, Optional[str]], suggested: Optional[str] = None, option_id: str = "",
+                 replace: bool = False) -> None:
         """שאלה לנציג. ההקשר: רק מה שהנציג צריך (קבוצה, רכב, סכום מוצע, עיסוק) — בלי שכר."""
         clean = {k: v for k, v in context.items() if v is not None}
-        ctx.question_requests.append(QuestionRequest(field, mode, answer_type, text, clean, suggested, option_id))
+        ctx.question_requests.append(QuestionRequest(field, mode, answer_type, text, clean, suggested, option_id,
+                                                     replace))
 
     @staticmethod
     def _resolve_map(ctx: ToolContext) -> bool:
@@ -1381,31 +1473,23 @@ class Agent:
                 state.rank_requested = False     # אין חלופות זכאיות לדירוג — שואלים על החלופות
 
     def _open_blocking_rep(self, ctx: ToolContext) -> None:
-        """שאלה לנציג רק אחרי שהפרופיל מלא: קודם משלימים את מה שהעובד יודע."""
+        """שאלה לנציג רק אחרי שהפרופיל מלא: קודם משלימים את מה שהעובד יודע. Only a group that contradicts the
+        occupations table blocks the conversation (C4); today's car, its copay and its use value are the employee's
+        own data and are asked from the employee, never the representative (rule A, 22/10)."""
         state = ctx.state
         if state.pending_rep is not None or open_profile(state.profile) or state.current.source is None:
             return              # first the profile and the car itself; a question about "which car?" waits
-        reason = blocking_rep_reason(state)
-        if reason is None:
+        if blocking_rep_reason(state) != RepReason.ELIGIBILITY_GROUP:
             return
-        p, c = state.profile, state.current
-        if reason == RepReason.CURRENT_COPAY:
-            suggested = None
-            if c.catalog_code:
-                car = next(x for x in ctx.snapshot.catalog if x.catalog_code == c.catalog_code)
-                suggested = str(car.default_copay)
-            label = rep_car_label(c, ctx.snapshot) or GENERIC_CAR_LABEL
-            text = f"מה ההשתתפות החודשית הנוכחית של העובד ב-{label}?" + (
-                f" לפי הקטלוג: {suggested} ₪" if suggested else "")
-            self._request(ctx, MissingField.CURRENT_COPAY, Mode.REQUIRED, AnswerType.MONEY, text,
-                          {"group": p.group, "car_label": label, "catalog_code": c.catalog_code,
-                           "suggested_amount": suggested}, suggested)
-        else:
-            self._request(ctx, MissingField.CURRENT_USE_VALUE, Mode.REQUIRED, AnswerType.MONEY,
-                          f"מה שווי השימוש החודשי של הרכב הנוכחי של העובד ({rep_car_label(c, ctx.snapshot) or GENERIC_CAR_LABEL})?",
-                          {"group": p.group, "car_label": rep_car_label(c, ctx.snapshot) or GENERIC_CAR_LABEL})
-        state.pending_rep = PendingRep(reason=reason, resume_stage=Stage.COLLECT_CURRENT_CAR,
-                                       labels=[rep_car_label(c, ctx.snapshot) or ""])
+        conflict = state.group_conflict
+        groups = ", ".join(ctx.snapshot.calc.group_order)
+        self._request(ctx, MissingField.ELIGIBILITY_GROUP, Mode.REQUIRED, AnswerType.TEXT,
+                      f"העובד ציין קבוצת זכאות {conflict.stated}, ולפי טבלת העיסוקים התפקיד \"{conflict.occupation}\" "
+                      f"שייך לקבוצה {conflict.table}. איזו קבוצה חלה עליו? ענו באות הקבוצה ({groups}).",
+                      {"occupation_text": conflict.occupation, "stated_group": conflict.stated,
+                       "table_group": conflict.table})
+        state.pending_rep = PendingRep(reason=RepReason.ELIGIBILITY_GROUP, resume_stage=Stage.COLLECT_PROFILE,
+                                       labels=[])
 
     # ---------- תשובות הנציג ----------
 
@@ -1422,7 +1506,8 @@ class Agent:
             pending.question_ids.remove(qid)
             if not pending.question_ids:
                 state.pending_rep = None
-        amount = (Decimal(event.value) if field not in (MissingField.OCCUPATION_OPT_OUT, MissingField.GENERAL_QUESTION)
+        amount = (Decimal(event.value) if field not in (MissingField.OCCUPATION_OPT_OUT, MissingField.GENERAL_QUESTION,
+                                                        MissingField.ELIGIBILITY_GROUP)
                   else None)
 
         if field == MissingField.NEW_CAR_COPAY:
@@ -1453,6 +1538,12 @@ class Agent:
             state.profile.rep_opt_out_maintenance = amount
             invalidate_results(state)
             lines.append(rep_maintenance_text(amount))
+        elif field == MissingField.ELIGIBILITY_GROUP:
+            group = match_group(snapshot.calc.group_order, str(event.value)) or str(event.value).strip()
+            state.profile.group = group
+            state.group_conflict = None
+            invalidate_results(state)
+            lines.append(rep_group_text(group))
         elif field == MissingField.GENERAL_QUESTION:
             # the representative's own words; kept with the question, so asking it again shows this answer
             asked = state.general_questions.get(event.option_id)
@@ -1511,7 +1602,10 @@ class Agent:
                 confirmed_assumption(item.label, event.effective_date) if a == pending_text else a
                 for a in item.result.get("assumptions", [])]
             item.result["copay_pending"] = False
-            return rep_confirmed_text(item.label, event.effective_date)
+            item.result["copay_source"] = "representative"
+            item.result["copay_effective_date"] = event.effective_date.isoformat() if event.effective_date else None
+            item.result.pop("employee_stated_copay", None)     # answered: the representative's amount is the one
+            return rep_confirmed_text(item.label, event.effective_date, amount, item.result.get("delta_display"))
         option = next((o for o in available_options(snap, state) if o.id == event.option_id), None)
         if option is None:
             return None
@@ -1524,10 +1618,14 @@ class Agent:
                   "occupation": occupation.model_dump(mode="json") if occupation else None}
         old_delta = item.result.get("delta_display")
         item.run_id = record_run(option.label, inputs, result)
-        item.result = _dump(result)
-        if old_delta is None or result.delta_display is None:
-            return rep_confirmed_text(item.label, event.effective_date)
-        return rep_changed_text(item.label, amount, event.effective_date, old_delta, result.delta_display)
+        item.result = dump_option(state, option.id, alternative, result)
+        if result.delta_display is None:
+            return rep_confirmed_text(item.label, event.effective_date, amount)
+        return rep_changed_text(item.label, amount, event.effective_date, old_delta, result.delta_display,
+                                catalog=option.car.default_copay if option.car else None,
+                                today_net=result.today.net_display if result.today else None,
+                                new_net=result.alternative.net_display if result.alternative else None,
+                                why=item.result.get("why") or "")
 
     # ---------- חישוב ----------
 
@@ -1552,19 +1650,15 @@ class Agent:
             }
             run_id = record_run(option.label, inputs, result)
             results.append(OptionResult(option_id=option_id, label=option.label, run_id=run_id,
-                                        result=_dump(result)))
+                                        result=dump_option(state, option_id, alternative, result)))
             needs_opt_out = needs_opt_out or "OCCUPATION_OPT_OUT" in result.missing_fields
+            # no catalog amount is always pending (rules.car_state), whatever the policy: asked, never only said (D8)
             pending_copay = getattr(alternative, "copay_status", None) == CopayStatus.CATALOG_DEFAULT_PENDING
             if option.car is not None and pending_copay and result.status != CalcStatus.NOT_ELIGIBLE:
-                # השתתפות לפי הקטלוג: הנציג מאשר (CONFIRM, התוצאה מוצגת) או חייב לענות (REP_REQUIRED)
-                mode = Mode.REQUIRED if policy == "REP_REQUIRED" else Mode.CONFIRM
-                default = str(option.car.default_copay)
-                self._request(ctx, MissingField.NEW_CAR_COPAY, mode, AnswerType.MONEY,
-                              f"מה ההשתתפות החודשית של העובד ב-{option.label}? לפי הקטלוג: {default} ₪",
-                              {"group": state.profile.group, "car_label": option.label,
-                               "catalog_code": option.car.catalog_code, "suggested_amount": default},
-                              default, option.id)
-                if mode == Mode.REQUIRED:
+                # השתתפות לפי הקטלוג: הנציג מאשר (CONFIRM, התוצאה מוצגת) או חייב לענות (REP_REQUIRED). A car the
+                # catalog has no amount for is not calculated (C2): the representative must answer, the others go on
+                self._request_new_car_copay(ctx, option, policy)
+                if policy == "REP_REQUIRED" and option.car.default_copay is not None:
                     required_labels.append(option.label)
         state.results = results
         state.calculated_for = list(state.selected)

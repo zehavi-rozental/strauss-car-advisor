@@ -11,7 +11,7 @@ import { Money } from '../format/Amount'
 import { Icon } from '../ui/Icon'
 import { useDialog } from '../ui/useDialog'
 import type { Cell } from './comparison'
-import { CarName, NetChange, StateBadge } from './ResultCard'
+import { CarName, CopayLine, NetChange, StateBadge } from './ResultCard'
 import { SelectionCard } from './SelectionCard'
 import { rankResults } from './SummaryCard'
 import { breakdownRows, driverBars, resultState, toneOf } from './resultView'
@@ -99,11 +99,13 @@ export function ComparisonPanel({ results, stale = false, expects, disabled, onC
                         <span className="answer-figure"><Money value={r.alternative!.net_display} /></span>
                         <NetChange value={r.delta_display!} />
                       </span>
-                      <span className="compare-line">
-                        <span>השתתפות</span>
-                        <Money value={r.alternative!.copay} />
-                        {r.copay_pending && <span className="tag tag-pending">ממתין לאישור</span>}
-                      </span>
+                      {r.copay_source ? <CopayLine result={r} compact /> : (
+                        <span className="compare-line">
+                          <span>השתתפות</span>
+                          <Money value={r.alternative!.copay} />
+                          {r.copay_pending && <span className="tag tag-pending">ממתין לאישור</span>}
+                        </span>
+                      )}
                       {r.why && <span className="compare-why">{r.why}</span>}
                     </>
                   ) : (
@@ -167,6 +169,9 @@ export function ComparisonPanel({ results, stale = false, expects, disabled, onC
                             <CellView cell={c} />
                             {r.key === 'copay' && shown[n].result.copay_pending && (
                               <span className="tag tag-pending">ממתין לאישור</span>
+                            )}
+                            {r.key === 'copay' && shown[n].result.copay_source === 'representative' && (
+                              <span className="tag tag-up">אושר על ידי הנציג</span>
                             )}
                           </td>
                         ))}

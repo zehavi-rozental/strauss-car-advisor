@@ -525,7 +525,9 @@ def _profile_group_plan(snapshot: RulesSnapshot, group: Optional[str], fields: l
     fillers = list(ext.profile_fillers)
     if group == "Q1":
         hit = _group_reading(text, snapshot.calc.group_order)
-        if hit and "occupation" not in found:
+        if hit:
+            # a group said next to a role is read too: if the occupations table gives the role another group, the
+            # tool does not decide — the representative does (C4, 22/10); before, the stated group was dropped
             found["eligibility_group"] = hit[0]
             spans.append(hit[1])
             fillers += ["היא", "הוא", "בלבד", "הקבוצה", "קבוצת", "זכאות", "שלי"]   # group-phrasing words

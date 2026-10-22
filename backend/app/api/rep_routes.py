@@ -115,6 +115,12 @@ def _check_range(request: Request, field: MissingField, value: Any) -> None:
         raise AnswerInvalid(f"הסכום מחוץ לטווח הסביר לשדה הזה ({low}–{high} ₪). בדקו אותו ושלחו שוב.")
 
 
+def _group_letter(value: Any, order: Any) -> Optional[str]:
+    """A group the representative wrote ("ב", "קבוצה ב"): one of the configured group letters, else None (422)."""
+    text = str(value or "").replace("קבוצה", "").strip().strip("'\"")
+    return text if text in order else None
+
+
 @router.post("/questions/{question_id}/answer")
 def answer_question(question_id: str, body: AnswerIn, request: Request,
                     name: str = Depends(rep_name)) -> dict[str, Any]:
@@ -126,7 +132,11 @@ def answer_question(question_id: str, body: AnswerIn, request: Request,
         except ValueError:
             raise HTTPException(422, "תאריך תחילה לא תקין (YYYY-MM-DD)") from None
     try:
-        _check_range(request, context(request).cases.get(question_id).missing_field, body.value)
+        field = context(request).cases.get(question_id).missing_field
+        _check_range(request, field, body.value)
+        order = context(request).rules.current.calc.group_order
+        if field == MissingField.ELIGIBILITY_GROUP and _group_letter(body.value, order) is None:
+            raise AnswerInvalid(f"כתבו את אות הקבוצה: {', '.join(order)}.")
         view = context(request).cases.answer(question_id, body.value, effective_date=effective,
                                              note=body.note, answered_by=name)
     except QuestionNotFound:

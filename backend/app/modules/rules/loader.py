@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Iterable, Literal
+from typing import Any, Iterable, Literal, Optional
 
 import yaml
 from openpyxl import load_workbook
@@ -121,6 +121,11 @@ def _money(v: Any) -> Decimal:
     return Decimal(str(v))
 
 
+def _money_or_none(v: Any) -> Optional[Decimal]:
+    """A value the catalog may leave empty (a car's default copay): None, never a guessed amount."""
+    return None if v is None or v == "" else Decimal(str(v))
+
+
 def _yes(v: Any) -> bool:
     return str(v).strip() in ("כן", "true", "True", "1")
 
@@ -190,7 +195,7 @@ def _load_workbook(path: Path, ext: Extensions, strauss: StraussRules):
             list_price=_money(r["מחיר מחירון"]),
             use_value=_money(r["שווי שימוש חודשי"]),
             monthly_cost=_money(r["עלות חודשית לחברה (דמה)"]),
-            default_copay=_money(r["השתתפות עובד ברירת מחדל (דמה)"]),
+            default_copay=_money_or_none(r["השתתפות עובד ברירת מחדל (דמה)"]),
         ))
 
     known_groups = set(strauss.group_order) | {"משפחתי"}

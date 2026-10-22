@@ -86,10 +86,13 @@ def test_the_view_and_the_map_builder_agree(sessions):
 def test_a_representatives_answer_that_completes_the_map_shows_it(engine):
     client = make_client(engine, rep_access_token=TOKEN)
     cid = client.post("/api/conversations").json()["conversation_id"]
-    for text in (PROFILE, "יש לי קורולה קרוס", "לא יודעת", "השווה את כל האפשרויות שלי"):
+    # the wait: a stated group the occupations table contradicts (C4); the representative's group completes it
+    for text in ("קבוצה ב, שכר בסיס 18,500", "אני מנהלת מוצר",
+                 "אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים",
+                 "יש לי קורולה קרוס, משלמת 300", "השווה את כל האפשרויות שלי"):
         say(client, cid, text)
     qid = client.get("/api/rep/questions", headers={"X-Rep-Token": TOKEN}).json()[0]["id"]
-    client.post(f"/api/rep/questions/{qid}/answer", headers={"X-Rep-Token": TOKEN}, json={"value": "300"})
+    client.post(f"/api/rep/questions/{qid}/answer", headers={"X-Rep-Token": TOKEN}, json={"value": "ג"})
     texts = [m["content"] for m in view(client, cid)["messages"] if m["role"] != "user"]
     # built for the first time by the answer: the map itself is presented, not only "עדכנתי"
     assert any("מיפיתי את כל" in t for t in texts[-2:]), texts[-3:]

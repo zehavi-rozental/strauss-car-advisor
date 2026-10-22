@@ -21,7 +21,7 @@ from app.modules.rules.public import FAMILY_GROUP, CatalogCar, Faq, FaqEntry, Ru
 
 from .fallback import _RANK_RE, named_cars
 from .parsing import _NO_COPAY_RE, COMPANY_CAR, match_occupation, no_car_span
-from .stage import NO_CAR_OR_ZERO, ConversationState  # noqa: F401  (NO_CAR_OR_ZERO: re-exported for the agent)
+from .stage import NO_CAR_OR_ZERO, ConversationState, Stage  # noqa: F401  (NO_CAR_OR_ZERO: re-exported)
 
 _QUESTION_WORDS = ("מה", "מהו", "מהי", "מהם", "למה", "איך", "איפה", "האם", "מתי", "מי", "מאיפה", "ממה", "כמה זה",
                    "מה זה", "מה ההבדל", "באיזה", "לאן")
@@ -74,6 +74,9 @@ class Understanding:
     remainder: str = ""                                     # the message without questions (read by the parser)
     catalog: list[str] = field(default_factory=list)        # answers from the company catalog ("יש לכם קורולה?")
     clarify: bool = False                                   # a question whose intent is truly unclear: say it again
+    # results on screen and the question is about them ("למה ההערכה זמנית?", "זה סופי?"): answered from them (C5)
+    about_results: bool = False
+    result_focus: list[str] = field(default_factory=list)  # the options the question names ("ולמה דווקא אטו?")
 
     @property
     def question_only(self) -> bool:
@@ -83,7 +86,7 @@ class Understanding:
     @property
     def anything(self) -> bool:
         return bool(self.audit or self.all_at_once or self.faq_ids or self.catalog or self.unanswered or self.presence or self.help or self.redirect
-                    or self.ambiguity or self.compare or self.complaint or self.clarify)
+                    or self.ambiguity or self.compare or self.complaint or self.clarify or self.about_results)
 
 
 def meaningful(text: str) -> bool:
@@ -311,6 +314,8 @@ def question_scope(snapshot: RulesSnapshot, clause: str) -> str:
         return "off"
     if _names_any(faq.net_intent_terms, ws):
         return "net"
+    if _about_own_data(snapshot, clause, ws):
+        return "self"
     if _strong(snapshot, clause, ws) or _topic_hit(faq, clause) or _anchored(snapshot, clause, ws):
         return "org"
     if _names_any(faq.context_markers, ws, starts=False):
@@ -318,6 +323,33 @@ def question_scope(snapshot: RulesSnapshot, clause: str) -> str:
     if _names_any(faq.reference_terms, ws, starts=False):
         return "org"                                       # "מה המס על הרכב?": the car being discussed
     return "unclear"
+
+
+def _about_own_data(snapshot: RulesSnapshot, clause: str, ws: list[str]) -> bool:
+    """The question names only the employee's own data ("חייבים לכתוב עמלות?", "למה אתה שואל על ילדים?"): it is about
+    why the bot asks, answered here; the representative never knows (or sees) the employee's pay (rule A, 22/10)."""
+    faq = snapshot.faq
+    if not faq.employee_data_terms or not _names_any(faq.employee_data_terms, ws):
+        return False
+    own = {_spelling(t) for t in faq.employee_data_terms}
+    others = [t for t in faq.domain_terms if not _generic(faq, t) and _spelling(t) not in own]
+    return not (_names_any(others, ws) or named_cars(clause, snapshot.catalog)
+                or any(_contains_any(clause, names) for names in snapshot.extensions.manufacturer_brands.values())
+                or _names_any(faq.company_anchor_terms, ws, starts=False)
+                or match_occupation(snapshot.occupations.keys(), clause))
+
+
+def _about_results(snapshot: RulesSnapshot, state: ConversationState, clause: str) -> list[str]:
+    """With results on screen: the options the question is about — the ones it names, or all of them when it names
+    what a result is made of ("הערכה", "ממתינה לאישור", "השתתפות"); [] when it is about something else."""
+    ws = [_spelling(w) for w in words(clause)]
+    named = {c.catalog_code for c in named_cars(clause, snapshot.catalog)}
+    focus = [r.option_id for r in state.results if r.option_id in named]
+    if focus:
+        return focus
+    if snapshot.faq.result_terms and _names_any(snapshot.faq.result_terms, ws):
+        return [r.option_id for r in state.results]
+    return []
 
 
 def in_scope(snapshot: RulesSnapshot, text: str) -> bool:
@@ -416,6 +448,9 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
                 scope = question_scope(snapshot, clause)
                 if scope == "net":
                     net_question = True               # "אני מרוויחה יותר?": the calculation answers it
+                elif scope == "self":
+                    if "why_ask" not in u.faq_ids and snapshot.faq.get("why_ask") is not None:
+                        u.faq_ids.append("why_ask")   # about the employee's own data: why we ask, never the rep
                 elif scope == "org":
                     u.unanswered.append(clause.strip())   # a concrete question: the representative may answer
                 elif scope == "follow":
@@ -428,6 +463,16 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
                 u.faq_ids.append(entry)
             continue
         kept.append(clause)
+    if state.results and state.stage == Stage.PRESENTED:
+        # results on screen: a follow-up, an unclear question or one about what a result is made of is about them
+        # (answered from them, C5), never "choose cars" again and never the representative
+        about = [q for q in u.unanswered if _about_results(snapshot, state, q)]
+        if about or u.help or u.clarify:
+            u.about_results = True
+            u.result_focus = [o for q in about for o in _about_results(snapshot, state, q)
+                              if o != "" and len(_about_results(snapshot, state, q)) < len(state.results)]
+            u.unanswered = [q for q in u.unanswered if q not in about]
+            u.help = u.clarify = False
     remainder = "\n".join(c.strip() for c in kept).strip()      # clause boundaries stay (a first-line value)
     u.compare = _asks_to_compare(remainder) or u.map_all or net_question
     # a ranking / recommendation request ("הכי משתלם", "תמליץ", "דרג") is a request to rank ALL eligible

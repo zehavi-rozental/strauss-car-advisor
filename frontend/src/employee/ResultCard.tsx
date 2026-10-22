@@ -8,7 +8,8 @@ import { Money } from '../format/Amount'
 import { annualFromMonthly } from '../format/money'
 import { Icon } from '../ui/Icon'
 import { missingLabel, splitLabel } from './labels'
-import { STATE_LABEL, STATE_NOTE, driverBars, resultState, toneOf } from './resultView'
+import { PENDING_COPAY_LABEL, STATE_LABEL, STATE_NOTE, copayInfo, driverBars, resultState, toneOf } from './resultView'
+import type { ScenarioResult } from '../api/types'
 
 /** "הנטו שלכם יגדל ב-X ₪" / "יקטן ב-X ₪": future tense, readable without niqqud. */
 function Headline({ delta, value }: { delta: number; value: string }) {
@@ -50,9 +51,49 @@ export function NetChange({ value, suffix = 'לעומת היום' }: { value: st
 export function StateBadge({ state }: { state: ReturnType<typeof resultState> }) {
   return (
     <span className={`state state-${state}`}>
-      <Icon name={state === 'pending' ? 'clock' : state === 'complete' ? 'check' : 'info'} size={14} />
+      <Icon name={state === 'pending' ? 'clock' : state === 'complete' || state === 'approved' ? 'check' : 'info'} size={14} />
       {STATE_LABEL[state]}
     </span>
+  )
+}
+
+/** The new car's copay for one option: amount, source, approval status, its effect on the net, and the date the
+ *  representative's amount applies from. "compact" is the one-line form for the comparison panel. */
+export function CopayLine({ result, compact = false }: { result: ScenarioResult; compact?: boolean }) {
+  const c = copayInfo(result)
+  if (!c) return null
+  const tag = <span className={`tag tag-${c.tone === 'approved' ? 'up' : c.tone === 'final' ? 'plain' : 'pending'}`}>{c.status}</span>
+  if (compact) {
+    return (
+      <span className="compare-line copay-line">
+        <span>השתתפות</span>
+        {c.amount != null ? <Money value={c.amount} /> : <span>חסר סכום</span>}
+        {tag}
+        {c.effective && <span className="copay-date">{c.effective}</span>}
+      </span>
+    )
+  }
+  return (
+    <div className={`copay-box is-${c.tone}`} aria-label="ההשתתפות ברכב החדש">
+      <p className="copay-head">
+        <span className="copay-title">ההשתתפות ברכב החדש</span>
+        {c.amount != null && <span className="copay-amount"><Money value={c.amount} /> בחודש</span>}
+        {tag}
+      </p>
+      <p className="copay-meta">
+        <span>{c.source}</span>
+        {c.effective && <span>{c.effective}</span>}
+        {c.effect != null && <span>השפעה על הנטו לעומת היום: <Money value={c.effect} signed /></span>}
+      </p>
+      {c.stated != null && (
+        <p className="copay-meta">
+          ציינתם שתשלמו <Money value={c.stated} />.{c.tone === 'pending' && ' שלחתי את זה לנציג התחבורה יחד עם הסכום שבקטלוג.'}
+        </p>
+      )}
+      {c.tone === 'pending' && (
+        <p className="copay-meta">הנטו כאן הוא הערכה לפי הסכום שבקטלוג. אם הנציג יקבע סכום אחר, הנטו ישתנה בהתאם.</p>
+      )}
+    </div>
   )
 }
 
@@ -78,6 +119,7 @@ export function ResultCard({ item, onOpenTable }: { item: OptionResult; onOpenTa
               {r.missing_fields.map((f) => <li key={f}>{missingLabel(f)}</li>)}
             </ul>
           )}
+          {r.copay_source === 'missing' && <CopayLine result={r} />}
         </div>
       )}
       <footer className="result-foot">
@@ -123,10 +165,11 @@ function OkBody({ item }: { item: OptionResult }) {
         </div>
         {state === 'pending' && (
           <p className="pending-note">
-            <span className="tag tag-pending">ההשתתפות לפי הקטלוג, ממתינה לאישור נציג</span>
+            <span className="tag tag-pending">{PENDING_COPAY_LABEL}</span>
           </p>
         )}
       </div>
+      <CopayLine result={r} />
 
       {/* layer 2: what moved it */}
       {bars.length > 0 && (

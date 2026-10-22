@@ -95,9 +95,9 @@ def test_two_conversations_do_not_share_state(sessions):
 def test_unknown_copay_does_not_produce_a_final_net(sessions):
     svc = _svc(sessions)
     turn, token = svc.start()
-    for t in [FULL, "יש לי קורולה קרוס", "לא יודע"]:    # copay unknown -> a rep question
+    for t in [FULL, "יש לי קורולה קרוס", "לא יודע", "אטו 3"]:    # copay unknown: recorded (rule A)
         turn = svc.send(turn.conversation_id, token, t)
-    assert turn.stage == Stage.WAITING_FOR_REP and turn.results == []
+    assert turn.results == [] and svc.cases.list_open() == []    # no net, and never a question to the rep
 
 
 # ---------- a 9-digit id number is never echoed back ----------

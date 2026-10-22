@@ -39,6 +39,7 @@ from .llm.port import ToolSpec
 from .parsing import match_drive, match_group, match_occupation, parse_decimal, similar_occupations
 from .stage import (
     NO_CAR_OR_ZERO,
+    GroupConflict,
     PROFILE_ARGS,
     ExcludedOption,
     MAX_OPTIONS,
@@ -271,9 +272,16 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
     if args.occupation:
         name = match_occupation(snap.occupations.keys(), args.occupation)
         if name:
+            table = snap.occupations[name].group
+            # a group the employee states (now or before the role) that the occupations table contradicts: neither
+            # code nor the model decides it, the transport representative does (C4, 22/10)
+            said = match_group(snap.calc.group_order, args.eligibility_group) if args.eligibility_group else (
+                p.group if p.group and p.occupation_unknown and not p.occupation and not p.occupation_text else None)
             p.occupation, p.occupation_text, p.occupation_unknown = name, None, False
-            p.group = snap.occupations[name].group
+            p.group = table
             saved.append("occupation")
+            if said and said != table:
+                ctx.state.group_conflict = GroupConflict(stated=said, table=table, occupation=name)
         elif ctx.allow_unknown_occupation and looks_like_title(snap, args.occupation):
             # קבוצה שכבר נמסרה (Q1) נשמרת; אחרת היא נשאלת אחרי התפקיד
             p.occupation, p.occupation_text, p.occupation_unknown = None, args.occupation.strip()[:80], True
@@ -295,7 +303,12 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
 
     if args.eligibility_group:
         group = match_group(snap.calc.group_order, args.eligibility_group)
-        if p.occupation:
+        if p.occupation and group and group != p.group and ctx.state.group_conflict is None and not args.occupation:
+            # the role is known and the employee now states another group: the representative decides (C4)
+            ctx.state.group_conflict = GroupConflict(stated=group, table=p.group or "", occupation=p.occupation)
+            ignored.append({"field": "eligibility_group", "reason": "contradicts the occupations table: the "
+                                                                    "transport representative is asked"})
+        elif p.occupation:
             ignored.append({"field": "eligibility_group", "reason": "הקבוצה נקבעת לפי טבלת העיסוקים"})
         elif group is None:
             ignored.append({"field": "eligibility_group", "reason": "קבוצה לא מוכרת"})
@@ -333,6 +346,8 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
         ctx.state.pending_ambiguity = NO_CAR_OR_ZERO
         ignored.append({"field": "current_copay", "reason": "0 before the car is known: no car, or a car with "
                                                             "copay 0? the employee is asked"})
+    elif args.current_copay is not None and c.source == "none":
+        ignored.append({"field": "current_copay", "reason": "no car today: there is no copay of today's car"})
     elif args.current_copay is not None:
         c.copay, c.copay_unknown = args.current_copay, False
         saved.append("current_copay")
