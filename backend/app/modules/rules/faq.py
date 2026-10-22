@@ -41,6 +41,23 @@ class Faq(BaseModel):
     domain_terms: tuple[str, ...] = ()
     # words that refer back to the conversation ("ומה זה?", "למה?", "ואם…"): a follow-up, never off topic
     context_markers: tuple[str, ...] = ()
+    # plainly not about the service (whole words); a question naming one, and nothing of the service, is redirected
+    off_topic_terms: tuple[str, ...] = ()
+    # the employee's own pay / net ("אני מרוויחה יותר?"): answered by the calculation, never sent to the rep
+    net_intent_terms: tuple[str, ...] = ()
+    # P0-A (22/10): words any car, tax or pay question has ("רכב", "מס", "שכר"): never enough alone
+    generic_domain_terms: tuple[str, ...] = ()
+    # "הרכב" (the car being discussed): concrete unless the question points back ("ומה עם הרכב השני?")
+    reference_terms: tuple[str, ...] = ()
+    # another domain ("קניית דירה", "יד שנייה", "להשכרה"): the redirect line unless a company anchor is named
+    foreign_context_terms: tuple[str, ...] = ()
+    # plainly the company's arrangement ("רכב צמוד", "רכב החברה"), whatever else the question names
+    company_anchor_terms: tuple[str, ...] = ()
+    # entries about the conversation itself (the representative, privacy, starting over): an answer, never a
+    # reason to send a question to the representative
+    meta_entries: tuple[str, ...] = ()
+    # a question whose intent is truly unclear: one short line, no buttons, never the representative
+    clarify: str = "לא בטוח שהבנתי את השאלה. כתבו אותה במילים אחרות, למשל על הרכב, הזכאות או הנטו."
 
     def get(self, entry_id: str) -> Optional[FaqEntry]:
         return next((e for e in self.entries if e.id == entry_id), None)

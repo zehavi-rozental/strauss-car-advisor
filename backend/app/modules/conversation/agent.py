@@ -23,8 +23,9 @@ from app.modules.rules.public import catalog_names as catalog_names_of
 
 
 from .expects import build_expects, choice_calls
-from .fallback import (ZERO_ALLOWED, ParserPlan, car_roles, correction_plan, fallback_plan, named_cars, none_plan,
-                       recorded_text)
+from .fallback import (ZERO_ALLOWED, ParserPlan, asks_base, car_roles, correction_plan, fallback_plan, named_cars,
+                       none_plan, recorded_text)
+from .free_text import looks_like_title
 from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
 from .grounding import grounded_number, group_named, occupation_named, option_named, zero_grounded
@@ -35,7 +36,7 @@ from .guards import (FIELD_WORDS, SINGULAR_RE, TAG_RE, Check, Violation, ask_lin
 from .turn import LLM_TOOLS, Candidate, parser_hint, render_catalog, render_faq, run_rounds, state_block, system_message, user_message
 from .option_map import build_option_map, dump_result as _dump, evaluate_option, map_reply
 from .option_map import with_assumptions as _with_assumptions
-from .understanding import NO_CAR_OR_ZERO, NOT_IN_CATALOG, Understanding, understand
+from .understanding import NO_CAR_OR_ZERO, NOT_IN_CATALOG, Understanding, rep_scope_ok, says_phrase, understand
 from .stage import (
     allowed_tools,
     current_group,
@@ -398,10 +399,11 @@ def _pace_change(state: ConversationState, snapshot: RulesSnapshot, text: str) -
     """"שאלה אחת כל פעם" / "הכול ביחד" (cues in extensions.yaml): the pace is stored in the state and kept
     across stages until the employee changes it. Returns the acknowledgement, or None."""
     ext = snapshot.extensions
-    if state.pace != "normal" and any(c in text for c in ext.pace_reset_cues):
+    # whole words only: "לאטו 3" (a catalog car) is not "לאט" (QA 22/10)
+    if state.pace != "normal" and says_phrase(text, ext.pace_reset_cues):
         state.pace = "normal"
         return PACE_NORMAL
-    if state.pace != "one_at_a_time" and any(c in text for c in ext.pace_cues):
+    if state.pace != "one_at_a_time" and says_phrase(text, ext.pace_cues):
         state.pace = "one_at_a_time"
         return PACE_ONE
     return None
@@ -721,7 +723,8 @@ class Agent:
                 # ממתינים לנציג: תשובה קצרה (או שאלת הבהרה), בלי שינוי בשלב, ברכב או בשאלות.
                 # A question asked while waiting is still answered first.
                 state.unanswered_question = und.unanswered[0] if und.unanswered else None
-                extra = [UNANSWERED] if und.unanswered else [snapshot.faq.redirect] if und.redirect else []
+                extra = ([UNANSWERED] if und.unanswered else [snapshot.faq.redirect] if und.redirect
+                         else [snapshot.faq.clarify] if und.clarify else [])
                 if und.map_all:
                     state.map_requested = True       # 360°: built as soon as the representative answers
                     extra.append(MAP_DEFERRED)
@@ -923,7 +926,10 @@ class Agent:
                  *(["צודקים, סליחה."] if und.complaint else []),
                  *([_audit_text(state)] if und.audit else []),
                  *([ALL_AT_ONCE] if und.all_at_once else []),
-                 *([snapshot.faq.redirect] if und.redirect and not und.complaint else [])]   # the rep offer: plan_reply
+                 *([snapshot.faq.redirect] if und.redirect and not und.complaint else []),   # the rep offer: plan_reply
+                 # a truly unclear question: one line, no buttons, never the representative
+                 *([snapshot.faq.clarify] if und.clarify and not (und.redirect or und.unanswered or und.complaint)
+                   else [])]
         # a request the bot cannot do yet ("תשווה ביניהם" before the profile is complete): what is needed
         if (und.compare and not just_calculated and not map_shown
                 and state.stage not in (Stage.PRESENTED, Stage.WAITING_FOR_REP) and RANK_DEFERRED not in confirmations):
@@ -1023,10 +1029,14 @@ class Agent:
                 return {"ok": False, "error": "unknown tool"}
             if call.name == "propose_rep_question" and state.rep_skipped:
                 return {"ok": False, "error": "the employee chose to continue without the representative"}
-            if call.name == "propose_rep_question" and und.redirect and not und.unanswered:
-                # not about this service (understanding.in_scope): never a question for the representative
-                return {"ok": False, "error": "not a question for the representative: it is not about company cars, "
-                                              "eligibility or pay. Say in one line what you can help with."}
+            if call.name == "propose_rep_question" and not und.unanswered:
+                # only a concrete question about the cars or the arrangements that code found (question_scope
+                # "org") may reach the representative: never an off-topic, unclear, follow-up or net question,
+                # whatever the model thinks
+                return {"ok": False, "error": "not a question for the representative: it is not a concrete question "
+                                              "about company cars, eligibility or the arrangements. If it is off "
+                                              "topic, say in one line what you can help with; if it is unclear, "
+                                              "ask the employee to say it again."}
             if call.name == "propose_rep_question" and not und.unanswered and (
                     und.all_at_once or und.catalog or und.faq_ids):
                 # code already answers it (the catalog / FAQ), or it is about the conversation itself
@@ -1170,6 +1180,11 @@ class Agent:
                 if wrong:
                     log.info("bare value for %s refused (asked %s)", ",".join(wrong), bound)
                     return None
+            elif (bare_value(text) and current_group(state)[0] == "Q1" and not asks_base(state)
+                  and args.get("base_salary") is not None):
+                # the greeting asks the group, not the pay: "16,400" alone is not guessed to be the base (22/10)
+                log.info("bare value for base_salary refused (the group or the role is asked)")
+                return None
             return ToolCall(call.name, args, call.id)
         if call.name == "select_options" and not Agent._options_said(ctx, call.args.get("options", []), text):
             log.info("alternatives not named by the employee; not selected")
@@ -1319,7 +1334,7 @@ class Agent:
             if c.catalog_code:
                 car = next(x for x in ctx.snapshot.catalog if x.catalog_code == c.catalog_code)
                 suggested = str(car.default_copay)
-            label = rep_car_label(c) or GENERIC_CAR_LABEL
+            label = rep_car_label(c, ctx.snapshot) or GENERIC_CAR_LABEL
             text = f"מה ההשתתפות החודשית הנוכחית של העובד ב-{label}?" + (
                 f" לפי הקטלוג: {suggested} ₪" if suggested else "")
             self._request(ctx, MissingField.CURRENT_COPAY, Mode.REQUIRED, AnswerType.MONEY, text,
@@ -1327,10 +1342,10 @@ class Agent:
                            "suggested_amount": suggested}, suggested)
         else:
             self._request(ctx, MissingField.CURRENT_USE_VALUE, Mode.REQUIRED, AnswerType.MONEY,
-                          f"מה שווי השימוש החודשי של הרכב הנוכחי של העובד ({rep_car_label(c) or GENERIC_CAR_LABEL})?",
-                          {"group": p.group, "car_label": rep_car_label(c) or GENERIC_CAR_LABEL})
+                          f"מה שווי השימוש החודשי של הרכב הנוכחי של העובד ({rep_car_label(c, ctx.snapshot) or GENERIC_CAR_LABEL})?",
+                          {"group": p.group, "car_label": rep_car_label(c, ctx.snapshot) or GENERIC_CAR_LABEL})
         state.pending_rep = PendingRep(reason=reason, resume_stage=Stage.COLLECT_CURRENT_CAR,
-                                       labels=[rep_car_label(c) or ""])
+                                       labels=[rep_car_label(c, ctx.snapshot) or ""])
 
     # ---------- תשובות הנציג ----------
 
@@ -1498,15 +1513,18 @@ class Agent:
                                            labels=required_labels)
         if needs_opt_out:
             p = state.profile
+            # the role as the employee confirmed it, only if it reads as one (an older conversation may hold a
+            # sentence saved as a role): the representative never sees free text that is not a job title
+            role = p.occupation_text if p.occupation_text and looks_like_title(ctx.snapshot, p.occupation_text) else None
             if p.rep_opt_out_allowed is None:
                 self._request(ctx, MissingField.OCCUPATION_OPT_OUT, Mode.REQUIRED, AnswerType.BOOLEAN,
                               "האם עובד בעיסוק הזה רשאי לוותר על רכב?",
-                              {"group": p.group, "occupation_text": p.occupation_text})
+                              {"group": p.group, "occupation_text": role})
                 reason = RepReason.OCCUPATION_OPT_OUT
             else:   # מותר לוותר, וחסר רק סכום האחזקה
                 self._request(ctx, MissingField.MAINTENANCE_AMOUNT, Mode.REQUIRED, AnswerType.MONEY,
                               "מה סכום אחזקת הרכב החודשי לעובד בעיסוק הזה אם יוותר על הרכב?",
-                              {"group": p.group, "occupation_text": p.occupation_text})
+                              {"group": p.group, "occupation_text": role})
                 reason = RepReason.MAINTENANCE_AMOUNT
             if state.pending_rep is None:
                 state.pending_rep = PendingRep(reason=reason, resume_stage=Stage.PRESENTED)
@@ -1625,6 +1643,10 @@ class Agent:
         if known is not None:             # already asked: its status or the answer, never a second question
             plan = plan_reply(state, snap, understood=True, just_calculated=False, confirmations=[known])
             return TurnOutcome(reply=plan.text(), source="template", path="choice")
+        if question and not rep_scope_ok(snap, question):
+            # checked again in code, whatever offered it: not a question for the transport representative
+            plan = plan_reply(state, snap, understood=True, just_calculated=False, confirmations=[snap.faq.redirect])
+            return TurnOutcome(reply=plan.text(), source="template", path="choice")
         state.pending_rep_key = general_question_id(question) if question else None
         text = self._rep_rephrase(snap, question) if question else None
         if text is None:
@@ -1636,8 +1658,8 @@ class Agent:
         return TurnOutcome(reply=plan.text(), source="template", path="choice")
 
     def _rep_rephrase(self, snapshot: RulesSnapshot, question: str) -> Optional[str]:
-        def snap_ok(text: str) -> bool:
-            return rep_ok(snapshot, text)
+        def snap_ok(text: str) -> bool:      # the rewrite, too, stays a question about the arrangements (P0-A)
+            return rep_ok(snapshot, text) and rep_scope_ok(snapshot, text)
 
         if self.llm.available:
             try:
@@ -1655,7 +1677,9 @@ class Agent:
         state, snap = ctx.state, ctx.snapshot
         text, state.pending_rep_question = state.pending_rep_question, None
         key, state.pending_rep_key = state.pending_rep_key, None
-        if send and text and rep_ok(snap, text):
+        if send and text and not rep_scope_ok(snap, text):
+            line = snap.faq.redirect      # never opened, whatever was shown: the gate holds at the send too (P0-A)
+        elif send and text and rep_ok(snap, text):
             known = known_question_line(state, text)
             if known is not None:         # the same question (as sent) is already with the representative
                 line = known
@@ -1663,7 +1687,7 @@ class Agent:
                 # a stable id: the open-question index on the server keeps one, even for a repeated send
                 option_id = key or general_question_id(text)
                 p, c = state.profile, state.current
-                car = rep_car_label(c) if c.source in ("catalog", "tax", "stated") else None
+                car = rep_car_label(c, ctx.snapshot) if c.source in ("catalog", "tax", "stated") else None
                 self._request(ctx, MissingField.GENERAL_QUESTION, Mode.CONFIRM, AnswerType.TEXT, text,
                               {"group": p.group, "car_label": car}, option_id=option_id)
                 state.general_questions[option_id] = GeneralQuestion(text=text)

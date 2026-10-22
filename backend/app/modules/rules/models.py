@@ -143,9 +143,11 @@ class Extensions(_Strict):
     option_message_fillers: list[str] = Field(default_factory=list)
     value_qualifiers: list[str] = Field(default_factory=list)  # מילה אחרי ערך מתויג שמשנה את משמעותו
     non_title_words: list[str] = Field(default_factory=list)   # ברכה, שאלה — לא שם תפקיד
+    title_words: list[str] = Field(default_factory=list)       # תחילת שם תפקיד, מעבר לטבלת העיסוקים
     car_role_cues: CarRoleCues = Field(default_factory=CarRoleCues)
     # תחילת שם היצרן בקטלוג → מילים שמותר לכתוב לצד הדגם ("BYD אטו 3")
     manufacturer_brands: dict[str, list[str]] = Field(default_factory=dict)
+    car_brands: list[str] = Field(default_factory=list)      # יצרנים שאינם בקטלוג: סימן שהטקסט הוא שם רכב
     # טווחים סבירים לכל ערך שנשמר בפרופיל (מכל מקור: הקורא, המודל, כפתורים). מחוץ לטווח — לא נשמר.
     value_ranges: dict[str, tuple[Decimal, Decimal]] = Field(default_factory=dict)
     # legal but rare values that strongly move the net: asked once ("לאשר / לתקן"), never a default.

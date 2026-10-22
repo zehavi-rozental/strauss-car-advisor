@@ -18,6 +18,7 @@ from app.modules.calculation.public import Drive
 from app.modules.rules.public import (CarRoleCues, CatalogCar, RulesSnapshot, catalog_names, matched_name,
                                       mentions, words)
 
+from .free_text import looks_like_title
 from .llm.port import ToolCall
 from .parsing import (
     NAME_PREFIX_LETTERS,
@@ -37,6 +38,7 @@ from .parsing import (
     none_span,
     parse_copay,
     read_profile,
+    similar_occupations,
     strip_year,
     unknown_span,
     unread_words,
@@ -154,6 +156,11 @@ def fallback_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) 
     if bound is not None:
         return bound
     return _fallback_plan_rest(state, snapshot, group, fields, t)
+
+
+def asks_base(state: ConversationState) -> bool:
+    """The question on screen asks the base salary ("…ומה שכר הבסיס החודשי שלכם?"); the greeting does not."""
+    return state.asked_field == "base_salary" or "שכר הבסיס" in state.last_ask or "שכר בסיס" in state.last_ask
 
 
 # the one profile field the last reply asked about (state.asked_field) → a bare value answers it
@@ -442,7 +449,11 @@ def _grouped_plan(state: ConversationState, snapshot: RulesSnapshot, group: Opti
     # השאלה שמוצגת, ולא מתחרה בשדות שלא נשאלו. ערך מתויג ("פנסיה 6%") נקרא למעלה כרגיל.
     hidden = (group == "Q3" and "Q3" in state.asked_groups
               and any(f not in Q2_FIELDS for f in fields))
-    single = [f for f in fields if f != "car" and not (hidden and f in Q2_FIELDS)]
+    # the greeting asks the group, not the pay ("את פרטי השכר נשלים בהמשך"): a number alone is not the base
+    # salary unless the question on screen asks it (22/10)
+    unasked_base = group == "Q1" and not asks_base(state)
+    single = [f for f in fields if f != "car" and not (hidden and f in Q2_FIELDS)
+              and not (unasked_base and f == "base")]
     candidates = [p for f in single for p in [_field_plan(state, snapshot, f, t)] if p.calls]
     complete = [p for p in candidates if p.complete]
     if len(complete) == 1:
@@ -518,7 +529,10 @@ def _profile_group_plan(snapshot: RulesSnapshot, group: Optional[str], fields: l
             found["eligibility_group"] = hit[0]
             spans.append(hit[1])
             fillers += ["היא", "הוא", "בלבד", "הקבוצה", "קבוצת", "זכאות", "שלי"]   # group-phrasing words
-        if "base" in fields and "base_salary" not in found:
+        # only next to the group or the role ("קבוצה ג, 14,200"): a number alone ("16,400") while the screen asks
+        # the group is not guessed to be the base salary (22/10); a question that asks the base binds it earlier
+        # (_bound_value_plan, state.asked_field)
+        if found and "base" in fields and "base_salary" not in found:
             _add_free_number(text, "base_salary", found, spans, approximate)
     if not found:
         return None
@@ -547,13 +561,11 @@ def _profile_plan(snapshot: RulesSnapshot, question: str, text: str) -> ParserPl
         hit = _group_reading(text, snapshot.calc.group_order)
         if hit and not unread_words(text, [hit[1]], (), ext.answer_fillers):
             return ParserPlan(_call("save_profile", eligibility_group=hit[0]), True)
-        # תפקיד שאינו בטבלה: כל התשובה הקצרה היא שם התפקיד — גיבוי בלבד (המודל קודם)
-        # "לא יודעת", "אין", "לא מנהלת" — אינם שם תפקיד
-        # ברכה או שאלה ("שלום", "מה זה משנה?") — גם לא
-        ws = words(text)
-        not_a_title = (unknown_span(text) or none_span(text) or "לא" in ws or "?" in text
-                       or any(w in ext.non_title_words for w in ws))
-        if len(words(text)) <= SHORT_TITLE_WORDS and not any(ch.isdigit() for ch in text) and not not_a_title:
+        # תפקיד שאינו בטבלה: תשובה קצרה שנראית כשם תפקיד ("קופאית"), או שדומה לשם בטבלה, מוצעת לאישור —
+        # גיבוי בלבד (המודל קודם). "לא יודעת", "אין", ברכה, שאלה, "סבבה, הבנתי", "שוי שמוש", "הילד שלי חולה" —
+        # אינם שם תפקיד: לא מוצעים, והשאלה נשאלת שוב (free_text.looks_like_title, P0-B)
+        if len(words(text)) <= SHORT_TITLE_WORDS and (
+                looks_like_title(snapshot, text) or similar_occupations(snapshot.occupations.keys(), text)):
             return ParserPlan(_call("save_profile", occupation=text), False, guess=True)
         return ParserPlan()
     if question == "group":

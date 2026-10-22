@@ -11,6 +11,7 @@ from typing import Any, Callable, Optional
 from app.modules.rules.public import RulesSnapshot
 from app.modules.vehicles.public import VehicleInfo, VehicleKey
 
+from .free_text import looks_like_title
 from .llm.port import ToolCall
 from .stage import MAX_OPTIONS, ConversationState, Stage, next_stage, question_fields
 from .templates import DRIVE_HE, LINK_LABELS, call_to_action, money, placeholder_text
@@ -164,8 +165,10 @@ def _build(state: ConversationState, snapshot: RulesSnapshot) -> dict[str, Any]:
         return _expects("confirmation", "choice", CONFIRM_FIX if unusual else YES_NO)
     if state.pending_occupation is not None:
         pending = state.pending_occupation
+        # "כן, זה התפקיד שלי" only for text that reads as a role; otherwise only the table's names (P0-B)
+        yes = [OCCUPATION_YES] if looks_like_title(snapshot, pending.text) else []
         return _expects("occupation_confirmation", "choice",
-                        [{"id": n, "label": n} for n in pending.suggestions] + [OCCUPATION_YES])
+                        [{"id": n, "label": n} for n in pending.suggestions] + yes)
     if state.pending_clarification is not None:
         return _expects("clarification", "choice", CLARIFY if stage == Stage.WAITING_FOR_REP else CLARIFY_ROLE)
     if stage == Stage.WAITING_FOR_REP:

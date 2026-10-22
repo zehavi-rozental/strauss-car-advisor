@@ -19,3 +19,6 @@ backend/tests/scenarios/LIVE_TRANSCRIPT.txt
 
 # synthetic payslips and their reference values for manual QA: never committed
 qa/
+
+# the challenge source files as delivered (identical copies live in backend/config and backend/data): never committed
+reference-files/

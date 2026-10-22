@@ -59,11 +59,12 @@ def test_pay_data_typed_as_a_car_never_reaches_the_representative(sessions):
         (f"יש לי {LEAK}", [call("match_current_car", model=LEAK)]),
         ("לא ידוע", [call("save_profile", current_use_value_unknown=True)]),
     ])
-    assert s.current.label == GENERIC_CAR_LABEL                       # stored sanitized
-    [question] = svc.cases.list_open()
-    assert question.context["car_label"] == GENERIC_CAR_LABEL
-    blob = f"{question.question_text if hasattr(question, 'question_text') else question} {question.context}"
-    assert not any(x in blob for x in ("18,500", "18500", "2,000", "שכר", "בונוס")), blob
+    # P0-B (22/10): text with pay data is not a car name — nothing is stored (not even sanitized), the car is
+    # asked again, and no representative question is opened about it
+    assert (s.current.query, s.current.label) == (None, None)
+    for question in svc.cases.list_open():
+        blob = f"{question.question_text if hasattr(question, 'question_text') else question} {question.context}"
+        assert not any(x in blob for x in ("18,500", "18500", "2,000", "שכר", "בונוס")), blob
 
 
 def test_a_real_car_name_still_reaches_the_representative(sessions):
