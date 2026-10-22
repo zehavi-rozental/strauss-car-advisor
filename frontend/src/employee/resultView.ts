@@ -111,6 +111,13 @@ export function deltaShares(items: OptionResult[]): Record<string, number> {
   return Object.fromEntries(ok.map((i) => [i.option_id, Math.abs(Number(i.result.delta_display)) / max]))
 }
 
+/** Calculated options first, by the server's monthly change (highest first); then the others, in their order. */
+export function rankResults(items: OptionResult[]): OptionResult[] {
+  const ok = (i: OptionResult) => i.result.status === 'OK' && i.result.delta_display != null
+  const delta = (i: OptionResult) => Number(i.result.delta_display)
+  return [...items.filter(ok).sort((a, b) => delta(b) - delta(a)), ...items.filter((i) => !ok(i))]
+}
+
 /** The breakdown table: the comparison rows plus the tax lines the engine reports (income tax, NI and health),
  *  inserted before the net. Values are the lines' before_display / after_display. */
 export function breakdownRows(items: OptionResult[]): Row[] {

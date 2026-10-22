@@ -7,6 +7,7 @@ import type { OptionResult } from '../api/types'
 import { Money } from '../format/Amount'
 import { annualFromMonthly } from '../format/money'
 import { Icon } from '../ui/Icon'
+import { ReportButton } from './ReportButton'
 import { missingLabel, splitLabel } from './labels'
 import { PENDING_COPAY_LABEL, STATE_LABEL, STATE_NOTE, copayInfo, driverBars, resultState, toneOf } from './resultView'
 import type { ScenarioResult } from '../api/types'
@@ -100,7 +101,8 @@ export function CopayLine({ result, compact = false }: { result: ScenarioResult;
   )
 }
 
-export function ResultCard({ item, onOpenTable }: { item: OptionResult; onOpenTable?: () => void }) {
+export function ResultCard({ item, onOpenTable, current = true }:
+  { item: OptionResult; onOpenTable?: () => void; current?: boolean }) {
   const r = item.result
   const state = resultState(r)
   return (
@@ -127,9 +129,12 @@ export function ResultCard({ item, onOpenTable }: { item: OptionResult; onOpenTa
       )}
       <footer className="result-foot">
         <span className="disclaimer">הערכה, לא תלוש</span>
-        <button type="button" className="table-button" disabled={!onOpenTable} onClick={onOpenTable}>
-          <Icon name="table" size={18} />פירוט מלא
-        </button>
+        <span className="result-actions">
+          <ReportButton results={[item]} stale={!current} />
+          <button type="button" className="table-button" disabled={!onOpenTable} onClick={onOpenTable}>
+            <Icon name="table" size={18} />פירוט מלא
+          </button>
+        </span>
       </footer>
     </article>
   )

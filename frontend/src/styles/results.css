@@ -207,6 +207,13 @@
 }
 .table-button:hover:not(:disabled) { background: var(--brand); border-color: var(--brand); color: #fff; }
 .table-button:disabled { opacity: 0.5; }
+/* the result's actions: "הורדת דוח השוואה" next to "פירוט מלא" (wraps under the disclaimer on a phone) */
+.result-foot { flex-wrap: wrap; }
+.result-actions { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.report-action { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.report-button .ico { color: var(--brand); transition: color var(--t-fast) var(--ease-soft); }
+.report-button:hover:not(:disabled) .ico { color: inherit; }
+.report-error { font-size: var(--fs-micro); font-weight: 600; color: var(--down); }
 
 /* ---------- several options, ranked ---------- */
 .summary-rows { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }

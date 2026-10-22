@@ -11,6 +11,7 @@ const P: Record<string, ReactNode> = {
   close: <path d="M6 6l12 12M18 6 6 18" />,
   chevron: <path d="m14.5 6-6 6 6 6" />,
   chevronDown: <path d="m6 9.5 6 6 6-6" />,
+  download: <><path d="M12 4.5V15" /><path d="m7.5 10.5 4.5 4.5 4.5-4.5" /><path d="M5 15.5v2A2.5 2.5 0 0 0 7.5 20h9a2.5 2.5 0 0 0 2.5-2.5v-2" /></>,
   upload: <><path d="M12 15V4.5" /><path d="m7.5 9 4.5-4.5L16.5 9" /><path d="M5 15.5v2A2.5 2.5 0 0 0 7.5 20h9a2.5 2.5 0 0 0 2.5-2.5v-2" /></>,
   doc: <><path d="M14 3.5H7.5A2 2 0 0 0 5.5 5.5v13a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8Z" /><path d="M14 3.5V8h4.5M9 13h6M9 16.5h4" /></>,
   form: <><rect x="4.5" y="4.5" width="15" height="15" rx="3" /><path d="M8 9h8M8 12.5h8M8 16h5" /></>,

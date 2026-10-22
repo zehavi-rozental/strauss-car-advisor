@@ -232,6 +232,16 @@ Only deterministic code opens a question to the representative; the LLM never do
 - **A car taken out of the comparison**: when a calculation runs, its open copay question is cancelled (`cases.cancel_open_except`, kept as history); an answered one is untouched and its amount is used if the car is chosen again.
 - Not done: the e-mail notice when the representative answers (proposal only, `../EMAIL-NOTIFY-PROPOSAL-22.10.md`).
 
+### Comparison report PDF (22/10; branch `feature/download-car-comparison-report`; `frontend/src/employee/report/`, `e2e/comparison-report.spec.ts`)
+
+- **"הורדת דוח השוואה"** next to "פירוט מלא" on the `SummaryCard` / `ResultCard` and in the `ComparisonPanel` footer (`ReportButton`). Shown only for current results with at least one calculated option (`reportModel.canReport`); never for a stale result.
+- **Made in the browser** from the results already on screen (the server's `OptionResult[]`): no request, no endpoint, nothing sent to an LLM or any other service, only this conversation. pdf-lib + @pdf-lib/fontkit with the Assistant woff files (Hebrew + Latin subsets, embedded), bidi-js for the visual order; amounts are LTR isolates, as `<bdi>` on screen. The PDF code is a lazy chunk (~516 KB gzip), loaded with the fonts as soon as a reportable result is on screen, so the download also works offline afterwards.
+- **Numbers**: every amount is the server's `*_display` value; the only arithmetic is display arithmetic: the annual figure (rounded monthly delta × 12, as on the result card) and the gap to the highest net (the difference of two rounded nets, and × 12). A missing value stays missing ("אין חישוב לחלופה הזו" + the reason), never 0. The highest net is marked among calculated options only, every tied option, worded "הנטו החודשי הגבוה ביותר".
+- **Contents** (A4, RTL, real text): header with the date, today's card, every option of the comparison (never sliced; ranked as on screen), the breakdown table (up to 3 options per table, continued), "כדאיות כספית והעדפה אישית", "הבהרות" (estimate, pending copay, × 12 and rounding, the server's assumptions, the generation date). Metadata: title, subject (the option labels), keywords ("label: net", read by the browser test), language he-IL.
+- **Design**: the colours are read from the tokens (`art/reportTheme.ts`), the mark shape is shared with the screen (`ui/brandMarkShape.ts`); the layout is in `report/pdfReport.ts`.
+- Tests: `reportModel.test.ts`, `bidi.test.ts`, `pdfReport.test.ts` (synthetic fixtures; `REPORT_SAMPLE_DIR=<dir>` writes sample PDFs), `e2e/comparison-report.spec.ts` (download through the UI, PDF nets = API nets, a correction updates the report, opt-out, two users, phone tap after a reload).
+- Known: text copied out of the PDF may come out in visual order in some viewers; the lazy chunk triggers Vite's 500 KB size warning (it is not in the main bundle).
+
 ## NEXT (not done in this pass)
 
 - Session 6 conversation bugs (salary correction after a result, "קיה נירו", "ילד אחד", "ויתור על הרכב", blanket "לא ידוע לי") were fixed by Kiro in 3b06848 and merged in 50e2195; checked by API tests and browser journeys (`journeys.spec.ts`, "merged conversation acceptance").

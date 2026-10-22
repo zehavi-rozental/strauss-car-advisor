@@ -13,6 +13,7 @@ import { useDialog } from '../ui/useDialog'
 import type { Cell } from './comparison'
 import { CarName, CopayLine, NetChange, StateBadge } from './ResultCard'
 import { SelectionCard } from './SelectionCard'
+import { ReportButton } from './ReportButton'
 import { rankResults } from './SummaryCard'
 import { breakdownRows, driverBars, resultState, toneOf } from './resultView'
 
@@ -199,6 +200,7 @@ export function ComparisonPanel({ results, stale = false, expects, disabled, onC
           <button type="button" className="chip chip-quiet" disabled={disabled} onClick={onCorrect}>
             <Icon name="edit" size={16} />תיקון נתונים
           </button>
+          <ReportButton results={results} stale={stale} />
         </footer>
       </aside>
     </div>,
