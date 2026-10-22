@@ -615,7 +615,10 @@ def rank_options(ctx: ToolContext, args: NoArgs) -> dict[str, Any]:
     ctx.state.rank_requested = False
     options = available_options(ctx.snapshot, ctx.state)
     employee, current, occupation = engine_inputs(ctx.snapshot, ctx.state)
-    states = {o.id: option_state(o) for o in options}
+    # each option as the comparison and the map calculate it: the copay the representative confirmed, else the
+    # catalog policy (QA 22/10: the ranking used the catalog copay even after a confirmation)
+    policy, confirmed = ctx.snapshot.extensions.copay_policy, ctx.state.confirmed_copays
+    states = {o.id: option_state(o, policy, confirmed[o.id].value if o.id in confirmed else None) for o in options}
     ranked = engine_rank_options(employee, current, list(states.values()), ctx.snapshot.calc, occupation)
     by_label = {s.label: oid for oid, s in states.items()}
     top = [by_label[r.alternative.label] for r in ranked if r.alternative is not None][:MAX_OPTIONS]

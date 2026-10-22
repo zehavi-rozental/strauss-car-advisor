@@ -181,11 +181,21 @@ Both cloud conversations replayed message by message (template mode + a FakeLLM 
 - **The rep note** (`QuestionAnswered.note`) reaches the employee as one plain line "הערת הנציג: …" (no line without a note; control characters, bold, bullets, links and tags removed; ≤ 500). The rep screen no longer shows the salary notice line (the context filtering is unchanged) and shows the note on an answered card.
 - **Employee UI**: what a link opened (selection card, form, payslip review) resets only when the question changes (`useConversation.questionKey`; `expects` is kept referentially stable across polls) and stays mounted (disabled) while sending. Before, every 3 s poll while waiting for the rep closed the selection card (the QA screen recording).
 
+### QA round 2 (22/10; branch `fix/qa-issues-2026-10-22`)
+
+- **Payslip review: shown = sent = calculated** (`payslipReview.shownValue` / `typed`, `payslipSync.test.ts`, `e2e/payslip-source-sync.spec.ts`). A row keeps `payslipValue`, `knownValue` (chat) and `manual` (typed) apart; the field always shows the chosen source's value ("מהשיחה" shows the chat's, "לא לעדכן" what stays, undecided nothing). Typing is its own choice "ערך שהקלדתם: X" (never labelled "מהתלוש"), kept when switching. Only payslip / typed rows are sent. An addition may be assigned only into a row that is "לא לעדכן" and shows nothing.
+- **Map button readiness** (`stage.map_ready` / `map_missing`, `tests/test_map_readiness.py`): the one condition behind `Agent._resolve_map` and the view's `map_ready` / `map_missing` (additive, also in `/updates`); the button shows only when ready. A rep answer that builds the map for the first time presents it (`map_reply`), not only "עדכנתי".
+- **Scope** (`understanding.in_scope`, `faq.yaml: domain_terms` / `context_markers`, `tests/test_scope.py`): a question nothing answers is offered to the rep only when the message (not only its clause) names a domain word (whole word, up to two prefix letters, 3+ letters also as a start), refers back to the conversation ("ומה זה?", "למה?", "ואם…"), holds an amount / ₪ / %, a job title, an FAQ topic or a catalog car; otherwise — or when the clause is on the off-topic list — the redirect line (the owner's wording, plural), no `ask_rep`. Measured on every question in the test corpora, old vs new: only plainly off-topic questions and small talk changed. Spelling variants read alike (`_spelling`: וו/ו, יי/י) in the off-topic list too. A message with values and an off-topic question keeps its values. LLM mode: `propose_rep_question` is refused when `und.redirect`.
+- **One question to the rep** (`agent.general_question_id` / `known_question_line`, `state.general_questions`, `tests/test_rep_dedup.py`): a GENERAL_QUESTION's option_id is a hash of its normalized words (the open-question index keeps one); asked again, "כבר שאלתי…" or the answer already given, never a second send.
+- **Ranking with a confirmed copay** (`tools.rank_options`, `tests/test_rank_confirmed_copay.py`): ranks each option with the copay policy and the rep-confirmed copay, as the comparison and the map do.
+- **Rep amounts in range** (`api/rep_routes._check_range`, `tests/test_rep_answer_ranges.py`): today's copay, use value and maintenance from the rep meet `value_ranges` (422, nothing saved). A new car's copay has no configured range (not invented).
+
 ## NEXT (not done in this pass)
 
 - Session 6 conversation bugs (salary correction after a result, "קיה נירו", "ילד אחד", "ויתור על הרכב", blanket "לא ידוע לי") were fixed by Kiro in 3b06848 and merged in 50e2195; checked by API tests and browser journeys (`journeys.spec.ts`, "merged conversation acceptance").
 
-- Validation audit items 4-7 (see Known limitations): range checks on rep answers, minimum use value 1, raise instead of default-to-zero in `engine_inputs`, strict numeric types for LLM-typed values.
+- Validation audit items 5-7 (see Known limitations): minimum use value 1, strict numeric types for LLM-typed values (range checks on rep answers: done 22/10, except a new car's copay; `engine_inputs` raises since session 7b).
+- Calculation audit (22/10), decisions that need a source: `netMethod.taxYear` 2025 vs the tax file's year 2026 (hard-coded in `vehicles/repository.py`); `waiver.maintenanceIsTaxable` / `maintenanceIsPensionable` are not read (the engine hard-codes taxable / not pensionable); unused config: `family_gap_adds_to_copay`, `electric_fuel_codes`, `child_age_inclusive`. No independent check yet for the pension credit below its cap, the 47% / 50% brackets and the NI ceiling, or the config variants.
 
 - Eval: see `backend/eval-report.md` (session 4 run, 37 cases). Templates still end with a question plus one "כתבו…" line, which the judge may count as two calls to action (kept: `test_no_dead_ends` asserts it).
 - The live model sometimes adds the flow question next to the rep offer; the guard then sends the template (correct, but not LLM-phrased).
@@ -199,7 +209,8 @@ Both cloud conversations replayed message by message (template mode + a FakeLLM 
 
 ## Known limitations (מגבלות ידועות)
 
-- **Rep answers are checked only for being a non-negative, finite amount with two decimals**: `value_ranges` (copay 0-10,000, use value 0-20,000) and any maximum for a new-car copay are not applied to them (the representative is authenticated; a typo such as 350000 would flow into the calculation).
+- **A rep's copay for a new car has no maximum**: today's copay, use value and maintenance meet `value_ranges` (22/10), but no range is configured for a new car's copay, so a typo there would still flow into the calculation.
+- Scope is a word list (`faq.yaml: domain_terms`): an in-scope question phrased with none of its words gets the redirect instead of the rep offer; new words go in the list.
 - **A stated use value of 0 is accepted** (`value_ranges.current_use_value` starts at 0): a company car with a zero use value is impossible; the minimum should be 1.
 - **`engine_inputs` defaults `commissions`, `bonus`, `study_fund_percent` and `children` to 0 when empty.** The stage machine never reaches a calculation with a missing profile field, so this is defence in depth only; it should raise instead (rule 4).
 - **Type coercion is loose for values the LLM types**: `True` becomes 1 child, and a string such as "2..5" or "12 or 13" takes its first number (grounding and the range checks still apply). `Num` should reject booleans and strings with stray text.

@@ -149,7 +149,20 @@ entries:
     answer: "כדי להתחיל מחדש, לחצו על שיחה חדשה בראש המסך."
 
 # Messages that try to change the bot's rules or are off topic: one polite line, the rules stay.
-redirect: "אני כאן רק כדי לעזור עם הרכב הצמוד והנטו שלכם."
+redirect: "אני כאן כדי לעזור לכם להבין איך בחירת רכב החברה משפיעה על הנטו החודשי שלכם, ולהשוות בין האפשרויות לפי הסדרי שטראוס. אפשר לשאול אותי על רכבי החברה, הזכאות וההשפעה על השכר."
 injection_patterns: [התעלם, תתעלם, שכח את ההוראות, הוראות המערכת, system prompt, ignore, אתה עכשיו, מעכשיו אתה,
                      תעמיד פנים, jailbreak, תגיד לי את הפרומפט]
 off_topic_patterns: [מזג אוויר, בדיחה, מתכון, כדורגל, פוליטיקה, שיר, מניות, ביטקוין]
+# What STRAUSS DRIVE is about (22/10). A question nothing here answers is offered to the transport
+# representative only when the message names one of these words (a whole word, up to two prefix letters, words
+# of three letters or more also as a word start), refers back to the conversation (context_markers), holds an
+# amount or a percent, a job title, an FAQ topic or a catalog car; any other question gets the redirect.
+# Spelling variants read alike ("אויר" / "אוויר"). New topic = a word here.
+context_markers: [זה, זו, זאת, הזה, הזאת, הזו, למה, ולמה, ומה, ואם, אם, ואיך, אז, גם, ביניהם, ביניהן, עליי,
+                  בשבילי, אותו, אותה, אותם, שוב, עדיף, תוקף, לשנות, ההבדל, הבדל, הפרש, ההפרש, סופי]
+domain_terms: [רכב, מכונית, אוטו, ליסינג, דגם, קטלוג, יצרן, זכאות, זכאי, קבוצה, קבוצת, השתתפות, שווי, נטו,
+               ברוטו, שכר, משכורת, תלוש, מס, מיסוי, זיכוי, פנסיה, פנסיונית, השתלמות, בונוס, עמלה, עמלות, אחזקה,
+               אחזקת, ויתור, לוותר, חשמלי, היברידי, פלאג, הנעה, דלק, בנזין, טעינה, מטען, קילומטר, קילומטרים,
+               ביטוח, תאונה, טסט, רישוי, רישיון, מוסך, תיקון, שטראוס, נציג, תחבורה, מסלול משפחתי, משפחתי, חלופה,
+               חלופות, להשוות, השוואה, משתלם, תפקיד, עיסוק, החלפה, להחליף, מסירה, הסדר, הסדרי, הטבה, הטבות,
+               ניכוי, הפרשה, הפרשות, עלות, תקציב, הכנסה, מחיר, מחירון, שימוש, צמוד, חניה, כביש]

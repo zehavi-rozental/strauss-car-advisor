@@ -20,7 +20,7 @@ from typing import Iterable, Optional
 from app.modules.rules.public import FAMILY_GROUP, CatalogCar, Faq, FaqEntry, RulesSnapshot, matched_name, related_cars, words
 
 from .fallback import _RANK_RE, named_cars
-from .parsing import _NO_COPAY_RE, no_car_span
+from .parsing import _NO_COPAY_RE, match_occupation, no_car_span
 from .stage import ConversationState
 
 NO_CAR_OR_ZERO = "no_car_or_zero_copay"
@@ -181,14 +181,56 @@ def _asks_to_compare(text: str) -> bool:
     return any(w in _COMPARE_WORDS or (len(w) > 1 and w[0] in _PREFIX and w[1:] in _COMPARE_WORDS) for w in words(text))
 
 
+def _spelling(text: str) -> str:
+    """Hebrew spelling variants read alike: "האויר" / "האוויר", "ביטוח" / "בייטוח" (double vav or yod)."""
+    return text.replace("וו", "ו").replace("יי", "י")
+
+
 def _contains_any(text: str, patterns: Iterable[str]) -> bool:
-    low = text.lower()
-    ws = words(text)
+    low = _spelling(text.lower())
+    ws = [_spelling(w) for w in words(text)]
 
     def exact(word: str) -> bool:           # the word itself, or with one prefix letter ("האוויר"); no typos here
+        word = _spelling(word)
         return any(w == word or (len(w) > 1 and w[0] in _PREFIX and w[1:] == word) for w in ws)
 
-    return any(p.lower() in low or all(exact(a) for a in words(p)) for p in patterns)
+    return any(_spelling(p.lower()) in low or all(exact(a) for a in words(p)) for p in patterns)
+
+
+def _term_hit(term: str, word: str) -> bool:
+    """A domain word in the text: itself or with up to two prefix letters ("ברכב", "מהתלוש"), and a word of three
+    letters or more also as a start ("רכבים", "פנסיוני"). "מס" is never "מספר"."""
+    stems = [word]
+    for _ in range(2):
+        if len(stems[-1]) > 2 and stems[-1][0] in _PREFIX:
+            stems.append(stems[-1][1:])
+    return any(s == term or (len(term) >= 3 and s.startswith(term)) for s in stems)
+
+
+def _names_any(terms: Iterable[str], ws: list[str]) -> bool:
+    for term in terms:
+        parts = [_spelling(p) for p in words(term)]
+        if parts and all(any(_term_hit(p, w) for w in ws) for p in parts):
+            return True
+    return False
+
+
+def in_scope(snapshot: RulesSnapshot, text: str) -> bool:
+    """Is this question about STRAUSS DRIVE (company cars, eligibility, the arrangements, pay and net)? Only then
+    may a question nothing answers be offered to the transport representative (QA 22/10). Generous on purpose:
+    an amount or a percent, a job title, a follow-up that refers back to the conversation ("ומה זה?", "למה?",
+    "ואם אני עוזבת?") are in scope; only a question with none of these signals gets the redirect."""
+    faq = snapshot.faq
+    ws = [_spelling(w) for w in words(text)]
+    if any(ch.isdigit() for ch in text) or "₪" in text or "%" in text:
+        return True                                   # an amount or a rate: pay talk ("התכוונתם ל-18,000 ₪?")
+    if _names_any(faq.domain_terms, ws) or _names_any(faq.context_markers, ws):
+        return True
+    if any(_alias_hits(text, a) for e in faq.entries for a in (*e.aliases, e.term)):
+        return True                                   # an FAQ topic, even when no entry answers this question
+    if match_occupation(snapshot.occupations.keys(), text):
+        return True                                   # a job title ("מנהל/ת מוצר?")
+    return bool(named_cars(text, snapshot.catalog))
 
 
 _DRIVE_HE = {"PETROL": "בנזין", "HYBRID": "היברידי", "PLUG_IN": "פלאג-אין", "ELECTRIC": "חשמלי"}
@@ -237,9 +279,11 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
                       has_car=bool(_HAS_CAR_RE.search(text)) and not no_car_span(text),
                       map_all=any(cue in text for cue in snapshot.extensions.option_map_cues))
     if _contains_any(text, faq.injection_patterns) or (
-            _contains_any(text, faq.off_topic_patterns) and not named_cars(text, snapshot.catalog)):
+            _contains_any(text, faq.off_topic_patterns) and not named_cars(text, snapshot.catalog)
+            and not any(ch.isdigit() for ch in text)):
         u.redirect = True
-        return u                                  # never act on a manipulative or off-topic message
+        return u              # never act on a manipulative or off-topic message (one with values goes on below:
+                              # its off-topic question is redirected by in_scope, its values are read)
     if _is_help(text):
         u.help = True
         return u
@@ -259,6 +303,11 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
                 u.catalog.append(catalog)
             elif entry is None and (u.audit or u.map_all):    # a request ("מה כל האפשרויות שלי?"), not for the rep
                 pass          # "כתבתי לך שיש לי רכב, למה אתה שואל שוב?": rhetorical; answered from the state
+            elif entry is None and (_contains_any(clause, faq.off_topic_patterns)
+                                    or not (in_scope(snapshot, clause) or in_scope(snapshot, text))):
+                # the whole message counts ("איזה רכב יש לכם, וכמה משלמים עליו?" is one question in two
+                # clauses), except a clause that is plainly off topic ("…שכר 18,500. מה מזג האויר?")
+                u.redirect = True     # not about this service: one redirect line, never the representative
             elif entry is None:
                 u.unanswered.append(clause.strip())
             elif entry not in u.faq_ids:

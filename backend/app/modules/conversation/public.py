@@ -50,10 +50,18 @@ from .repository import (
     token_hash,
 )
 from .option_map import map_json
-from .stage import ConversationState, OptionResult, RepReason, Stage, results_stale
+from .stage import ConversationState, OptionResult, RepReason, Stage, map_missing, map_ready, results_stale
+from .templates import FIELD_NAMES
 
 
 log = logging.getLogger(__name__)
+
+
+def map_readiness(state: ConversationState) -> dict[str, Any]:
+    """For the view and the updates (additive, 22/10): whether the option map can be built now, and what it
+    still needs, in Hebrew. The "גלו לי את כל האפשרויות" button is offered only when ready."""
+    return {"map_ready": map_ready(state),
+            "map_missing": [FIELD_NAMES[f] for f in map_missing(state) if f in FIELD_NAMES]}
 
 
 class ConversationNotFound(Exception):
@@ -382,7 +390,7 @@ class ConversationService:
         return {"conversation_id": str(conv_id), "stage": state.stage.value, "messages": messages,
                 "pending_questions": pending, "expects": build_expects(state, self.rules.current),
                 "results": [r.model_dump(mode="json") for r in state.results],
-                "results_stale": results_stale(state), "option_map": map_json(state)}
+                "results_stale": results_stale(state), "option_map": map_json(state), **map_readiness(state)}
 
     def view(self, conversation_id: str, token: str) -> ConversationView:
         self._apply_pending(self._authorized(conversation_id, token))
@@ -433,5 +441,6 @@ __all__ = [
     "ConversationConflict", "ConversationLimitReached", "ConversationNotFound", "ConversationService",
     "ConversationState",
     "ConversationView", "LLMChain", "LLMPort", "OptionResult", "RepReason", "Stage",
-    "TurnResult", "build_llm_chain", "map_json", "results_stale", "reproduce_run", "ChoiceInvalid", "FieldsInvalid",
+    "TurnResult", "build_llm_chain", "map_json", "map_readiness", "results_stale", "reproduce_run", "ChoiceInvalid",
+    "FieldsInvalid",
 ]

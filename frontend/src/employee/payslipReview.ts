@@ -11,17 +11,20 @@ type Key = keyof ProfileFields
 
 export const PAYSLIP_FIELDS: FormFieldSpec[] = [BASE_SALARY_FIELD, ...FORM_FIELDS]
 
-/** What the employee decided for a row. "payslip": update the profile with the payslip value (or what
- *  they typed); "chat": keep the value said in the conversation; "skip": do not update. null: not decided yet
- *  (a conflict, or nothing to compare with) — the review cannot be confirmed until it is. */
-export type Choice = 'payslip' | 'chat' | 'skip'
+/** What the employee decided for a row: the source of its value. "payslip": the payslip's value; "manual": what
+ *  they typed; "chat": keep the value said in the conversation; "skip": do not update. null: not decided yet (a
+ *  conflict, or nothing to compare with) — the review cannot be confirmed until it is. The field always shows the
+ *  value of the source chosen (shownValue), and exactly that value is sent (reviewFields): QA 22/10. */
+export type Choice = 'payslip' | 'manual' | 'chat' | 'skip'
 
 export interface ReviewRow {
   key: Key
   label: string
   unit: '₪' | '%' | ''
   integer: boolean
-  value: string            // the input (the payslip's value, editable)
+  payslipValue: string     // what the payslip says ('' when it is not usable as is); never changed by typing
+  manual: string | null    // what the employee typed (null: never typed); kept when they switch source
+  knownValue: string | null  // the conversation's value, as the field shows it
   choice: Choice | null
   status: 'found' | 'missing' | 'ambiguous'
   source: string           // "בתלוש: שכר יסוד"
@@ -68,7 +71,8 @@ export function reviewRows(fields: ExtractedField[], profile: Record<string, unk
       else choice = status === 'found' && ex?.confident ? 'payslip' : 'skip'
     }
     return {
-      key: spec.key, label: spec.label, unit: spec.unit, integer: Boolean(spec.integer), value, choice,
+      key: spec.key, label: spec.label, unit: spec.unit, integer: Boolean(spec.integer),
+      payslipValue: value, manual: null, knownValue: known === null ? null : asInput(known), choice,
       status, note,
       source: ex?.source_label ? `בתלוש: ${ex.source_label}` : '',
       known: known === null ? null : show(spec, known),
@@ -79,8 +83,9 @@ export function reviewRows(fields: ExtractedField[], profile: Record<string, unk
 
 export type ReviewBuild = { fields: ProfileFields; errors: Partial<Record<Key, string>> }
 
-/** What to send: the rows the employee chose to update from the payslip; each must hold a valid number.
- *  A row still undecided is an error: nothing is sent until every conflict is decided. */
+/** What to send: the rows whose source is the payslip or what was typed, with exactly the value the field
+ *  shows; each must hold a valid number. A row still undecided is an error: nothing is sent until every
+ *  conflict is decided. */
 export function reviewFields(rows: ReviewRow[]): ReviewBuild {
   const fields: ProfileFields = {}
   const errors: ReviewBuild['errors'] = {}
@@ -89,8 +94,8 @@ export function reviewFields(rows: ReviewRow[]): ReviewBuild {
       errors[r.key] = CHOOSE_FIRST
       continue
     }
-    if (r.choice !== 'payslip') continue
-    const raw = r.value.trim()
+    if (r.choice !== 'payslip' && r.choice !== 'manual') continue
+    const raw = shownValue(r).trim()
     if (raw === '') {
       errors[r.key] = 'אין ערך: מלאו אותו או בחרו "לא לעדכן"'
       continue
@@ -105,13 +110,43 @@ export function reviewFields(rows: ReviewRow[]): ReviewBuild {
   return { fields, errors }
 }
 
-/** The choices a row offers: a conflict is "from the conversation" or "from the payslip"; anything else
- *  is "update" or "do not update". */
-export function choicesFor(r: ReviewRow): { id: Choice; label: string }[] {
-  if (r.differs && r.known !== null) {
-    return [{ id: 'chat', label: `מהשיחה: ${r.known}` }, { id: 'payslip', label: `מהתלוש: ${show(r, r.value)}` }]
+/** The value the field shows: always the one of the source chosen, so the screen never shows one amount while
+ *  another is saved. Undecided shows nothing; "skip" shows what stays (the conversation's value, or nothing). */
+export function shownValue(r: ReviewRow): string {
+  switch (r.choice) {
+    case 'payslip': return r.payslipValue
+    case 'manual': return r.manual ?? ''
+    case 'chat': case 'skip': return r.knownValue ?? ''
+    default: return ''
   }
-  return [{ id: 'payslip', label: 'לעדכן' }, { id: 'skip', label: 'לא לעדכן' }]
+}
+
+/** Typing into a row makes what was typed its source, visibly ("ערך שהקלדתם"); clearing it goes back to "do
+ *  not update", or to undecided when the row is a conflict the employee still has to decide. */
+export function typed(r: ReviewRow, text: string): Partial<ReviewRow> {
+  return { manual: text, choice: text.trim() !== '' ? 'manual' : r.differs ? null : 'skip' }
+}
+
+const typedLabel = (r: ReviewRow, text: string) =>
+  text.trim() !== '' && Number.isFinite(Number(text)) ? show(r, text) : text
+
+/** The choices a row offers, each naming its own value: a conflict is "from the conversation" or "from the
+ *  payslip"; a payslip value is "update to it" or not; a row with no payslip value is updated only by typing.
+ *  What was typed stays an option of its own, so switching source never loses it. */
+export function choicesFor(r: ReviewRow): { id: Choice; label: string }[] {
+  const typedValue = r.manual !== null && r.manual.trim() !== '' ? r.manual : null
+  const typedChoice: { id: Choice; label: string }[] =
+    typedValue !== null ? [{ id: 'manual', label: `ערך שהקלדתם: ${typedLabel(r, typedValue)}` }] : []
+  if (r.differs && r.known !== null) {
+    return [{ id: 'chat', label: `מהשיחה: ${r.known}` },
+            { id: 'payslip', label: `מהתלוש: ${show(r, r.payslipValue)}` }, ...typedChoice]
+  }
+  if (r.payslipValue !== '') {
+    return [{ id: 'payslip', label: `לעדכן: ${show(r, r.payslipValue)}` }, ...typedChoice,
+            { id: 'skip', label: 'לא לעדכן' }]
+  }
+  return [{ id: 'manual', label: typedValue !== null ? `לעדכן: ${typedLabel(r, typedValue)}` : 'לעדכן' },
+          { id: 'skip', label: 'לא לעדכן' }]
 }
 
 /** "תוספת חודשית" can be assigned to commissions or bonus by the employee, only into an empty row:
@@ -119,12 +154,17 @@ export function choicesFor(r: ReviewRow): { id: Choice; label: string }[] {
  *  a car copay or car maintenance never is, and an older server that does not say is not trusted. */
 export function assignable(info: PayslipInfo, rows: ReviewRow[]): Key[] {
   if (info.key !== 'other_addition' || info.assignable !== true || info.suspect) return []
-  return (['commissions', 'bonus'] as Key[]).filter((k) => rows.find((r) => r.key === k)?.value === '')
+  // an empty row: not being updated and showing nothing (a payslip value not chosen is only an option on it)
+  return (['commissions', 'bonus'] as Key[]).filter((k) => {
+    const r = rows.find((row) => row.key === k)
+    return r !== undefined && r.choice === 'skip' && shownValue(r).trim() === ''
+  })
 }
 
+/** The assigned amount becomes the row's typed value ("שויך על ידיכם"): the employee's decision, not the payslip's. */
 export function assign(rows: ReviewRow[], key: Key, info: PayslipInfo): ReviewRow[] {
   return rows.map((r) => (r.key === key
-    ? { ...r, value: asInput(info.value), choice: 'payslip' as Choice, source: info.source_label ? `בתלוש: ${info.source_label}` : '',
+    ? { ...r, manual: asInput(info.value), choice: 'manual' as Choice, source: info.source_label ? `בתלוש: ${info.source_label}` : '',
         note: 'שויך על ידיכם' }
     : r))
 }

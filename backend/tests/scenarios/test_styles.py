@@ -381,7 +381,7 @@ def test_free_corpus(setup: str, text: str, checks: dict[str, Any]):
     if checks.get("help"):                      # simpler words: the template marker, or the LLM's own wording
         assert "במילים פשוטות" in reply or (body["source"] == "llm" and len(reply.split("\n\n")) >= 2), where
     if checks.get("redirect"):
-        assert reply.startswith("אני כאן רק כדי לעזור"), where
+        assert reply.startswith("אני כאן כדי לעזור לכם"), where
     if checks.get("follow_up"):
         assert "כתבתם שיש לכם" in reply, where
     if "no_car" in checks:

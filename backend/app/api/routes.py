@@ -19,6 +19,7 @@ from app.modules.conversation.public import (
     FieldsInvalid,
     TurnResult,
     map_json,
+    map_readiness,
     results_stale,
 )
 from app.modules.payslip.public import PayslipError
@@ -216,6 +217,7 @@ def get_conversation(conversation_id: str, request: Request) -> dict[str, Any]:
             "current_car": {k: v for k, v in state["current"].items() if k != "choices"},
             "selected": state["selected"], "results": state["results"],
             "results_stale": results_stale(view.state), "option_map": map_json(view.state),
+            **map_readiness(view.state),
             "pending_rep": state["pending_rep"]["reason"] if state["pending_rep"] else None,
             "expects": view.expects, "messages": view.messages}
 

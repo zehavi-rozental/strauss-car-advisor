@@ -13,7 +13,7 @@ import { formatMoney } from '../format/money'
 import { Icon } from '../ui/Icon'
 import { payslipOutcome } from './payslipOutcome'
 import type { PayslipOutcome } from './payslipOutcome'
-import { CHOOSE_FIRST, assign, assignable, choicesFor, reviewFields, reviewRows } from './payslipReview'
+import { CHOOSE_FIRST, assign, assignable, choicesFor, reviewFields, reviewRows, shownValue, typed } from './payslipReview'
 import type { ReviewRow } from './payslipReview'
 import type { SendResult } from './useConversation'
 
@@ -162,7 +162,8 @@ export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled }: Pro
     )
   }
 
-  const kept = rows.filter((r) => r.choice === 'payslip').length
+  const updates = (r: ReviewRow) => r.choice === 'payslip' || r.choice === 'manual'
+  const kept = rows.filter(updates).length
   return (
     <form className="profile-form panel-card payslip-review" onSubmit={confirm} aria-label="סקירת נתוני התלוש">
       <header className="panel-card-head">
@@ -178,15 +179,15 @@ export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled }: Pro
       {fileInput}
       <div className="form-grid review-grid">
         {rows.map((r) => (
-          <div key={r.key} className={`form-field payslip-row payslip-${r.status}${r.choice === 'payslip' ? ' is-kept' : ''}`} data-field={r.key}>
+          <div key={r.key} className={`form-field payslip-row payslip-${r.status}${updates(r) ? ' is-kept' : ''}`} data-field={r.key}>
             <label htmlFor={`ps-${r.key}`}>
               {r.label}{r.unit && <span className="unit"> ({r.unit})</span>}
             </label>
             <div className="form-input-row">
-              <input id={`ps-${r.key}`} inputMode="decimal" autoComplete="off" value={r.value}
+              {/* always the value of the source chosen; typing makes the typed value the source, visibly */}
+              <input id={`ps-${r.key}`} inputMode="decimal" autoComplete="off" value={shownValue(r)}
                      disabled={working} aria-invalid={errors[r.key] ? true : undefined}
-                     onChange={(e) => update(r.key, { value: e.target.value,
-                                                      choice: e.target.value.trim() !== '' ? 'payslip' : 'skip' })} />
+                     onChange={(e) => update(r.key, typed(r, e.target.value))} />
             </div>
             <div className="review-choice" role="radiogroup" aria-label={`${r.label}: מה לעשות`}>
               {choicesFor(r).map((ch) => (

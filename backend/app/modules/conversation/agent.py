@@ -7,9 +7,9 @@ machine, the calculation, the rep flow and the template path (no LLM / outage / 
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
-import secrets
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from typing import Any, Callable, Optional, Sequence
@@ -43,11 +43,13 @@ from .stage import (
     CarClarification,
     ConfirmedCopay,
     ConversationState,
+    GeneralQuestion,
     OptionResult,
     PendingRep,
     RepReason,
     Stage,
     blocking_rep_reason,
+    map_ready,
     missing_current_car,
     missing_profile,
     open_profile,
@@ -1021,6 +1023,10 @@ class Agent:
                 return {"ok": False, "error": "unknown tool"}
             if call.name == "propose_rep_question" and state.rep_skipped:
                 return {"ok": False, "error": "the employee chose to continue without the representative"}
+            if call.name == "propose_rep_question" and und.redirect and not und.unanswered:
+                # not about this service (understanding.in_scope): never a question for the representative
+                return {"ok": False, "error": "not a question for the representative: it is not about company cars, "
+                                              "eligibility or pay. Say in one line what you can help with."}
             if call.name == "propose_rep_question" and not und.unanswered and (
                     und.all_at_once or und.catalog or und.faq_ids):
                 # code already answers it (the catalog / FAQ), or it is about the conversation itself
@@ -1283,8 +1289,7 @@ class Agent:
         state = ctx.state
         if not state.map_requested or (state.option_map is not None and state.option_map.fresh):
             return False
-        if (missing_profile(state.profile) or missing_current_car(state.current)
-                or blocking_rep_reason(state) is not None):
+        if not map_ready(state):
             return False
         try:
             state.option_map = build_option_map(ctx.snapshot, state)
@@ -1374,7 +1379,10 @@ class Agent:
             invalidate_results(state)
             lines.append(rep_maintenance_text(amount))
         elif field == MissingField.GENERAL_QUESTION:
-            # the representative's own words; nothing in the state changes
+            # the representative's own words; kept with the question, so asking it again shows this answer
+            asked = state.general_questions.get(event.option_id)
+            if asked is not None:
+                asked.answer = event.value
             lines.append(f"נציג התחבורה ענה על השאלה שלכם:\n{event.value}")
         note = rep_note_text(event.note)
         if note:
@@ -1393,8 +1401,10 @@ class Agent:
         if next_stage(state) == Stage.CALCULATING:
             self._calculate(ctx, record_run)
             just_calculated = True
+        map_had = state.option_map is not None
         if self._resolve_map(ctx):
-            lines.append(MAP_UPDATED)          # the representative's answer completed or changed a value
+            # the representative's answer completed the map (presented now, as it was asked for) or changed it
+            lines.append(map_reply(state) if not map_had else MAP_UPDATED)
         state.stage = next_stage(state)
         rep_opened = any(r.mode == Mode.REQUIRED for r in ctx.question_requests)
         if field == MissingField.NEW_CAR_COPAY:
@@ -1611,6 +1621,11 @@ class Agent:
         in code, and shown to the employee before anything is sent."""
         state, snap = ctx.state, ctx.snapshot
         question, state.unanswered_question = state.unanswered_question, None
+        known = known_question_line(state, question) if question else None
+        if known is not None:             # already asked: its status or the answer, never a second question
+            plan = plan_reply(state, snap, understood=True, just_calculated=False, confirmations=[known])
+            return TurnOutcome(reply=plan.text(), source="template", path="choice")
+        state.pending_rep_key = general_question_id(question) if question else None
         text = self._rep_rephrase(snap, question) if question else None
         if text is None:
             line = "כדי לשמור על הפרטיות, אשלח לנציג רק שאלה בלי סכומים ובלי מספרים אישיים. כתבו אותה שוב כך."
@@ -1639,17 +1654,45 @@ class Agent:
     def _rep_question_decision(self, ctx: ToolContext, send: bool, record_run: RecordRun) -> TurnOutcome:
         state, snap = ctx.state, ctx.snapshot
         text, state.pending_rep_question = state.pending_rep_question, None
+        key, state.pending_rep_key = state.pending_rep_key, None
         if send and text and rep_ok(snap, text):
-            p, c = state.profile, state.current
-            car = rep_car_label(c) if c.source in ("catalog", "tax", "stated") else None
-            self._request(ctx, MissingField.GENERAL_QUESTION, Mode.CONFIRM, AnswerType.TEXT, text,
-                          {"group": p.group, "car_label": car}, option_id=f"gq-{secrets.token_hex(6)}")
-            line = "שלחתי את השאלה לנציג התחבורה. התשובה תגיע לכאן, ובינתיים אפשר להמשיך."
+            known = known_question_line(state, text)
+            if known is not None:         # the same question (as sent) is already with the representative
+                line = known
+            else:
+                # a stable id: the open-question index on the server keeps one, even for a repeated send
+                option_id = key or general_question_id(text)
+                p, c = state.profile, state.current
+                car = rep_car_label(c) if c.source in ("catalog", "tax", "stated") else None
+                self._request(ctx, MissingField.GENERAL_QUESTION, Mode.CONFIRM, AnswerType.TEXT, text,
+                              {"group": p.group, "car_label": car}, option_id=option_id)
+                state.general_questions[option_id] = GeneralQuestion(text=text)
+                line = "שלחתי את השאלה לנציג התחבורה. התשובה תגיע לכאן, ובינתיים אפשר להמשיך."
         else:
             line = "בסדר, לא שלחתי."
         plan = plan_reply(state, snap, understood=True, just_calculated=False, confirmations=[line])
         return TurnOutcome(reply=plan.text(), source="template", path="choice",
                            question_requests=ctx.question_requests)
+
+
+def general_question_id(text: str) -> str:
+    """The option_id of a question to the representative: the same words (case, spaces and punctuation aside)
+    give the same id, so a repeated question is recognised, never sent twice (QA 22/10)."""
+    norm = " ".join(re.sub(r"[^\w\s]", " ", text.lower()).split())
+    return "gq-" + hashlib.sha256(norm.encode("utf-8")).hexdigest()[:12]
+
+
+def known_question_line(state: ConversationState, text: str) -> Optional[str]:
+    """A question already sent (asked again, after a reload or in the same words as sent): the answer when it
+    came, otherwise that it is still with the representative. None for a new question."""
+    qid = general_question_id(text)
+    asked = state.general_questions.get(qid) or next(
+        (q for q in state.general_questions.values() if general_question_id(q.text) == qid), None)
+    if asked is None:
+        return None
+    if asked.answer is not None:
+        return f"נציג התחבורה כבר ענה על השאלה הזו:\n{asked.answer}"
+    return "כבר שאלתי את נציג התחבורה את השאלה הזו, והתשובה תגיע לכאן. אין צורך לשאול שוב."
 
 
 def rep_ok(snapshot: RulesSnapshot, text: str) -> bool:

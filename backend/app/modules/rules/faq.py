@@ -32,9 +32,15 @@ class Faq(BaseModel):
 
     version: str = ""
     entries: tuple[FaqEntry, ...] = ()
-    redirect: str = "אני כאן רק כדי לעזור עם הרכב הצמוד והנטו שלכם."
+    redirect: str = ("אני כאן כדי לעזור לכם להבין איך בחירת רכב החברה משפיעה על הנטו החודשי שלכם, ולהשוות בין "
+                     "האפשרויות לפי הסדרי שטראוס. אפשר לשאול אותי על רכבי החברה, הזכאות וההשפעה על השכר.")
     injection_patterns: tuple[str, ...] = ()
     off_topic_patterns: tuple[str, ...] = ()
+    # what the service is about: a question no entry answers goes to the representative only when it names one
+    # of these (or an FAQ topic, or a catalog car); anything else gets the redirect line
+    domain_terms: tuple[str, ...] = ()
+    # words that refer back to the conversation ("ומה זה?", "למה?", "ואם…"): a follow-up, never off topic
+    context_markers: tuple[str, ...] = ()
 
     def get(self, entry_id: str) -> Optional[FaqEntry]:
         return next((e for e in self.entries if e.id == entry_id), None)

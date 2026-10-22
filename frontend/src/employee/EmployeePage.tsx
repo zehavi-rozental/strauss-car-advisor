@@ -111,9 +111,9 @@ export function EmployeePage() {
       </>
     )
   }
-  // 360°: once alternatives can be chosen, every option can be mapped instead (the request goes through the
-  // chat like any message, so the server decides what is still missing)
-  const offerMap = !c.optionMap && (Boolean(options) || c.results.length > 0)
+  // 360°: offered only when the server can build the map now (map_ready: every value and today's car known), so
+  // the button never leads to "חסרים לי עוד" (QA 22/10). A map typed for earlier is still built when ready.
+  const offerMap = !c.optionMap && c.mapReady
   const tail = (
     <div className="answer-tail" ref={tailRef}>
       {area}
