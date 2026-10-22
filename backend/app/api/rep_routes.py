@@ -52,13 +52,18 @@ def rep_name(request: Request, x_rep_token: Optional[str] = Header(None),
              x_rep_name: Optional[str] = Header(None)) -> str:
     """בודק הגבלת קצב ואז הרשאה, ומחזיר את שם הנציג (לשדה answered_by).
 
-    הגבלת הקצב קודמת לבדיקת הטוקן: גם ניסיונות עם טוקן שגוי נספרים, כך שאי אפשר לנחש בלי הגבלה."""
+    הגבלת הקצב קודמת לבדיקת הטוקן: גם ניסיונות עם טוקן שגוי נספרים, כך שאי אפשר לנחש בלי הגבלה; ניסיון
+    שגוי נספר גם במגבלה נפרדת ומחמירה (RepGate.failures). הכתובת היא request.client — מאחורי Render
+    ה-start script סומך על X-Forwarded-For רק מ-proxy פרטי (FORWARDED_ALLOW_IPS), כך שאי אפשר לזייף אותה."""
     ctx = context(request)
     client = request.client.host if request.client else "unknown"
-    if not ctx.rep_limiter.allow(client):
-        raise HTTPException(429, "יותר מדי בקשות. נסו שוב בעוד דקה.")
+    wait = ctx.rep_gate.admit(client, "read" if request.method == "GET" else "write")
+    if wait is not None:
+        raise HTTPException(429, f"יותר מדי בקשות. נסו שוב בעוד {wait} שניות.",
+                            headers={"Retry-After": str(wait)})
     expected = ctx.settings.rep_access_token
     if not expected or not x_rep_token or not hmac.compare_digest(x_rep_token.encode(), expected.encode()):
+        ctx.rep_gate.failed(client)
         raise HTTPException(401, "נדרשת הרשאת נציג")
     return _header_text(x_rep_name).strip()[:60] or DEFAULT_REP_NAME
 

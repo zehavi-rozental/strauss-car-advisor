@@ -1,5 +1,5 @@
 // Transport representative portal. The token lives in sessionStorage and goes out as X-Rep-Token.
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ApiError, repApi } from '../api/client'
 import type { RepQuestion } from '../api/types'
 import { REP_LOGOUT_EVENT } from '../shell/repSession'
@@ -7,9 +7,9 @@ import { BrandMark } from '../ui/BrandMark'
 import { Icon } from '../ui/Icon'
 import { QuestionCard } from './QuestionCard'
 import { RepLogin } from './RepLogin'
+import { RepPoller, browserChannel } from './repPolling'
 
 const TOKEN_KEY = 'sca.repToken'
-const POLL_MS = 3000
 const BAD_TOKEN = 'קוד הגישה שגוי או שפג תוקפו'
 type Tab = 'open' | 'answered'
 
@@ -45,49 +45,47 @@ function Portal({ token, onLogout }: { token: string; onLogout: (message?: strin
   const [open, setOpen] = useState<RepQuestion[]>([])
   const [answered, setAnswered] = useState<RepQuestion[]>([])
   const [loaded, setLoaded] = useState(false)
+  const [answeredLoaded, setAnsweredLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
-  const alive = useRef(true)
+  const [pausedFor, setPausedFor] = useState<number | null>(null)
+  const poller = useRef<RepPoller | null>(null)
+  const logout = useRef(onLogout)
+  logout.current = onLogout
 
-  const refresh = useCallback(async () => {
-    try {
-      const [o, a] = await Promise.all([repApi.listQuestions(token, 'OPEN'), repApi.listQuestions(token, 'ANSWERED')])
-      if (!alive.current) return
-      setOpen(o)
-      setAnswered([...a].sort((x, y) => (y.answered_at ?? '').localeCompare(x.answered_at ?? '')).slice(0, 20))
-      setError(null)
-      setLoaded(true)
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) onLogout(BAD_TOKEN)
-      else if (alive.current) setError(e instanceof ApiError ? e.message_he : 'משהו השתבש')
-    }
-  }, [token, onLogout])
-
-  // refresh every 3s while the tab is visible
+  // the list on screen every 5 s, the other one every minute, both after an answer; nothing while the tab is
+  // hidden; a 429 pauses it for its Retry-After (repPolling.ts, QA 22/10)
   useEffect(() => {
-    alive.current = true
-    let timer: number | undefined
-    const start = () => {
-      if (timer === undefined && document.visibilityState === 'visible') {
-        timer = window.setInterval(() => void refresh(), POLL_MS)
-      }
-    }
-    const stop = () => {
-      if (timer !== undefined) window.clearInterval(timer)
-      timer = undefined
-    }
+    const p = new RepPoller({
+      fetchOpen: () => repApi.listQuestions(token, 'OPEN'),
+      fetchAnswered: () => repApi.listQuestions(token, 'ANSWERED'),
+      onOpen: (o) => { setOpen(o); setLoaded(true) },
+      onAnswered: (a) => {
+        setAnswered([...a].sort((x, y) => (y.answered_at ?? '').localeCompare(x.answered_at ?? '')).slice(0, 20))
+        setAnsweredLoaded(true)
+      },
+      onLoaded: () => setError(null),
+      onError: (e) => setError(e instanceof ApiError ? e.message_he : 'משהו השתבש'),
+      onUnauthorized: () => logout.current(BAD_TOKEN),
+      onPause: setPausedFor,
+      channel: browserChannel(),        // other rep tabs of this browser share what they fetch
+    })
+    poller.current = p
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') { void refresh(); start() } else stop()
+      if (document.visibilityState === 'visible') p.start()
+      else p.stop()
     }
-    void refresh()
-    start()
+    p.start()
+    if (document.visibilityState !== 'visible') p.stop()
     document.addEventListener('visibilitychange', onVisibility)
     return () => {
-      alive.current = false
-      stop()
+      p.dispose()
+      poller.current = null
       document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [refresh])
+  }, [token])
+
+  useEffect(() => { poller.current?.setTab(tab) }, [tab])
 
   useEffect(() => {
     if (!success) return
@@ -98,8 +96,13 @@ function Portal({ token, onLogout }: { token: string; onLogout: (message?: strin
   const cardProps = {
     token,
     onUnauthorized: () => onLogout(BAD_TOKEN),
-    onAnswered: () => { setSuccess(true); void refresh() },
-    onConflict: () => void refresh(),
+    // the server returns the answered question: both lists change here, at no request (the next poll syncs)
+    onAnswered: (q: RepQuestion) => {
+      setSuccess(true)
+      setOpen((o) => o.filter((x) => x.id !== q.id))
+      setAnswered((a) => [q, ...a.filter((x) => x.id !== q.id)].slice(0, 20))
+    },
+    onConflict: () => poller.current?.refreshAll(),          // another rep answered first: both lists now
   }
   const emptyOpen = loaded && tab === 'open' && open.length === 0
   const list = tab === 'open' ? open : answered
@@ -119,7 +122,7 @@ function Portal({ token, onLogout }: { token: string; onLogout: (message?: strin
             </div>
             <div>
               <dt>נענו</dt>
-              <dd className="num">{loaded ? answered.length : '—'}</dd>
+              <dd className="num">{answeredLoaded ? answered.length : '—'}</dd>
             </div>
           </dl>
           <button type="button" className="link-button rep-logout" onClick={() => onLogout()}>
@@ -136,6 +139,12 @@ function Portal({ token, onLogout }: { token: string; onLogout: (message?: strin
       <main className="rep-main">
         {success && <div className="success-bar" role="status"><Icon name="check" size={18} />התשובה נשלחה לעובד</div>}
         {error && <div className="error-bar" role="alert"><Icon name="alert" size={18} /><span>{error}</span></div>}
+        {pausedFor !== null && (
+          <div className="error-bar rep-paused" role="status">
+            <Icon name="clock" size={18} />
+            <span>הרבה בקשות בזמן קצר. הרשימה תתעדכן שוב בעוד {pausedFor} שניות, אפשר להמשיך לעבוד.</span>
+          </div>
+        )}
         {!loaded && !error && (
           <div className="rep-skeleton" aria-hidden="true"><i /><i /></div>
         )}

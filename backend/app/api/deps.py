@@ -12,7 +12,7 @@ from app.modules.payslip.public import PayslipService
 from app.modules.rules.public import RulesStore
 from app.shared.settings import Settings
 
-from .ratelimit import RateLimiter
+from .ratelimit import RateLimiter, RepGate
 
 
 @dataclass
@@ -25,7 +25,7 @@ class AppContext:
     payslip: PayslipService
     message_limiter: RateLimiter
     create_limiter: RateLimiter
-    rep_limiter: RateLimiter
+    rep_gate: RepGate
     payslip_limiter: RateLimiter
 
 

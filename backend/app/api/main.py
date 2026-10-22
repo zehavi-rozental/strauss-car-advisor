@@ -19,7 +19,7 @@ from app.shared.db import get_engine, session_factory
 from app.shared.settings import ENV_FILE, Settings, get_settings
 
 from .deps import AppContext
-from .ratelimit import RateLimiter
+from .ratelimit import RateLimiter, RepGate
 from .rep_routes import router as rep_router
 from .routes import router
 
@@ -60,7 +60,8 @@ def create_app(settings: Optional[Settings] = None, *, engine: Optional[Engine] 
         payslip=payslip,
         message_limiter=RateLimiter(settings.rate_limit_per_minute),
         create_limiter=RateLimiter(settings.create_rate_limit_per_minute),
-        rep_limiter=RateLimiter(settings.rep_rate_limit_per_minute),
+        rep_gate=RepGate(settings.rep_rate_limit_per_minute, settings.rep_read_limit_per_minute,
+                         settings.rep_write_limit_per_minute, settings.rep_auth_failure_limit_per_minute),
         payslip_limiter=RateLimiter(settings.payslip_rate_limit_per_minute),
     )
     app.include_router(router)

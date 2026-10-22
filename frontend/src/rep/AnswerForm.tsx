@@ -8,7 +8,7 @@ import { checkMoney } from './repForm'
 interface Props {
   question: RepQuestion
   token: string
-  onAnswered: () => void
+  onAnswered: (answered: RepQuestion) => void     // the question as the server saved it
   onUnauthorized: () => void
   onConflict: () => void
 }
@@ -26,10 +26,10 @@ export function AnswerForm({ question: q, token, onAnswered, onUnauthorized, onC
     setBusy(true)
     setError(null)
     try {
-      await repApi.answer(token, q.id, {
+      const answered = await repApi.answer(token, q.id, {
         value: answer, ...(date ? { effective_date: date } : {}), ...(note.trim() ? { note: note.trim() } : {}),
       })
-      onAnswered()
+      onAnswered(answered)
     } catch (e) {
       if (!(e instanceof ApiError)) setError('משהו השתבש. נסו שוב.')
       else if (e.status === 401) onUnauthorized()

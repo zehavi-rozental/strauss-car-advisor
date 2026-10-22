@@ -8,7 +8,7 @@ import { relativeTime } from './repForm'
 interface Props {
   question: RepQuestion
   token: string
-  onAnswered: () => void
+  onAnswered: (answered: RepQuestion) => void
   onUnauthorized: () => void
   onConflict: () => void
 }

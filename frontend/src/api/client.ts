@@ -20,13 +20,22 @@ export class ApiError extends Error {
   readonly status: number
   readonly message_he: string
   readonly errors: Record<string, string>     // per field (the profile form), empty otherwise
+  readonly retryAfter: number | null          // a 429's Retry-After, in seconds
 
-  constructor(status: number, message_he: string, errors: Record<string, string> = {}) {
+  constructor(status: number, message_he: string, errors: Record<string, string> = {},
+              retryAfter: number | null = null) {
     super(message_he)
     this.status = status
     this.message_he = message_he
     this.errors = errors
+    this.retryAfter = retryAfter
   }
+}
+
+/** Retry-After in whole seconds (the server sends seconds); null when absent or not a number. */
+export function retryAfterSeconds(value: string | null): number | null {
+  const n = value === null ? NaN : Number(value)
+  return Number.isFinite(n) && n > 0 ? Math.ceil(n) : null
 }
 
 function errorMessage(body: ApiErrorBody | null): string {
@@ -50,7 +59,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError(0, NETWORK_ERROR)
   }
   const body = await response.json().catch(() => null)
-  if (!response.ok) throw new ApiError(response.status, errorMessage(body), body?.errors ?? {})
+  if (!response.ok) {
+    throw new ApiError(response.status, errorMessage(body), body?.errors ?? {},
+                       retryAfterSeconds(response.headers.get('Retry-After')))
+  }
   return body as T
 }
 

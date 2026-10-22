@@ -78,7 +78,13 @@ class Settings(BaseSettings):
     payslip_fake_vision_dir: str = ""      # browser tests only: recorded answers by file hash (no Gemini call)
 
     rep_access_token: str = ""             # כותרת X-Rep-Token; ריק (ברירת המחדל) = ה-API של הנציג סגור
+    # The rep API, per client address (api/ratelimit.RepGate). The total is the old single limit and still counts
+    # every admitted request; within it reads (the screen's polling) and answers each have their own cap, so
+    # polling never uses up the room for answers; wrong access codes have a stricter cap of their own.
     rep_rate_limit_per_minute: int = 60
+    rep_read_limit_per_minute: int = 45
+    rep_write_limit_per_minute: int = 15
+    rep_auth_failure_limit_per_minute: int = 10
     session_cookie_secure: bool = False
     log_level: str = "INFO"
 

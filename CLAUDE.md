@@ -204,6 +204,14 @@ Both cloud conversations replayed message by message (template mode + a FakeLLM 
 - **Children the model left out** (`agent._fill_gaps`): "ויש לי 2 ילדים" and "ושני ילדים" are saved by the gap fill even when the parser distrusts the rest of the message ("6% פנסיה ו-2.5%"); an age ("מתחת לגיל 23") is never a count.
 - **Timing** (measured, 4 / 8 / 12 s compared): `VERIFY_BUDGET_S` 1.2 → 2.5 (at 1.2 the verifier never finished and replies were trimmed), `LLM_TURN_DEADLINE_S` 4 → 12 (a ceiling: median turn 4.5 s), `LLM_TIMEOUT_S` 4 → 6 (one slow call cooled the only entry down for 60 s).
 
+### Rep portal rate limits (session 9b, 22/10; `tests/test_rep_rate_limits.py`, `tests/test_rep_rate_regression.py`, `frontend/src/rep/repPolling.test.ts`, `e2e/rep-rate-limit.spec.ts`)
+
+"יותר מדי בקשות" after ~7 actions: one limit of 60 a minute per address was shared by the screen's own polling (both lists every 3 s: 40 a minute) and the rep's actions (an answer + a refresh of both lists: 3).
+- **The screen** (`rep/repPolling.ts`, `RepPoller`): the list on screen every 5 s, the other one every 60 s and when its tab opens; an answer updates both lists from the server's reply (one request, no refresh), a 409 refreshes both; nothing while hidden; never two requests for one list at once. Tabs of one browser share fetched lists and pauses (`BroadcastChannel` "sca.rep"): three tabs cost about one. A 429 pauses every tab for its `Retry-After` (at least 5 s), then only the list on screen is loaded; the bar "הרבה בקשות בזמן קצר…" says so.
+- **The server** (`api/ratelimit.RepGate`, per client address): `REP_RATE_LIMIT_PER_MINUTE` (60, the old limit) still counts every admitted request; within it reads ≤ `REP_READ_LIMIT_PER_MINUTE` (45) and answers ≤ `REP_WRITE_LIMIT_PER_MINUTE` (15), so polling always leaves room for answers and mixing kinds never passes 60; a request refused by one cap is not counted in the others. Wrong or missing codes ≤ `REP_AUTH_FAILURE_LIMIT_PER_MINUTE` (10, stricter than the 60 before); past it the address gets nothing until the window frees one. Every 429 has `Retry-After` (seconds) and "נסו שוב בעוד X שניות".
+- **The address**: `request.client`; behind Render the start script trusts `X-Forwarded-For` only from private proxies (`FORWARDED_ALLOW_IPS`), so a caller cannot choose it (tested with uvicorn's middleware).
+- Limit: the caps are per address, so screens on different machines behind one NAT (a venue's Wi-Fi) share them; ~3 independent screens fit, more get short pauses (never a blocked answer).
+
 ## NEXT (not done in this pass)
 
 - Session 6 conversation bugs (salary correction after a result, "קיה נירו", "ילד אחד", "ויתור על הרכב", blanket "לא ידוע לי") were fixed by Kiro in 3b06848 and merged in 50e2195; checked by API tests and browser journeys (`journeys.spec.ts`, "merged conversation acceptance").
