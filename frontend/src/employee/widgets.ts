@@ -40,12 +40,17 @@ export function optionsField(expects: Expects | null): ExpectsField | null {
 export const counterLabel = (count: number, max: number) => `נבחרו ${count} מתוך ${max}`
 export const limitHint = (max: number) => `אפשר עד ${max}`
 
+/** Said when a car is chosen while the selection is full: nothing is added, and the employee is told how to go on. */
+export const limitMessage = (max: number) => max === 1
+  ? 'אפשר לבחור רכב אחד. כדי לבחור רכב אחר, בטלו תחילה את הבחירה הקיימת.'
+  : `ניתן להשוות עד ${max} רכבים. כדי לבחור רכב אחר, בטלו תחילה אחת מהבחירות הקיימות.`
+
 export function toggleSelection(picked: string[], id: string, max: number): string[] {
   if (picked.includes(id)) return picked.filter((x) => x !== id)
   return picked.length < max ? [...picked, id] : picked
 }
 
-/** A card that is not selected is blocked once the limit is reached. */
+/** A card that is not selected cannot be added once the limit is reached. It stays enabled: the tap explains why. */
 export const isBlocked = (picked: string[], id: string, max: number) => !picked.includes(id) && picked.length >= max
 
 // ---------- composer placeholder ----------

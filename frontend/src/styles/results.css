@@ -106,6 +106,25 @@
   padding-block: 10px;
   background: linear-gradient(to top, var(--paper) 70%, transparent);
 }
+/* a car chosen while the selection is full: the cards stay as they are, the bar says how to go on */
+.selection-limit {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex-basis: 100%;
+  margin: 0;
+  padding-block: 10px;
+  padding-inline: 14px;
+  border: 1px solid color-mix(in srgb, var(--petal-orange) 35%, transparent);
+  border-radius: var(--r-md);
+  background: var(--pending-tint);
+  color: var(--pending);
+  font-size: var(--fs-small);
+  font-weight: 600;
+  line-height: 1.45;
+  animation: rise var(--t-med) var(--ease-out);
+}
+.selection-limit .ico { flex: none; margin-block-start: 1px; }
 .selection-counter { display: inline-flex; align-items: center; gap: 10px; margin-inline-end: auto; font-size: var(--fs-small); color: var(--ink-2); }
 .selection-dots { display: inline-flex; gap: 4px; }
 .selection-dots i { inline-size: 9px; block-size: 9px; border-radius: 50%; background: var(--line-2); transition: background var(--t-med) var(--ease-out), transform var(--t-med) var(--ease-out); }
