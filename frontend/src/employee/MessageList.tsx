@@ -57,7 +57,7 @@ export function MessageList({ messages, results, resultsStale = false, resultsAn
       {resultsStale && <p className="stale-note" role="status">{STALE_NOTE}</p>}
       {results.length > 1
         ? <SummaryCard items={results} current={!resultsStale} onOpenTable={onOpenTable} />
-        : results.map((r) => <ResultCard key={`${r.option_id}:${r.run_id}`} item={r} onOpenTable={onOpenTable} />)}
+        : results.map((r) => <ResultCard key={`${r.option_id}:${r.run_id}`} item={r} current={!resultsStale} onOpenTable={onOpenTable} />)}
     </div>
   )
 

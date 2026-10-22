@@ -5,14 +5,11 @@
 import type { OptionResult } from '../api/types'
 import { Money } from '../format/Amount'
 import { Icon } from '../ui/Icon'
+import { ReportButton } from './ReportButton'
 import { CarName, NetChange, StateBadge } from './ResultCard'
-import { resultState, toneOf } from './resultView'
+import { rankResults, resultState, toneOf } from './resultView'
 
-export function rankResults(items: OptionResult[]): OptionResult[] {
-  const ok = (i: OptionResult) => i.result.status === 'OK' && i.result.delta_display != null
-  const delta = (i: OptionResult) => Number(i.result.delta_display)
-  return [...items.filter(ok).sort((a, b) => delta(b) - delta(a)), ...items.filter((i) => !ok(i))]
-}
+export { rankResults }
 
 export function SummaryCard({ items, onOpenTable, current = true }:
   { items: OptionResult[]; onOpenTable?: () => void; current?: boolean }) {
@@ -68,9 +65,12 @@ export function SummaryCard({ items, onOpenTable, current = true }:
       </ol>
       <footer className="result-foot">
         <span className="disclaimer">הערכה, לא תלוש</span>
-        <button type="button" className="table-button" disabled={!onOpenTable} onClick={onOpenTable}>
-          <Icon name="table" size={18} />פירוט מלא
-        </button>
+        <span className="result-actions">
+          <ReportButton results={items} stale={!current} />
+          <button type="button" className="table-button" disabled={!onOpenTable} onClick={onOpenTable}>
+            <Icon name="table" size={18} />פירוט מלא
+          </button>
+        </span>
       </footer>
     </article>
   )
