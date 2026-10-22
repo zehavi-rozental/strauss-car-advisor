@@ -16,6 +16,9 @@ from app.modules.calculation.public import Drive
 
 MAX_OPTIONS = 3
 OPT_OUT_ID = "OPT_OUT"
+# pending_ambiguity: "אינני משתתף" / a bare "אין" before the car is known — no car, or a car with copay 0? Asked,
+# never guessed (the tools and the agent both set it, so it lives here)
+NO_CAR_OR_ZERO = "no_car_or_zero_copay"
 
 
 class Stage(str, Enum):

@@ -38,6 +38,7 @@ from .free_text import _PAY_WORDS, looks_like_car, looks_like_title
 from .llm.port import ToolSpec
 from .parsing import match_drive, match_group, match_occupation, parse_decimal, similar_occupations
 from .stage import (
+    NO_CAR_OR_ZERO,
     PROFILE_ARGS,
     ExcludedOption,
     MAX_OPTIONS,
@@ -84,6 +85,12 @@ class ToolContext:
     # the profile form / a reviewed payslip: each amount sits in its own shekel field, so a small amount is
     # what it says (never "3 ₪ or 3,000 ₪?"); unusual values are still confirmed
     exact_amounts: bool = False
+    # the employee chose "יש רכב, ההשתתפות 0" (the answer to the ambiguity question): copay 0 with the model still
+    # unknown is what they said — only code sets this, never the model
+    allow_zero_copay: bool = False
+    # the employee's message is phrased as a question ("האם 45 או 45 אלף?", "זה 45 אלף?"): set by the agent, so a
+    # value held for confirmation is never resolved by it, whoever asks to save (the model or the reader)
+    question_message: bool = False
 
 
 class ToolError(Exception):
@@ -207,8 +214,10 @@ def _check_ranges(ctx: ToolContext, args: SaveProfileArgs) -> tuple[SaveProfileA
 
     def hold(arg: str, pending: PendingConfirmation, reason: str) -> None:
         """One value is confirmed at a time: the first held value keeps the question, a second one in the same
-        message is not saved and is asked again as a missing field afterwards (never replacing the first)."""
-        if ctx.state.pending_confirmation is None:
+        message is not saved and is asked again as a missing field afterwards (never replacing the first). A new
+        value for the field already held replaces it: the employee said it again ("45" → "50")."""
+        held = ctx.state.pending_confirmation
+        if held is None or held.field == arg:
             ctx.state.pending_confirmation = pending
             rejected.append({"field": arg, "reason": reason})
         else:
@@ -249,7 +258,15 @@ def _check_ranges(ctx: ToolContext, args: SaveProfileArgs) -> tuple[SaveProfileA
 def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
     p, c, snap = ctx.state.profile, ctx.state.current, ctx.snapshot
     saved: list[str] = []
+    held = ctx.state.pending_confirmation
+    question_about_held = held is not None and ctx.question_message and getattr(args, held.field, None) is not None
+    if question_about_held:
+        # a value held for confirmation is resolved by a statement or an answer, never by a question about it
+        # (live QA 22/10: "האם 45 או 45 אלף?" saved 45,000 before the employee decided); it stays held and is asked
+        args = args.model_copy(update={held.field: None})
     args, ignored = _check_ranges(ctx, args)
+    if question_about_held:
+        ignored.append({"field": held.field, "reason": "a question about the value being confirmed: still asked"})
 
     if args.occupation:
         name = match_occupation(snap.occupations.keys(), args.occupation)
@@ -309,7 +326,14 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
             ctx.state.deferred_fields.append(name)
             saved.append(f"defer:{name}")
 
-    if args.current_copay is not None:
+    if args.current_copay is not None and args.current_copay == 0 and c.source is None and c.query is None \
+            and not c.has_car and not ctx.allow_zero_copay:
+        # a bare "אין" / "לא" / "אינני משתתף" before any car is known may mean "no car at all": never saved as
+        # copay 0 (rule 4), from any source; the employee is asked (live QA 22/10: template mode saved it)
+        ctx.state.pending_ambiguity = NO_CAR_OR_ZERO
+        ignored.append({"field": "current_copay", "reason": "0 before the car is known: no car, or a car with "
+                                                            "copay 0? the employee is asked"})
+    elif args.current_copay is not None:
         c.copay, c.copay_unknown = args.current_copay, False
         saved.append("current_copay")
     elif args.current_copay_unknown and c.copay is None:
@@ -353,6 +377,12 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
             ctx.state.deferred_fields.append("maintenance")
         saved.append("current_maintenance_unknown")
 
+    # a value saved for the field being confirmed resolves that confirmation: never "רשמתי X" and "התכוונתם ל-X?"
+    # in one reply (live QA 22/10)
+    held = ctx.state.pending_confirmation
+    if held is not None and held.field in saved:
+        ctx.state.pending_confirmation = None
+
     # הערכה: השדות שנשמרו עכשיו מסומנים (או מנוקים, אם נאמרו עכשיו במדויק)
     for arg in RANGED_FIELDS:
         if arg in saved:
@@ -360,7 +390,10 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
                 p.approximate_fields.append(arg)
             elif arg not in args.approximate_fields and arg in p.approximate_fields:
                 p.approximate_fields.remove(arg)
-    _invalidate_results(ctx.state)
+    if saved:
+        # only a real change makes the results out of date: a value held or refused changes nothing, and a
+        # needless recalculation re-showed the old result and hid the confirmation question (QA 22/10)
+        _invalidate_results(ctx.state)
     return {"saved": saved, "ignored": ignored,
             "missing": missing_profile(p) + missing_current_car(c)}
 

@@ -943,6 +943,13 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
         plan.ask.append(asked_text(state) if rep_opened else WAITING)
         plan.fixed = True
         return plan
+    if plan.fixed and state.pending_confirmation is not None:
+        # results came with a value still held (a correction next to another change): the held value is the one
+        # question of the reply, never hidden behind the results' next step (QA 22/10)
+        pending = state.pending_confirmation
+        plan.ask.append(confirm_value_text(pending.field, pending.value, pending.unusual, pending.scale))
+        plan.cta = call_to_action(state, snapshot)[0]
+        return plan
     if plan.fixed and state.stage == Stage.PRESENTED:
         # after results: why (the engine's main driver, in words), then one relevant next step
         ok = [r for r in state.results if r.result.get("status") == "OK" and r.result.get("delta_display") is not None]

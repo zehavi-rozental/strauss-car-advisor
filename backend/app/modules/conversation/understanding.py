@@ -20,10 +20,8 @@ from typing import Iterable, Optional
 from app.modules.rules.public import FAMILY_GROUP, CatalogCar, Faq, FaqEntry, RulesSnapshot, matched_name, related_cars, words
 
 from .fallback import _RANK_RE, named_cars
-from .parsing import _NO_COPAY_RE, match_occupation, no_car_span
-from .stage import ConversationState
-
-NO_CAR_OR_ZERO = "no_car_or_zero_copay"
+from .parsing import _NO_COPAY_RE, COMPANY_CAR, match_occupation, no_car_span
+from .stage import NO_CAR_OR_ZERO, ConversationState  # noqa: F401  (NO_CAR_OR_ZERO: re-exported for the agent)
 
 _QUESTION_WORDS = ("מה", "מהו", "מהי", "מהם", "למה", "איך", "איפה", "האם", "מתי", "מי", "מאיפה", "ממה", "כמה זה",
                    "מה זה", "מה ההבדל", "באיזה", "לאן")
@@ -41,8 +39,7 @@ _COMPLAINT_CUES = ("לא עונה", "לא ענית", "לא לפי השאלה", "
 _AUDIT_CUES = ("כבר כתבתי", "כבר עניתי", "כבר אמרתי", "כבר רשמתי", "כבר נתתי", "טעית", "טעיתם", "רשמת לא נכון",
                "כתבתי לך", "אמרתי לך", "עניתי לך", "כתבתי כבר", "אמרתי כבר")
 # "יש לי רכב חברה" without a model: a fact (there is a car), kept so the bot never asks "אם אין רכב" again
-_HAS_CAR_RE = re.compile(r"(?<![א-ת])(?:יש\s+לי|קיבלתי|מקבל(?:ת)?|נוסע(?:ת)?\s+עם)\s+(?:כבר\s+)?(?:רכב|אוטו)"
-                         r"(?:\s+(?:חברה|צמוד|של\s+החברה|מהעבודה))?(?![א-ת])")
+_HAS_CAR_RE = re.compile(rf"(?<![א-ת])(?:יש\s+לי|קיבלתי|מקבל(?:ת)?|נוסע(?:ת)?\s+עם)\s+(?:כבר\s+)?{COMPANY_CAR}")
 _FILLER = {"ו", "תודה", "שלום", "היי", "אוקיי", "אוקי", "ok", "טוב", "בסדר", "רגע", "אז", "נו", "אה", "אמממ",
            "יופי", "מעולה", "סבבה"}
 # clauses: after "?" / "!" / "." / a new line, and before ", ולמה …" / ", ומה …" (data, then a question)

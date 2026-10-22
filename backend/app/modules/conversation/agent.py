@@ -28,7 +28,8 @@ from .fallback import (ZERO_ALLOWED, ParserPlan, asks_base, car_roles, correctio
 from .free_text import looks_like_title
 from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
-from .grounding import grounded_number, group_named, occupation_named, option_named, zero_grounded
+from .grounding import (grounded_number, group_named, occupation_named, option_named, said_numbers,
+                        without_alternatives, zero_grounded)
 from .parsing import (YEAR_RE, has_all_scope, mask_ages, match_drive, match_occupation, no_car_span, occupation_match,
                       parse_copay, read_profile, redact_id_numbers)
 from .guards import (FIELD_WORDS, SINGULAR_RE, TAG_RE, Check, Violation, ask_lines, check, content_sentences, drop,
@@ -167,44 +168,62 @@ def _clarification_answer(text: str) -> Optional[str]:
     return None
 
 
-_YES = {"כן", "נכון", "בדיוק", "אכן", "yes", "לאשר", "אשר"}
+_YES = {"כן", "נכון", "בדיוק", "אכן", "yes", "לאשר", "אשר", "בטח", "ברור", "כמובן"}
 _NO = {"לא", "no", "לתקן", "תקן"}
 
 
-def _confirmation_plan(state: ConversationState, text: str) -> Optional[ParserPlan]:
-    """תשובה ל"התכוונתם ל-18,000 ₪?": כן → נשמר; לא → שואלים שוב את השדה; אחר → None."""
+def _confirmation_plan(state: ConversationState, text: str,
+                       snapshot: Optional[RulesSnapshot] = None) -> Optional[tuple[ParserPlan, str]]:
+    """תשובה ל"התכוונתם ל-18,000 ₪?": the answer is the message's first word ("כן" / "לא" / a button id) or the
+    amount itself, never only a short message (live QA 22/10: "כן, אבל היית צריך לשאול אותי קודם" dropped the
+    held salary). Returns the plan and the rest of the message, which is read as usual; None when the message
+    does not answer the question (the value stays held and is asked again)."""
     ws = words(text)
     pending = state.pending_confirmation
-    if not ws or len(ws) > 3 or pending is None:
+    if not ws or pending is None:
         return None
-    if pending.scale:
-        # "3 ₪ או 3,000 ₪?": the button, or the amount typed; anything else is read as a new message
-        amount = {"small": pending.value, "thousands": pending.value * 1000}.get(ws[0])
-        if amount is None:
-            m = re.search(r"\d[\d,]*(?:\.\d+)?", text)
-            said = Decimal(m.group().replace(",", "")) if m else None
-            amount = said if said in (pending.value, pending.value * 1000) else None
-        if amount is None:
-            return None
+    stated = without_alternatives(text)              # "45 או 45 אלף?" states neither amount
+    same = (pending.value, pending.value * 1000, pending.value / 1000, Decimal(1000))   # the held amount, said any way
+    # a number labelled with another field ("כן, ופנסיה 6%") is that field's value, not another amount for this one
+    labelled: set[Decimal] = set()
+    if snapshot is not None:
+        ext = snapshot.extensions
+        for key, value in read_profile(text, (), ext.correction_cues, ext.value_qualifiers).labelled.items():
+            if key != pending.field and isinstance(value, (int, float, Decimal, str)) and re.fullmatch(
+                    r"\d+(?:\.\d+)?", str(value)):
+                labelled.add(Decimal(str(value)))
+    others = {n for n in said_numbers(stated) if n not in same and n not in labelled}
+    rest = text.split(maxsplit=1)[1].lstrip(" ,.-") if len(ws) > 1 and ws[0] in (*_YES, *_NO) else ""
+
+    def save(amount: Decimal, how: str) -> ParserPlan:
         state.pending_confirmation = None
-        if pending.field not in state.confirmed_unusual:
-            state.confirmed_unusual.append(pending.field)       # the chosen amount is saved, not asked again
+        if (pending.unusual or pending.scale) and pending.field not in state.confirmed_unusual:
+            state.confirmed_unusual.append(pending.field)   # the chosen amount is saved, not asked again
         args = {pending.field: str(amount), "approximate_fields": [pending.field] if pending.approximate else []}
-        return ParserPlan([ToolCall("save_profile", args, "scale")], True, direct=True)
-    if ws[0] in _YES:
-        state.pending_confirmation = None
-        if pending.unusual and pending.field not in state.confirmed_unusual:
-            state.confirmed_unusual.append(pending.field)
-        args = {pending.field: str(pending.value),
-                "approximate_fields": [pending.field] if pending.approximate else []}
-        return ParserPlan([ToolCall("save_profile", args, "confirmed")], True, direct=True)
+        return ParserPlan([ToolCall("save_profile", args, how)], True, direct=True)
+
+    if pending.scale:
+        # "3 ₪ או 3,000 ₪?": the button, or the amount said ("3,000", "שלושת אלפים", "כן, 3 אלף")
+        amount = {"small": pending.value, "thousands": pending.value * 1000}.get(ws[0])
+        if amount is None and not others:
+            if grounded_number(pending.value * 1000, stated):
+                amount = pending.value * 1000
+            elif pending.value in said_numbers(stated):
+                amount = pending.value
+        return None if amount is None else (save(amount, "scale"), "")
+    if ws[0] in _YES and not others:
+        return save(pending.value, "confirmed"), rest
     if ws[0] in _NO:
         state.pending_confirmation = None
+        if others:
+            return None                              # "לא, 50 אלף": a new value, read as usual
         if pending.unusual:
             # "לתקן": the same field is asked again, and it is the only question of the reply
             return ParserPlan(complete=True, notice=unusual_fix_text(pending.field), direct=True,
-                              asks=pending.field)
-        return ParserPlan(complete=True, direct=True)
+                              asks=pending.field), rest
+        return ParserPlan(complete=True, direct=True), rest
+    if not others and "?" not in text and grounded_number(pending.value, stated) and not pending.unusual:
+        return save(pending.value, "confirmed"), ""  # the amount itself: "45 אלף", "ארבעים וחמש אלף" ("זה 45 אלף?" asks)
     return None
 
 
@@ -499,6 +518,10 @@ def _ambiguity_answer(text: str) -> Optional[str]:
     return None
 
 
+# tool calls that carry what the employee said explicitly, or an answer to the code's own question: any stage
+_EXPLICIT_ANSWERS = {"combined", "confirmed", "scale", "ambiguity"}
+
+
 def _ambiguity_plan(state: ConversationState, answer: str) -> ParserPlan:
     state.pending_ambiguity = None
     if answer == "no_car":
@@ -663,6 +686,7 @@ class Agent:
         if field_ == "rep_question":
             return self._rep_question_decision(ctx, ids[0] == "send", record_run)
         if field_ == "ambiguity":
+            ctx.allow_zero_copay = ids[0] == "zero_copay"     # the employee's own answer, not a guess
             plan = _ambiguity_plan(state, ids[0])
             return self._finish(ctx, (), label, plan, before, record_run, choice=True)
         state.unanswered_question = None
@@ -675,7 +699,8 @@ class Agent:
                 before = self._start_correction(ctx)
         elif field_ == "confirmation":
             answer = ids[0] if ids[0] in ("small", "thousands") else "כן" if ids[0] == "yes" else "לא"
-            plan = _confirmation_plan(state, answer) or ParserPlan(complete=True)
+            confirmed = _confirmation_plan(state, answer, snapshot)
+            plan = confirmed[0] if confirmed else ParserPlan(complete=True)
         elif field_ == "occupation_confirmation":
             plan = _occupation_plan(ctx, ids[0])
         elif ids[0] == "none" and field_ in ZERO_ALLOWED:
@@ -716,6 +741,7 @@ class Agent:
         before = next_stage(state)
 
         und = understand(state, snapshot, text)
+        ctx.question_message = und.question_only or text.strip().endswith("?")
         pace = _pace_change(state, snapshot, text)
         if pace is not None and len(words(text)) <= 6:
             # only the request ("שאלה אחת כל פעם"): acknowledged, kept in the state, then the next question
@@ -744,22 +770,31 @@ class Agent:
                 return self._prepare_rep_question(ctx)
             state.unanswered_question, state.rep_skipped = None, True
             plan = ParserPlan(complete=True, direct=True)        # "להמשיך": the flow question
-        elif state.offered_rank and state.stage == Stage.PRESENTED and words(text)[:1] in (["כן"], ["רוצים"], ["בטח"]):
-            plan = ParserPlan([ToolCall("rank_options", {}, "offered")], True, direct=True)   # yes to the offer
+        elif (state.offered_rank and state.pending_confirmation is None and state.stage == Stage.PRESENTED
+              and words(text)[:1] in (["כן"], ["רוצים"], ["בטח"])):
+            # yes to the offer; a value held for confirmation is the newer question, so its "כן" confirms it
+            plan = ParserPlan([ToolCall("rank_options", {}, "offered")], True, direct=True)
         elif state.pending_ambiguity is not None and (choice := _ambiguity_answer(text)) is not None:
+            ctx.allow_zero_copay = choice == "zero_copay"      # the employee's own answer, not a guess
             plan = _ambiguity_plan(state, choice)
         elif und.question_only and und.anything and und.ambiguity is None:
             # only questions / "מה?" / off topic: nothing to save, and a pending question stays open.
             # With an LLM it answers (from the FAQ / STATE); without one, the FAQ template.
             plan = ParserPlan(complete=not self._llm_led(), direct=True)
-        elif state.pending_confirmation is not None and (confirmed := _confirmation_plan(state, text)) is not None:
-            plan = confirmed                     # "כן" / "לא" על "התכוונתם ל-18,000 ₪?"
+        elif state.pending_confirmation is not None and (confirmed := _confirmation_plan(state, text, snapshot)) is not None:
+            plan, rest = confirmed               # "כן" / "לא" על "התכוונתם ל-18,000 ₪?"
+            more = fallback_plan(state, snapshot, rest) if rest else None
+            if more is not None and more.complete and more.calls:
+                # "כן, ופנסיה 6%": the answer, and what else the message says (read in full only)
+                plan = ParserPlan([*plan.calls, *more.calls], True, notice=more.notice, direct=True,
+                                  asks=plan.asks)
         elif state.pending_occupation is not None and (answer := _occupation_answer(state, text)) is not None:
             plan = _occupation_plan(ctx, answer)  # "כן" / מספר הצעה / "לא" על "לא מצאתי את ... בטבלה"
         elif state.pending_clarification is not None and (answer := _clarification_answer(text)) is not None:
             plan = self._clarified(state, snapshot, answer)[0]   # "הרכב שלי היום" / "חלופה לבדוק"
         else:
-            state.pending_confirmation = None    # תשובה אחרת: השאלה הקודמת כבר לא רלוונטית
+            # another answer: the earlier closed questions no longer apply. A value held for confirmation stays
+            # held (never dropped silently) and is asked again; a new value for its field resolves it (save_profile)
             state.pending_occupation = None
             state.pending_clarification = None
             state.pending_ambiguity = None
@@ -1097,7 +1132,9 @@ class Agent:
         snap = ctx.snapshot
         ext = snap.extensions
         kept, refused = dict(args), []
-        numbers_text = mask_ages(text)       # "ילדים מתחת גיל 23": the age is part of the field's name
+        # "ילדים מתחת גיל 23": the age is part of the field's name; "45 או 45 אלף": amounts offered as alternatives
+        # are not stated, so neither grounds a value (the employee is asked which one)
+        numbers_text = without_alternatives(mask_ages(text))
         for key in _NUMERIC_ARGS:
             value = kept.get(key)
             if value is None:
@@ -1237,8 +1274,10 @@ class Agent:
         return run_tool(ctx, call.name, call.args)
     def _execute(self, ctx: ToolContext, calls: Sequence[ToolCall]) -> bool:
         # a call tagged "combined" reads an explicitly-stated fact (e.g. "no company car" said during the
-        # salary questions) that is valid at any stage, so it runs through the relaxed stage gate
-        return any([_recorded(self._run(ctx, call, relaxed=(call.id == "combined"))) for call in calls])
+        # salary questions), and an answer to the code's own question ("כן" to "התכוונתם ל-45,000 ₪?") is valid
+        # at any stage: both run through the relaxed stage gate (a confirmed salary correction after a result was
+        # refused as "tool not allowed" — QA 22/10)
+        return any([_recorded(self._run(ctx, call, relaxed=(call.id in _EXPLICIT_ANSWERS))) for call in calls])
 
     # ---------- נציג ----------
 
@@ -1567,9 +1606,11 @@ class Agent:
             return draft, "template", False, "empty"
         state, snap = ctx.state, ctx.snapshot
         if (state.pending_ambiguity is not None or state.pending_clarification is not None
+                or state.pending_confirmation is not None or state.pending_occupation is not None
                 or ctx.range_problems):    # a rejected value ("34% גבוה מהטווח…"): the template names it
-            # code refused a value and asks about it (no car or copay 0? the car today or an alternative?):
-            # the exact question, with its buttons
+            # code holds a question of its own (no car or copay 0? the car today or an alternative? 45 or 45,000?
+            # this role?): the exact question, with its buttons. A held value is never left unasked: the model
+            # once asked about commissions while the salary waited for confirmation (live QA 22/10)
             return draft, "template", False, "pending"
         waiting_answer = any(x is not None for x in (state.pending_confirmation, state.pending_occupation,
                                                      state.pending_clarification, state.pending_ambiguity,
