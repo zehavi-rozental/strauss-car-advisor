@@ -80,6 +80,17 @@ def word_numbers(text: str) -> set[Decimal]:
     return found
 
 
+# Two amounts offered as alternatives ("18,000 או 18,500", "45 או 45 אלף", "300 או 400 ₪"): the employee has not
+# decided between them, so neither is said as a fact (live QA 22/10: "האם 45 או 45 אלף?" saved 45,000).
+_AMOUNT = r"\d[\d,]*(?:\.\d+)?(?:\s*(?:אלף|אלפים|[kK]))?(?:\s*(?:₪|ש\"ח|שח|שקל(?:ים)?))?"
+_ALTERNATIVES_RE = re.compile(rf"{_AMOUNT}\s+או\s+{_AMOUNT}")
+
+
+def without_alternatives(text: str) -> str:
+    """The message without amounts offered as alternatives: what is left is what the employee stated."""
+    return _ALTERNATIVES_RE.sub(" ", text)
+
+
 def said_numbers(text: str) -> set[Decimal]:
     """Every number the message contains: digits and Hebrew number words."""
     return {*numbers_in(text), *word_numbers(text)}

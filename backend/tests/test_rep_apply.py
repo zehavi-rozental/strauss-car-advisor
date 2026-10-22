@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import threading
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -21,6 +22,20 @@ NOA = [
     "יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש",
     "אטו 3",
 ]
+# a stated group that contradicts the occupations table (מנהל מוצר is group ג): the one blocking question left
+CONFLICT = ["קבוצה ב, שכר בסיס 18,500", "אני מנהלת מוצר",
+            "אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים",
+            "יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש"]
+JAN_1 = date(2027, 1, 1)
+
+
+def when(d: date) -> str:
+    """The chat sentence for the representative's date: a future date is never shown as in force today (D7)."""
+    return f"ההשתתפות {'תחול' if d > date.today() else 'בתוקף'} מ-{d:%d.%m.%Y}."
+
+
+def paren(d: date) -> str:
+    return f"({'יחול' if d > date.today() else 'בתוקף'} מ-{d:%d.%m.%Y})"
 
 
 @pytest.fixture
@@ -83,8 +98,11 @@ def test_rep_changes_the_copay_and_the_option_is_recalculated(client, sessions):
     [rep] = updates["messages"]
     new_delta = engine_delta(350)
     assert rep["source"] == "rep" and new_delta != Decimal(661)
-    assert rep["content"] == (f"הנציג עדכן: השתתפות 350 ₪ בחודש, מ-1/1. "
-                              f"ההפרש עודכן: במקום +661 ₪, עכשיו {new_delta:+,} ₪ בחודש.")
+    lines = rep["content"].split("\n")
+    assert lines[0] == f"נציג התחבורה קבע השתתפות של 350 ₪ בחודש ב-ATTO 3 (2025), במקום 300 ₪ לפי הקטלוג. {when(JAN_1)}"
+    assert lines[1].startswith("חישבתי מחדש: עם ATTO 3 (2025) הנטו יהיה ") and "לעומת" in lines[1]
+    assert lines[2] == f"הנטו שלכם יגדל ב-{new_delta:,} ₪ בחודש. לפני האישור: תוספת של 661 ₪."
+    assert lines[3].startswith("הסיבה העיקרית: ") and len(lines) == 4
     assert "←" not in rep["content"] and "→" not in rep["content"]
     [result] = updates["results"]
     assert Decimal(result["result"]["delta_display"]) == new_delta
@@ -104,9 +122,12 @@ def test_rep_confirms_the_suggested_copay_without_recalculating(client, sessions
     answer(client, q["id"], q["suggested_value"], effective_date="2027-01-01")
     updates = client.get(f"/api/conversations/{cid}/updates?after={seq}").json()
     assert [m["content"] for m in updates["messages"]] == [
-        "נציג התחבורה אישר את ההשתתפות ב-ATTO 3 (2025) (בתוקף מ-01.01.2027)."]
+        f"נציג התחבורה אישר את ההשתתפות ב-ATTO 3 (2025): 300 ₪ בחודש. {when(JAN_1)}\n"
+        "החישוב כבר היה לפי הסכום הזה, ולכן לא השתנה: הנטו שלכם יגדל ב-661 ₪ בחודש."]
     assumptions = updates["results"][0]["result"]["assumptions"]
-    assert "השתתפות ב-ATTO 3 (2025) — אושר על ידי נציג התחבורה (בתוקף מ-01.01.2027)" in assumptions
+    assert f"השתתפות ב-ATTO 3 (2025) — אושר על ידי נציג התחבורה {paren(JAN_1)}" in assumptions
+    assert updates["results"][0]["result"]["copay_source"] == "representative"
+    assert updates["results"][0]["result"]["copay_effective_date"] == "2027-01-01"
     assert not any("ממתינה לאישור נציג" in a for a in assumptions)
     assert updates["results"][0]["result"]["delta_display"] == "661"
     assert runs(sessions) == runs_before                              # בלי חישוב מחדש
@@ -125,15 +146,17 @@ def test_confirmed_copay_is_used_next_time_without_a_new_question(client):
 # ---------- שאלה חוסמת: הזרימה ממשיכה ----------
 
 def test_rep_answer_unblocks_and_the_flow_continues(client):
-    cid, body = start(client, NOA[0], "יש לי קורולה קרוס", "לא יודעת")
+    cid, body = start(client, *CONFLICT)
     assert body["stage"] == "WAITING_FOR_REP"
     [q] = open_questions(client)
+    assert q["missing_field"] == "ELIGIBILITY_GROUP"
+    assert (q["context"]["stated_group"], q["context"]["table_group"]) == ("ב", "ג")
     seq = last_seq(client, cid)
-    answer(client, q["id"], "300")
+    assert answer(client, q["id"], "ג").status_code == 200
     updates = client.get(f"/api/conversations/{cid}/updates?after={seq}").json()
     assert updates["stage"] == "CHOOSE_OPTIONS"
     [rep] = updates["messages"]
-    assert rep["content"].startswith("נציג התחבורה השיב: ההשתתפות הנוכחית שלכם ב-COROLLA CROSS (2025) היא 300 ₪.")
+    assert rep["content"].startswith("נציג התחבורה השיב: קבוצת הזכאות שלכם היא ג.")
     assert "איזה רכבים להשוות" in rep["content"]
     body = say(client, cid, "אטו 3")                                  # ממשיכים כרגיל
     assert body["stage"] == "PRESENTED" and body["results"][0]["delta_display"] == "661"
@@ -181,7 +204,7 @@ def test_opt_out_allowed_then_maintenance_amount(client):
 
 def test_answer_stored_but_apply_failed_is_applied_on_the_next_read(client):
     service = client.app.state.ctx.service
-    cid, _ = start(client, NOA[0], "יש לי קורולה קרוס", "לא יודעת")
+    cid, _ = start(client, *CONFLICT)
     [q] = open_questions(client)
     real = service.agent.apply_answer
     calls = {"n": 0}
@@ -193,7 +216,7 @@ def test_answer_stored_but_apply_failed_is_applied_on_the_next_read(client):
         return real(*args, **kwargs)
 
     service.agent.apply_answer = fails_once
-    assert answer(client, q["id"], "300").status_code == 200        # התשובה נשמרה למרות הכשל
+    assert answer(client, q["id"], "ג").status_code == 200          # התשובה נשמרה למרות הכשל
     assert client.get(f"/api/conversations/{cid}").json()["stage"] == "CHOOSE_OPTIONS"
     assert calls["n"] == 2
 
@@ -249,7 +272,7 @@ def test_rep_amount_is_an_assumption_now_and_in_later_calculations(client):
     [q] = open_questions(client)
     seq = last_seq(client, cid)
     answer(client, q["id"], "350", effective_date="2027-01-01")
-    expected = "השתתפות ב-ATTO 3 (2025): 350 ₪ לפי נציג התחבורה (בתוקף מ-01.01.2027)"
+    expected = f"השתתפות ב-ATTO 3 (2025): 350 ₪ לפי נציג התחבורה {paren(JAN_1)}"
     updates = client.get(f"/api/conversations/{cid}/updates?after={seq}").json()
     assert expected in updates["results"][0]["result"]["assumptions"]
     body = say(client, cid, "אטו 3")                                  # חישוב מאוחר יותר
@@ -287,7 +310,10 @@ def test_padded_ids_are_trimmed(client):
 
 # ---------- נוסח ההמתנה מהתרחיש הרשמי ----------
 
-PENDING_SENTENCE = "חסר לי רק אישור לסכום ההשתתפות שלכם ברכב החדש. שאלתי את נציג התחבורה, ואעדכן כאן ברגע שיענה."
+# C1: the amount and its source are said, and that it is not approved yet (the challenge's "missing copay" sentence
+# is now for a car the catalog has no amount for, C2)
+PENDING_SENTENCE = ("חישבתי עם השתתפות של 300 ₪ בחודש ב-ATTO 3 (2025), לפי הסכום שבקטלוג שטראוס.\n"
+                    "הסכום עוד לא אושר עבורכם: שלחתי לנציג התחבורה בקשה לאשר אותו, וכשיענה אעדכן כאן את החישוב.")
 
 
 def test_pending_copay_uses_the_scenario_wording_until_the_rep_confirms(client):

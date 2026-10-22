@@ -1,4 +1,7 @@
-"""רכב שמוזכר בזמן המתנה לנציג: תיקון כשבטוחים, שאלה כשלא — לא מנחשים."""
+"""רכב שמוזכר בזמן המתנה לנציג: תיקון כשבטוחים, שאלה כשלא — לא מנחשים.
+
+The wait here is on a question opened before rule A (22/10, today's copay asked from the representative): new
+conversations no longer open it, questions already open still are corrected and answered (`legacy_wait`)."""
 from __future__ import annotations
 
 import pytest
@@ -9,6 +12,7 @@ from app.modules.conversation.public import ConversationService, LLMChain, Stage
 from app.modules.rules.public import RulesStore
 
 from .conftest import CONFIG, make_client
+from .legacy_wait import seed_legacy_wait
 
 PROFILE = ("אני מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, "
            "2.75 נקודות זיכוי, 2 ילדים")
@@ -17,12 +21,14 @@ CLARIFY = ("לא בטוח שהבנתי: ATTO 3 (2025) הוא הרכב שלכם �
 
 
 def waiting(sessions, llm=None):
-    """נועה, "קורולה" (CAR-07), "לא יודע" → ממתינים לנציג על ההשתתפות."""
+    """נועה, "קורולה" (CAR-07), "לא יודע" → ממתינים לנציג על ההשתתפות (שאלה שנפתחה לפני כלל א)."""
     svc = ConversationService(sessions, RulesStore(CONFIG), llm or LLMChain())
     turn, token = svc.start()
     for text in (PROFILE, "יש לי קורולה 2026", "לא יודע"):
         turn = svc.send(turn.conversation_id, token, text)
-    assert turn.stage == Stage.WAITING_FOR_REP
+    assert svc.cases.list_open() == []                      # rule A: nothing goes to the representative
+    seed_legacy_wait(svc, turn.conversation_id)
+    assert svc.view(turn.conversation_id, token).stage == Stage.WAITING_FOR_REP
     [question] = svc.cases.list_open()
     return svc, turn.conversation_id, token, question
 
@@ -71,8 +77,10 @@ def test_this_is_my_car_rematches_and_cancels(sessions):
 def test_an_alternative_is_calculated_after_the_rep_answers(engine):
     client = make_client(engine, rep_access_token="t")
     cid = client.post("/api/conversations").json()["conversation_id"]
-    for text in (PROFILE, "יש לי קורולה קרוס", "לא יודעת", "ATTO 3"):
-        body = client.post(f"/api/conversations/{cid}/messages", json={"text": text}).json()
+    for text in (PROFILE, "יש לי קורולה קרוס", "לא יודעת"):
+        client.post(f"/api/conversations/{cid}/messages", json={"text": text})
+    seed_legacy_wait(client.app.state.ctx.service, cid)
+    body = client.post(f"/api/conversations/{cid}/messages", json={"text": "ATTO 3"}).json()
     assert body["reply"] == CLARIFY
     body = client.post(f"/api/conversations/{cid}/messages", json={"text": "חלופה"}).json()
     assert body["reply"] == "בסדר, אבדוק את ATTO 3 (2025) כחלופה ברגע שהנציג יענה."

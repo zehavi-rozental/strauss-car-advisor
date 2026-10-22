@@ -22,8 +22,13 @@ _UNKNOWN_RE = re.compile(r"לא\s*(?:ידוע|יודעים|יודע|יודעת|�
                          re.IGNORECASE)
 # "לא" לבד = אין; "לא ברור לי" — לא תשובה (אין ברירת מחדל לסכום חסר)
 _NONE_RE = re.compile(r"^\s*(?:אין|לא|ללא|אפס|0|none|no)\s*[.!]?\s*$|^\s*(?:אין|ללא)(?:\s|$)", re.IGNORECASE)
-# "אין/בלי/ללא [לי] רכב" — the "לי" tolerates a light typo ("ליר", "ליי") via up to 2 trailing letters
-_NO_CAR_RE = re.compile(r"(?:אין|בלי|ללא)\s*(?:ל[יי][א-ת]{0,2}\s+)?רכב|no\s+car", re.IGNORECASE)
+# The company car as the employee names it: "רכב", "רכב צמוד", "רכב חברה", "רכב של החברה", "אוטו מהעבודה". One
+# definition for "there is a car" (understanding) and "there is no car" (below): before 22/10 "no car" knew only the
+# bare word, so "אין לי רכב צמוד היום" was not recorded while "יש לי רכב צמוד" was.
+COMPANY_CAR = r"(?:רכב|אוטו)(?:\s+(?:חברה|צמוד|של\s+החברה|מהחברה|מהעבודה|עבודה))?(?![א-ת])"
+# "אין/בלי/ללא [לי] [כרגע] רכב [צמוד]" — the "לי" tolerates a light typo ("ליר", "ליי") via up to 2 trailing letters
+_NO_CAR_RE = re.compile(rf"(?:אין|בלי|ללא)\s*(?:ל[יי][א-ת]{{0,2}}\s+)?(?:(?:היום|כרגע|עכשיו|כעת)\s+)?{COMPANY_CAR}"
+                        r"|no\s+car", re.IGNORECASE)
 # a sweeping "all / none-of-them / everything" scope: "אין לי כלום", "אף אחד מהם", "הכל", "כולם",
 # "שום דבר", "את כולם", "everything", "nothing", "none". Marks a blanket answer that covers many fields
 # at once — too broad to split silently across a grouped question.

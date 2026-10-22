@@ -84,45 +84,61 @@ def test_full_journey_to_result_and_comparison(client):
 # ---------------------------------------------------------------------------
 
 def test_missing_copay_goes_to_rep_then_result_updates(client):
+    """The new car's copay: calculated now with the catalog amount, said so, sent to the representative; the
+    representative's amount recalculates the comparison from the same point (C1, 22/10)."""
     cid = start(client)
     say(client, cid, PROFILE)
-    say(client, cid, "יש לי קורולה קרוס")        # the car today
-    say(client, cid, "לא יודעת")                 # its copay is unknown -> a rep question
-    body = say(client, cid, ALT)
-    assert body["stage"] == "WAITING_FOR_REP"
-    assert body["results"] == []                              # nothing invented while info is missing
-
-    qs = open_questions(client)
-    assert len(qs) == 1
-    q = qs[0]
-    assert q["missing_field"] == "CURRENT_COPAY"
-    assert "salary" not in str(q["context"]).lower() and "base" not in q["context"]   # no pay data to the rep
-
-    # the rep answers; the current-car copay is filled and the conversation resumes from the same point
-    assert answer(client, q["id"], "250", effective_date="2026-01-01").status_code == 200
-    v = view(client, cid)
-    assert v["stage"] != "WAITING_FOR_REP"                    # unblocked
-    assert v["current_car"]["copay"] == "250"                 # the rep's value was applied
-    # choosing the alternative now produces the result (the engine runs, not the LLM)
+    say(client, cid, CAR)
     body = say(client, cid, ALT)
     assert body["stage"] == "PRESENTED"
-    assert body["results"] and body["results"][0]["status"] == "OK"
+    [before] = body["results"]
+    assert before["copay_source"] == "catalog" and before["copay_pending"] is True
+
+    [q] = open_questions(client)
+    assert q["missing_field"] == "NEW_CAR_COPAY" and q["option_id"] == "CAR-10"
+    assert q["context"]["suggested_amount"] == before["alternative"]["copay"]
+    assert "salary" not in str(q["context"]).lower() and "base" not in q["context"]   # no pay data to the rep
+
+    assert answer(client, q["id"], "350", effective_date="2026-01-01").status_code == 200
+    [after] = view(client, cid)["results"]
+    assert after["result"]["alternative"]["copay"] == "350"
+    assert after["result"]["copay_source"] == "representative" and after["result"]["copay_pending"] is False
+    assert after["result"]["delta_display"] != before["delta_display"]       # the engine ran again
+    assert open_questions(client) == []
+
+
+def test_an_unknown_copay_today_is_asked_from_the_employee_not_the_rep(client):
+    """Rule A (22/10): today's copay is the employee's own figure. "לא יודעת" is recorded, nothing goes to the
+    representative and nothing is calculated until the employee gives it."""
+    cid = start(client)
+    say(client, cid, PROFILE)
+    say(client, cid, "יש לי קורולה קרוס")
+    say(client, cid, "לא יודעת")
+    body = say(client, cid, ALT)
+    assert body["results"] == [] and open_questions(client) == []
+    assert body["stage"] != "WAITING_FOR_REP"
+    body = say(client, cid, "ההשתתפות שלי היום 300")
+    assert body["stage"] == "PRESENTED" and body["results"][0]["status"] == "OK"
 
 
 # ---------------------------------------------------------------------------
 # 13: the rep can say "no answer yet" and the conversation keeps waiting (no crash, no invented number)
 # ---------------------------------------------------------------------------
 
+CONFLICT = ["קבוצה ב, שכר בסיס 18,500", "אני מנהלת מוצר",
+            "אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים", CAR]
+
+
 def test_rep_has_no_answer_yet_keeps_waiting(client):
+    """The one blocking wait left: a stated group that contradicts the occupations table (C4)."""
     cid = start(client)
-    say(client, cid, PROFILE)
-    say(client, cid, "יש לי קורולה קרוס")
-    say(client, cid, "לא יודעת")
-    say(client, cid, ALT)
+    for text in CONFLICT:
+        say(client, cid, text)
     [q] = open_questions(client)
-    # an empty / "not available" answer is rejected as invalid (422): the question stays open, nothing invented
-    resp = answer(client, q["id"], "")
-    assert resp.status_code == 422
+    assert q["missing_field"] == "ELIGIBILITY_GROUP"
+    # an empty or not-a-group answer is rejected (422): the question stays open, nothing invented
+    assert answer(client, q["id"], "").status_code == 422
+    assert answer(client, q["id"], "עוד לא יודע").status_code == 422
     v = view(client, cid)
     assert v["stage"] == "WAITING_FOR_REP" and v["results"] == []
     assert len(open_questions(client)) == 1                   # still open, not duplicated

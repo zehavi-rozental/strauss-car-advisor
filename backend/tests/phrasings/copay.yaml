@@ -8,8 +8,8 @@ cases:
   - {text: "משתתפת ב-300 ש\"ח בחודש", allowed: [{copay: 300}]}
   - {text: "אין", allowed: [{copay: 0}]}
   - {text: "אני לא משתתפת", allowed: [{copay: 0}]}
-  - {text: "לא יודעת", allowed: [{copay_unknown: true, waiting: true}]}
-  - {text: "לא זוכר", allowed: [{copay_unknown: true, waiting: true}]}
+  - {text: "לא יודעת", allowed: [{copay_unknown: true}]}   # rule A: asked again from the employee, never the rep
+  - {text: "לא זוכר", allowed: [{copay_unknown: true}]}   # rule A: asked again from the employee, never the rep
   - {text: "בערך 300", allowed: [{copay: 300, approximate: [current_copay]}]}
   - {text: "כ-250 ₪", allowed: [{copay: 250, approximate: [current_copay]}]}
   - {text: "50,000", allowed: []}

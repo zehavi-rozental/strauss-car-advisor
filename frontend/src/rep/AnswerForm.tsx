@@ -15,7 +15,12 @@ interface Props {
 
 export function AnswerForm({ question: q, token, onAnswered, onUnauthorized, onConflict }: Props) {
   const confirmValue = q.mode === 'CONFIRM' && q.answer_type === 'MONEY' ? q.suggested_value : null
-  const [other, setOther] = useState(confirmValue === null)
+  const newCarCopay = q.missing_field === 'NEW_CAR_COPAY'
+  // a stated group the occupations table contradicts: the two candidates from the context, or another letter
+  const groups = q.missing_field === 'ELIGIBILITY_GROUP'
+    ? [q.context.stated_group, q.context.table_group].filter((g): g is string => !!g) : []
+  const quick = confirmValue !== null || groups.length > 0
+  const [other, setOther] = useState(!quick)
   const [value, setValue] = useState('')
   const [date, setDate] = useState('')
   const [note, setNote] = useState('')
@@ -57,9 +62,22 @@ export function AnswerForm({ question: q, token, onAnswered, onUnauthorized, onC
         <div className="confirm-row">
           <button type="button" className="chip chip-primary" disabled={busy} onClick={() => submit(confirmValue)}>
             <Icon name="check" size={18} />
-            אישור <bdi className="num">{Number(confirmValue).toLocaleString('he-IL')} ₪</bdi>
+            {newCarCopay ? 'אישור סכום ברירת המחדל' : 'אישור'}{' '}
+            <bdi className="num">{newCarCopay ? '(' : ''}{Number(confirmValue).toLocaleString('he-IL')} ₪{newCarCopay ? ')' : ''}</bdi>
           </button>
           {!other && <button type="button" className="chip chip-quiet" disabled={busy} onClick={() => setOther(true)}>סכום אחר</button>}
+        </div>
+      )}
+
+      {groups.length > 0 && (
+        <div className="confirm-row" role="group" aria-label="קבוצת הזכאות">
+          {groups.map((g, n) => (
+            <button key={`${n}-${g}`} type="button" className={n === 0 ? 'chip' : 'chip chip-primary'} disabled={busy}
+                    onClick={() => submit(g)}>
+              {n === 0 ? 'כפי שהעובד ציין' : 'לפי טבלת העיסוקים'}: קבוצה {g}
+            </button>
+          ))}
+          {!other && <button type="button" className="chip chip-quiet" disabled={busy} onClick={() => setOther(true)}>קבוצה אחרת</button>}
         </div>
       )}
 
@@ -75,7 +93,8 @@ export function AnswerForm({ question: q, token, onAnswered, onUnauthorized, onC
           ) : (
             <>
               <label htmlFor={`a-${q.id}`}>
-                {q.answer_type === 'MONEY' ? 'סכום (₪)' : q.answer_type === 'DATE' ? 'תאריך' : 'תשובה'}
+                {q.answer_type === 'MONEY' ? 'סכום (₪)' : q.answer_type === 'DATE' ? 'תאריך'
+                  : groups.length > 0 ? 'אות הקבוצה' : 'תשובה'}
               </label>
               <input id={`a-${q.id}`} value={value} disabled={busy} aria-invalid={error ? true : undefined}
                      type={q.answer_type === 'DATE' ? 'date' : 'text'}
@@ -87,10 +106,13 @@ export function AnswerForm({ question: q, token, onAnswered, onUnauthorized, onC
       )}
 
       <div className="form-grid answer-extras">
-        <div className="form-field">
-          <label htmlFor={`d-${q.id}`}>בתוקף מתאריך</label>
-          <input id={`d-${q.id}`} type="date" value={date} disabled={busy} onChange={(e) => setDate(e.target.value)} />
-        </div>
+        {/* the date is real only for a new car's copay: the employee is shown "תחול מ-" / "בתוקף מ-" with it */}
+        {newCarCopay && (
+          <div className="form-field">
+            <label htmlFor={`d-${q.id}`}>ההשתתפות חלה מתאריך</label>
+            <input id={`d-${q.id}`} type="date" value={date} disabled={busy} onChange={(e) => setDate(e.target.value)} />
+          </div>
+        )}
         <div className="form-field">
           <label htmlFor={`n-${q.id}`}>הערה לעובד</label>
           <input id={`n-${q.id}`} value={note} maxLength={500} disabled={busy} onChange={(e) => setNote(e.target.value)} />

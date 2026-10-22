@@ -11,6 +11,7 @@ from app.modules.conversation.public import ConversationConflict, ConversationSe
 from app.modules.rules.public import RulesStore
 
 from .conftest import CONFIG, make_client
+from .legacy_wait import seed_legacy_wait
 from .test_turn_transactions import file_db
 
 NOA = [
@@ -18,8 +19,13 @@ NOA = [
     "יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש",
     "אטו 3",
 ]
-# נוסח התרחיש הרשמי בזמן המתנה לנציג על ההשתתפות ברכב החדש
-PENDING = "חסר לי רק אישור לסכום ההשתתפות שלכם ברכב החדש. שאלתי את נציג התחבורה, ואעדכן כאן ברגע שיענה."
+# C1 (22/10): the amount used and its source are said, and that the representative was asked to approve it
+PENDING = ("חישבתי עם השתתפות של 300 ₪ בחודש ב-ATTO 3 (2025), לפי הסכום שבקטלוג שטראוס.\n"
+           "הסכום עוד לא אושר עבורכם: שלחתי לנציג התחבורה בקשה לאשר אותו, וכשיענה אעדכן כאן את החישוב.")
+# a stated group the occupations table contradicts: the one blocking wait left (C4)
+CONFLICT = ["קבוצה ב, שכר בסיס 18,500", "אני מנהלת מוצר",
+            "אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים",
+            "יש לי קורולה קרוס, משלמת 300"]
 
 
 def service(sessions, llm=None, config=CONFIG):
@@ -57,7 +63,7 @@ def test_new_car_copay_question_is_opened_once_and_the_result_is_shown(engine):
 def test_waiting_makes_no_llm_call(sessions):
     fake = FakeLLM()
     svc = service(sessions, LLMChain([fake]))
-    turn, token = talk(svc, [NOA[0], "יש לי קורולה קרוס", "לא יודעת"])
+    turn, token = talk(svc, CONFLICT)
     assert turn.stage == Stage.WAITING_FOR_REP
     before = len(fake.calls)
     turn = svc.send(turn.conversation_id, token, "נו, יש תשובה?")
@@ -72,8 +78,9 @@ def test_correcting_the_car_cancels_its_questions(engine):
     cases = client.app.state.ctx.service.cases
     cid = client.post("/api/conversations").json()["conversation_id"]
     for text in [NOA[0], "יש לי קורולה 2026", "לא יודע"]:
-        body = client.post(f"/api/conversations/{cid}/messages", json={"text": text}).json()
-    assert body["stage"] == "WAITING_FOR_REP"
+        client.post(f"/api/conversations/{cid}/messages", json={"text": text})
+    assert cases.list_open() == []                                   # rule A: today's copay is the employee's
+    seed_legacy_wait(client.app.state.ctx.service, cid)              # a question opened before rule A (22/10)
     [old] = cases.list_open()
     assert old.missing_field == MissingField.CURRENT_COPAY and old.context["catalog_code"] == "CAR-07"
 
@@ -109,7 +116,9 @@ def test_rep_required_policy_waits_and_hides_the_result(sessions, tmp_path):
     svc = service(sessions, config=_policy(tmp_path, "REP_REQUIRED"))
     turn, token = talk(svc, NOA)
     assert turn.stage == Stage.WAITING_FOR_REP and "661" not in turn.reply
-    assert "תודה! " + PENDING in turn.reply             # alone (no result above it): with "תודה!"
+    # alone (no result above it, no amount used): the scenario's waiting sentence, with "תודה!"
+    assert ("תודה! חסר לי רק אישור לסכום ההשתתפות שלכם ברכב החדש. שאלתי את נציג התחבורה, ואעדכן כאן ברגע שיענה."
+            in turn.reply)
     [q] = svc.cases.list_open()
     assert (q.missing_field, q.mode) == (MissingField.NEW_CAR_COPAY, Mode.REQUIRED)
     assert svc.view(turn.conversation_id, token).state.pending_rep.question_ids == [q.id]

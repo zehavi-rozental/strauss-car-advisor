@@ -1,66 +1,111 @@
 import { expect, test } from '@playwright/test'
+import type { Browser, Page } from '@playwright/test'
 
-// The representative flow end-to-end in the browser: the employee reaches a point where the current car's
-// copay is unknown -> a rep question is created -> the rep answers it in the /rep portal -> the employee's
-// conversation resumes and a result appears. Requires REP_TOKEN in the environment (not printed).
+// The representative flow end-to-end in the browser (stage 2, 22/10): a new car is calculated at once with the catalog
+// copay and marked as waiting for the representative; the representative approves it in one click, or sets another
+// amount from a date; the employee's comparison updates without a reload and keeps it after one. A stated group that
+// contradicts the occupations table waits for the representative's group. Requires REP_TOKEN (not printed).
+// Cars used only here: MAZDA 3 (CAR-13) and BYD DOLPHIN (CAR-03), so other specs' open questions do not interfere.
 
 const REP_TOKEN = process.env.REP_TOKEN || ''
 const BOT = '.bubble-bot .bubble-text'
+const PROFILE = 'מנהלת מוצר, שכר בסיס 18500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים'
+
+async function employee(browser: Browser) {
+  const page = await (await browser.newContext()).newPage()
+  await page.goto('/employee')
+  await expect(page.locator(BOT).first()).toBeVisible({ timeout: 30_000 })
+  return page
+}
+
+async function send(page: Page, text: string) {
+  const n = await page.locator(BOT).count()
+  await page.getByLabel('הודעה').fill(text)
+  await page.getByLabel('שליחה').click()
+  await expect.poll(async () => page.locator(BOT).count(), { timeout: 45_000 }).toBeGreaterThan(n)
+}
+
+async function repScreen(browser: Browser) {
+  const context = await browser.newContext()
+  const rep = await context.newPage()
+  await rep.goto('/rep')
+  await rep.getByLabel('קוד גישה').fill(REP_TOKEN)
+  await rep.getByRole('button', { name: 'כניסה' }).click()
+  return { rep, close: () => context.close() }      // the rep screen polls: an open one uses up the rate limit
+}
 
 test.describe('representative flow', () => {
   test.skip(!REP_TOKEN, 'REP_TOKEN not provided')
 
-  test('no-copay goes to the rep, rep answers, employee resumes with a result', async ({ browser }) => {
-    // --- employee context ---
-    const emp = await browser.newContext()
-    const page = await emp.newPage()
-    await page.goto('/employee')
-    await expect(page.locator(BOT).first()).toBeVisible({ timeout: 30_000 })
+  test('the catalog copay is used at once, the rep approves it in one click, and the label changes', async ({ browser }) => {
+    const page = await employee(browser)
+    for (const m of [PROFILE, 'יש לי קורולה קרוס, משלמת 300', 'MAZDA 3']) await send(page, m)
+    const card = page.locator('.result-card').last()
+    await expect(card).toContainText('השתתפות לפי ברירת המחדל בקטלוג — ממתינה לאישור הנציג')
+    const copay = card.locator('.copay-box')
+    await expect(copay).toContainText('350')
+    await expect(copay).toContainText('לפי ברירת המחדל בקטלוג')
+    await expect(copay).toContainText('ממתינה לאישור הנציג')
+    await expect(page.locator(BOT).last()).toContainText('לפי הסכום שבקטלוג שטראוס')
 
-    const send = async (text: string) => {
-      const n = await page.locator(BOT).count()
-      await page.getByLabel('הודעה').fill(text)
-      await page.getByLabel('שליחה').click()
-      await expect.poll(async () => page.locator(BOT).count(), { timeout: 45_000 }).toBeGreaterThan(n)
-    }
+    const { rep, close } = await repScreen(browser)
+    const q = rep.locator('.rep-card', { hasText: 'MAZDA 3' }).last()
+    await expect(q).toBeVisible({ timeout: 20_000 })
+    await expect(q).not.toContainText('18,500')
+    await expect(q.getByLabel('ההשתתפות חלה מתאריך')).toBeVisible()
+    await q.getByRole('button', { name: /אישור סכום ברירת המחדל/ }).click()
+    await close()
 
-    await send('מנהלת מוצר, שכר בסיס 18500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים')
-    await send('יש לי קורולה קרוס')
-    await send('לא יודעת')                 // current copay unknown -> a rep question opens (WAITING_FOR_REP)
-    // a car named while waiting is clarified (not guessed): say it is an alternative
-    await send('אטו 3')                    // -> "is this your car or an alternative?"
-    await send('חלופה')                    // -> queued as an alternative, still waiting for the rep
+    await expect(page.locator(BOT, { hasText: 'נציג התחבורה אישר את ההשתתפות ב-MAZDA 3 (2025): 350 ₪ בחודש.' }))
+      .toBeVisible({ timeout: 30_000 })                                    // polled, no reload
+    await expect(page.locator('.result-card').last().locator('.state-approved')).toHaveText('אושר על ידי הנציג')
+    await page.reload()                                                    // the approval survives a refresh
+    await expect(page.locator('.result-card').last().locator('.copay-box')).toContainText('אושר על ידי הנציג')
+  })
 
-    // the employee is now waiting for the representative
-    await expect(page.locator('.header-tag, .tag-pending').first()).toBeVisible({ timeout: 20_000 })
+  test('another amount from a future date recalculates, and the date is never shown as in force today', async ({ browser }) => {
+    const page = await employee(browser)
+    for (const m of [PROFILE, 'יש לי קורולה קרוס, משלמת 300', 'DOLPHIN']) await send(page, m)
+    await expect(page.locator('.result-card').last().locator('.copay-box')).toContainText('200')
+    const year = new Date().getFullYear() + 1
 
-    // --- rep context: log in via sessionStorage token, answer the current-car copay question(s) ---
-    // NOTE: the dev backend shares one SQLite DB, so other open questions from earlier runs may be listed.
-    // We answer every open "השתתפות נוכחית" (current copay) card so this conversation's question is covered.
-    const rep = await browser.newContext()
-    const repPage = await rep.newPage()
-    await repPage.addInitScript((tok) => sessionStorage.setItem('sca.repToken', tok), REP_TOKEN)
-    await repPage.goto('/rep')
-    await expect(repPage.locator('.rep-card').first()).toBeVisible({ timeout: 20_000 })
-    const currentCopayCards = repPage.locator('.rep-card', { hasText: 'השתתפות עובד ברכב הנוכחי' })
-    const count = await currentCopayCards.count()
-    for (let i = 0; i < count; i++) {
-      const card = currentCopayCards.nth(0)   // the list re-renders after each answer; always take the first open one
-      if (!(await card.isVisible().catch(() => false))) break
-      const other = card.getByRole('button', { name: 'סכום אחר' })
-      if (await other.count()) await other.click()
-      const input = card.locator('input[inputmode="decimal"], input[type="text"]').first()
-      await input.fill('250')
-      await card.getByRole('button', { name: 'שליחת תשובה' }).click()
-      await repPage.waitForTimeout(1500)
-    }
+    const { rep, close } = await repScreen(browser)
+    const q = rep.locator('.rep-card', { hasText: 'BYD DOLPHIN' }).last()
+    await expect(q).toBeVisible({ timeout: 20_000 })
+    await q.getByRole('button', { name: 'סכום אחר' }).click()
+    await q.locator('input[inputmode="decimal"]').fill('260')
+    await q.getByLabel('ההשתתפות חלה מתאריך').fill(`${year}-01-01`)
+    await q.getByRole('button', { name: 'שליחת תשובה' }).click()
+    await close()
 
-    // --- back on the employee: the answer arrives (polling, up to a few cycles) and a result shows ---
-    await expect(page.locator('.event-pill').first()).toBeVisible({ timeout: 30_000 })
-    await expect(page.locator('.result-cards, .summary-card, .result-card').first())
+    const answer = page.locator(BOT, { hasText: 'נציג התחבורה קבע השתתפות של 260 ₪ בחודש ב-BYD DOLPHIN (2025)' })
+    await expect(answer).toBeVisible({ timeout: 30_000 })
+    await expect(answer).toContainText(`ההשתתפות תחול מ-01.01.${year}.`)
+    await expect(answer).toContainText('חישבתי מחדש')
+    await expect(answer).not.toContainText('בתוקף')
+    const copay = page.locator('.result-card').last().locator('.copay-box')
+    await expect(copay).toContainText('260')
+    await expect(copay).toContainText(`תחול מ-01.01.${year}`)
+    await expect(copay).toContainText('אושר על ידי הנציג')
+  })
+
+  test('a stated group that contradicts the occupations table waits for the rep, who answers with a button', async ({ browser }) => {
+    const page = await employee(browser)
+    for (const m of ['קבוצה ב, שכר בסיס 18,500', 'אני מנהלת מוצר',
+                     'אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים',
+                     'יש לי קורולה קרוס, משלמת 300']) await send(page, m)
+    await expect(page.locator(BOT, { hasText: 'את זה לא אכריע בעצמי' })).toBeVisible()
+
+    const { rep, close } = await repScreen(browser)
+    const q = rep.locator('.rep-card', { hasText: 'קבוצת זכאות שלא תואמת לתפקיד' }).last()
+    await expect(q).toBeVisible({ timeout: 20_000 })
+    await expect(q).not.toContainText('18,500')
+    await expect(q.getByLabel('ההשתתפות חלה מתאריך')).toHaveCount(0)     // a date only for a new car's copay
+    await q.getByRole('button', { name: 'לפי טבלת העיסוקים: קבוצה ג' }).click()
+    await close()
+
+    await expect(page.locator(BOT, { hasText: 'נציג התחבורה השיב: קבוצת הזכאות שלכם היא ג.' }))
       .toBeVisible({ timeout: 30_000 })
-
-    await emp.close()
-    await rep.close()
+    await expect(page.locator(BOT).last()).toContainText('איזה רכבים להשוות')
   })
 })

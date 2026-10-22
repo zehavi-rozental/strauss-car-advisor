@@ -5,9 +5,13 @@ from app.modules.conversation.llm.fake import FakeLLM
 from app.modules.conversation.public import LLMChain
 
 from .conftest import make_client
+from .legacy_wait import seed_legacy_wait
 
 PROFILE = ("אני מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, "
            "2.75 נקודות זיכוי, 2 ילדים")
+# a stated group the occupations table contradicts: the representative is asked and the conversation waits (C4)
+CONFLICT = ("קבוצה ב, שכר בסיס 18,500", "אני מנהלת מוצר",
+            "אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים", "יש לי קורולה 2026, משלמת 250")
 
 
 def new(client):
@@ -79,8 +83,12 @@ def test_expects_for_confirmation_variants_drive_and_waiting(engine):
     assert (e["field"], ids(e)) == ("drive", ["PETROL", "HYBRID", "PLUG_IN", "ELECTRIC"])
 
     cid, _ = new(client)
-    body = say(client, cid, PROFILE, "יש לי קורולה 2026", "לא יודעת")
+    body = say(client, cid, *CONFLICT)
     assert body["stage"] == "WAITING_FOR_REP" and body["expects"]["type"] == "none"
+
+    cid, _ = new(client)
+    say(client, cid, PROFILE, "יש לי קורולה 2026", "לא יודעת")
+    seed_legacy_wait(client.app.state.ctx.service, cid)       # today's copay asked before rule A (22/10)
     e = say(client, cid, "אטו 3")["expects"]
     assert (e["field"], ids(e)) == ("clarification", ["mine", "alternative"])
     assert client.get(f"/api/conversations/{cid}").json()["expects"] == e
@@ -148,7 +156,8 @@ def test_quick_replies_and_confirmation_buttons(engine):
     assert fields[:3] == ["car", "copay", "options"] and "bonus" in fields
 
 
-def test_unknown_copay_quick_reply_waits_for_the_rep(engine):
+def test_unknown_copay_quick_reply_is_recorded_and_the_flow_goes_on(engine):
+    """Rule A (22/10): today's copay is the employee's; "לא ידוע" is recorded, never sent to the representative."""
     client = make_client(engine)
     cid, _ = new(client)
     say(client, cid, PROFILE)
@@ -156,7 +165,8 @@ def test_unknown_copay_quick_reply_waits_for_the_rep(engine):
     body = post(client, cid, choice="CAR-09", field="car").json()
     assert body["expects"]["field"] == "copay"
     body = post(client, cid, choice="unknown").json()
-    assert body["stage"] == "WAITING_FOR_REP"
+    assert body["stage"] == "CHOOSE_OPTIONS" and body["results"] == []
+    assert client.app.state.ctx.service.cases.list_open() == []
 
 
 def test_no_car_quick_reply(engine):

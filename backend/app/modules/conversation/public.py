@@ -33,7 +33,7 @@ from app.modules.vehicles.public import (
 )
 from app.shared.db import new_id
 
-from app.modules.cases.public import CasesService, Mode, QuestionAnswered, Status as QuestionStatus
+from app.modules.cases.public import CasesService, MissingField, Mode, QuestionAnswered, Status as QuestionStatus
 
 from .expects import ChoiceInvalid, FieldsInvalid, build_expects, tax_label, validate_choice, validate_fields, vehicle_id
 from .agent import Agent
@@ -317,6 +317,8 @@ class ConversationService:
                          state: ConversationState, outcome) -> None:
         """שאלות לנציג — באותה טרנזקציה: תור שבוטל (409) לא משאיר שאלה, ותור חוזר לא יוצר כפיל."""
         self.cases.cancel(session, outcome.cancel_question_ids)
+        if getattr(outcome, "copay_selection", None) is not None:
+            self.cases.cancel_open_except(session, str(conv_id), MissingField.NEW_CAR_COPAY, outcome.copay_selection)
         opened = [self.cases.open_question(session, str(conv_id), req) for req in outcome.question_requests]
         required = [q.id for q in opened if q.mode == Mode.REQUIRED]
         if required and state.pending_rep is not None:

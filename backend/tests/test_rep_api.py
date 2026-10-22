@@ -111,13 +111,12 @@ def test_rep_rate_limit(engine):
 
 
 def test_cancelled_question_is_not_listed(client):
-    """תיקון הרכב בזמן המתנה מבטל את שאלת ההשתתפות — והנציג כבר לא רואה אותה."""
-    cid = client.post("/api/conversations").json()["conversation_id"]
-    for text in [NOA[0], "יש לי קורולה 2026", "לא יודע"]:
-        client.post(f"/api/conversations/{cid}/messages", json={"text": text})
-    [q] = client.get("/api/rep/questions", headers=AUTH).json()
-    client.post(f"/api/conversations/{cid}/messages", json={"text": "לא, זו קורולה קרוס"})
-    assert client.get("/api/rep/questions", headers=AUTH).json() == []
+    """העובדת מוסרת כמה היא אמורה לשלם על הרכב החדש: השאלה הפתוחה מתבטלת ומוחלפת בשאלה עם הסכום שמסרה,
+    והנציג רואה רק את החדשה."""
+    cid, q = noa_to_atto(client)
+    client.post(f"/api/conversations/{cid}/messages", json={"text": "באטו אני אשלם 350"})
+    [new] = client.get("/api/rep/questions", headers=AUTH).json()
+    assert new["id"] != q["id"] and new["context"]["employee_stated_amount"] == "350"
     assert client.get(f"/api/rep/questions/{q['id']}", headers=AUTH).json()["status"] == "CANCELLED"
 
 

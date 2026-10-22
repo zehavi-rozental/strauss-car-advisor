@@ -1,5 +1,6 @@
-# בזמן המתנה לנציג על ההשתתפות.
-setup: ["אני מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים", "יש לי קורולה 2026", "לא יודעת"]
+# בזמן המתנה לנציג. Since rule A (22/10) today's copay is never sent to the representative; the wait here is the one
+# that remains for data the employee gives: a stated group that contradicts the occupations table (C4).
+setup: ["קבוצה ב, שכר בסיס 18,500", "אני מנהלת מוצר", "אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים", "יש לי קורולה 2026, משלמת 250"]
 cases:
   - {text: "נו, יש תשובה?", allowed: []}
   - {text: "תודה", allowed: []}

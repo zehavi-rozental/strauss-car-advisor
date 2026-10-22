@@ -56,6 +56,12 @@ class Faq(BaseModel):
     # entries about the conversation itself (the representative, privacy, starting over): an answer, never a
     # reason to send a question to the representative
     meta_entries: tuple[str, ...] = ()
+    # the employee's own data (rule A, 22/10): a question that names only these ("חייבים לכתוב עמלות?", "למה אתה
+    # שואל על ילדים?") is about why the bot asks, answered here — the representative never knows the employee's pay
+    employee_data_terms: tuple[str, ...] = ()
+    # what a result on screen is made of ("הערכה זמנית", "ממתינה לאישור", "השתתפות"): with results shown, a question
+    # naming one is about those results and is answered from them (C5, 22/10), never sent to the representative
+    result_terms: tuple[str, ...] = ()
     # a question whose intent is truly unclear: one short line, no buttons, never the representative
     clarify: str = "לא בטוח שהבנתי את השאלה. כתבו אותה במילים אחרות, למשל על הרכב, הזכאות או הנטו."
 

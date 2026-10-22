@@ -7,6 +7,7 @@ invented: a new car's copay has none configured and keeps only the non-negative 
 from __future__ import annotations
 
 from .conftest import make_client
+from .legacy_wait import seed_legacy_wait
 
 TOKEN = "rep-secret"
 REP = {"X-Rep-Token": TOKEN}
@@ -15,11 +16,14 @@ NOA = ("אני מנהלת מוצר, שכר בסיס 18,500, אין עמלות ו
 
 
 def waiting_for_copay(engine):
-    """Today's copay unknown → a blocking question to the representative."""
+    """Today's copay unknown, with a question to the representative opened before rule A (22/10): new
+    conversations ask the employee instead, but a question already open is still checked against the range."""
     client = make_client(engine, rep_access_token=TOKEN)
     cid = client.post("/api/conversations").json()["conversation_id"]
     for text in (NOA, "יש לי קורולה קרוס", "לא יודעת"):
         assert client.post(f"/api/conversations/{cid}/messages", json={"text": text}).status_code == 200
+    assert client.get("/api/rep/questions", headers=REP).json() == []          # rule A
+    seed_legacy_wait(client.app.state.ctx.service, cid)
     q = client.get("/api/rep/questions", headers=REP).json()[0]
     assert q["missing_field"] == "CURRENT_COPAY"
     return client, cid, q["id"]

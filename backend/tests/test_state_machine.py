@@ -65,24 +65,20 @@ def test_disallowed_tool_is_ignored(sessions):
     assert turn.stage == Stage.COLLECT_PROFILE and turn.results == []
 
 
-def test_unknown_copay_opens_rep_question(sessions):
+def test_unknown_copay_is_recorded_and_never_sent_to_the_rep(sessions):
+    """Rule A (22/10): today's copay is the employee's own figure. "לא יודעת" is recorded and the flow goes on; no
+    calculation and no question to the representative until the employee gives it."""
     svc = service(sessions)
     turn, token = talk(svc, profile() + ["יש לי COROLLA CROSS", "לא יודעת"])
-    assert turn.stage == Stage.WAITING_FOR_REP and turn.pending_rep == RepReason.CURRENT_COPAY
-    [q] = open_questions(svc)
-    assert (q.missing_field.value, q.mode.value, q.answer_type.value) == ("CURRENT_COPAY", "REQUIRED", "MONEY")
-    assert q.context == {"group": "ג", "car_label": "COROLLA CROSS (2025)", "catalog_code": "CAR-09",
-                         "suggested_amount": "300"}
-    assert "שאלתי את נציג התחבורה מה ההשתתפות הנוכחית שלכם ב-COROLLA CROSS (2025)" in turn.reply
-    state = svc.view(turn.conversation_id, token).state
-    assert state.pending_rep.question_ids == [q.id]
-    # בזמן ההמתנה: רכב אחר בלי סימן תיקון — שואלים במקום לנחש; אין התקדמות ואין שאלה נוספת לנציג
-    turn = svc.send(turn.conversation_id, token, "ATTO 3")
-    assert turn.stage == Stage.WAITING_FOR_REP and turn.path == "waiting"
-    assert turn.reply.startswith("לא בטוח שהבנתי: ATTO 3 (2025) הוא הרכב שלכם היום")
-    assert len(open_questions(svc)) == 1
-    turn = svc.send(turn.conversation_id, token, "נו?")
-    assert turn.reply == "שאלתי את נציג התחבורה ואעדכן כשתגיע תשובה."
+    assert turn.stage == Stage.CHOOSE_OPTIONS and turn.pending_rep is None and open_questions(svc) == []
+    assert "רשמתי שזה לא ידוע" in turn.reply and "איזה רכבים להשוות" in turn.reply
+    assert svc.view(turn.conversation_id, token).state.current.copay_unknown
+    turn, _ = talk(svc, ["ATTO 3"], start=(turn, token))
+    assert turn.results == [] and open_questions(svc) == []
+    assert "ההשתתפות ברכב של היום" in turn.reply
+    turn, _ = talk(svc, ["300"], start=(turn, token))
+    assert turn.stage == Stage.PRESENTED and turn.results
+    assert [q.missing_field.value for q in open_questions(svc)] == ["NEW_CAR_COPAY"]   # only the new car's
 
 
 def test_car_not_found_asks_payslip_use_value(sessions):
@@ -96,12 +92,12 @@ def test_car_not_found_asks_payslip_use_value(sessions):
     assert r.result["status"] == "OK" and r.result["today"]["use_value"] == "3500"
 
 
-def test_car_not_found_and_use_value_unknown_opens_rep_question(sessions):
+def test_car_not_found_and_use_value_unknown_is_recorded_not_sent_to_the_rep(sessions):
     svc = service(sessions)
-    turn, _ = talk(svc, profile() + ["ZOOMOBILE X", "לא יודע"])
-    assert turn.stage == Stage.WAITING_FOR_REP and turn.pending_rep == RepReason.CURRENT_USE_VALUE
-    [q] = open_questions(svc)
-    assert q.missing_field.value == "CURRENT_USE_VALUE" and q.context == {"group": "ג", "car_label": "ZOOMOBILE X"}
+    turn, token = talk(svc, profile() + ["ZOOMOBILE X", "לא יודע"])
+    assert turn.stage != Stage.WAITING_FOR_REP and turn.pending_rep is None and open_questions(svc) == []
+    assert "רשמתי שזה לא ידוע" in turn.reply
+    assert svc.view(turn.conversation_id, token).state.current.use_value_unknown
 
 
 def test_unknown_occupation_asks_group_and_opt_out_goes_to_rep(sessions):
@@ -283,5 +279,6 @@ def test_employee_facing_templates_are_gender_neutral():
 def test_unknown_reply_suggested_by_the_bot_is_understood(sessions):
     """הבוט מציע לכתוב "לא ידוע" — והקורא מבין אותו כ"לא יודע/ת"."""
     svc = service(sessions)
-    turn, _ = talk(svc, profile() + ["יש לי COROLLA CROSS", "לא ידוע"])
-    assert turn.stage == Stage.WAITING_FOR_REP and turn.pending_rep == RepReason.CURRENT_COPAY
+    turn, token = talk(svc, profile() + ["יש לי COROLLA CROSS", "לא ידוע"])
+    assert "רשמתי שזה לא ידוע" in turn.reply and "לא הצלחתי" not in turn.reply
+    assert svc.view(turn.conversation_id, token).state.current.copay_unknown
