@@ -15,7 +15,8 @@ from app.modules.rules.public import RulesSnapshot
 from app.shared.money import to_shekel
 
 from .stage import (MAX_OPTIONS, PROFILE_ARGS, Q2_FIELDS, profile_args, ConversationState, RepReason, Stage, current_group,
-                    current_unknown, missing_current_car, next_stage, open_profile, unknown_missing)
+                    current_unknown, missing_current_car, next_stage, open_profile, results_stale,
+                    unknown_missing)
 from .tools import available_options
 
 DRIVE_HE = {"PETROL": "בנזין", "HYBRID": "היברידי", "PLUG_IN": "פלאג-אין", "ELECTRIC": "חשמלי"}
@@ -856,6 +857,12 @@ UNANSWERED = "על זה אין לי מידע מדויק. התשובה של נצ�
 # the offer is the turn's one call to action; the next question comes after the choice
 REP_OFFER_CTA = "בחרו \"לשאול את הנציג\" או \"להמשיך בלי\"."
 NOT_UNDERSTOOD = "לא הצלחתי להבין את התשובה."
+# after a result: a message not understood keeps the result and the choice, and says what can be done with them
+RESULTS_CLARIFY = "לא בטוח שהבנתי. התוצאה נשמרה כאן; אפשר לשאול עליה, לשנות את הרכבים להשוואה או לתקן נתון."
+# what the app really keeps (a session cookie with no expiry, the conversation id in this browser): no promise
+# of returning after the browser is closed
+PAUSE_TEXT = ("בסדר. כל מה שמסרתם נשמר בשיחה הזו: אפשר לרענן את הדף או לחזור ללשונית ולהמשיך מאותה נקודה. "
+              "אם סוגרים את הדפדפן, ייתכן שתצטרכו להתחיל שיחה חדשה.")
 # examples are built only from fields that are still missing (never "פנסיה 6%" when the pension is known)
 _FIELD_EXAMPLE = {"commissions": "אין עמלות", "bonus": "בונוס 2,000", "pension_percent": "פנסיה 6%",
                   "study_fund_percent": "קרן השתלמות 2.5%", "credit_points": "2.25 נקודות זיכוי",
@@ -1149,6 +1156,15 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
                                                 state.pending_occupation.suggestions))
         return plan
     asked_something = bool(answers or extra or follow_up)
+    if state.stage == Stage.PRESENTED and state.results and not results_stale(state):
+        # the question on screen is the result, not choosing cars: an explanation is of the result, a message not
+        # understood is clarified, and the reply ends with the result's next step (the result and the choice stay)
+        if explain:
+            plan.ask.append(results_explain_text(state))
+        elif not understood and not asked_something and not notice:
+            plan.ask.append(RESULTS_CLARIFY)
+        plan.cta = NEXT_AFTER_RANK if state.ranked_count else NEXT_AFTER_RESULTS
+        return plan
     repeat = not understood and not asked_something and fields == state.last_asked
     if not understood and not asked_something and not explain:
         plan.ask.append(CAR_AGAIN if fields[:1] == ["car"] else NOT_UNDERSTOOD)

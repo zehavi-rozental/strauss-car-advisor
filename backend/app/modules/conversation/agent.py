@@ -92,6 +92,7 @@ from .templates import (
     rep_note_text,
     rep_copay_text,
     rep_group_text,
+    PAUSE_TEXT,
     copay_rep_request_text,
     results_explain_text,
     stated_copay_text,
@@ -720,6 +721,75 @@ def _copay_rep_request(state: ConversationState, snapshot: RulesSnapshot, text: 
     return [options[o] for o in chosen]
 
 
+# Editing the cars being compared, in free text (template mode too, no LLM needed). Explicit verbs only: a bare car
+# name keeps its old meaning (the cars to compare). Show / check verbs count as "add" only next to an add or a remove.
+# "to continue later" (a pause): answered with what the app really keeps; nothing in the state changes
+_PAUSE_PHRASES = ("להמשיך אחר כך", "נמשיך אחר כך", "אמשיך אחר כך", "להמשיך מאוחר יותר", "בפעם אחרת", "נעצור",
+                  "לעצור כאן", "אחזור לזה", "נחזור לזה", "מאיפה שהפסקנו")
+
+
+def _pause_request(snapshot: RulesSnapshot, text: str) -> bool:
+    """"אפשר להמשיך אחר כך?", "אני אחזור לזה מחר", "בוא נעצור כאן": a pause, with nothing else to act on (no
+    number, no car)."""
+    t = " ".join(words(text))
+    if any(ch.isdigit() for ch in text) or named_cars(text, snapshot.catalog):
+        return False
+    return any(p in t for p in _PAUSE_PHRASES)
+
+
+_ADD_CUES = ("תוסיף", "תוסיפי", "תוסיפו", "להוסיף", "הוסף", "הוסיפי", "הוסיפו", "גם", "בנוסף")
+_SHOW_CUES = ("תראה", "תראי", "תראו", "תבדוק", "תבדקי", "תבדקו", "לבדוק", "להשוות", "תשווה", "תחשב")
+_REMOVE_CUES = ("תוריד", "תורידי", "תורידו", "להוריד", "הורד", "תסיר", "תסירי", "להסיר", "הסר", "תוציא", "תוציאי",
+                "להוציא", "עזוב", "עזבי", "עזבו", "בלי", "תמחק", "תמחקי", "למחוק", "לוותר")
+_EDIT_CLAUSE_RE = re.compile(r"[,.;!?\n]")
+
+
+def _has_cue(ws: Sequence[str], cues: Sequence[str]) -> bool:
+    return any(w in cues or (w.startswith("ו") and w[1:] in cues) for w in ws)
+
+
+def _selection_edit(state: ConversationState, snapshot: RulesSnapshot,
+                    text: str) -> Optional[tuple[list[str], list[str], list[str], list[str]]]:
+    """(the new selection, added, removed, named but not available) when the message edits the cars already chosen:
+    "תוסיף גם את MG4", "תוריד את MG4", "במקום אטו 3 תבדוק את EV3", "עזוב את הפיקנטו, תראה לי את היאריס".
+    None when it is not an edit (no cars chosen yet, no edit verb, or no car named)."""
+    if not state.selected:
+        return None
+    available = {o.car.catalog_code: o.id for o in available_options(snapshot, state) if o.car is not None}
+    clauses = [c for c in _EDIT_CLAUSE_RE.split(text) if c.strip()]
+    any_edit = any(_has_cue(words(c), (*_ADD_CUES, *_REMOVE_CUES)) or "במקום" in words(c) for c in clauses)
+    if not any_edit:
+        return None
+    parts: list[tuple[str, str]] = []
+    for clause in clauses:
+        ws = words(clause)
+        if "במקום" in ws:
+            i = clause.index("במקום")
+            after = clause[i + len("במקום"):]
+            verb = re.search(r"\s(?:" + "|".join((*_ADD_CUES, *_SHOW_CUES)) + r")(?=\s|$)", after)
+            out_part, in_part = (after[:verb.start()], after[verb.start():]) if verb else (after, "")
+            parts += [(out_part, "remove"), (clause[:i] + " " + in_part, "add")]
+        elif _has_cue(ws, _REMOVE_CUES):
+            parts.append((clause, "remove"))
+        elif _has_cue(ws, (*_ADD_CUES, *_SHOW_CUES)):
+            parts.append((clause, "add"))
+    added: list[str] = []
+    removed: list[str] = []
+    unavailable: list[str] = []
+    for part, kind in parts:
+        for car in named_cars(part, snapshot.catalog):
+            if car.catalog_code not in available:
+                unavailable.append(car.label)
+            else:
+                (removed if kind == "remove" else added).append(available[car.catalog_code])
+    if not (added or removed or unavailable):
+        return None
+    current = list(state.selected)
+    new = [o for o in current if o not in removed] + [o for o in dict.fromkeys(added) if o not in current
+                                                     and o not in removed]
+    return new, list(dict.fromkeys(added)), list(dict.fromkeys(removed)), unavailable
+
+
 class Agent:
     def __init__(self, llm: LLMChain, mode: str = "llm_first"):
         self.llm = llm
@@ -849,6 +919,13 @@ class Agent:
         elif asked := _copay_rep_request(state, snapshot, text):
             plan = self._ask_rep_copay(ctx, asked)
             und = replace(und, about_results=True, remainder="", unanswered=[], clarify=False, redirect=False)
+        elif _pause_request(snapshot, text):
+            plan = ParserPlan(complete=True, notice=PAUSE_TEXT, direct=True)
+            und = replace(und, remainder="", clarify=False, help=False, unanswered=[], redirect=False,
+                          complaint=False, about_results=False)
+        elif (edit := _selection_edit(state, snapshot, text)) is not None:
+            plan = self._edit_selection(ctx, *edit)
+            und = replace(und, remainder="", clarify=False, help=False, unanswered=[], redirect=False)
         elif und.question_only and und.anything and und.ambiguity is None:
             # only questions / "מה?" / off topic: nothing to save, and a pending question stays open.
             # With an LLM it answers (from the FAQ / STATE); without one, the FAQ template.
@@ -1474,6 +1551,38 @@ class Agent:
             text += f". העובד ציין שהוא מצפה להשתתפות של {stated} ₪"
         self._request(ctx, MissingField.NEW_CAR_COPAY, mode, AnswerType.MONEY, text, context,
                       str(default) if default is not None else None, option.id, replace=replace)
+
+    def _edit_selection(self, ctx: ToolContext, new: list[str], added: list[str], removed: list[str],
+                        unavailable: list[str]) -> ParserPlan:
+        """Applies an edit of the cars compared through select_options (the same checks and recalculation as a
+        choice), or says why it was not applied. Nothing else in the state changes."""
+        state, snap = ctx.state, ctx.snapshot
+        labels = {o.id: o.label for o in available_options(snap, state)}
+        notes = [f"{name} לא בין הרכבים שאתם זכאים להם." for name in unavailable]
+        not_there = [labels[o] for o in removed if o not in state.selected]
+        notes += [f"{name} לא היה בהשוואה." for name in not_there]
+        if len(new) > MAX_OPTIONS:
+            notes.append(f"אפשר להשוות עד {MAX_OPTIONS} רכבים בכל פעם. כתבו איזה רכב להוריד, ולא שיניתי את הבחירה.")
+            return ParserPlan(complete=True, notice=" ".join(notes), direct=True)
+        if not new:
+            notes.append("זה הרכב היחיד בהשוואה, ולכן לא הורדתי אותו. כתבו איזה רכב לבדוק במקומו.")
+            return ParserPlan(complete=True, notice=" ".join(notes), direct=True)
+        if new == list(state.selected):
+            kept = [labels[o] for o in added if o in state.selected]
+            notes += [f"{name} כבר בהשוואה." for name in kept]
+            return ParserPlan(complete=True, notice=" ".join(notes) or None, direct=True)
+        done = []
+        if [o for o in added if o in new and o not in state.selected]:
+            done.append("הוספתי " + ", ".join(labels[o] for o in added if o in new and o not in state.selected))
+        if [o for o in removed if o in state.selected]:
+            done.append("הורדתי " + ", ".join(labels[o] for o in removed if o in state.selected))
+        facts = run_tool(ctx, "calculate", {"options": new})       # the same tool and checks as a choice
+        if facts.get("ok") is False or list(state.selected) != new:
+            # never "עדכנתי" for what was not done
+            notes.insert(0, "לא הצלחתי לעדכן את הבחירה. כתבו את שמות הרכבים להשוואה.")
+            return ParserPlan(complete=True, notice=" ".join(notes), direct=True)
+        notes.insert(0, "עדכנתי את הבחירה: " + "; ".join(done) + ".")
+        return ParserPlan(complete=True, notice=" ".join(notes), direct=True, acked=True)
 
     def _ask_rep_copay(self, ctx: ToolContext, options: list[Any]) -> ParserPlan:
         """A question per car (open_question keeps one); the cards show it waiting until the answer."""
