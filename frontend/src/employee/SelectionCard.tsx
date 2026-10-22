@@ -7,7 +7,7 @@ import { Money } from '../format/Amount'
 import { Icon } from '../ui/Icon'
 import { OPT_OUT_ID } from './comparison'
 import { DRIVE_ICON, driveLabel, splitLabel } from './labels'
-import { counterLabel, isBlocked, limitHint, toggleSelection } from './widgets'
+import { counterLabel, isBlocked, limitHint, limitMessage, toggleSelection } from './widgets'
 
 type Send = (body: MessageIn, display: string) => Promise<boolean>
 
@@ -26,7 +26,18 @@ interface Props {
 export function SelectionCard({ f, fieldParam, disabled, onSend, initial, onDone, details }: Props) {
   const max = f.max ?? 1
   const [picked, setPicked] = useState<string[]>(() => (initial ?? []).filter((id) => f.choices.some((c) => c.id === id)))
+  // a car chosen while the selection is full is not added; the cards stay enabled and the tap says why.
+  // The count changes on every refused tap, so the message is announced again each time.
+  const [refused, setRefused] = useState(0)
   const full = picked.length >= max
+  const toggle = (id: string) => {
+    if (isBlocked(picked, id, max)) {
+      setRefused((n) => n + 1)
+      return
+    }
+    setRefused(0)
+    setPicked((p) => toggleSelection(p, id, max))
+  }
   const field = fieldParam ?? f.field ?? undefined
   const rank = f.quick_replies.find((q) => q.id === 'rank')
 
@@ -43,16 +54,14 @@ export function SelectionCard({ f, fieldParam, disabled, onSend, initial, onDone
       <div className="card-grid">
         {f.choices.map((c, i) => {
           const on = picked.includes(c.id)
-          const blocked = isBlocked(picked, c.id, max)
           const optOut = c.id === OPT_OUT_ID
           const drive = driveLabel(c.drive)
           const { name, year } = splitLabel(c.label)
           const d = details?.[c.id]
           return (
-            <button key={c.id} type="button" aria-pressed={on} disabled={disabled || blocked}
-                    title={blocked ? limitHint(max) : undefined} data-drive={c.drive ?? undefined}
+            <button key={c.id} type="button" aria-pressed={on} disabled={disabled} data-drive={c.drive ?? undefined}
                     className={`car-card${on ? ' car-card-on' : ''}${optOut ? ' car-card-optout' : ''}`}
-                    onClick={() => setPicked((p) => toggleSelection(p, c.id, max))}>
+                    onClick={() => toggle(c.id)}>
               <span className="car-card-top">
                 <span className="car-index num" aria-hidden="true">{i + 1}</span>
                 <span className="car-check" aria-hidden="true"><Icon name="check" size={14} /></span>
@@ -81,6 +90,11 @@ export function SelectionCard({ f, fieldParam, disabled, onSend, initial, onDone
         })}
       </div>
       <div className="selection-bar">
+        {refused > 0 && (
+          <p key={refused} className="selection-limit" role="alert">
+            <Icon name="info" size={18} />{limitMessage(max)}
+          </p>
+        )}
         <span className="selection-counter" role="status" aria-live="polite">
           <span className="selection-dots" aria-hidden="true">
             {Array.from({ length: max }, (_, k) => <i key={k} className={k < picked.length ? 'is-on' : undefined} />)}
