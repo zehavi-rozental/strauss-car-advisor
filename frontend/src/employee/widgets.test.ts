@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { Expects, ExpectsField, Stage } from '../api/types'
 import {
-  PROGRESS_STEPS, counterLabel, isBlocked, linkFor, optionsField, placeholderFor, progressStep, toggleSelection,
-  widgetsFor,
+  PROGRESS_STEPS, counterLabel, isBlocked, limitMessage, linkFor, optionsField, placeholderFor, progressStep,
+  toggleSelection, widgetsFor,
 } from './widgets'
 
 const f = (field: string, type: ExpectsField['type'], extra: Partial<ExpectsField> = {}): ExpectsField =>
@@ -86,5 +86,10 @@ describe('selection counter', () => {
 
   it('writes the live counter', () => {
     expect(counterLabel(2, 3)).toBe('נבחרו 2 מתוך 3')
+  })
+
+  it('explains the limit when a car is chosen while the selection is full', () => {
+    expect(limitMessage(3)).toBe('ניתן להשוות עד 3 רכבים. כדי לבחור רכב אחר, בטלו תחילה אחת מהבחירות הקיימות.')
+    expect(limitMessage(1)).toBe('אפשר לבחור רכב אחד. כדי לבחור רכב אחר, בטלו תחילה את הבחירה הקיימת.')
   })
 })
