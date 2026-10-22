@@ -74,7 +74,9 @@ async function uploadPayslip(page: Page, file: string) {
 
 const row = (page: Page, field: string) => page.locator(`.payslip-row[data-field="${field}"]`)
 // "לעדכן" / "מהתלוש": the row is updated from the payslip (an explicit choice per row, QA 21/10)
-const keep = (page: Page, field: string) => row(page, field).locator('input[type="radio"][value="payslip"]')
+// the row's "update" choice: the payslip's value, or (a row with no payslip value) what the employee types (QA 22/10)
+const keep = (page: Page, field: string) =>
+  row(page, field).locator('input[type="radio"][value="payslip"], input[type="radio"][value="manual"]').first()
 
 /** A second, API-only conversation with the same messages: what the engine says for those typed values. */
 async function typedResult(request: APIRequestContext, messages: string[]) {
@@ -411,7 +413,7 @@ test.describe('merged conversation acceptance', () => {
     // the ID as an "amount": never shown or filled; the row asks the employee to check it (QA 22/10)
     await expect(row(page, 'bonus')).toContainText('לא מילאנו אותו')
     await expect(row(page, 'bonus').locator('input:not([type])')).toHaveValue('')
-    await expect(row(page, 'bonus').locator('input[type="radio"][value="payslip"]')).not.toBeChecked()
+    await expect(keep(page, 'bonus')).not.toBeChecked()
     await keep(page, 'base_salary').check()                                   // differs from 15,000: the employee decides
     await confirmPayslip(page)
     const s = await state(page)

@@ -120,7 +120,9 @@ async function confirm(page: Page) {
   await expect.poll(async () => page.locator(BOT).count(), { timeout: 45_000 }).toBeGreaterThan(bots)
 }
 
-const keep = (page: Page, field: string) => row(page, field).locator('input[type="radio"][value="payslip"]')
+// the row's "update" choice: the payslip's value, or (a row with no payslip value) what the employee types (QA 22/10)
+const keep = (page: Page, field: string) =>
+  row(page, field).locator('input[type="radio"][value="payslip"], input[type="radio"][value="manual"]').first()
 
 test.describe('unclear labels are never saved as pay without a decision', () => {
   test.beforeEach(async ({ request }) => {
@@ -129,8 +131,10 @@ test.describe('unclear labels are never saved as pay without a decision', () => 
 
   test('a bonus "השתתפות" and unlabelled commissions are shown, explained and not preselected', async ({ page }) => {
     await reviewUnclearPayslip(page)
-    for (const [f, v, name] of [['bonus', '300', 'בונוס'], ['commissions', '500', 'עמלות']]) {
-      await expect(row(page, f).locator('input:not([type])')).toHaveValue(v)
+    for (const [f, v, name] of [['bonus', '300 ₪', 'בונוס'], ['commissions', '500 ₪', 'עמלות']]) {
+      // the payslip's value is offered, not chosen: the field shows what stays (nothing), never an unsaved amount
+      await expect(row(page, f).getByRole('radio', { name: `לעדכן: ${v}` })).not.toBeChecked()
+      await expect(row(page, f).locator('input:not([type])')).toHaveValue('')
       await expect(row(page, f)).toContainText(`לא מראה בבירור שזו שורת ${name}`)
       await expect(keep(page, f)).not.toBeChecked()
     }
@@ -156,7 +160,6 @@ test.describe('unclear labels are never saved as pay without a decision', () => 
     const unclear = additions.filter({ hasText: '200' })
     await expect(unclear.locator('.tag')).toHaveText('לבירור')
     await expect(unclear).toContainText('לא ברור מהתלוש אם זו תוספת לשכר או ניכוי')
-    // commissions and bonus hold values: nothing to assign into until the employee empties a row
     const clear = additions.filter({ hasText: 'תוספת חודשית' })
     await expect(clear.locator('.tag')).toHaveCount(0)
     const copay = info(page, 'car_copay')
@@ -167,7 +170,7 @@ test.describe('unclear labels are never saved as pay without a decision', () => 
 
   test('with empty rows, an unclear addition can be assigned on purpose and the copay still cannot', async ({ page }) => {
     await reviewUnclearPayslip(page)
-    await row(page, 'bonus').locator('input:not([type])').fill('')            // the employee empties the bonus row
+    // the bonus row is "לא לעדכן" and shows nothing: it is empty, so an addition may be assigned into it
     const unclear = page.locator('.payslip-info li[data-info="other_addition"]').filter({ hasText: '200' })
     await unclear.getByRole('button', { name: 'לשייך לבונוס' }).click()
     await expect(row(page, 'bonus').locator('input:not([type])')).toHaveValue('200')

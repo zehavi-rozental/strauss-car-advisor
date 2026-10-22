@@ -20,7 +20,7 @@ from typing import Iterable, Optional
 from app.modules.rules.public import FAMILY_GROUP, CatalogCar, Faq, FaqEntry, RulesSnapshot, matched_name, related_cars, words
 
 from .fallback import _RANK_RE, named_cars
-from .parsing import _NO_COPAY_RE, no_car_span
+from .parsing import _NO_COPAY_RE, match_occupation, no_car_span
 from .stage import ConversationState
 
 NO_CAR_OR_ZERO = "no_car_or_zero_copay"
@@ -46,7 +46,9 @@ _HAS_CAR_RE = re.compile(r"(?<![א-ת])(?:יש\s+לי|קיבלתי|מקבל(?:ת
 _FILLER = {"ו", "תודה", "שלום", "היי", "אוקיי", "אוקי", "ok", "טוב", "בסדר", "רגע", "אז", "נו", "אה", "אמממ",
            "יופי", "מעולה", "סבבה"}
 # clauses: after "?" / "!" / "." / a new line, and before ", ולמה …" / ", ומה …" (data, then a question)
-_CLAUSE_RE = re.compile(r"(?<=\?)|\n|(?<=[!])\s+|(?<=\.)\s+(?=\D)|,\s*(?=ו?(?:למה|מה|האם|איך|כמה|איפה)\s)")
+# a new clause also starts at "…, ומה…" and at "… ומה…" / "… ומי…" (a value, then an unrelated question)
+_CLAUSE_RE = re.compile(r"(?<=\?)|\n|(?<=[!])\s+|(?<=\.)\s+(?=\D)|,\s*(?=ו?(?:למה|מה|האם|איך|כמה|איפה)\s)"
+                        r"|\s+(?=ו(?:למה|מה|מי|האם|איך|איפה|מתי)\s)")
 
 # a profile field said to exist with no amount: "יש קצת עמלות ובונוסים", "מקבלת גם בונוס"
 _PRESENCE_WORDS = {"עמלות": "commissions", "עמלה": "commissions", "בונוס": "bonus", "בונוסים": "bonus",
@@ -74,6 +76,7 @@ class Understanding:
     map_all: bool = False                                   # 360°: "השווה את כל האפשרויות שלי"
     remainder: str = ""                                     # the message without questions (read by the parser)
     catalog: list[str] = field(default_factory=list)        # answers from the company catalog ("יש לכם קורולה?")
+    clarify: bool = False                                   # a question whose intent is truly unclear: say it again
 
     @property
     def question_only(self) -> bool:
@@ -83,7 +86,7 @@ class Understanding:
     @property
     def anything(self) -> bool:
         return bool(self.audit or self.all_at_once or self.faq_ids or self.catalog or self.unanswered or self.presence or self.help or self.redirect
-                    or self.ambiguity or self.compare or self.complaint)
+                    or self.ambiguity or self.compare or self.complaint or self.clarify)
 
 
 def meaningful(text: str) -> bool:
@@ -181,14 +184,143 @@ def _asks_to_compare(text: str) -> bool:
     return any(w in _COMPARE_WORDS or (len(w) > 1 and w[0] in _PREFIX and w[1:] in _COMPARE_WORDS) for w in words(text))
 
 
+def _spelling(text: str) -> str:
+    """Hebrew spelling variants read alike: "האויר" / "האוויר", "ביטוח" / "בייטוח" (double vav or yod)."""
+    return text.replace("וו", "ו").replace("יי", "י")
+
+
 def _contains_any(text: str, patterns: Iterable[str]) -> bool:
-    low = text.lower()
-    ws = words(text)
+    low = _spelling(text.lower())
+    ws = [_spelling(w) for w in words(text)]
 
     def exact(word: str) -> bool:           # the word itself, or with one prefix letter ("האוויר"); no typos here
+        word = _spelling(word)
         return any(w == word or (len(w) > 1 and w[0] in _PREFIX and w[1:] == word) for w in ws)
 
-    return any(p.lower() in low or all(exact(a) for a in words(p)) for p in patterns)
+    return any(_spelling(p.lower()) in low or all(exact(a) for a in words(p)) for p in patterns)
+
+
+# Hebrew endings a listed word may take ("רכבים", "מרוויחה", "חשמלית"); "ת" alone only after a long word, so
+# "רכב" never reads "רכבת"
+_SUFFIXES = ("", "ים", "ות", "י", "ך", "ו", "ה", "נו", "כם", "כן", "ם", "ן", "יה", "יו", "ית", "יות", "יים")
+
+
+def _term_hit(term: str, word: str, starts: bool = True) -> bool:
+    """A listed word in the text: itself or with up to two prefix letters ("ברכב", "מהתלוש"); with `starts`, also
+    with a Hebrew ending ("רכבים", "פנסיונית"). "מס" is never "מספר", "רכב" never "רכבת", "שיר" never "שירות"."""
+    stems = [word]
+    for _ in range(2):
+        if len(stems[-1]) > 2 and stems[-1][0] in _PREFIX:
+            stems.append(stems[-1][1:])
+    if not starts:
+        return term in stems
+    return any(s == term or (len(term) >= 3 and s.startswith(term)
+                             and (s[len(term):] in _SUFFIXES or (len(term) >= 4 and s[len(term):] == "ת")))
+               for s in stems)
+
+
+def says_phrase(text: str, phrases: Iterable[str]) -> bool:
+    """A phrase said as whole, consecutive words; the first one may carry a prefix letter ("ולאט"). Never a part
+    of another word: "לאטו 3" is a catalog car, not "לאט" (QA 22/10)."""
+    ws = [_spelling(w) for w in words(text)]
+    for phrase in phrases:
+        ps = [_spelling(p) for p in words(phrase)]
+        for i in range(len(ws) - len(ps) + 1):
+            first, rest = ws[i], ws[i + 1:i + len(ps)]
+            if ps and (first == ps[0] or (len(first) > 1 and first[0] in _PREFIX and first[1:] == ps[0])) \
+                    and rest == ps[1:]:
+                return True
+    return False
+
+
+def _names_any(terms: Iterable[str], ws: list[str], starts: bool = True) -> bool:
+    for term in terms:
+        parts = [_spelling(p) for p in words(term)]
+        if parts and all(any(_term_hit(p, w, starts) for w in ws) for p in parts):
+            return True
+    return False
+
+
+def _generic(faq: Faq, term: str) -> bool:
+    """A word any car, tax or pay question has ("רכב", "מס", "שכר"): not a sign of this service alone. The word
+    itself only: "הרכב" (the car we are talking about) is a reference, "רכב" (any car) is not."""
+    ws = words(term)
+    return len(ws) == 1 and _spelling(ws[0]) in {_spelling(t) for t in (*faq.generic_domain_terms,
+                                                                         *faq.reference_terms)}
+
+
+def _topic_hit(faq: Faq, clause: str, *, phrases_only: bool = False) -> bool:
+    """An FAQ topic of the service: not a generic word, and not a topic about the conversation itself ("נציג",
+    "פרטיות": `meta_entries`), which never makes a question one for the representative (P0-A, 22/10)."""
+    return any(_alias_hits(clause, a) for e in faq.entries if e.id not in faq.meta_entries
+               for a in (*e.aliases, e.term)
+               if not _generic(faq, a) and not (phrases_only and len(words(a)) < 2))
+
+
+def _strong(snapshot: RulesSnapshot, clause: str, ws: list[str]) -> bool:
+    """Plainly about this service: a specific domain word, a catalog car or brand, a job title. A generic word
+    alone ("רכב", "מס", "שכר": any car, tax or pay) is not enough (P0-A, 22/10)."""
+    faq = snapshot.faq
+    specific = [t for t in faq.domain_terms if not _generic(faq, t)]
+    return (_names_any(specific, ws) or bool(named_cars(clause, snapshot.catalog))
+            or any(_contains_any(clause, names) for names in snapshot.extensions.manufacturer_brands.values())
+            or bool(match_occupation(snapshot.occupations.keys(), clause)))
+
+
+def _anchored(snapshot: RulesSnapshot, clause: str, ws: list[str]) -> bool:
+    """About this company's arrangement whatever else the question names: a company phrase ("רכב צמוד", "רכב
+    החברה"), a catalog car, a job title from the table, an FAQ topic in more than one word ("שווי שימוש")."""
+    return (_names_any(snapshot.faq.company_anchor_terms, ws, starts=False)
+            or bool(named_cars(clause, snapshot.catalog))
+            or bool(match_occupation(snapshot.occupations.keys(), clause))
+            or _topic_hit(snapshot.faq, clause, phrases_only=True))
+
+
+def off_topic(snapshot: RulesSnapshot, clause: str) -> bool:
+    """Plainly not about this service (the off-topic phrases and words, exact words only), unless it also names
+    the service ("מה מזג האויר?" yes; "מי משלם על הדלק בחופשה?" no)."""
+    ws = [_spelling(w) for w in words(clause)]
+    faq = snapshot.faq
+    return (_names_any((*faq.off_topic_patterns, *faq.off_topic_terms), ws, starts=False)    # "שיר" is not "שירות"
+            and not _strong(snapshot, clause, ws))
+
+
+def question_scope(snapshot: RulesSnapshot, clause: str) -> str:
+    """What to do with a question nothing else answered (QA 22/10, layered; never a guess from a number):
+    "net" — about the employee's own pay / net: the calculation answers it, never the representative;
+    "org" — a concrete question about the cars or the arrangements: the representative may answer it;
+    "follow" — a follow-up to what the bot just said ("ומה זה?", "למה?"): explained, never the representative;
+    "unclear" — no signal at all: one short request to say it again; "off" — plainly not about the service, or
+    about another domain ("קניית דירה", "יד שנייה", "להשכרה": `foreign_context_terms`) with nothing that ties it
+    to the company's arrangement (P0-A, 22/10)."""
+    faq = snapshot.faq
+    ws = [_spelling(w) for w in words(clause)]
+    if off_topic(snapshot, clause):
+        return "off"
+    if _names_any(faq.foreign_context_terms, ws, starts=False) and not _anchored(snapshot, clause, ws):
+        return "off"
+    if _names_any(faq.net_intent_terms, ws):
+        return "net"
+    if _strong(snapshot, clause, ws) or _topic_hit(faq, clause) or _anchored(snapshot, clause, ws):
+        return "org"
+    if _names_any(faq.context_markers, ws, starts=False):
+        return "follow"
+    if _names_any(faq.reference_terms, ws, starts=False):
+        return "org"                                       # "מה המס על הרכב?": the car being discussed
+    return "unclear"
+
+
+def in_scope(snapshot: RulesSnapshot, text: str) -> bool:
+    """Not plainly off topic and not unclear: the service handles it (answers, calculates, explains or asks the
+    representative)."""
+    return question_scope(snapshot, text) not in ("off", "unclear")
+
+
+def rep_scope_ok(snapshot: RulesSnapshot, text: str) -> bool:
+    """May this question go to the transport representative? Checked in code at every step (the offer, the
+    rewritten question, the send after "לשלוח"), whatever the model proposed: not manipulative, and a concrete
+    question about the company's cars or arrangements (P0-A, 22/10)."""
+    return not _contains_any(text, snapshot.faq.injection_patterns) and question_scope(snapshot, text) == "org"
 
 
 _DRIVE_HE = {"PETROL": "בנזין", "HYBRID": "היברידי", "PLUG_IN": "פלאג-אין", "ELECTRIC": "חשמלי"}
@@ -237,20 +369,31 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
                       has_car=bool(_HAS_CAR_RE.search(text)) and not no_car_span(text),
                       map_all=any(cue in text for cue in snapshot.extensions.option_map_cues))
     if _contains_any(text, faq.injection_patterns) or (
-            _contains_any(text, faq.off_topic_patterns) and not named_cars(text, snapshot.catalog)):
+            off_topic(snapshot, text) and not any(ch.isdigit() for ch in text)):
         u.redirect = True
-        return u                                  # never act on a manipulative or off-topic message
+        return u              # never act on a manipulative or off-topic message (one with values goes on below:
+                              # its off-topic question is redirected by in_scope, its values are read)
     if _is_help(text):
         u.help = True
         return u
     kept: list[str] = []
+    net_question = False
     for clause in _CLAUSE_RE.split(text):
         if clause is None or not clause.strip():
             continue
         if any(cue in clause for cue in snapshot.extensions.all_at_once_cues):
             u.all_at_once = True                  # about the conversation itself: never the representative
             continue
+        short = [_spelling(w) for w in words(clause)]
+        if "?" in clause and len(short) <= 3 and _names_any(faq.context_markers, short, starts=False) \
+                and not any(ch.isdigit() for ch in clause) and not off_topic(snapshot, clause) \
+                and match_faq(faq, clause) is None and not _strong(snapshot, clause, short):   # "מה זה השתתפות?": FAQ
+            u.help = True                     # "ולמה?", "כלומר?", "והשני?": a follow-up to the bot's last message
+            continue
         if _is_question(clause) and not _RANK_RE.search(clause):     # "מה הכי משתלם לי?" is a request
+            if off_topic(snapshot, clause):
+                u.redirect = True     # plainly not about this service: one redirect line, never the FAQ or the rep
+                continue
             entry = match_faq(faq, clause)
             catalog = catalog_answer(snapshot, clause) if entry is None else None
             if entry is None and _is_help(clause):
@@ -260,13 +403,23 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
             elif entry is None and (u.audit or u.map_all):    # a request ("מה כל האפשרויות שלי?"), not for the rep
                 pass          # "כתבתי לך שיש לי רכב, למה אתה שואל שוב?": rhetorical; answered from the state
             elif entry is None:
-                u.unanswered.append(clause.strip())
+                scope = question_scope(snapshot, clause)
+                if scope == "net":
+                    net_question = True               # "אני מרוויחה יותר?": the calculation answers it
+                elif scope == "org":
+                    u.unanswered.append(clause.strip())   # a concrete question: the representative may answer
+                elif scope == "follow":
+                    u.help = True                     # a follow-up to the bot's last message: explained again
+                elif scope == "off":
+                    u.redirect = True                 # another domain ("קניית דירה"): the boundary line, never the rep
+                else:
+                    u.clarify = True                  # truly unclear: asked to say it again, never the rep
             elif entry not in u.faq_ids:
                 u.faq_ids.append(entry)
             continue
         kept.append(clause)
     remainder = "\n".join(c.strip() for c in kept).strip()      # clause boundaries stay (a first-line value)
-    u.compare = _asks_to_compare(remainder) or u.map_all
+    u.compare = _asks_to_compare(remainder) or u.map_all or net_question
     # a ranking / recommendation request ("הכי משתלם", "תמליץ", "דרג") is a request to rank ALL eligible
     # cars — distinct from a plain "תשווה ביניהם" that asks to compare a chosen set
     u.rank = bool(_RANK_RE.search(text))

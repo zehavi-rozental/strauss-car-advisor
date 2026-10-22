@@ -58,6 +58,7 @@ export function useConversation() {
   }, [])
   const [results, setResults] = useState<OptionResult[]>([])
   const [resultsStale, setResultsStale] = useState(false)
+  const [mapReady, setMapReady] = useState(false)          // the server can build the option map now
   const [optionMapState, setOptionMapState] = useState<OptionMap | null>(null)
   const setOptionMap = useCallback((next: OptionMap | null | undefined) => {
     setOptionMapState((prev) => (JSON.stringify(prev) === JSON.stringify(next ?? null) ? prev : next ?? null))
@@ -88,6 +89,7 @@ export function useConversation() {
     setExpects(view.expects)
     setLastAssistant(lastAssistantRef.current)
     setResultsStale(Boolean(view.results_stale))
+    setMapReady(view.map_ready === true)
     setOptionMap(view.option_map)
     setResults(res)
     runKeyRef.current = runKey(res)
@@ -109,6 +111,7 @@ export function useConversation() {
       setExpects(u.expects)
       setLastAssistant(lastAssistantRef.current)
       setResultsStale(Boolean(u.results_stale))
+      setMapReady(u.map_ready === true)
       setOptionMap(u.option_map)
       setPendingQuestions(u.pending_questions)
       const res = normalizeResults(u.results)
@@ -323,7 +326,8 @@ export function useConversation() {
   const questionKey = `${lastAssistant ?? ''}|${JSON.stringify(expects)}`
 
   return {
-    messages, stage, expects, questionKey, results, resultsStale, optionMap: optionMapState, resultsAnchor, pendingQuestions,
+    messages, stage, expects, questionKey, results, resultsStale, mapReady, optionMap: optionMapState, resultsAnchor,
+    pendingQuestions,
     waitingForRep, sending, loading, error, send, sendFields, retry, loadProfile, newConversation,
     dismissError: () => setError(null),
   }

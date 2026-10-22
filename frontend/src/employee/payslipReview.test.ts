@@ -26,14 +26,14 @@ describe('payslip review', () => {
   it('preselects a confident value for an empty field and leaves the missing ones as "not updated"', () => {
     const rows = reviewRows(SYNTHETIC)
     const base = rows[0]
-    expect(base).toMatchObject({ value: '18000', choice: 'payslip', status: 'found', source: 'בתלוש: שכר יסוד' })
-    for (const r of rows.slice(1)) expect(r).toMatchObject({ value: '', choice: 'skip', status: 'missing', note: NOT_ON_PAYSLIP })
+    expect(base).toMatchObject({ payslipValue: '18000', choice: 'payslip', status: 'found', source: 'בתלוש: שכר יסוד' })
+    for (const r of rows.slice(1)) expect(r).toMatchObject({ payslipValue: '', choice: 'skip', status: 'missing', note: NOT_ON_PAYSLIP })
     expect(reviewFields(rows)).toEqual({ fields: { base_salary: 18000 }, errors: {} })
   })
 
   it('a value that contradicts the conversation has no default: the employee chooses, nothing is sent before', () => {
     const rows = reviewRows(SYNTHETIC, { base: '15000' })
-    expect(rows[0]).toMatchObject({ value: '18000', choice: null, differs: true, known: '15,000 ₪' })
+    expect(rows[0]).toMatchObject({ payslipValue: '18000', choice: null, differs: true, known: '15,000 ₪' })
     expect(choicesFor(rows[0])).toEqual([{ id: 'chat', label: 'מהשיחה: 15,000 ₪' },
                                          { id: 'payslip', label: 'מהתלוש: 18,000 ₪' }])
     expect(reviewFields(rows)).toEqual({ fields: {}, errors: { base_salary: CHOOSE_FIRST } })
@@ -45,14 +45,14 @@ describe('payslip review', () => {
 
   it('when the conversation could not be read, nothing with a value is preselected', () => {
     const rows = reviewRows(SYNTHETIC, null)
-    expect(rows[0]).toMatchObject({ value: '18000', choice: null, note: NOT_COMPARED })
+    expect(rows[0]).toMatchObject({ payslipValue: '18000', choice: null, note: NOT_COMPARED })
     expect(rows.slice(1).every((r) => r.choice === 'skip')).toBe(true)
   })
 
   it('the same value as the conversation is not sent again', () => {
     const rows = reviewRows(SYNTHETIC, { base: '18000.00' })
     expect(rows[0]).toMatchObject({ same: true, differs: false, choice: 'skip' })
-    expect(choicesFor(rows[0]).map((c) => c.label)).toEqual(['לעדכן', 'לא לעדכן'])
+    expect(choicesFor(rows[0]).map((c) => c.label)).toEqual(['לעדכן: 18,000 ₪', 'לא לעדכן'])
   })
 
   it('does not keep a low-certainty or ambiguous value', () => {
@@ -60,8 +60,8 @@ describe('payslip review', () => {
       f('pension_percent', '60', { status: 'ambiguous', confident: false, in_range: false, note: 'מחוץ לטווח' })])
     const bonus = rows.find((r) => r.key === 'bonus')!
     const pension = rows.find((r) => r.key === 'pension_percent')!
-    expect(bonus).toMatchObject({ value: '500', choice: 'skip' })
-    expect(pension).toMatchObject({ value: '', choice: 'skip', status: 'ambiguous' })
+    expect(bonus).toMatchObject({ payslipValue: '500', choice: 'skip' })
+    expect(pension).toMatchObject({ payslipValue: '', choice: 'skip', status: 'ambiguous' })
     expect(pension.note).toContain('60%')
   })
 
@@ -71,9 +71,9 @@ describe('payslip review', () => {
   })
 
   it('a checked row without a valid value is an error, never sent', () => {
-    const rows = reviewRows([]).map((r) => (r.key === 'children_under_23' ? { ...r, choice: 'payslip' as const, value: '2.5' } : r))
+    const rows = reviewRows([]).map((r) => (r.key === 'children_under_23' ? { ...r, choice: 'manual' as const, manual: '2.5' } : r))
     expect(reviewFields(rows)).toEqual({ fields: {}, errors: { children_under_23: 'מספר שלם, 0 או יותר' } })
-    const empty = reviewRows([]).map((r) => (r.key === 'bonus' ? { ...r, choice: 'payslip' as const } : r))
+    const empty = reviewRows([]).map((r) => (r.key === 'bonus' ? { ...r, choice: 'manual' as const } : r))
     expect(reviewFields(empty).errors.bonus).toBeDefined()
   })
 
@@ -81,7 +81,7 @@ describe('payslip review', () => {
     const rows = reviewRows(SYNTHETIC)
     expect(assignable(ADDITION, rows)).toEqual(['commissions', 'bonus'])
     const assigned = assign(rows, 'bonus', ADDITION)
-    expect(assigned.find((r) => r.key === 'bonus')).toMatchObject({ value: '1000', choice: 'payslip', note: 'שויך על ידיכם' })
+    expect(assigned.find((r) => r.key === 'bonus')).toMatchObject({ manual: '1000', choice: 'manual', note: 'שויך על ידיכם' })
     expect(assignable(ADDITION, assigned)).toEqual(['commissions'])     // never added to a filled row
     expect(assignable({ ...ADDITION, key: 'net_pay' }, rows)).toEqual([])
   })

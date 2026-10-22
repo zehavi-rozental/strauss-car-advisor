@@ -189,6 +189,14 @@ class CarClarification(BaseModel):
     reg_year: Optional[int] = None      # שנה שנכתבה עם הרכב — להתאמה, אם זה הרכב של היום
 
 
+class GeneralQuestion(BaseModel):
+    """A question sent to the transport representative (GENERAL_QUESTION), by its option_id (a hash of the
+    normalized text): asked again, its status or the answer already given is shown, never a second send."""
+
+    text: str                       # what was sent (privacy-checked)
+    answer: Optional[str] = None    # the representative's answer, once it arrived
+
+
 class ConversationState(BaseModel):
     stage: Stage = Stage.COLLECT_PROFILE
     profile: Profile = Field(default_factory=Profile)
@@ -218,6 +226,8 @@ class ConversationState(BaseModel):
     misses: int = 0          # answers in a row that were not understood (never the same reply twice)
     unanswered_question: Optional[str] = None    # a question the FAQ does not cover: "לשאול את נציג התחבורה"
     pending_rep_question: Optional[str] = None   # the privacy-checked text shown before sending to the rep
+    pending_rep_key: Optional[str] = None        # its option_id, from the employee's own words (dedup)
+    general_questions: dict[str, GeneralQuestion] = Field(default_factory=dict)   # sent to the rep, by option_id
     offered_rank: bool = False   # the results reply offered "הכי משתלם": "כן" ranks
     rep_skipped: bool = False    # "להמשיך בלי" this turn: the representative is not offered again
     pending_ambiguity: Optional[str] = None      # "no_car_or_zero_copay": asked with two buttons, never guessed
@@ -280,6 +290,18 @@ def blocking_rep_reason(state: ConversationState) -> Optional[RepReason]:
     if c.copay_unknown and c.copay is None:
         return RepReason.CURRENT_COPAY
     return None
+
+
+def map_missing(state: ConversationState) -> list[str]:
+    """What the 360° option map still needs: every profile value and today's car (each option is a difference
+    from today). Unknown fields count: the map is never built on a guess."""
+    return [*missing_profile(state.profile), *missing_current_car(state.current)]
+
+
+def map_ready(state: ConversationState) -> bool:
+    """The option map can be built now. The one condition behind both Agent._resolve_map and the "גלו לי את כל
+    האפשרויות" button (view `map_ready`), so the button never promises what the server cannot yet do."""
+    return not map_missing(state) and blocking_rep_reason(state) is None
 
 
 # ---------- שאלות מקובצות (כמו בתרחיש הרשמי) ----------

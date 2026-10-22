@@ -120,8 +120,9 @@ def test_concurrent_turns_one_wins_one_conflicts(tmp_path):
         except Exception as exc:   # noqa: BLE001 — נבדק למטה
             outcomes[text] = exc
 
-    # עיסוקים שלא בטבלה: הקורא לא "מבין" אותם, ולכן שני התורות עוברים במודל ונעצרים במחסום
-    threads = [threading.Thread(target=send, args=(t,)) for t in ("התפקיד שלי הוא אלפא", "התפקיד שלי הוא בטא")]
+    # עיסוקים שלא בטבלה: הקורא לא "מבין" אותם, ולכן שני התורות עוברים במודל ונעצרים במחסום.
+    # שמות של תפקיד ולא משפט: משפט ("התפקיד שלי הוא אלפא") אינו נשמר ואינו מוצע לאישור (P0-B, 22/10)
+    threads = [threading.Thread(target=send, args=(t,)) for t in ("קופאית אלפא", "קופאית בטא")]
     for t in threads:
         t.start()
     for t in threads:

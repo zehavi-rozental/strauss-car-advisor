@@ -98,3 +98,30 @@ test('a car correction marks the map out of date until the new model is known', 
   await send(page, 'קורולה 2026')
   await expect(page.locator('.map-card .stale-note')).toHaveCount(0)
 })
+
+// QA 22/10: the button showed at the car question (before the salary leftovers and today's car were known) and
+// a click only got "חסרים לי עוד". It is offered only when the server says the map can be built (map_ready).
+for (const viewport of [{ width: 1280, height: 800 }, { width: 375, height: 740 }]) {
+  test(`the map button appears only when the map can really be shown (${viewport.width}px)`, async ({ browser }) => {
+    const page = await (await browser.newContext({ viewport })).newPage()
+    const button = page.getByRole('button', { name: 'גלו לי את כל האפשרויות' })
+    await open(page)
+    await expect(button).toHaveCount(0)                                       // the greeting
+    for (const m of ['מנהלת מוצר, שכר בסיס 18,500', 'אין עמלות, בונוס 2,000, פנסיה 6%']) {
+      await send(page, m)
+      await expect(button).toHaveCount(0)                                     // the screenshot's car question
+    }
+    expect((await state(page)).map_ready).toBe(false)
+    await send(page, 'קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים')
+    await expect(button).toHaveCount(0)                                       // today's car still missing
+    await send(page, CAR)
+    await expect(button).toBeVisible({ timeout: 15_000 })                     // everything known: offered
+    const bots = await page.locator(BOT).count()
+    await button.click()
+    await expect.poll(async () => page.locator(BOT).count(), { timeout: 45_000 }).toBeGreaterThan(bots)
+    await expect(page.locator(BOT).last()).toContainText('מיפיתי את כל')        // the promise is kept
+    await expect(page.locator(BOT).last()).not.toContainText('חסרים לי עוד')
+    await expect(button).toHaveCount(0)                                       // the map is there
+    await page.context().close()
+  })
+}

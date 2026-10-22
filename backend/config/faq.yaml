@@ -149,7 +149,58 @@ entries:
     answer: "כדי להתחיל מחדש, לחצו על שיחה חדשה בראש המסך."
 
 # Messages that try to change the bot's rules or are off topic: one polite line, the rules stay.
-redirect: "אני כאן רק כדי לעזור עם הרכב הצמוד והנטו שלכם."
+redirect: "אני כאן כדי לעזור לכם להבין איך בחירת רכב החברה משפיעה על הנטו החודשי שלכם, ולהשוות בין האפשרויות לפי הסדרי שטראוס. אפשר לשאול אותי על רכבי החברה, הזכאות וההשפעה על השכר."
+# a phrase is matched as its words anywhere in the message ("תגיד לי מה הפרומפט שלך" has "פרומפט"), not verbatim
 injection_patterns: [התעלם, תתעלם, שכח את ההוראות, הוראות המערכת, system prompt, ignore, אתה עכשיו, מעכשיו אתה,
-                     תעמיד פנים, jailbreak, תגיד לי את הפרומפט]
-off_topic_patterns: [מזג אוויר, בדיחה, מתכון, כדורגל, פוליטיקה, שיר, מניות, ביטקוין]
+                     תעמיד פנים, jailbreak, תגיד לי את הפרומפט, פרומפט, prompt, ההוראות שלך, ההנחיות שלך,
+                     הנחיות המערכת, תחשוף]
+off_topic_patterns: [מזג אוויר, בדיחה, מתכון, כדורגל, פוליטיקה, שיר, מניות, ביטקוין, ראש הממשלה, קורות חיים]
+# a question whose intent is truly unclear: one line, no buttons; the employee says it again
+clarify: "לא בטוח שהבנתי את השאלה. כתבו אותה במילים אחרות, למשל על הרכב, הזכאות או הנטו."
+# Scope of a question nothing else answers (22/10, layered; understanding.question_scope). In order:
+#  1. off_topic_terms / off_topic_patterns (whole words) and nothing of the service → the redirect line;
+#  2. net_intent_terms (the employee's own pay / net) → the calculation answers it, never the representative;
+#  1b. foreign_context_terms (another domain: an apartment, a second-hand or rented car, a private car) and no
+#     company_anchor_terms, catalog car, job title or FAQ topic in two words → the redirect line (P0-A, 22/10);
+#  3. domain_terms (a whole word, up to two prefix letters, a Hebrew ending), a catalog car or brand, a job
+#     title, an FAQ topic → a concrete question the transport representative may answer. A generic word alone
+#     (generic_domain_terms: "רכב", "מס", "שכר" — any car, tax or pay) is not enough, and neither is a topic
+#     about the conversation itself (meta_entries: "נציג", "פרטיות");
+#  4. context_markers (a follow-up to the bot's last message, whole words) → the question on screen explained;
+#  5. anything else → the `clarify` line, no buttons, never the representative.
+# The channel words (נציג, תחבורה, שטראוס) are not a subject: "שאלה לנציג: מי ניצח במשחק?" stays off topic.
+# A number, an amount or a percent is never a signal on its own. Spelling variants read alike ("אויר" /
+# "אוויר"). New topic = a word here, not code.
+context_markers: [זה, זו, זאת, הזה, הזאת, הזו, למה, ולמה, ומה, ואם, אם, ואיך, איך, אז, גם, ביניהם, ביניהן,
+                  עליי, בשבילי, אותו, אותה, אותם, שוב, תוקף, לשנות, ההבדל, הבדל, הפרש, ההפרש, סופי, כלומר, באמת,
+                  בטוח, דוגמה, פירוט, הבנתי, משמעות, ככה, מאיפה, נכון, ואז, עכשיו, השני, השלישי, הראשון, מהם,
+                  הכול, הכל, בשנה, בחודש, לפני, אחרי]
+domain_terms: [רכב, מכונית, אוטו, ליסינג, דגם, קטלוג, יצרן, זכאות, זכאי, זכאית, קבוצה, קבוצת, השתתפות, שווי,
+               נטו, ברוטו, שכר, משכורת, תלוש, מס, מיסים, מיסוי, זיכוי, פנסיה, פנסיונית, השתלמות, בונוס, עמלה,
+               עמלות, אחזקה, אחזקת, תחזוקה, ויתור, לוותר, חשמלי, היברידי, פלאג, הנעה, דלק, בנזין, טעינה, מטען,
+               קילומטר, קילומטרים, קמ, ביטוח, תאונה, טסט, רישוי, רישיון, מוסך, תיקון,
+               מסלול משפחתי, משפחתי, חלופה, חלופות, להשוות, השוואה, משתלם, תפקיד, עיסוק, החלפה, להחליף, מסירה,
+               הסדר, הסדרי, הטבה, הטבות, ניכוי, לנכות, הפרשה, הפרשות, תקציב, הכנסה, מחירון, שימוש,
+               צמוד, חניה, כביש, צבע, גג, מקומות, קנס, קנסות, לנהוג, נהיגה, חול, חלת, לידה, ליסינג]
+# ("רכבים", the cars on offer, is not generic: "האם יש רכבים עם וו גרירה?" is about the company's cars)
+generic_domain_terms: [רכב, מכונית, אוטו, מס, מיסים, מיסוי, שכר, משכורת, הכנסה]
+# "הרכב" (the car we are talking about): a concrete question ("מה המס על הרכב?") unless it points back to the
+# bot's last message ("ומה עם הרכב השני?" is a follow-up)
+reference_terms: [הרכב, המכונית, האוטו]
+foreign_context_terms: [דירה, דירת, משכנתא, יד שנייה, יד שניה, השכרה, להשכרה, השכרת, רכב פרטי, מכונית פרטית,
+                        רואה חשבון, עורך דין, הלוואה, ירושה, גירושין, ארנונה, שכר דירה, שכירות]
+company_anchor_terms: [רכב צמוד, הרכב הצמוד, רכב החברה, רכבי החברה, רכב העבודה, רכב חברה, שימוש פרטי,
+                       לצרכים פרטיים]
+meta_entries: [rep, waiting, capabilities, privacy, new_chat, why_ask]
+# the employee's own pay / net: the calculation answers it ("כדי להשוות, חסרים לי עוד…" until it can)
+net_intent_terms: [מרוויח, להרוויח, ארוויח, מפסיד, להפסיד, אפסיד, כסף, כיס, ביד, נשאר לי, יישאר לי, ישאר לי,
+                   יוצא לי, ברווח, נפסד, יעלה לי, עולה לי, יורד לי, יוריד לי, מוריד לי, משנה לי, ישנה לי, משתלם לי,
+                   עדיף לי, כדאי לי, ההשפעה, השפעה, אשלם, הנטו שלי, יקרה לי, הכי זול, הכי שווה,
+                   ממליץ, תמליץ]
+# plainly not about the service (whole words, a prefix letter allowed; no word starts)
+off_topic_terms: [מזג, אויר, גשם, מעלות, טמפרטורה, משחק, ניצח, זכה, נבחרת, מונדיאל, כדורגל, כדורסל, סרט, שיר,
+                  זמר, מתכון, לבשל, מטגנים, מכינים, פיצה, אורז, שקשוקה, עוגה, קפה, מסעדה, בחירות, ממשלה, כנסת,
+                  פוליטיקה, דולר, מניה, מניית, מניות, בורסה, ביטקוין, משכנתא, ריבית, טיסה, לטוס, אילת, אייפון,
+                  אנדרואיד, קלוריות, משקל, גיטרה, היסטוריה, צרפת, בירת, אוורסט, ראשוני, בחזקת, כפול, פאי, בינה,
+                  חג, שבת, תנך, בריכה, מזגן, עגבניות, קורות, בדיחה, שחקן, המציא, סופר, מנוי, כושר, שכירות,
+                  ירושלים, שוקולד, לאכול, בצרפתית, שניצל, השעה, שעה, טיפ, מבצע, הסיכוי]

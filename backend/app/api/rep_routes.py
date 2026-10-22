@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hmac
 from datetime import date
+from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 from urllib.parse import unquote
 
@@ -16,6 +17,7 @@ from pydantic import BaseModel
 from app.modules.cases.public import (
     DEFAULT_REP_NAME,
     AnswerInvalid,
+    MissingField,
     QuestionAlreadyAnswered,
     QuestionNotFound,
     QuestionView,
@@ -91,6 +93,28 @@ def get_question(question_id: str, request: Request, _: str = Depends(rep_name))
         raise HTTPException(404, NOT_FOUND) from None
 
 
+# The representative's amount meets the same range as the employee's for that value (extensions.yaml
+# value_ranges). A new car's copay has no configured range: only the non-negative check of cases applies.
+_RANGE_OF = {MissingField.CURRENT_COPAY: "current_copay", MissingField.CURRENT_USE_VALUE: "current_use_value",
+             MissingField.MAINTENANCE_AMOUNT: "current_maintenance"}
+
+
+def _check_range(request: Request, field: MissingField, value: Any) -> None:
+    """422 for an amount outside the configured range (a typo such as 350000 for a copay), before anything is
+    saved. The amount itself is never echoed or logged; what is not a number is left to cases' own check."""
+    key = _RANGE_OF.get(field)
+    if key is None:
+        return
+    bounds = context(request).rules.current.extensions.value_ranges.get(key)
+    try:
+        amount = Decimal(str(value).replace(",", "").strip())
+    except (InvalidOperation, ValueError):
+        return
+    if bounds is not None and amount.is_finite() and not bounds[0] <= amount <= bounds[1]:
+        low, high = (f"{int(b):,}" for b in bounds)
+        raise AnswerInvalid(f"הסכום מחוץ לטווח הסביר לשדה הזה ({low}–{high} ₪). בדקו אותו ושלחו שוב.")
+
+
 @router.post("/questions/{question_id}/answer")
 def answer_question(question_id: str, body: AnswerIn, request: Request,
                     name: str = Depends(rep_name)) -> dict[str, Any]:
@@ -102,6 +126,7 @@ def answer_question(question_id: str, body: AnswerIn, request: Request,
         except ValueError:
             raise HTTPException(422, "תאריך תחילה לא תקין (YYYY-MM-DD)") from None
     try:
+        _check_range(request, context(request).cases.get(question_id).missing_field, body.value)
         view = context(request).cases.answer(question_id, body.value, effective_date=effective,
                                              note=body.note, answered_by=name)
     except QuestionNotFound:

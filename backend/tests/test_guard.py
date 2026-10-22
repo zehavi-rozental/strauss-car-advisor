@@ -167,7 +167,7 @@ def test_the_two_transcripts_in_template_mode(sessions):
     assert "לא הצלחתי להבין" not in turn.reply
     turn = svc.send(turn.conversation_id, token, COMPLAINT)
     assert turn.reply.startswith("צודקים, סליחה.") and "נציג התחבורה" in turn.reply
-    assert "אני כאן רק כדי לעזור" not in turn.reply
+    assert "אני כאן כדי לעזור" not in turn.reply
 
 
 # ---------- results message: the template, the LLM is not asked to write it ----------

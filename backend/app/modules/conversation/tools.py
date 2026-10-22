@@ -34,6 +34,7 @@ from app.modules.rules.public import (
 )
 from app.modules.vehicles.public import CurrentCarMatch, VehicleInfo, VehicleKey
 
+from .free_text import _PAY_WORDS, looks_like_car, looks_like_title
 from .llm.port import ToolSpec
 from .parsing import match_drive, match_group, match_occupation, parse_decimal, similar_occupations
 from .stage import (
@@ -97,10 +98,6 @@ class MissingInputs(ToolError):
 # ---------- free-text car name → a label that may be shown and sent to the representative ----------
 
 GENERIC_CAR_LABEL = "רכב שלא זוהה בקטלוג"
-# words that mean the text is about pay, not about a car: never sent to the representative
-_PAY_WORDS = ("שכר", "משכורת", "בונוס", "עמלה", "עמלות", "פנסיה", "ברוטו", "נטו", "השתלמות", "תלוש", "מרוויח")
-
-
 def safe_car_label(text: Any) -> str:
     """A car name typed by the employee and not found in any file is free text: it may carry anything ("טויוטה
     שכר 18,500"). Only a short name with no figures but a model number (1-2 digits) or a plausible year is
@@ -114,11 +111,15 @@ def safe_car_label(text: Any) -> str:
     return t
 
 
-def rep_car_label(c: Any) -> Optional[str]:
-    """The car as the representative may see it: catalog and tax-file labels are ours; the rest is sanitized."""
+def rep_car_label(c: Any, snapshot: RulesSnapshot) -> Optional[str]:
+    """The car as the representative may see it: catalog and tax-file labels are ours; the rest is sanitized,
+    and text that does not read as a car name (an older conversation may hold one) is never sent."""
     if c.source in ("catalog", "tax"):
         return c.label
-    return safe_car_label(c.label or c.query) if (c.label or c.query) else None
+    text = c.label or c.query
+    if not text:
+        return None
+    return safe_car_label(text) if looks_like_car(snapshot, text) else GENERIC_CAR_LABEL
 
 
 # ---------- ארגומנטים ----------
@@ -256,17 +257,24 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
             p.occupation, p.occupation_text, p.occupation_unknown = name, None, False
             p.group = snap.occupations[name].group
             saved.append("occupation")
-        elif ctx.allow_unknown_occupation:
+        elif ctx.allow_unknown_occupation and looks_like_title(snap, args.occupation):
             # קבוצה שכבר נמסרה (Q1) נשמרת; אחרת היא נשאלת אחרי התפקיד
             p.occupation, p.occupation_text, p.occupation_unknown = None, args.occupation.strip()[:80], True
             ctx.state.pending_occupation = None
             saved.append("occupation_unknown")
         else:
-            # לא בטבלה: לא נשמר. שואלים — עם עד 3 הצעות דומות מהטבלה
+            # לא בטבלה: לא נשמר. שואלים — עם עד 3 הצעות דומות מהטבלה. טקסט שאינו נראה כתפקיד ("סבבה, הבנתי",
+            # "הילד שלי חולה") לא מוצע לאישור כלל, גם לא מכפתור: לא נשמר, והשאלה נשאלת שוב (P0-B)
             text = args.occupation.strip()[:80]
-            ctx.state.pending_occupation = PendingOccupation(
-                text=text, suggestions=similar_occupations(snap.occupations.keys(), text))
-            ignored.append({"field": "occupation", "reason": "not in the occupations table; the employee is asked"})
+            suggestions = similar_occupations(snap.occupations.keys(), text)
+            if suggestions or (looks_like_title(snap, text) and not ctx.allow_unknown_occupation):
+                ctx.state.pending_occupation = PendingOccupation(text=text, suggestions=suggestions)
+                ignored.append({"field": "occupation", "reason": "not in the occupations table; the employee is asked"})
+            else:
+                ctx.state.pending_occupation = None
+                ignored.append({"field": "occupation", "reason": "not a job title (a sentence, a greeting, a topic of "
+                                                                 "this service or something personal): nothing saved; "
+                                                                 "ask for the eligibility group or the role again"})
 
     if args.eligibility_group:
         group = match_group(snap.calc.group_order, args.eligibility_group)
@@ -481,6 +489,12 @@ def match_current_car(ctx: ToolContext, args: MatchCarArgs) -> dict[str, Any]:
         result = {"status": "CHOOSE", "choices": [
             {"number": i + 1, "label": ch.label, "model_code": ch.description,
              "use_value": str(ch.use_value)} for i, ch in enumerate(choices)]}
+    elif not looks_like_car(ctx.snapshot, model):
+        # not in any file and not a car name ("הילד שלי חולה", "סבבה"): nothing saved, the car is asked again;
+        # never a label, a use-value question or a representative question about it (P0-B)
+        return {"status": "NOT_A_CAR", "saved": [],     # not understood: "לא זיהיתי את דגם הרכב" + an example
+                "next": "nothing saved: ask the employee again for the manufacturer and the model of their "
+                        "company car"}
     else:
         ctx.state.current = CurrentCar(query=model, reg_year=year, label=safe_car_label(model), **keep)
         result = {"status": "NOT_FOUND", "next": "ask the employee for the use value on their payslip"}
@@ -615,7 +629,10 @@ def rank_options(ctx: ToolContext, args: NoArgs) -> dict[str, Any]:
     ctx.state.rank_requested = False
     options = available_options(ctx.snapshot, ctx.state)
     employee, current, occupation = engine_inputs(ctx.snapshot, ctx.state)
-    states = {o.id: option_state(o) for o in options}
+    # each option as the comparison and the map calculate it: the copay the representative confirmed, else the
+    # catalog policy (QA 22/10: the ranking used the catalog copay even after a confirmation)
+    policy, confirmed = ctx.snapshot.extensions.copay_policy, ctx.state.confirmed_copays
+    states = {o.id: option_state(o, policy, confirmed[o.id].value if o.id in confirmed else None) for o in options}
     ranked = engine_rank_options(employee, current, list(states.values()), ctx.snapshot.calc, occupation)
     by_label = {s.label: oid for oid, s in states.items()}
     top = [by_label[r.alternative.label] for r in ranked if r.alternative is not None][:MAX_OPTIONS]

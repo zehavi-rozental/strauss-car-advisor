@@ -188,6 +188,8 @@ export interface ConversationView {
   messages: Message[]
   results_stale?: boolean     // the results predate the last change: history, not a recommendation
   option_map?: OptionMap | null      // 360°: null until the employee asks for it
+  map_ready?: boolean         // the option map can be built now (an older server does not say: not offered)
+  map_missing?: string[]      // what the map still needs, in Hebrew
 }
 
 export interface PendingQuestion {
@@ -206,6 +208,8 @@ export interface UpdatesResponse {
   results: OptionResult[]
   results_stale?: boolean     // the results predate the last change: history, not a recommendation
   option_map?: OptionMap | null      // 360°: null until the employee asks for it
+  map_ready?: boolean         // the option map can be built now (an older server does not say: not offered)
+  map_missing?: string[]      // what the map still needs, in Hebrew
 }
 
 export interface CarSearchItem {
