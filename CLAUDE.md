@@ -221,6 +221,7 @@ Only deterministic code opens a question to the representative; the LLM never do
 - **C2**: a car with no catalog copay (`CatalogCar.default_copay` may be empty) is not calculated: "חסר לי סכום ההשתתפות ב-…, ולכן לא חישבתי אותו. שאלתי את נציג התחבורה…" (`missing_copay_text`), a REQUIRED question, the other options go on.
 - **C4**: a stated group the occupations table contradicts is never decided (`state.group_conflict`, set in `tools.save_profile`): said once (`group_conflict_text`), then a blocking `ELIGIBILITY_GROUP` question (TEXT, the rep answers a group letter; `rep_routes._group_letter`, 422 otherwise) once the profile and the car are known. The rep screen offers "כפי שהעובד ציין: קבוצה X" / "לפי טבלת העיסוקים: קבוצה Y".
 - **C5**: "למה צריך את הנתון הזה?" (`understanding._about_own_data`, `faq.employee_data_terms`) and questions about a result on screen ("למה החישוב זמני?", `_about_results`, `faq.result_terms`, `results_explain_text`) are answered here, never sent to the representative.
+- **A car taken out of the comparison**: when a calculation runs, its open copay question is cancelled (`cases.cancel_open_except`, kept as history); an answered one is untouched and its amount is used if the car is chosen again.
 - Not done: the e-mail notice when the representative answers (proposal only, `../EMAIL-NOTIFY-PROPOSAL-22.10.md`).
 
 ## NEXT (not done in this pass)
@@ -243,7 +244,6 @@ Only deterministic code opens a question to the representative; the LLM never do
 ## Known limitations (מגבלות ידועות)
 
 - **While the conversation waits for the representative** (a group conflict, an opt-out, its maintenance amount, or the `REP_REQUIRED` policy), a value typed in chat ("טעיתי, השכר שלי 20,000") or a car named is not saved; the reply is only the waiting line. The correction form ("תיקון נתונים") still saves. Waits on a question opened before rule A also take a car correction.
-- **A question for a car taken out of the comparison stays open** for the representative (only a car correction while waiting cancels questions). Its answer is saved (`confirmed_copays`) and used, marked "אושר", if the car is chosen again; the employee is not told when it arrives.
 
 - **A rep's copay for a new car has no maximum**: today's copay, use value and maintenance meet `value_ranges` (22/10), but no range is configured for a new car's copay, so a typo there would still flow into the calculation.
 - Scope is word lists (`faq.yaml`), not understanding: a concrete in-scope question with none of the domain words gets the `clarify` line (14% of the blind corpus, 37% of the seen one), and an off-topic question with a follow-up word ("כמה זה 20% מ-50?") is explained instead of redirected (never sent to the rep). New words go in the lists.

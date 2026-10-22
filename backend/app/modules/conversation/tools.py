@@ -78,6 +78,9 @@ class ToolContext:
     # מה התור מבקש מהנציג / מבטל — נפתח ונכתב בשלב הכתיבה של התור, באותה טרנזקציה
     question_requests: list[Any] = field(default_factory=list)
     cancel_question_ids: list[str] = field(default_factory=list)
+    # a calculation ran for this selection: open new-car copay questions for other cars are cancelled (a car taken
+    # out of the comparison); answered ones and their amounts are kept
+    copay_selection: Optional[list[str]] = None
     # ערכים שנדחו בבדיקת הסבירות: (שדה, ערך, "low" / "high")
     range_problems: list[tuple[str, Decimal, str]] = field(default_factory=list)
     get_vehicle: Optional[VehicleGetter] = None

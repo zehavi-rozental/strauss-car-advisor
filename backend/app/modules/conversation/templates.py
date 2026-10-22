@@ -323,15 +323,14 @@ def results_explain_text(state: ConversationState, focus: Sequence[str] = ()) ->
     source, whether the representative was asked or answered), never by sending the employee back to choosing cars
     or by asking the representative (C5, 22/10)."""
     lines: list[str] = []
-    pending = False
+    pending = catalog = False
     for item in state.results:
         r = item.result
         alt = r.get("alternative") or {}
         source = r.get("copay_source")
         if source == "catalog" and alt.get("copay") is not None:
-            pending = True
-            lines.append(f"{in_label(item.label)} חישבתי עם השתתפות של {money(alt['copay'])} בחודש לפי הקטלוג. "
-                         "היא עוד לא אושרה עבורכם, ושאלתי את נציג התחבורה.")
+            pending = catalog = True
+            lines.append(f"{in_label(item.label)} חישבתי עם {money(alt['copay'])} בחודש, סכום ברירת המחדל בקטלוג.")
         elif source == "representative" and alt.get("copay") is not None:
             effective = r.get("copay_effective_date")
             lines.append(f"{in_label(item.label)} ההשתתפות של {money(alt['copay'])} בחודש אושרה על ידי נציג התחבורה"
@@ -342,8 +341,10 @@ def results_explain_text(state: ConversationState, focus: Sequence[str] = ()) ->
     for item in state.results:
         if item.option_id in focus and item.result.get("why"):
             lines.append(f"הסיבה העיקרית {in_label(item.label)}: {item.result['why']}")
+    if catalog:
+        lines.insert(0, "ההערכה זמנית כי ההשתתפות ברכב החדש היא לפי ברירת המחדל בקטלוג. נציג התחבורה מאשר את "
+                        "ההשתתפות שתחול עליכם בפועל, ושאלתי אותו.")
     if pending:
-        lines.insert(0, "ההערכה זמנית כי סכום ההשתתפות ברכב החדש עוד לא אושר עבורכם.")
         lines.append("כשהנציג יענה, אעדכן כאן את החישוב. גם אז הנטו הוא חישוב לפי כללי החברה, לא תלוש שכר.")
     else:
         lines.append("החישוב לפי הנתונים שמסרתם וכללי החברה. זה חישוב משוער של הנטו, לא תלוש שכר.")

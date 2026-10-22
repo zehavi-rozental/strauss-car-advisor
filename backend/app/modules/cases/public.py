@@ -232,6 +232,19 @@ class CasesService:
             .execution_options(synchronize_session=False))
         return result.rowcount
 
+    def cancel_open_except(self, session: Session, conversation_id: str, field: MissingField,
+                           keep: list[str]) -> int:
+        """Open questions of one kind for options no longer in the comparison are cancelled (kept as history);
+        answered ones are never touched."""
+        result = session.execute(
+            update(RepQuestionRow)
+            .where(RepQuestionRow.conversation_id == _uuid(conversation_id),
+                   RepQuestionRow.missing_field == field.value, RepQuestionRow.option_id.not_in(keep),
+                   RepQuestionRow.status == Status.OPEN.value)
+            .values(status=Status.CANCELLED.value, version=RepQuestionRow.version + 1)
+            .execution_options(synchronize_session=False))
+        return result.rowcount
+
     def cancel_for_conversation(self, session: Session, conversation_id: str) -> int:
         result = session.execute(
             update(RepQuestionRow)

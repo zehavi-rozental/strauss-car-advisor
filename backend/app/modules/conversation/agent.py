@@ -144,6 +144,9 @@ class TurnOutcome:
     # לשלב הכתיבה של התור: שאלות לפתוח ושאלות לבטל, באותה טרנזקציה
     question_requests: list[QuestionRequest] = field(default_factory=list)
     cancel_question_ids: list[str] = field(default_factory=list)
+    # a calculation ran for this selection: open new-car copay questions for other cars are cancelled (a car taken
+    # out of the comparison); answered ones and their amounts are kept
+    copay_selection: Optional[list[str]] = None
 
 
 CUE_WORDS = 3                  # מילת תיקון נספרת באחת משלוש המילים הראשונות
@@ -1047,7 +1050,8 @@ class Agent:
             state.link_now = link
             if link not in state.links_shown:
                 state.links_shown.append(link)
-        requests = dict(question_requests=ctx.question_requests, cancel_question_ids=ctx.cancel_question_ids)
+        requests = dict(question_requests=ctx.question_requests, cancel_question_ids=ctx.cancel_question_ids,
+                        copay_selection=ctx.copay_selection)
         draft = reply_plan.text()
         # results and the rep messages keep their exact template text; buttons get the template (fast)
         if (choice or reply_plan.fixed or rep_opened or candidate is None or not self.llm.available
@@ -1582,7 +1586,7 @@ class Agent:
             lines.append(render(state, snapshot, understood=True, just_calculated=just_calculated,
                                 rep_opened=rep_opened))
         return TurnOutcome(reply="\n\n".join(x for x in lines if x), source="rep", just_calculated=just_calculated,
-                           path="rep", question_requests=ctx.question_requests)
+                           path="rep", question_requests=ctx.question_requests, copay_selection=ctx.copay_selection)
 
     def _apply_new_car_copay(self, ctx: ToolContext, event: QuestionAnswered, amount: Decimal,
                              record_run: RecordRun) -> Optional[str]:
@@ -1661,6 +1665,7 @@ class Agent:
                 if policy == "REP_REQUIRED" and option.car.default_copay is not None:
                     required_labels.append(option.label)
         state.results = results
+        ctx.copay_selection = list(state.selected)
         state.calculated_for = list(state.selected)
         if required_labels and state.pending_rep is None:
             state.pending_rep = PendingRep(reason=RepReason.NEW_CAR_COPAY, resume_stage=Stage.PRESENTED,

@@ -343,6 +343,7 @@ def test_c5_a_question_about_the_result_is_answered_from_it(sessions, question, 
     turn = chat.say(question)
     assert UNANSWERED not in turn.reply
     assert "150 ₪" in turn.reply and "PICANTO" in turn.reply          # the amount used and for which car
+    assert "ברירת המחדל בקטלוג" in turn.reply and "מאשר את ההשתתפות שתחול עליכם בפועל" in turn.reply
     assert "אילו רכבים לבדוק" not in turn.reply                      # never back to choosing cars
     assert [q.option_id for q in chat.open()] == ["CAR-01"]           # nothing new sent
 
@@ -423,3 +424,22 @@ def test_d_an_answer_is_applied_once_and_kept_after_reload(engine):
     assert one == two and one["CAR-02"]["copay_source"] == "representative"
     assert one["CAR-02"]["copay_effective_date"] is None
     assert date.today().isoformat()                                   # (the reload is the second GET)
+
+
+# ---------- a car taken out of the comparison: its open question is cancelled, an answered one is kept ----------
+
+def test_a_car_taken_out_of_the_comparison_cancels_only_its_open_question(sessions):
+    chat = Chat(sessions)
+    for m in [*PROFILE_B, *NO_CAR]:
+        chat.say(m)
+    chat.choose(["CAR-01", "CAR-05"])
+    by = {q.option_id: q for q in chat.open()}
+    chat.svc.cases.answer(by["CAR-05"].id, "260")                     # NIRO answered
+    chat.choose(["CAR-02"])                                           # both taken out
+    assert [q.option_id for q in chat.open()] == ["CAR-02"]
+    assert chat.svc.cases.get(by["CAR-01"].id).status.value == "CANCELLED"   # kept as history, not deleted
+    assert chat.svc.cases.get(by["CAR-05"].id).status.value == "ANSWERED"    # never touched
+    chat.choose(["CAR-05"])                                           # chosen again: the answer is used
+    r = chat.state.results[0].result
+    assert r["copay_source"] == "representative" and r["alternative"]["copay"] == "260"
+    assert chat.open() == []
