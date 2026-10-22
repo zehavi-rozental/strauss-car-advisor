@@ -105,7 +105,7 @@ def test_unknown_question_and_status(client):
 
 
 def test_rep_rate_limit(engine):
-    client = make_client(engine, rep_access_token=TOKEN, rep_rate_limit_per_minute=2)
+    client = make_client(engine, rep_access_token=TOKEN, rep_read_limit_per_minute=2)
     codes = [client.get("/api/rep/questions", headers=AUTH).status_code for _ in range(3)]
     assert codes == [200, 200, 429]
 
@@ -134,7 +134,7 @@ def test_answer_values_notes_and_names_are_not_logged(client, caplog):
 
 
 def test_wrong_tokens_count_against_the_rate_limit(engine):
-    client = make_client(engine, rep_access_token=TOKEN, rep_rate_limit_per_minute=2)
+    client = make_client(engine, rep_access_token=TOKEN, rep_auth_failure_limit_per_minute=2)
     wrong = {"X-Rep-Token": "guess"}
     codes = [client.get("/api/rep/questions", headers=wrong).status_code for _ in range(3)]
     assert codes == [401, 401, 429]                      # גם ניחושים נספרים

@@ -51,37 +51,47 @@ RepKind = Literal["read", "write"]
 
 
 class RepGate:
-    """The rate limits of the representative API, per client address (live QA 22/10).
+    """The rate limits of the representative API (live QA 22/10).
 
-    One limit for everything used to be shared by the screen's own polling (40 a minute) and the rep's
-    actions, so ~7 answers in a minute were refused. Now:
-    - `total` is the old limit and still counts every admitted request: mixing kinds never gets past it;
-    - `reads` stays below `total`, so polling (however many tabs) always leaves room for answers;
-    - `writes` caps answers on their own;
-    - `failures` counts wrong access codes; past it the address gets nothing at all until the window
-      frees one (stricter than before against guessing: 10 a minute instead of 60).
-    A request refused by one limit is not counted in the others, so a flood of one kind never uses up another.
+    The rep screen's polling and the rep's answers used to share one limit per address, so ~7 answers in a
+    minute were refused, and reps on one network (a venue's Wi-Fi) shared one budget. Now nothing is shared
+    between reading and answering:
+    - `failures` (per address): wrong or missing codes; past it the address gets nothing at all until the window
+      frees one. Checked before the code, so guessing stays limited (10 a minute, stricter than the old 60);
+    - `reads` (per address): the screens' polling. A refused read pauses a screen, never an answer;
+    - `writes` (per rep session: the address and the screen's session id, sent after login): each rep's answers,
+      so reps on one network do not share them. Counted only after the code was verified, so a session id is
+      never created by a stranger;
+    - `address_writes` (per address): every answer from the address, whatever session ids a code holder sends.
+    A request refused by one limit is not counted in the others.
     """
 
-    def __init__(self, total: int, reads: int, writes: int, failures: int, window_s: float = 60.0,
+    def __init__(self, reads: int, writes: int, address_writes: int, failures: int, window_s: float = 60.0,
                  clock: Callable[[], float] = time.monotonic):
-        self.total = RateLimiter(total, window_s, clock)
         self.reads = RateLimiter(reads, window_s, clock)
         self.writes = RateLimiter(writes, window_s, clock)
+        self.address_writes = RateLimiter(address_writes, window_s, clock)
         self.failures = RateLimiter(failures, window_s, clock)
         self._lock = threading.Lock()
 
-    def admit(self, key: str, kind: RepKind) -> Optional[int]:
-        """None: admitted (and counted). Otherwise the seconds to wait (Retry-After)."""
-        own = self.reads if kind == "read" else self.writes
+    def locked(self, address: str) -> Optional[int]:
+        """Too many wrong codes from this address: the seconds to wait. None otherwise."""
         with self._lock:
-            for limiter in (self.failures, own, self.total):
+            return self.failures.retry_after(address) if self.failures.full(address) else None
+
+    def failed(self, address: str) -> None:
+        """A wrong or missing access code from this address."""
+        self.failures.hit(address)
+
+    def admit(self, address: str, kind: RepKind, session: Optional[str] = None) -> Optional[int]:
+        """An authorized request. None: admitted (and counted). Otherwise the seconds to wait (Retry-After).
+        Without a session id (an older screen, a script) the answers are counted for the address."""
+        checks = ([(self.reads, address)] if kind == "read"
+                  else [(self.address_writes, address), (self.writes, f"{address}|{session or ''}")])
+        with self._lock:
+            for limiter, key in checks:
                 if limiter.full(key):
                     return limiter.retry_after(key)
-            own.hit(key)
-            self.total.hit(key)
+            for limiter, key in checks:
+                limiter.hit(key)
             return None
-
-    def failed(self, key: str) -> None:
-        """A wrong or missing access code from this address."""
-        self.failures.hit(key)

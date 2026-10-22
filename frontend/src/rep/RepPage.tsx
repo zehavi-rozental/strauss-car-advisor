@@ -1,6 +1,6 @@
 // Transport representative portal. The token lives in sessionStorage and goes out as X-Rep-Token.
 import { useEffect, useRef, useState } from 'react'
-import { ApiError, repApi } from '../api/client'
+import { ApiError, repApi, resetRepSession } from '../api/client'
 import type { RepQuestion } from '../api/types'
 import { REP_LOGOUT_EVENT } from '../shell/repSession'
 import { BrandMark } from '../ui/BrandMark'
@@ -17,6 +17,7 @@ function readToken(): string | null {
   try { return sessionStorage.getItem(TOKEN_KEY) } catch { return null }
 }
 function writeToken(token: string | null): void {
+  resetRepSession()            // a login or a logout starts a new rep session (its own answer budget)
   try {
     if (token) sessionStorage.setItem(TOKEN_KEY, token)
     else sessionStorage.removeItem(TOKEN_KEY)
@@ -47,7 +48,9 @@ function Portal({ token, onLogout }: { token: string; onLogout: (message?: strin
   const [loaded, setLoaded] = useState(false)
   const [answeredLoaded, setAnsweredLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState(false)
+  // the confirmation of the last answer: a counter, so every answer shows it for its own 4 s (a flag let a quick
+  // answer's confirmation vanish on the previous one's timer, found by e2e/rep-rate-limit.spec.ts)
+  const [success, setSuccess] = useState(0)
   const [pausedFor, setPausedFor] = useState<number | null>(null)
   const poller = useRef<RepPoller | null>(null)
   const logout = useRef(onLogout)
@@ -89,7 +92,7 @@ function Portal({ token, onLogout }: { token: string; onLogout: (message?: strin
 
   useEffect(() => {
     if (!success) return
-    const t = window.setTimeout(() => setSuccess(false), 4000)
+    const t = window.setTimeout(() => setSuccess(0), 4000)      // restarted by every new answer
     return () => window.clearTimeout(t)
   }, [success])
 
@@ -98,7 +101,7 @@ function Portal({ token, onLogout }: { token: string; onLogout: (message?: strin
     onUnauthorized: () => onLogout(BAD_TOKEN),
     // the server returns the answered question: both lists change here, at no request (the next poll syncs)
     onAnswered: (q: RepQuestion) => {
-      setSuccess(true)
+      setSuccess((n) => n + 1)
       setOpen((o) => o.filter((x) => x.id !== q.id))
       setAnswered((a) => [q, ...a.filter((x) => x.id !== q.id)].slice(0, 20))
     },
@@ -137,7 +140,7 @@ function Portal({ token, onLogout }: { token: string; onLogout: (message?: strin
         </nav>
       </header>
       <main className="rep-main">
-        {success && <div className="success-bar" role="status"><Icon name="check" size={18} />התשובה נשלחה לעובד</div>}
+        {success > 0 && <div className="success-bar" role="status"><Icon name="check" size={18} />התשובה נשלחה לעובד</div>}
         {error && <div className="error-bar" role="alert"><Icon name="alert" size={18} /><span>{error}</span></div>}
         {pausedFor !== null && (
           <div className="error-bar rep-paused" role="status">

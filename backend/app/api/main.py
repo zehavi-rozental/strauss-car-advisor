@@ -60,8 +60,8 @@ def create_app(settings: Optional[Settings] = None, *, engine: Optional[Engine] 
         payslip=payslip,
         message_limiter=RateLimiter(settings.rate_limit_per_minute),
         create_limiter=RateLimiter(settings.create_rate_limit_per_minute),
-        rep_gate=RepGate(settings.rep_rate_limit_per_minute, settings.rep_read_limit_per_minute,
-                         settings.rep_write_limit_per_minute, settings.rep_auth_failure_limit_per_minute),
+        rep_gate=RepGate(settings.rep_read_limit_per_minute, settings.rep_write_limit_per_minute,
+                         settings.rep_write_address_limit_per_minute, settings.rep_auth_failure_limit_per_minute),
         payslip_limiter=RateLimiter(settings.payslip_rate_limit_per_minute),
     )
     app.include_router(router)

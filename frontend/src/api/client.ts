@@ -86,12 +86,50 @@ export const api = {
   },
 }
 
+// This screen's rep session: a random id made at login, sent as X-Rep-Session. The server counts each rep's
+// answers by it, so reps on one network (one address) do not share an answer budget. Not a credential: the
+// token is still checked first, and the address keeps a ceiling whatever id is sent.
+const REP_SESSION_KEY = 'sca.repSession'
+let memorySession: string | null = null
+
+function newSessionId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  return Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('')
+}
+
+/** The session id of this tab (made on first use, kept for the tab's life). */
+export function repSessionId(): string {
+  try {
+    let id = sessionStorage.getItem(REP_SESSION_KEY)
+    if (!id) {
+      id = newSessionId()
+      sessionStorage.setItem(REP_SESSION_KEY, id)
+    }
+    return id
+  } catch {
+    memorySession ??= newSessionId()      // no storage: one id for as long as the page lives
+    return memorySession
+  }
+}
+
+/** Logging in or out starts a new session. */
+export function resetRepSession(): void {
+  memorySession = null
+  try {
+    sessionStorage.removeItem(REP_SESSION_KEY)
+  } catch {
+    // no storage: the memory id above was reset
+  }
+}
+
+const repHeaders = (token: string) => ({ 'X-Rep-Token': token, 'X-Rep-Session': repSessionId() })
+
 /** Representative API: the token goes in X-Rep-Token on every call. A 401 means the token is wrong. */
 export const repApi = {
   listQuestions: (token: string, status: QuestionStatus) =>
-    request<RepQuestion[]>(`/api/rep/questions?status=${status}`, { headers: { 'X-Rep-Token': token } }),
+    request<RepQuestion[]>(`/api/rep/questions?status=${status}`, { headers: repHeaders(token) }),
   answer: (token: string, id: string, body: RepAnswerIn) =>
     request<RepQuestion>(`/api/rep/questions/${encodeURIComponent(id)}/answer`, {
-      method: 'POST', headers: { 'X-Rep-Token': token }, body: JSON.stringify(body),
+      method: 'POST', headers: repHeaders(token), body: JSON.stringify(body),
     }),
 }

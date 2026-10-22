@@ -40,8 +40,8 @@ def rep(engine):
     client = make_client(engine, rep_access_token=TOKEN)
     clock = Clock()
     s = client.app.state.ctx.settings
-    client.app.state.ctx.rep_gate = RepGate(s.rep_rate_limit_per_minute, s.rep_read_limit_per_minute,
-                                            s.rep_write_limit_per_minute, s.rep_auth_failure_limit_per_minute,
+    client.app.state.ctx.rep_gate = RepGate(s.rep_read_limit_per_minute, s.rep_write_limit_per_minute,
+                                            s.rep_write_address_limit_per_minute, s.rep_auth_failure_limit_per_minute,
                                             clock=clock)
     return client, clock
 
@@ -146,7 +146,7 @@ def test_mixing_kinds_never_passes_the_total(rep):
     for _ in range(150):
         admitted += read(client) != 429
         admitted += answer(client) != 429
-    assert admitted == 60                                    # the old total: 45 reads + 15 answers, never more
+    assert admitted == 60                                    # 45 reads (the address) + 15 answers (this session)
 
 
 def test_refused_requests_do_not_use_up_another_kind(rep):

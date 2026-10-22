@@ -37,6 +37,7 @@ test.describe('the rep portal is never blocked by its own polling', () => {
 
   test('ten answers in a row with the screen open, then the answered list after a tab switch and a reload',
        async ({ page, request }) => {
+    test.setTimeout(240_000)                      // a full minute of a rep's screen, by design
     for (let i = 0; i < 10; i++) await waitingForRep(request)
     const before = (await (await request.get('/api/rep/questions?status=ANSWERED', { headers: REP })).json()).length
 
@@ -81,7 +82,35 @@ test.describe('the rep portal is never blocked by its own polling', () => {
     expect(polls).toBeLessThanOrEqual(5)                         // ~4 in 20 s; it was 14 (two lists every 3 s)
   })
 
+  test('two reps on one network answer ten each: every answer is saved, none refused', async ({ browser, request }) => {
+    test.setTimeout(240_000)                      // a full minute of a rep's screen, by design
+    // a venue's Wi-Fi: two browsers, one address. Each screen has its own session (X-Rep-Session), so each rep
+    // has their own answer budget; before, the second rep's answers were refused once the first had used it
+    for (let i = 0; i < 20; i++) await waitingForRep(request)
+    const before = (await (await request.get('/api/rep/questions?status=ANSWERED', { headers: REP })).json()).length
+    const reps = [await browser.newContext(), await browser.newContext()]
+    const pages = [await reps[0].newPage(), await reps[1].newPage()]
+    const refused = pages.map(refusals)
+    for (const p of pages) await openRep(p)
+    for (let i = 0; i < 10; i++) {
+      for (const [n, p] of pages.entries()) {
+        const confirm = p.locator('.rep-card').getByRole('button', { name: /^אישור/ })
+        await expect(confirm.first()).toBeVisible({ timeout: 15_000 })
+        const card = n === 0 ? confirm.first() : confirm.last()    // the two reps work from opposite ends
+        const responded = p.waitForResponse((r) => r.url().includes('/answer') && r.request().method() === 'POST')
+        await card.click()
+        const r = await responded
+        expect([200, 409]).toContain(r.status())       // 409: the other rep answered this card a moment earlier
+      }
+    }
+    expect(refused.flat()).toEqual([])
+    const after = (await (await request.get('/api/rep/questions?status=ANSWERED', { headers: REP })).json()).length
+    expect(after - before).toBeGreaterThanOrEqual(18)    // ~20; a 409 is a card both reps reached, saved once
+    for (const ctx of reps) await ctx.close()
+  })
+
   test('three tabs open together are not blocked', async ({ browser }) => {
+    test.setTimeout(240_000)                      // a full minute of a rep's screen, by design
     const ctx = await browser.newContext()
     const pages = [await ctx.newPage(), await ctx.newPage(), await ctx.newPage()]
     const refused = pages.map(refusals)
