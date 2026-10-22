@@ -90,6 +90,9 @@ export function CopayLine({ result, compact = false }: { result: ScenarioResult;
           ציינתם שתשלמו <Money value={c.stated} />.{c.tone === 'pending' && ' שלחתי את זה לנציג התחבורה יחד עם הסכום שבקטלוג.'}
         </p>
       )}
+      {c.tone === 'final' && (
+        <p className="copay-meta">אם אצלכם סוכם אחרת, אפשר לעדכן אותי ואפנה לנציג התחבורה לבירור.</p>
+      )}
       {c.tone === 'pending' && (
         <p className="copay-meta">הנטו כאן הוא הערכה לפי הסכום שבקטלוג. אם הנציג יקבע סכום אחר, הנטו ישתנה בהתאם.</p>
       )}

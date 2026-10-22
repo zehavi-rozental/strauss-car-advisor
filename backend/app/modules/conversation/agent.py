@@ -92,6 +92,7 @@ from .templates import (
     rep_note_text,
     rep_copay_text,
     rep_group_text,
+    copay_rep_request_text,
     results_explain_text,
     stated_copay_text,
     group_conflict_text,
@@ -696,6 +697,29 @@ def _stated_new_copay(state: ConversationState, snapshot: RulesSnapshot, text: s
     return options[cars[0].catalog_code], Decimal(m.group(1).replace(",", ""))
 
 
+def _copay_rep_request(state: ConversationState, snapshot: RulesSnapshot, text: str) -> list[Any]:
+    """The options whose copay the employee wants the representative to settle, with no amount said ("אני רוצה
+    שהנציג יאשר את ההשתתפות", "אצלי סוכם אחרת, לא יודעת כמה"): results with a catalog copay on screen, the copay
+    named, and a reason from `faq.copay_rep_terms`. One named car, else every such car on screen. Code decides, never
+    the model (D1); an amount said is `_stated_new_copay`."""
+    faq = snapshot.faq
+    if not state.results or not faq.copay_rep_terms or _EXPECTED_COPAY_RE.search(text):
+        return []
+    ws = words(text)
+    if any(w in ("למה", "מדוע", "איך", "מאיפה", "מאין") for w in ws):
+        return []                  # a question about the amount is answered from the result (C5), not sent
+    if not any(w.startswith(("השתתפות", "ההשתתפות", "בהשתתפות", "משלם")) for w in ws):
+        return []
+    if not any(w.lstrip("וש") in faq.copay_rep_terms or w in faq.copay_rep_terms for w in ws):
+        return []
+    options = {o.id: o for o in available_options(snapshot, state) if o.car is not None}
+    shown = [r.option_id for r in state.results if r.option_id in options and r.option_id not in state.confirmed_copays
+             and r.result.get("copay_source") in ("catalog", "catalog_final")]
+    named = [c.catalog_code for c in named_cars(text, snapshot.catalog)]
+    chosen = [o for o in shown if options[o].car.catalog_code in named] or shown
+    return [options[o] for o in chosen]
+
+
 class Agent:
     def __init__(self, llm: LLMChain, mode: str = "llm_first"):
         self.llm = llm
@@ -822,6 +846,9 @@ class Agent:
         elif state.pending_ambiguity is not None and (choice := _ambiguity_answer(text)) is not None:
             ctx.allow_zero_copay = choice == "zero_copay"      # the employee's own answer, not a guess
             plan = _ambiguity_plan(state, choice)
+        elif asked := _copay_rep_request(state, snapshot, text):
+            plan = self._ask_rep_copay(ctx, asked)
+            und = replace(und, about_results=True, remainder="", unanswered=[], clarify=False, redirect=False)
         elif und.question_only and und.anything and und.ambiguity is None:
             # only questions / "מה?" / off topic: nothing to save, and a pending question stays open.
             # With an LLM it answers (from the FAQ / STATE); without one, the FAQ template.
@@ -1448,6 +1475,19 @@ class Agent:
         self._request(ctx, MissingField.NEW_CAR_COPAY, mode, AnswerType.MONEY, text, context,
                       str(default) if default is not None else None, option.id, replace=replace)
 
+    def _ask_rep_copay(self, ctx: ToolContext, options: list[Any]) -> ParserPlan:
+        """A question per car (open_question keeps one); the cards show it waiting until the answer."""
+        state = ctx.state
+        for option in options:
+            self._request_new_car_copay(ctx, option, ctx.snapshot.extensions.copay_policy)
+            if option.id not in state.rep_copay_asked:
+                state.rep_copay_asked.append(option.id)
+            for item in state.results:
+                if item.option_id == option.id:
+                    item.result.update(copay_source="catalog", copay_pending=True)
+        text = copay_rep_request_text([o.label for o in options], [o.car.default_copay for o in options])
+        return ParserPlan(complete=True, notice=text, direct=True)
+
     def _note_stated_copay(self, ctx: ToolContext, option: Any, amount: Decimal) -> ParserPlan:
         """A copay the employee expects for a new car (C1): kept apart from the calculation, which stays on the catalog
         amount until the representative answers; the open question is replaced with one that carries it."""
@@ -1455,9 +1495,11 @@ class Agent:
         state.stated_new_copays[option.id] = amount
         if option.id in state.calculated_for and option.id not in state.confirmed_copays:
             self._request_new_car_copay(ctx, option, ctx.snapshot.extensions.copay_policy, replace=True)
+            if option.id not in state.rep_copay_asked:
+                state.rep_copay_asked.append(option.id)
             for item in state.results:          # shown next to the catalog amount on the card, never used
                 if item.option_id == option.id:
-                    item.result["employee_stated_copay"] = str(amount)
+                    item.result.update(employee_stated_copay=str(amount), copay_source="catalog", copay_pending=True)
         return ParserPlan(complete=True, notice=stated_copay_text(option.label, amount, option.car.default_copay),
                           direct=True)
 
@@ -1675,7 +1717,8 @@ class Agent:
             needs_opt_out = needs_opt_out or "OCCUPATION_OPT_OUT" in result.missing_fields
             # no catalog amount is always pending (rules.car_state), whatever the policy: asked, never only said (D8)
             pending_copay = getattr(alternative, "copay_status", None) == CopayStatus.CATALOG_DEFAULT_PENDING
-            if option.car is not None and pending_copay and result.status != CalcStatus.NOT_ELIGIBLE:
+            asked = option.id in state.rep_copay_asked and option.id not in state.confirmed_copays
+            if option.car is not None and (pending_copay or asked) and result.status != CalcStatus.NOT_ELIGIBLE:
                 # השתתפות לפי הקטלוג: הנציג מאשר (CONFIRM, התוצאה מוצגת) או חייב לענות (REP_REQUIRED). A car the
                 # catalog has no amount for is not calculated (C2): the representative must answer, the others go on
                 self._request_new_car_copay(ctx, option, policy)
@@ -1683,6 +1726,7 @@ class Agent:
                     required_labels.append(option.label)
         state.results = results
         ctx.copay_selection = list(state.selected)
+        state.rep_copay_asked = [o for o in state.rep_copay_asked if o in state.selected]   # the rest are cancelled
         state.calculated_for = list(state.selected)
         if required_labels and state.pending_rep is None:
             state.pending_rep = PendingRep(reason=RepReason.NEW_CAR_COPAY, resume_stage=Stage.PRESENTED,

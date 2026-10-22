@@ -288,6 +288,24 @@ def pending_copay_text(label: str, amount: Any) -> str:
     return WAITING_COPAY_ONLY
 
 
+COPAY_UPDATE = "אם אצלכם סוכם אחרת, אפשר לעדכן אותי ואפנה לנציג התחבורה לבירור."
+
+
+def catalog_copays_text(items: Sequence[tuple[str, Any]]) -> str:
+    """The catalog amount used as is (the challenge owner, 22/10): its source, and how to say it differs."""
+    if len(items) == 1:
+        return f"לפי הקטלוג, ההשתתפות ברכב הזה היא {money(items[0][1])}. {COPAY_UPDATE}"
+    each = ", ".join(f"{in_label(label)} {money(amount)}" for label, amount in items)
+    return f"לפי הקטלוג, ההשתתפות היא: {each}.\n{COPAY_UPDATE}"
+
+
+def copay_rep_request_text(labels: Sequence[str], amounts: Sequence[Any]) -> str:
+    """The employee asked the representative about a new car's copay: a question was opened."""
+    each = ", ".join(f"{in_label(label)} ({money(a)} לפי הקטלוג)" for label, a in zip(labels, amounts))
+    return (f"פניתי לנציג התחבורה לבירור ההשתתפות {each}.\n"
+            "עד שיענה החישוב נשאר לפי הקטלוג, וכשיענה אעדכן אותו כאן.")
+
+
 def pending_copays_text(items: Sequence[tuple[str, Any]]) -> str:
     """The new cars' copays the calculation used, each with its amount and its source (C1, 22/10): the employee never
     gave them, so the reply says they come from the catalog, are not approved yet, and were sent to the representative.
@@ -323,7 +341,7 @@ def results_explain_text(state: ConversationState, focus: Sequence[str] = ()) ->
     source, whether the representative was asked or answered), never by sending the employee back to choosing cars
     or by asking the representative (C5, 22/10)."""
     lines: list[str] = []
-    pending = catalog = False
+    pending = catalog = final = False
     for item in state.results:
         r = item.result
         alt = r.get("alternative") or {}
@@ -335,6 +353,9 @@ def results_explain_text(state: ConversationState, focus: Sequence[str] = ()) ->
             effective = r.get("copay_effective_date")
             lines.append(f"{in_label(item.label)} ההשתתפות של {money(alt['copay'])} בחודש אושרה על ידי נציג התחבורה"
                          f"{_effective(date.fromisoformat(effective) if effective else None)}.")
+        elif source == "catalog_final" and alt.get("copay") is not None:
+            final = True
+            lines.append(f"{in_label(item.label)} ההשתתפות היא {money(alt['copay'])} בחודש, לפי ברירת המחדל בקטלוג.")
         elif source == "missing":
             pending = True
             lines.append(f"{in_label(item.label)} חסר לי סכום ההשתתפות, ושאלתי את נציג התחבורה.")
@@ -348,6 +369,8 @@ def results_explain_text(state: ConversationState, focus: Sequence[str] = ()) ->
         lines.append("כשהנציג יענה, אעדכן כאן את החישוב. גם אז הנטו הוא חישוב לפי כללי החברה, לא תלוש שכר.")
     else:
         lines.append("החישוב לפי הנתונים שמסרתם וכללי החברה. זה חישוב משוער של הנטו, לא תלוש שכר.")
+    if final:
+        lines.append(COPAY_UPDATE)
     return "\n".join(lines)
 
 
@@ -424,6 +447,10 @@ def results_text(state: ConversationState) -> str:
             lines.append(f"{item.label}: חסר מידע לחישוב. {r['reason']}")
     pending = [(i.label, (i.result.get("alternative") or {}).get("copay")) for i in ok
                if i.result.get("copay_pending") and i.result.get("copay_source", "catalog") == "catalog"]
+    final = [(i.label, (i.result.get("alternative") or {}).get("copay")) for i in ok
+             if i.result.get("copay_source") == "catalog_final"]
+    if final and all(a is not None for _, a in final):
+        lines.append(catalog_copays_text(final))
     if pending and all(a is not None for _, a in pending):
         lines.append(pending_copays_text(pending))
     elif pending:

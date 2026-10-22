@@ -201,6 +201,8 @@ employee_data_terms: [שכר, משכורת, ברוטו, בסיס, עמלות, ע
 # what a result on screen is made of: with results shown, a question naming one is about them (answered from them)
 result_terms: [הערכה, זמני, זמנית, סופי, סופית, מאושר, מאושרת, אושר, אושרה, אישור, ממתין, ממתינה, השתתפות, קטלוג,
                מדויק, מדויקת, חישוב, החישוב, מחושב, הפרש, הנטו]
+# with a new car's copay on screen, these ask for the representative (no amount said): a question is opened
+copay_rep_terms: [נציג, הנציג, לנציג, יאשר, לאשר, אישור, תאשר, לברר, בירור, תברר, סוכם, הסדר, אחרת, שונה, לבדוק]
 # the employee's own pay / net: the calculation answers it ("כדי להשוות, חסרים לי עוד…" until it can)
 net_intent_terms: [מרוויח, להרוויח, ארוויח, מפסיד, להפסיד, אפסיד, כסף, כיס, ביד, נשאר לי, יישאר לי, ישאר לי,
                    יוצא לי, ברווח, נפסד, יעלה לי, עולה לי, יורד לי, יוריד לי, מוריד לי, משנה לי, ישנה לי, משתלם לי,

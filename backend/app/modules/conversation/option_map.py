@@ -48,10 +48,13 @@ def copay_fields(state: ConversationState, option_id: str, alternative: State) -
         source = "missing"
     elif alternative.copay_status == CopayStatus.CATALOG_DEFAULT_PENDING:
         source = "catalog"
+    elif option_id in state.rep_copay_asked:
+        source = "catalog"           # final in the catalog, but the employee asked
     else:
         source = "catalog_final"
     stated = state.stated_new_copays.get(option_id)
     return {"copay_source": source, "copay_effective_date": None,
+            **({"copay_pending": True} if source == "catalog" else {}),
             **({"employee_stated_copay": str(stated)} if stated is not None else {})}
 
 

@@ -222,6 +222,9 @@ class ConversationState(BaseModel):
     confirmed_copays: dict[str, ConfirmedCopay] = Field(default_factory=dict)
     # a copay the employee expects for a new car (C1): kept apart, never used for the calculation, sent for checking
     stated_new_copays: dict[str, Decimal] = Field(default_factory=dict)
+    # new cars whose copay the representative was asked about with a reason (the employee's request, an
+    # arrangement that differs): shown as waiting until answered, even when the catalog amount is final
+    rep_copay_asked: list[str] = Field(default_factory=list)
     group_conflict: Optional[GroupConflict] = None
     confirmed_unusual: list[str] = Field(default_factory=list)   # fields whose rare value the employee confirmed
     applied_answers: list[str] = Field(default_factory=list)    # תשובות נציג שכבר יושמו (פעם אחת בלבד)

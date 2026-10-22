@@ -70,7 +70,8 @@ export function copayInfo(r: ScenarioResult, today: Date = new Date()): CopayInf
       return { amount, source: 'לפי נציג התחבורה', status: 'אושר על ידי הנציג', tone: 'approved',
                effective: effectiveText(r.copay_effective_date, today), effect, stated: null }
     case 'catalog_final':
-      return { amount, source: 'לפי הקטלוג', status: 'סופית', tone: 'final', effective: null, effect, stated }
+      // the challenge owner (22/10): the catalog default is used as is; the representative only when asked
+      return { amount, source: 'לפי ברירת המחדל בקטלוג', status: 'לפי הקטלוג', tone: 'final', effective: null, effect, stated }
     case 'missing':
       return { amount: null, source: 'אין לרכב הזה סכום בקטלוג', status: 'שאלתי את נציג התחבורה', tone: 'missing',
                effective: null, effect: null, stated }

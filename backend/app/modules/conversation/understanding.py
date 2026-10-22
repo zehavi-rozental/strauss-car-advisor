@@ -339,6 +339,9 @@ def _about_own_data(snapshot: RulesSnapshot, clause: str, ws: list[str]) -> bool
                 or match_occupation(snapshot.occupations.keys(), clause))
 
 
+_DEFINITION_STARTS = ("מה זה", "מה זו", "מהו", "מהי", "מה הכוונה", "מה פירוש", "מה המשמעות")
+
+
 def _about_results(snapshot: RulesSnapshot, state: ConversationState, clause: str) -> list[str]:
     """With results on screen: the options the question is about — the ones it names, or all of them when it names
     what a result is made of ("הערכה", "ממתינה לאישור", "השתתפות"); [] when it is about something else."""
@@ -419,6 +422,7 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
         u.help = True
         return u
     kept: list[str] = []
+    faq_clauses: list[tuple[str, str]] = []      # (entry, the clause it answered)
     net_question = False
     for clause in _CLAUSE_RE.split(text):
         if clause is None or not clause.strip():
@@ -461,12 +465,21 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
                     u.clarify = True                  # truly unclear: asked to say it again, never the rep
             elif entry not in u.faq_ids:
                 u.faq_ids.append(entry)
+                faq_clauses.append((entry, clause))
             continue
         kept.append(clause)
     if state.results and state.stage == Stage.PRESENTED:
         # results on screen: a follow-up, an unclear question or one about what a result is made of is about them
         # (answered from them, C5), never "choose cars" again and never the representative
         about = [q for q in u.unanswered if _about_results(snapshot, state, q)]
+        # a question about the amount on screen ("מאיפה הסכום של ההשתתפות?", "איך חישבת?") is answered from the
+        # result, not with the term's general definition; "מה זה השתתפות?" still gets the definition
+        moved = [(e, c) for e, c in faq_clauses if _about_results(snapshot, state, c)
+                 and not c.strip().startswith(_DEFINITION_STARTS)]
+        if moved:
+            gone = {e for e, _ in moved}
+            u.faq_ids = [e for e in u.faq_ids if e not in gone]
+            about += [c for _, c in moved]
         if about or u.help or u.clarify:
             u.about_results = True
             u.result_focus = [o for q in about for o in _about_results(snapshot, state, q)

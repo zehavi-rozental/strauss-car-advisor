@@ -62,6 +62,9 @@ class Faq(BaseModel):
     # what a result on screen is made of ("הערכה זמנית", "ממתינה לאישור", "השתתפות"): with results shown, a question
     # naming one is about those results and is answered from them (C5, 22/10), never sent to the representative
     result_terms: tuple[str, ...] = ()
+    # a reason to ask the representative about a new car's copay, said by the employee with the copay on screen
+    # ("שהנציג יאשר", "סוכם אחרת", "לברר"): with no amount given, a question is opened for that car
+    copay_rep_terms: tuple[str, ...] = ()
     # a question whose intent is truly unclear: one short line, no buttons, never the representative
     clarify: str = "לא בטוח שהבנתי את השאלה. כתבו אותה במילים אחרות, למשל על הרכב, הזכאות או הנטו."
 

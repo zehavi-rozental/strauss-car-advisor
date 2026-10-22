@@ -4,7 +4,7 @@
 version: "ext-2026-10-20.1"
 
 family_gap_adds_to_copay: true          # חלק העובד בפער מתווסף להשתתפות הרכב
-copay_policy: CATALOG_DEFAULT_CONFIRM_ASYNC   # סעיף 8
+copay_policy: CATALOG_DEFAULT   # the challenge owner (22/10): the catalog default is used; the rep only with a reason
 plug_in_counts_as_electric: false
 # "להעלות תלוש" link, offered next to a field the employee does not know.
 # payslip_upload_enabled: true turns on the built-in in-chat uploader (needs the backend PAYSLIP_ENABLED
