@@ -15,12 +15,3 @@ export function useCatalog(needed: boolean): Record<string, CatalogItem> {
   }, [load])
   return catalog
 }
-
-/** A conversation stored in this browser opens straight into the consultation (never flashing the opening). */
-export function hasStoredConversation(): boolean {
-  try {
-    return Boolean(localStorage.getItem('sca.conversationId'))
-  } catch {
-    return false
-  }
-}

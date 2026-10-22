@@ -11,14 +11,15 @@ import { hasRepToken, requestRepLogout } from './repSession'
 export function TopBar() {
   const { pathname } = useLocation()
   const rep = pathname.startsWith('/rep')
+  const home = pathname === '/'    // the entry page offers both ways in itself
   return (
     <header className="topbar">
       <div className="topbar-inner">
-      <Link to="/employee" className="brand" aria-label="STRAUSS DRIVE">
+      <Link to="/" className="brand" aria-label="STRAUSS DRIVE">
         <BrandMark size={34} />
         <Wordmark />
       </Link>
-      <nav className="zones" aria-label="מעבר מסך" data-active={rep ? 'rep' : 'employee'}>
+      {!home && <nav className="zones" aria-label="מעבר מסך" data-active={rep ? 'rep' : 'employee'}>
         <span className="zones-thumb" aria-hidden="true" />
         <NavLink to="/employee" className="zone">
           <Icon name="road" size={18} />
@@ -34,7 +35,7 @@ export function TopBar() {
             <span className="zone-sub">טיפול בפניות ואישורים</span>
           </span>
         </NavLink>
-      </nav>
+      </nav>}
       <UserMenu rep={rep} />
       </div>
     </header>

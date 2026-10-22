@@ -91,6 +91,7 @@
 
 /* ---------- user menu ---------- */
 .usermenu { position: relative; flex: none; }
+.brand + .usermenu { margin-inline-start: auto; } /* the entry page has no area switch between them */
 .usermenu-button {
   display: grid; place-items: center;
   inline-size: 42px; block-size: 42px;
