@@ -1,7 +1,6 @@
-/* Employee screen, framed with the page's side margins. Two states of one layout:
-   .is-intro  the opening: one blue card (the hero blue) with the artwork, the title, the greeting and the box.
-   .is-chat   the consultation: a blue band card on top (title, route, a small artwork), the conversation on the
-              light page under it, the box docked at the bottom. */
+/* Employee screen, framed with the page's side margins, the same from the first message on: a blue band card
+   on top (title, route, a small artwork), the conversation on the light page under it, the box docked at the
+   bottom. The opening artwork lives on the entry page (entry.css). */
 
 .chat {
   position: relative;
@@ -454,77 +453,9 @@
 .composer.is-ready .send:hover { transform: translateX(-2px); }
 .send:disabled { cursor: default; }
 
-/* ======================= the opening ======================= */
-.chat.is-intro {
-  /* one blue card with the page's margins; it grows with its content (a small phone scrolls the page) */
-  block-size: auto;
-  min-block-size: calc(100dvh - var(--topbar-h) - 2 * var(--frame-gap));
-  margin-block: var(--frame-gap);
-  margin-inline: var(--frame-x);
-  overflow: hidden;
-  border-radius: var(--r-xl);
-  grid-template-rows: minmax(16px, 0.9fr) auto auto auto minmax(16px, 1fr);
-  grid-template-areas: '.' 'head' 'body' 'foot' '.';
-  background: var(--hero-grad);
-  box-shadow: 0 30px 80px -40px rgb(6 48 77 / 80%);
-  color: var(--on-hero);
-}
-.chat.is-intro::before { display: none; }
-.chat.is-intro > .flowcar { inset: 0; block-size: auto; border-radius: 0; }
-.is-intro .chat-header,
-.is-intro .chat-column {
-  inline-size: min(520px, 100% - 2 * var(--gutter));
-  max-inline-size: none;
-  margin-inline-start: clamp(24px, 5vw, 72px);
-  margin-inline-end: auto;
-  padding-inline: 0;
-}
-.is-intro .chat-header { margin-block-start: 0; flex-direction: column; align-items: flex-start; gap: 18px; padding-block-end: 8px; }
-.is-intro .chat-title { gap: 16px; }
-.is-intro .chat-title h1 {
-  font-size: var(--fs-display);
-  font-weight: 800;
-  letter-spacing: -0.025em;
-  line-height: 0.95;
-  animation: rise 0.9s var(--ease-out) both;
-}
-.is-intro .chat-title h1::after {
-  inline-size: 120px; block-size: 6px; margin-block-start: 18px; border-radius: 6px;
-  transform-origin: right center;
-  animation: rule-in 1s 0.25s var(--ease-out) both;
-}
-@keyframes rule-in { from { transform: scaleX(0); } }
-.is-intro .status { font-size: 0.9375rem; animation: rise 0.9s 0.1s var(--ease-out) both; }
-.is-intro .progress { margin-inline: 0; inline-size: min(420px, 100%); animation: rise 0.9s 0.2s var(--ease-out) both; }
-.is-intro .chat-actions { margin-inline-start: 0; animation: fade 0.9s 0.5s var(--ease-soft) both; }
-.is-intro .chat-body { overflow: visible; }
-.is-intro .messages { padding-block: 14px 8px; }
-.is-intro .bubble-bot .bubble-text { color: var(--on-hero); font-size: var(--fs-lead); line-height: 1.6; }
-.is-intro .bubble-bot .amt { color: inherit; }
-.is-intro .bubble-avatar { background: #fff; border-color: transparent; }
-.is-intro .bubble-meta { color: var(--on-hero-3); }
-.is-intro .msg-action:hover:not(:disabled) { background: rgb(255 255 255 / 14%); }
-.is-intro .message-group.from-bot { animation: rise 0.9s 0.3s var(--ease-out) both; }
-.is-intro .loading { color: var(--on-hero-2); }
-.is-intro .loading-bar { background: rgb(255 255 255 / 18%); }
-.is-intro .answer-tail { padding-inline-start: 0; }
-.is-intro .chat-footer { background: transparent; padding-block-end: 8px; animation: rise 0.9s 0.4s var(--ease-out) both; }
-.is-intro .composer { border-color: transparent; background: #fff; box-shadow: 0 24px 50px -24px rgb(2 16 30 / 70%); }
-.is-intro .composer:focus-within { box-shadow: 0 0 0 4px rgb(255 255 255 / 22%), 0 24px 50px -24px rgb(2 16 30 / 70%); }
-.is-intro .composer.is-ready .send { background: var(--petal-red); }
-.is-intro .error-bar { background: #fff; }
-
 /* ---------- phones and narrow windows ---------- */
-@media (max-width: 899px) {
-  .chat.is-intro { grid-template-rows: minmax(clamp(170px, 34dvh, 320px), 1fr) auto auto auto 12px; }
-  .is-intro .chat-header,
-  .is-intro .chat-column { inline-size: auto; margin-inline: clamp(18px, 5vw, 32px); }
-  .is-intro .chat-header { gap: 12px; }
-  .is-intro .chat-title h1 { font-size: clamp(2.75rem, 12.5vw, 4.25rem); }
-  .is-intro .progress { inline-size: 100%; }
-}
 @media (max-width: 720px) {
-  /* on a phone the band is all route: the car would sit under the stops, so it stays on the opening only */
+  /* on a phone the band is all route: the car would sit under the stops, so it stays on the entry page only */
   .chat.is-chat > .flowcar { display: none; }
   .chat-header { gap: 10px; padding-inline: 18px; }
   .is-chat .chat-header { flex-wrap: wrap; align-content: center; row-gap: 10px; }

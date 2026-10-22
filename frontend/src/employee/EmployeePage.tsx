@@ -11,7 +11,7 @@ import { Progress } from './Progress'
 import { SelectionCard } from './SelectionCard'
 import { SelectedBar } from './SummaryCard'
 import { profileFormText } from './formFields'
-import { hasStoredConversation, useCatalog } from './useCatalog'
+import { useCatalog } from './useCatalog'
 import { useConversation } from './useConversation'
 import { linkFor, optionsField, placeholderFor } from './widgets'
 
@@ -34,11 +34,9 @@ export function EmployeePage() {
     if (opened || correcting) tailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [opened, correcting])
 
-  // The opening: until the employee writes, the stage is the whole screen (the artwork, the title and the
-  // greeting with the box under it). The first message turns it into the consultation. A stored conversation
-  // opens straight into the consultation, so it never flashes the opening first.
-  const [resuming] = useState(hasStoredConversation)
-  const intro = c.loading ? !resuming : !c.messages.some((m) => m.role === 'user')
+  // The consultation looks the same from the first message on (the opening artwork lives on the entry page, /).
+  // Before the employee writes, the box takes the focus and there is no message to correct yet.
+  const firstVisit = !c.messages.some((m) => m.role === 'user')
 
   // catalog details for the selection cards (display only; the cards work without them)
   const catalog = useCatalog(Boolean(options))
@@ -102,8 +100,8 @@ export function EmployeePage() {
   const tail = <div className="answer-tail" ref={tailRef}>{area}</div>
 
   return (
-    <div className={`chat ${intro ? 'is-intro' : 'is-chat'}${c.waitingForRep ? ' is-waiting' : ''}`}>
-      <FlowCar mode={intro ? 'intro' : 'band'} />
+    <div className={`chat is-chat${c.waitingForRep ? ' is-waiting' : ''}`}>
+      <FlowCar mode="band" />
       <header className="chat-header">
         <div className="chat-title">
           <h1>יועץ הרכב</h1>
@@ -125,7 +123,7 @@ export function EmployeePage() {
           )}
           <MessageList messages={c.messages} results={c.results} resultsAnchor={c.resultsAnchor} typing={c.sending}
                        onOpenTable={() => setTableOpen(true)} tail={busy ? null : tail}
-                       onRetry={(seq) => void c.retry(seq)} onCorrect={intro ? undefined : correct} busy={busy} />
+                       onRetry={(seq) => void c.retry(seq)} onCorrect={firstVisit ? undefined : correct} busy={busy} />
         </div>
       </main>
 
@@ -138,7 +136,7 @@ export function EmployeePage() {
               <button type="button" onClick={c.dismissError} aria-label="סגירה"><Icon name="close" size={16} /></button>
             </div>
           )}
-          <Composer disabled={busy} placeholder={placeholderFor(c.expects)} autoFocus={intro}
+          <Composer disabled={busy} placeholder={placeholderFor(c.expects)} autoFocus={!c.loading && firstVisit}
                     onSend={(text) => c.send({ text }, text)} />
         </div>
       </footer>

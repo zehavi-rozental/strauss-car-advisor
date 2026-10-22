@@ -1,0 +1,93 @@
+/* The entry page (/): one blue card with the page's margins and the opening artwork; the title and two doors
+   on the start side, the car on the other. On a phone the car sits on top and the doors under it. */
+.entry {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: minmax(24px, 1fr) auto minmax(24px, 1fr);
+  min-block-size: calc(100dvh - var(--topbar-h) - 2 * var(--frame-gap));
+  margin-block: var(--frame-gap);
+  margin-inline: var(--frame-x);
+  border-radius: var(--r-xl);
+  background: var(--hero-grad);
+  box-shadow: 0 30px 80px -40px rgb(6 48 77 / 80%);
+  color: var(--on-hero);
+}
+.entry > .flowcar { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.entry :focus-visible { outline-color: #fff; }
+
+.entry-content {
+  position: relative;
+  z-index: 1;
+  grid-row: 2;
+  display: grid;
+  gap: 32px;
+  inline-size: min(480px, 100% - 2 * var(--gutter));
+  margin-inline-start: clamp(24px, 5vw, 72px);
+  margin-inline-end: auto;
+}
+.entry-head h1 {
+  font-size: var(--fs-display);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 0.95;
+  animation: rise 0.9s var(--ease-out) both;
+}
+.entry-head h1::after {
+  content: '';
+  display: block;
+  inline-size: 120px;
+  block-size: 6px;
+  margin-block-start: 18px;
+  border-radius: 6px;
+  background: var(--burst);
+  transform-origin: right center;
+  animation: rule-in 1s 0.25s var(--ease-out) both;
+}
+@keyframes rule-in { from { transform: scaleX(0); } }
+.entry-lead { margin-block-start: 18px; font-size: var(--fs-lead); color: var(--on-hero-2); animation: rise 0.9s 0.1s var(--ease-out) both; }
+
+/* the two doors: white cards, each with its colour (the employee's green, the representative's orange) */
+.entry-doors { display: grid; gap: 12px; }
+.entry-door {
+  --door: var(--up);
+  --door-tint: var(--surface-up);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-block-size: 84px;
+  padding-block: 16px;
+  padding-inline: 18px 20px;
+  border-radius: var(--r-lg);
+  background: var(--card);
+  color: var(--ink);
+  text-decoration: none;
+  box-shadow: 0 24px 50px -26px rgb(2 16 30 / 75%);
+  transition: transform var(--t-fast) var(--ease-out), box-shadow var(--t-fast) var(--ease-soft);
+  animation: rise 0.9s 0.25s var(--ease-out) both;
+}
+.entry-door.is-rep { --door: var(--pending); --door-tint: var(--surface-today); animation-delay: 0.35s; }
+.entry-door:hover { transform: translateY(-2px); box-shadow: 0 30px 60px -26px rgb(2 16 30 / 85%); }
+.entry-door-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  inline-size: 52px;
+  block-size: 52px;
+  border-radius: 50%;
+  background: var(--door-tint);
+  color: var(--door);
+}
+.entry-door-text { display: grid; gap: 2px; min-inline-size: 0; }
+.entry-door-name { font-size: 1.1875rem; font-weight: 700; }
+.entry-door-sub { font-size: var(--fs-small); color: var(--ink-3); }
+.entry-door-lock { display: inline-flex; align-items: center; gap: 6px; margin-block-start: 4px; font-size: var(--fs-micro); font-weight: 600; color: var(--pending); }
+.entry-door-go { flex: none; margin-inline-start: auto; color: var(--brand); transition: transform var(--t-fast) var(--ease-out); }
+.entry-door:hover .entry-door-go { transform: translateX(-4px); }
+
+@media (max-width: 899px) {
+  .entry { grid-template-rows: minmax(clamp(170px, 34dvh, 320px), 1fr) auto 24px; }
+  .entry-content { inline-size: auto; margin-inline: clamp(18px, 5vw, 32px); gap: 24px; }
+  .entry-head h1 { font-size: clamp(2.75rem, 12.5vw, 4.25rem); }
+}
