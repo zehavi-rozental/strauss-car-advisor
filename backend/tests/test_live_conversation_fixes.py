@@ -143,7 +143,7 @@ def test_the_live_conversation_reaches_a_result(sessions):
     ]
     assert all(CAR_AGAIN not in r and "לא הצלחתי" not in r for r in replies)
     assert sum("חסר עוד:" in r for r in replies) == 1
-    assert {q.missing_field.value for q in open_questions(svc, cid)} == {"NEW_CAR_COPAY"}
+    assert open_questions(svc, cid) == []                  # the catalog copay is used; no question (22/10)
     state = svc.view(cid, token).state
     assert state.stage == Stage.PRESENTED and state.results
     assert state.selected                                  # נבחרו לפי "הכי משתלם"

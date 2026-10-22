@@ -20,7 +20,8 @@ def _assert_noa_result(body, sessions):
     assert r["delta_display"] == "661"
     assert r["today"]["net_display"] == "11032"
     assert r["alternative"]["net_display"] == "11693"
-    assert PENDING in r["assumptions"]
+    # the rule since 22/10: the catalog copay is used as is, never marked as waiting without a question
+    assert PENDING not in r["assumptions"] and r["copay_source"] == "catalog_final"
 
     with sessions() as s:
         runs = s.scalars(select(CalculationRunRow)).all()

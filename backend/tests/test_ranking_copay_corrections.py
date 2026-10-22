@@ -99,7 +99,10 @@ def test_a_new_car_uses_the_catalog_copay_pending_one_confirm_question_and_the_a
     [row] = api.view()["results"]
     assert row["option_id"] == "CAR-07"
     result = row["result"]
-    assert result["copay_pending"] is True
+    # the rule since 22/10: the catalog copay is used with no question; asked by the employee, one CONFIRM question
+    assert result["copay_pending"] is False and api.open_questions() == []
+    api.say("אני רוצה שנציג התחבורה יאשר את ההשתתפות")
+    assert api.view()["results"][0]["result"]["copay_pending"] is True
     assert D(result["alternative"]["copay"]) == D(250)            # COROLLA's catalog default copay
     expected = _oracle_deltas(_employee())["CAR-07"]
     assert D(result["delta_display"]) == expected
@@ -119,7 +122,7 @@ def test_a_new_car_uses_the_catalog_copay_pending_one_confirm_question_and_the_a
 
 
 def test_the_representative_confirming_the_catalog_amount_keeps_the_numbers_and_clears_pending(api):
-    for text in (NOA, "יש לי קורולה קרוס", "300", "קורולה"):
+    for text in (NOA, "יש לי קורולה קרוס", "300", "קורולה", "אני רוצה שנציג התחבורה יאשר את ההשתתפות"):
         api.say(text)
     before = api.view()["results"][0]["result"]["delta_display"]
     [q] = api.open_questions()

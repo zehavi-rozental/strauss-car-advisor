@@ -134,9 +134,15 @@ test('a new car is calculated with the catalog copay, marked pending, and one qu
   test.skip(!REP_TOKEN, 'REP_TOKEN not provided')
   await open(page)
   for (const m of [NOA, 'יש לי קורולה קרוס', '300', 'קורולה']) await send(page, m)
-  const s = await state(page)
-  const result = s.results[0].result
-  expect([s.results[0].option_id, result.copay_pending, Number(result.alternative.copay)]).toEqual(['CAR-07', true, 250])
+  let s = await state(page)
+  let result = s.results[0].result
+  // the rule since 22/10: the catalog copay is used as is, with no question, until the employee asks
+  expect([s.results[0].option_id, result.copay_pending, Number(result.alternative.copay)]).toEqual(['CAR-07', false, 250])
+  await expect(page.locator(BOT).last()).toContainText('לפי הקטלוג, ההשתתפות ברכב הזה היא 250 ₪')
+  await send(page, 'אני רוצה שנציג התחבורה יאשר את ההשתתפות')
+  s = await state(page)
+  result = s.results[0].result
+  expect(result.copay_pending).toBe(true)
   await expect(page.locator('.tag-pending').first()).toBeVisible()
   // the rep API never says which conversation a question belongs to (privacy): COROLLA is chosen only here
   const corolla = async () => (await (await page.request.get('/api/rep/questions?status=OPEN',
@@ -154,7 +160,7 @@ test('the rep answers in the rep screen, sees no salary, and the employee sees t
   test.skip(!REP_TOKEN, 'REP_TOKEN not provided')
   const page = await (await browser.newContext()).newPage()
   await open(page)
-  for (const m of [NOA, 'יש לי קורולה קרוס', '300', 'קונה']) await send(page, m)   // KONA EV: unique to this test
+  for (const m of [NOA, 'יש לי קורולה קרוס', '300', 'קונה', 'אני רוצה שנציג התחבורה יאשר את ההשתתפות']) await send(page, m)   // KONA EV: unique to this test
   const before = deltas(await state(page))
   expect(before[0][0]).toBe('CAR-08')
 

@@ -134,6 +134,7 @@ test('cloud conversation 2: no car, a payslip that differs, a salary correction,
   expect(s.results).toHaveLength(1)
   expect(s.results_stale).toBe(false)
 
+  await send(page, 'אני רוצה שנציג התחבורה יאשר את ההשתתפות')                 // the rep only when asked (22/10)
   test.skip(!REP_TOKEN, 'REP_TOKEN not provided')
   const repContext = await browser.newContext()
   const rep = await repContext.newPage()
@@ -211,7 +212,8 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 375, height: 740 
     const context = await browser.newContext({ viewport })
     const page = await context.newPage()
     await open(page)
-    for (const m of [NOA, 'יש לי קורולה קרוס', '300', 'אטו 3']) await send(page, m)
+    // a real reason to ask the representative (22/10: a catalog copay alone opens no question): the employee asks
+    for (const m of [NOA, 'יש לי קורולה קרוס', '300', 'אטו 3', 'אני רוצה שנציג התחבורה יאשר את ההשתתפות']) await send(page, m)
     await expect(page.locator('.header-tag')).toContainText('ממתין לתשובת נציג')   // polling every 3 s
     await page.getByRole('button', { name: 'לשנות בחירה' }).click()
     const cards = page.locator('.car-card')

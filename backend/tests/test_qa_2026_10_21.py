@@ -271,7 +271,8 @@ def test_an_invalidated_result_is_stale_until_recalculated_and_never_quoted(sess
 # ---------- the representative's note ----------
 
 def _rep_flow(client):
-    cid, body = _chat(client, PROFILE, "יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש", "אטו 3")
+    cid, body = _chat(client, PROFILE, "יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש", "אטו 3",
+                      "אני רוצה שנציג התחבורה יאשר את ההשתתפות")   # the rep only when asked (22/10)
     qid = client.get("/api/rep/questions", headers=AUTH).json()[0]["id"]
     return cid, qid
 

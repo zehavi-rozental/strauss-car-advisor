@@ -40,13 +40,16 @@ test.describe('representative flow', () => {
   test('the catalog copay is used at once, the rep approves it in one click, and the label changes', async ({ browser }) => {
     const page = await employee(browser)
     for (const m of [PROFILE, 'יש לי קורולה קרוס, משלמת 300', 'MAZDA 3']) await send(page, m)
+    // the rule since 22/10: the catalog amount is used and said; the employee asks the representative to confirm it
+    await expect(page.locator(BOT).last()).toContainText('לפי הקטלוג, ההשתתפות ברכב הזה היא 350 ₪')
+    await send(page, 'אני רוצה שנציג התחבורה יאשר את ההשתתפות')
     const card = page.locator('.result-card').last()
     await expect(card).toContainText('השתתפות לפי ברירת המחדל בקטלוג — ממתינה לאישור הנציג')
     const copay = card.locator('.copay-box')
     await expect(copay).toContainText('350')
     await expect(copay).toContainText('לפי ברירת המחדל בקטלוג')
     await expect(copay).toContainText('ממתינה לאישור הנציג')
-    await expect(page.locator(BOT).last()).toContainText('לפי הסכום שבקטלוג שטראוס')
+    await expect(page.locator(BOT).last()).toContainText('פניתי לנציג התחבורה לבירור ההשתתפות')
 
     const { rep, close } = await repScreen(browser)
     const q = rep.locator('.rep-card', { hasText: 'MAZDA 3' }).last()
@@ -65,7 +68,7 @@ test.describe('representative flow', () => {
 
   test('another amount from a future date recalculates, and the date is never shown as in force today', async ({ browser }) => {
     const page = await employee(browser)
-    for (const m of [PROFILE, 'יש לי קורולה קרוס, משלמת 300', 'DOLPHIN']) await send(page, m)
+    for (const m of [PROFILE, 'יש לי קורולה קרוס, משלמת 300', 'DOLPHIN', 'אני רוצה שנציג התחבורה יאשר את ההשתתפות']) await send(page, m)
     await expect(page.locator('.result-card').last().locator('.copay-box')).toContainText('200')
     const year = new Date().getFullYear() + 1
 

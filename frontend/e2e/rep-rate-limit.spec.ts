@@ -10,10 +10,11 @@ const NOA = 'מנהלת מוצר, שכר בסיס 18,500, אין עמלות וא
 const CAR = 'יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש"ח בחודש'
 const TOO_MANY = 'יותר מדי בקשות'
 
-/** One employee conversation that ends waiting for the rep's approval of ATTO 3's copay. */
+/** One employee conversation that ends waiting for the rep's approval of ATTO 3's copay (asked by the employee:
+ *  since 22/10 a catalog copay alone opens no question). */
 async function waitingForRep(request: APIRequestContext) {
   const cid = (await (await request.post('/api/conversations')).json()).conversation_id
-  for (const text of [NOA, CAR, 'אטו 3']) {
+  for (const text of [NOA, CAR, 'אטו 3', 'אני רוצה שנציג התחבורה יאשר את ההשתתפות']) {
     const r = await request.post(`/api/conversations/${cid}/messages`, { data: { text } })
     expect(r.ok()).toBeTruthy()
   }

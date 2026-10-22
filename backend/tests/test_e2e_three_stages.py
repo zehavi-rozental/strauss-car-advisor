@@ -92,7 +92,9 @@ def test_missing_copay_goes_to_rep_then_result_updates(client):
     body = say(client, cid, ALT)
     assert body["stage"] == "PRESENTED"
     [before] = body["results"]
-    assert before["copay_source"] == "catalog" and before["copay_pending"] is True
+    assert before["copay_source"] == "catalog_final" and before["copay_pending"] is False
+    assert open_questions(client) == []                      # the catalog amount is used (22/10)
+    say(client, cid, "אני רוצה שנציג התחבורה יאשר את ההשתתפות")                # the employee asks: now the representative is asked
 
     [q] = open_questions(client)
     assert q["missing_field"] == "NEW_CAR_COPAY" and q["option_id"] == "CAR-10"
