@@ -1,0 +1,97 @@
+{
+ "is_payslip": true,
+ "readable": true,
+ "items": [
+  {
+   "key": "children_under_23",
+   "value": 5,
+   "unit": "count",
+   "certainty": "high",
+   "label": "ילדים עד גיל 23"
+  },
+  {
+   "key": "credit_points",
+   "value": 2.25,
+   "unit": "count",
+   "certainty": "high",
+   "label": "נקודות זיכוי"
+  },
+  {
+   "key": "base_salary",
+   "value": 9800,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "שכר בסיס"
+  },
+  {
+   "key": "commissions",
+   "value": 2400,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "עמלות"
+  },
+  {
+   "key": "bonus",
+   "value": 0,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "בונוס"
+  },
+  {
+   "key": "gross_salary",
+   "value": 12200,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "סה״כ שכר מזומן ברוטו"
+  },
+  {
+   "key": "car_use_value",
+   "value": 2950,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "שווי שימוש ברכב"
+  },
+  {
+   "key": "income_tax",
+   "value": 1369,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "מס הכנסה"
+  },
+  {
+   "key": "national_insurance",
+   "value": 1250,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "ביטוח לאומי ובריאות"
+  },
+  {
+   "key": "other_addition",
+   "value": 250,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "השתתפות עובד/ת ברכב"
+  },
+  {
+   "key": "pension_employee_amount",
+   "value": 732,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "הפרשת עובד/ת לפנסיה )אומדן("
+  },
+  {
+   "key": "study_fund_employee_amount",
+   "value": 0,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "הפרשת עובד/ת לקרן השתלמות )אומדן("
+  },
+  {
+   "key": "net_pay",
+   "value": 8600,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "שכר נטו — ערך ייחוס בקובץ האתגר"
+  }
+ ]
+}

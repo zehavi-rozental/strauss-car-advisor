@@ -130,5 +130,6 @@ def test_an_id_number_reported_as_a_value_is_dropped_not_shown(snapshot, key, un
                      FakeVision(answer(item(key, int(ID), "שכר יסוד", unit), item(key, "312-456-783", "שכר", unit))),
                      snapshot, timeout_s=10)
     assert ID not in _digits(json.dumps(result.as_dict(), ensure_ascii=False))
-    assert all(f.status == "missing" for f in result.fields)
+    # never shown and never filled; on a profile field the employee is asked to check the payslip (22/10)
+    assert all(f.value is None and f.status in ("missing", "ambiguous") for f in result.fields)
     assert result.info == []

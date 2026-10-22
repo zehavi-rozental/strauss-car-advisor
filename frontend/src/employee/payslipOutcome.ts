@@ -14,8 +14,8 @@ export interface PayslipOutcome {
 
 export const FAILED_FALLBACK = 'לא הצלחנו לקרוא את התלוש כרגע. אפשר לנסות שוב בעוד רגע, או למלא את הנתונים ידנית.'
 export const NOTHING_FALLBACK = 'לא מצאנו בתלוש נתון שאפשר להכניס לחישוב. אפשר למלא ידנית או לנסות קובץ אחר.'
-export const REVIEW_HINT = 'אלה הערכים שזוהו מהתלוש. בדקו כל שדה, תקנו או בטלו את הסימון, ואז אשרו. ' +
-  'רק שדה מסומן נשמר.'
+// the per-row choice (מהתלוש / מהשיחה / לא לעדכן) is explained by PayslipUpload's own hint under this one
+export const REVIEW_HINT = 'אלה הערכים שזוהו מהתלוש. בדקו כל שורה ותקנו אם צריך, ואז אשרו.'
 export const NOT_ON_PAYSLIP = 'לא נמצא בתלוש'
 
 const TITLES: Record<PayslipStatus, string> = {

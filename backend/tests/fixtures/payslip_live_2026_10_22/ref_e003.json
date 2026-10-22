@@ -1,0 +1,90 @@
+{
+ "is_payslip": true,
+ "readable": true,
+ "items": [
+  {
+   "key": "children_under_23",
+   "value": 0,
+   "unit": "count",
+   "certainty": "high",
+   "label": "ילדים עד גיל 23"
+  },
+  {
+   "key": "credit_points",
+   "value": 2.75,
+   "unit": "count",
+   "certainty": "high",
+   "label": "נקודות זיכוי"
+  },
+  {
+   "key": "base_salary",
+   "value": 21000,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "שכר בסיס"
+  },
+  {
+   "key": "commissions",
+   "value": 0,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "עמלות"
+  },
+  {
+   "key": "bonus",
+   "value": 0,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "בונוס"
+  },
+  {
+   "key": "car_use_value",
+   "value": 0,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "שווי שימוש ברכב"
+  },
+  {
+   "key": "gross_salary",
+   "value": 21000,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "סה״כ שכר מזומן ברוטו"
+  },
+  {
+   "key": "income_tax",
+   "value": 3419,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "מס הכנסה"
+  },
+  {
+   "key": "national_insurance",
+   "value": 2144,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "ביטוח לאומי ובריאות"
+  },
+  {
+   "key": "pension_employee_amount",
+   "value": 1365,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "הפרשת עובד/ת לפנסיה )אומדן("
+  },
+  {
+   "key": "study_fund_employee_amount",
+   "value": 525,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "הפרשת עובד/ת לקרן השתלמות )אומדן("
+  },
+  {
+   "key": "net_pay",
+   "value": 15047,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "שכר נטו — ערך ייחוס בקובץ האתגר"
+  }
+ ]
+}

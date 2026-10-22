@@ -77,7 +77,27 @@ LEAKY = answer(
     {"key": "id_number", "value": 312456783, "unit": "count", "certainty": "high", "label": "ת\"ז"},
 )
 
+# A car copay on a payslip with no commissions or bonus rows (QA 22/10): reported the way gemini-3.5-flash-lite
+# reported it on 7 of 10 live payslips (as other_addition), next to a real addition and a use value read from
+# reversed digits ("003,4" -> 3.4).
+CAR_COPAY = answer(
+    item("base_salary", 15000, label="שכר בסיס"), item("other_addition", 300, label="השתתפות עובד ברכב"),
+    item("other_addition", 1000, label="תוספת חודשית"), item("car_use_value", 3.4, label="שווי שימוש ברכב"),
+    item("credit_points", 2.25, "count", label="נקודות זיכוי"), item("net_pay", 11000, label="נטו לתשלום"),
+)
+
+# Labels that do not say what a line is (QA 22/10, second pass): a bonus "השתתפות", commissions with no label,
+# an addition "השתתפות", next to a car copay that names the car and a clear addition.
+UNCLEAR_LABELS = answer(
+    item("base_salary", 15000, label="שכר בסיס"), item("bonus", 300, label="השתתפות"),
+    {"key": "commissions", "value": 500, "unit": "ILS", "certainty": "high"},
+    item("other_addition", 200, label="השתתפות"), item("other_addition", 1000, label="תוספת חודשית"),
+    item("other_addition", 250, label="השתתפות עובד ברכב"),
+)
+
 CASES = {
+    "car_copay_payslip.pdf": (pdf("a car copay, no commissions or bonus rows"), CAR_COPAY),
+    "unclear_labels_payslip.pdf": (pdf("labels that do not say what a line is"), UNCLEAR_LABELS),
     "leaky_payslip.pdf": (pdf("an ID in labels and values"), LEAKY),
     # rendered from synthetic_full_payslip.html (Chromium, A4): a real document, read live on 21/10
     "synthetic_full_payslip.pdf": (None, LIVE_FULL),

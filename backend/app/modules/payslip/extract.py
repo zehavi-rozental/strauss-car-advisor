@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import replace
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional, Protocol
 
@@ -23,7 +24,9 @@ from app.modules.rules.public import RulesSnapshot
 
 from .privacy import plausible, safe_label
 from .models import (
+    ASSIGNABLE_INFO,
     FIELD_KIND,
+    FIELD_LABEL_HE,
     INFO_KEYS,
     SUPPORTED_FIELDS,
     ExtractedField,
@@ -73,6 +76,9 @@ _LOW_CONFIDENCE = "לא ודאי — נא לבדוק"
 _TWO_VALUES = "בתלוש מופיעים שני ערכים שונים — נא לבחור"
 _WRONG_UNIT = "הופיע ביחידה אחרת מהנדרש — נא לבדוק"
 _NOT_WHOLE = "צריך מספר שלם — נא לבדוק"
+_UNCLEAR_PAY = ("התווית בתלוש לא מראה בבירור שזו שורת {name}, וייתכן שזה ניכוי (למשל השתתפות). לא סימנו לעדכן: "
+                "בחרו \"לעדכן\" רק אם זו באמת שורת {name}.")
+_IMPLAUSIBLE = "בתלוש מופיע כאן ערך שלא נראה סביר, וייתכן שנקרא לא נכון. לא מילאנו אותו: בדקו בתלוש ומלאו ידנית."
 
 
 def sniff_mime(data: bytes) -> Optional[str]:
@@ -157,6 +163,53 @@ _KEY_TO_FIELD = {"base_salary": "base_salary", "commissions": "commissions", "bo
 _AMOUNT_OF = {"pension_percent": "pension_employee_amount", "study_fund_percent": "study_fund_employee_amount"}
 _UNIT_OF_KIND = {"amount": "ILS", "percent": "percent", "count": "count"}
 
+# Whatever key the model chose, a line printed as a car copay or car maintenance is car information, never
+# pay: read on the printed label (before safe_label, never shown), so this does not depend on the prompt.
+_CAR_WORDS = ("רכב", "car", "vehicle")
+_COPAY_WORDS = ("השתתפות", "copay", "co-pay", "participation")
+_MAINTENANCE_WORDS = ("אחזקה", "אחזקת", "maintenance", "upkeep")
+_CAR_INFO = ("car_copay", "car_maintenance")
+# an information value is checked against the conversation's own limits for the same value (extensions.yaml)
+_INFO_LIMITS = {"car_use_value": "current_use_value", "car_copay": "current_copay",
+                "car_maintenance": "current_maintenance", "gross_salary": "base_salary"}
+
+
+def _car_key(raw_label: Any) -> Optional[str]:
+    """car_copay / car_maintenance when the printed label says so, else None."""
+    if not isinstance(raw_label, str):
+        return None
+    text = raw_label.lower()
+    if not any(w in text for w in _CAR_WORDS):
+        return None
+    if any(w in text for w in _COPAY_WORDS):
+        return "car_copay"
+    if any(w in text for w in _MAINTENANCE_WORDS):
+        return "car_maintenance"
+    return None
+
+
+# pay lines a car copay could hide behind: with an unclear label they are never preselected
+_PAY_ADDITIONS = ("commissions", "bonus")
+
+
+def _unclear_label(raw_label: Any) -> bool:
+    """No printed label, or a participation word with nothing that names a car ("השתתפות", "השתתפות עובד"):
+    the line may be pay or a deduction. Never assumed either way: shown for the employee to decide."""
+    if not isinstance(raw_label, str) or not raw_label.strip():
+        return True
+    text = raw_label.lower()
+    return any(w in text for w in _COPAY_WORDS) and not any(w in text for w in _CAR_WORDS)
+
+
+def _suspect(snapshot: RulesSnapshot, key: str, value: Decimal) -> bool:
+    """Outside the range the conversation accepts for the same value, or a shorthand-sized amount (a use value
+    of 3.4): shown as doubtful, never as a fact. Zero passes where the range allows it (no car: use value 0)."""
+    field = _INFO_LIMITS.get(key)
+    if field is None:
+        return False
+    small = snapshot.extensions.small_amount_below.get(field)
+    return not _in_range(snapshot, field, value) or (small is not None and Decimal(0) < value < small)
+
 # Structured output (Gemini responseSchema, an OpenAPI subset): the answer's shape is enforced by the API,
 # and checked again here.
 RESPONSE_SCHEMA: dict[str, Any] = {
@@ -192,7 +245,9 @@ clearly shows, as JSON with: "is_payslip" (is this a payslip at all), "readable"
   pension_employee_percent (the EMPLOYEE's pension rate, only when printed as a percent: תגמולי עובד %, פנסיה עובד %),
   study_fund_employee_percent (the EMPLOYEE's study-fund rate, only when printed as a percent),
   credit_points (נקודות זיכוי), children_under_23 (number of children: ילדים, מספר ילדים),
-  other_addition (any other addition to pay: תוספת, תוספת חודשית, שעות נוספות, אחזקת רכב, החזר הוצאות ...),
+  other_addition (any other addition to pay: תוספת, תוספת חודשית, שעות נוספות, משמרות, החזר הוצאות ...),
+  car_copay (the employee's car copay, a DEDUCTION: השתתפות עובד ברכב, השתתפות ברכב, employee car copay),
+  car_maintenance (car maintenance / upkeep paid for a car: אחזקת רכב, החזר אחזקת רכב, car maintenance),
   pension_employee_amount (the employee's pension deduction in NIS: פנסיה, ניכוי פנסיה, תגמולי עובד ₪, קופת גמל),
   study_fund_employee_amount (the employee's study-fund deduction in NIS),
   gross_salary (ברוטו, סה"כ תשלומים), net_pay (נטו, נטו לתשלום), income_tax (מס הכנסה),
@@ -204,6 +259,7 @@ clearly shows, as JSON with: "is_payslip" (is this a payslip at all), "readable"
 Rules:
 - Report only what is printed. Never calculate, never convert an amount into a percent, never guess a missing value.
 - An addition whose type is not clearly commissions or bonus is other_addition, with its own label.
+- A car copay or car maintenance is car_copay / car_maintenance, never other_addition, commissions or bonus.
 - A pension or study-fund deduction printed in NIS is the *_amount key, never the *_percent key.
 - Take the EMPLOYEE's contribution, not the employer's.
 - Do NOT report the employee's or employer's name, ID number, employee number, address, bank account or any other
@@ -274,8 +330,9 @@ def _in_range(snapshot: RulesSnapshot, field: str, value: Decimal) -> bool:
 def _build(snapshot: RulesSnapshot, items: list[dict[str, Any]]) -> tuple[list[ExtractedField], list[InfoItem], int]:
     """Sorts the items into the profile fields (found / missing / ambiguous) and information items.
     Returns (fields, info, dropped)."""
-    seen: dict[str, list[tuple[Decimal, str, str, str]]] = {f: [] for f in SUPPORTED_FIELDS}
+    seen: dict[str, list[tuple[Optional[Decimal], str, str, str]]] = {f: [] for f in SUPPORTED_FIELDS}
     info: list[InfoItem] = []
+    unclear: set[str] = set()                 # commissions / bonus read from an unclear label
     dropped = 0
     for item in items:
         key, value = item.get("key"), _coerce_number(item.get("value"))
@@ -285,30 +342,48 @@ def _build(snapshot: RulesSnapshot, items: list[dict[str, Any]]) -> tuple[list[E
         if value is None or value < 0 or not isinstance(key, str):
             dropped += 1
             continue
+        if (key in _KEY_TO_FIELD or key == "other_addition") and (car := _car_key(item.get("label"))):
+            key = car                         # a car copay / maintenance reported as pay
         field = _KEY_TO_FIELD.get(key)
         kind = FIELD_KIND[field] if field else INFO_KEYS[key][1] if key in INFO_KEYS else None
-        if kind is None or not plausible(value, "amount" if unit == "ILS" else kind):
-            dropped += 1                      # not a value of one monthly payslip line (an ID, an account)
+        if kind is None:
+            dropped += 1
+            continue
+        if not plausible(value, "amount" if unit == "ILS" else kind):
+            if field is not None:             # printed for this field, but not a value it can have: ask, never fill
+                seen[field].append((None, unit, certainty, label))
+            else:
+                dropped += 1                  # not a value of one monthly payslip line (an ID, an account)
             continue
         if field is not None:
             if field in _AMOUNT_OF and unit == "ILS":           # a pension amount: information, not a percent
                 info.append(InfoItem(_AMOUNT_OF[field], value, "amount", label))
                 continue
+            if field in _PAY_ADDITIONS and _unclear_label(item.get("label")):
+                unclear.add(field)
+                certainty = "low"             # never preselected: the employee decides, knowing why
             seen[field].append((value, unit, certainty, label))
         elif key in INFO_KEYS:
-            info.append(InfoItem(key, value, INFO_KEYS[key][1], label))
+            info.append(InfoItem(key, value, INFO_KEYS[key][1], label, suspect=_suspect(snapshot, key, value),
+                                 unclear=key in ASSIGNABLE_INFO and _unclear_label(item.get("label"))))
         else:
             dropped += 1
     fields = [_field(snapshot, f, seen[f]) for f in SUPPORTED_FIELDS]
+    fields = [replace(f, note=_UNCLEAR_PAY.format(name=FIELD_LABEL_HE[f.field]))
+              if f.field in unclear and f.status == "found" else f for f in fields]
     return fields, info, dropped
 
 
-def _field(snapshot: RulesSnapshot, field: str, found: list[tuple[Decimal, str, str, str]]) -> ExtractedField:
+def _field(snapshot: RulesSnapshot, field: str,
+           found: list[tuple[Optional[Decimal], str, str, str]]) -> ExtractedField:
     kind = FIELD_KIND[field]
     if not found:
         return ExtractedField(field=field, value=None, kind=kind, confident=False, status="missing")
     labels = [lab for _, _, _, lab in found if lab]
     label = labels[0] if labels else ""
+    if any(v is None for v, _, _, _ in found):        # printed, but not a value this field can have (52.3 points)
+        return ExtractedField(field=field, value=None, kind=kind, confident=False, in_range=False,
+                              status="ambiguous", note=_IMPLAUSIBLE, source_label=label, certainty="low")
     if len({v for v, _, _, _ in found}) > 1:
         return ExtractedField(field=field, value=None, kind=kind, confident=False, status="ambiguous",
                               note=_TWO_VALUES, source_label=label, certainty="low")

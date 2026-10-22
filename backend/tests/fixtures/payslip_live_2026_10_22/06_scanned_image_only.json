@@ -1,0 +1,111 @@
+{
+ "is_payslip": true,
+ "readable": true,
+ "items": [
+  {
+   "key": "credit_points",
+   "value": 2.25,
+   "unit": "count",
+   "certainty": "high",
+   "label": "נקודות זיכות"
+  },
+  {
+   "key": "children_under_23",
+   "value": 1,
+   "unit": "count",
+   "certainty": "high",
+   "label": "מספר ילדים"
+  },
+  {
+   "key": "base_salary",
+   "value": 13600.0,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "שכר יסוד"
+  },
+  {
+   "key": "commissions",
+   "value": 1200.0,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "עמלות"
+  },
+  {
+   "key": "bonus",
+   "value": 800.0,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "בונוס"
+  },
+  {
+   "key": "gross_salary",
+   "value": 15600.0,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "סה\"כ ברוטו"
+  },
+  {
+   "key": "income_tax",
+   "value": 1540.0,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "מס הכנסה"
+  },
+  {
+   "key": "national_insurance",
+   "value": 1180.0,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "ביטוח לאומי ובריאות"
+  },
+  {
+   "key": "pension_employee_percent",
+   "value": 6,
+   "unit": "percent",
+   "certainty": "high",
+   "label": "שיעור פנסיה עובד"
+  },
+  {
+   "key": "pension_employee_amount",
+   "value": 936.0,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "פנסיה עובד"
+  },
+  {
+   "key": "study_fund_employee_percent",
+   "value": 2.5,
+   "unit": "percent",
+   "certainty": "high",
+   "label": "שיעור קרן השתלמות עובד"
+  },
+  {
+   "key": "study_fund_employee_amount",
+   "value": 390.0,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "קרן השתלמות עובד"
+  },
+  {
+   "key": "other_addition",
+   "value": 250.0,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "השתתפות עובד ברכב"
+  },
+  {
+   "key": "car_use_value",
+   "value": 2950.0,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "שווי שימוש ברכב"
+  },
+  {
+   "key": "net_pay",
+   "value": 11304.0,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "נטו לתשלום"
+  }
+ ]
+}

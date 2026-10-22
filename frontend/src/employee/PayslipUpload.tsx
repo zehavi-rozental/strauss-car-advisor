@@ -34,8 +34,10 @@ const ASSIGN_LABEL: Record<string, string> = { commissions: 'לשייך לעמל
 
 type Step = 'pick' | 'failed' | 'review'
 
-const infoValue = (i: PayslipInfo) => (i.kind === 'amount' ? formatMoney(Number(i.value)) : i.kind === 'percent'
-  ? `${Number(i.value)}%` : String(Number(i.value)))
+// a doubtful value is shown exactly as read (3.4, not a rounded "3 ₪"): the figure itself is why it is doubtful
+const infoValue = (i: PayslipInfo) => (i.kind === 'amount'
+  ? (i.suspect ? `${Number(i.value)} ₪` : formatMoney(Number(i.value)))
+  : i.kind === 'percent' ? `${Number(i.value)}%` : String(Number(i.value)))
 
 export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled }: Props) {
   const [step, setStep] = useState<Step>('pick')
@@ -212,9 +214,12 @@ export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled }: Pro
           <h4><Icon name="info" size={16} />נמצא בתלוש ולא נכנס לחישוב אוטומטית</h4>
           <ul>
             {info.map((i, n) => (
-              <li key={`${i.key}-${n}`} data-info={i.key}>
-                <span className="info-main"><strong>{i.source_label || i.label}</strong>: <bdi className="num">{infoValue(i)}</bdi></span>
-                <span className="field-source"> {i.note}</span>
+              <li key={`${i.key}-${n}`} data-info={i.key} className={i.suspect ? 'is-suspect' : undefined}>
+                <span className="info-main"><strong>{i.source_label || i.label}</strong>: <bdi className="num">{infoValue(i)}</bdi>
+                  {i.suspect && <span className="tag tag-pending">לבדיקה</span>}
+                  {i.unclear && !i.suspect && <span className="tag tag-pending">לבירור</span>}</span>
+                <span className={i.suspect || i.unclear ? 'field-note' : 'field-source'}
+                      role={i.suspect || i.unclear ? 'note' : undefined}> {i.note}</span>
                 {assignable(i, rows).map((k) => (
                   <button key={k} type="button" className="chip chip-quiet btn-sm" disabled={working}
                           onClick={() => setRows((rs) => assign(rs, k, i))}>{ASSIGN_LABEL[k]}</button>

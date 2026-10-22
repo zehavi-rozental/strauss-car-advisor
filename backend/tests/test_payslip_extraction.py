@@ -295,7 +295,9 @@ def test_endpoint_contract():
                          "source_label", "certainty"}
     assert (base["value"], base["status"], base["source_label"]) == ("18000", "found", "שכר יסוד")
     assert {i["key"] for i in body["info"]} >= {"other_addition", "pension_employee_amount", "net_pay"}
-    assert all(set(i) == {"key", "label", "value", "kind", "source_label", "note"} for i in body["info"])
+    assert all(set(i) == {"key", "label", "value", "kind", "source_label", "note", "suspect", "unclear",
+                       "assignable"}
+               for i in body["info"])
 
 
 def test_endpoint_failure_contract():

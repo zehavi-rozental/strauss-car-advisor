@@ -408,7 +408,10 @@ test.describe('merged conversation acceptance', () => {
     const onScreen = (await page.locator('body').innerText()).replace(/\D/g, '')
     expect(onScreen).not.toContain('312456783')
     await expect(page.locator('body')).not.toContainText('ת.ז')
-    await expect(row(page, 'bonus')).toContainText('לא נמצא בתלוש')          // the ID as an "amount": dropped
+    // the ID as an "amount": never shown or filled; the row asks the employee to check it (QA 22/10)
+    await expect(row(page, 'bonus')).toContainText('לא מילאנו אותו')
+    await expect(row(page, 'bonus').locator('input:not([type])')).toHaveValue('')
+    await expect(row(page, 'bonus').locator('input[type="radio"][value="payslip"]')).not.toBeChecked()
     await keep(page, 'base_salary').check()                                   // differs from 15,000: the employee decides
     await confirmPayslip(page)
     const s = await state(page)

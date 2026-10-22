@@ -1,0 +1,104 @@
+{
+ "is_payslip": true,
+ "readable": true,
+ "items": [
+  {
+   "key": "children_under_23",
+   "value": 0,
+   "unit": "count",
+   "certainty": "high",
+   "label": "ילדים"
+  },
+  {
+   "key": "credit_points",
+   "value": 52.2,
+   "unit": "count",
+   "certainty": "high",
+   "label": "נקודות זיכוי"
+  },
+  {
+   "key": "base_salary",
+   "value": 11400,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "שכר בסיס"
+  },
+  {
+   "key": "other_addition",
+   "value": 1600,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "תוספת משמרות"
+  },
+  {
+   "key": "other_addition",
+   "value": 1250,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "שעות נוספות"
+  },
+  {
+   "key": "commissions",
+   "value": 0,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "עמלות"
+  },
+  {
+   "key": "bonus",
+   "value": 0,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "בונוס"
+  },
+  {
+   "key": "gross_salary",
+   "value": 14250,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "סהכ ברוטו"
+  },
+  {
+   "key": "income_tax",
+   "value": 1250,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "מס הכנסה"
+  },
+  {
+   "key": "national_insurance",
+   "value": 1020,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "ביטוח לאומי ובריאות"
+  },
+  {
+   "key": "pension_employee_amount",
+   "value": 855,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "פנסיה"
+  },
+  {
+   "key": "study_fund_employee_amount",
+   "value": 0,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "קרן השתלמות"
+  },
+  {
+   "key": "car_use_value",
+   "value": 0,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "שווי שימוש"
+  },
+  {
+   "key": "net_pay",
+   "value": 11125,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "נטו"
+  }
+ ]
+}

@@ -113,7 +113,10 @@ def test_extract_maps_supported_fields(snapshot):
     by_field = {f.field: f for f in result.fields}
     assert set(by_field) == set(SUPPORTED_FIELDS)
     assert by_field["commissions"].value == Decimal("1500")
-    assert by_field["commissions"].confident is True
+    # the older flat answer has no printed label: commissions and bonus are shown but never preselected,
+    # since nothing shows that the line is pay rather than a deduction such as a car copay (QA 22/10)
+    assert by_field["commissions"].confident is False and by_field["commissions"].status == "found"
+    assert by_field["pension_percent"].confident is True
     # חסר → None, לא 0
     assert by_field["bonus"].value is None
     assert by_field["bonus"].confident is False

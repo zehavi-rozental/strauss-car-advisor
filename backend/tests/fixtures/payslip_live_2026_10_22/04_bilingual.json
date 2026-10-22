@@ -1,0 +1,90 @@
+{
+ "is_payslip": true,
+ "readable": true,
+ "items": [
+  {
+   "key": "credit_points",
+   "value": 2.75,
+   "unit": "count",
+   "certainty": "high",
+   "label": "Credit points"
+  },
+  {
+   "key": "base_salary",
+   "value": 17300,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "Base Salary"
+  },
+  {
+   "key": "commissions",
+   "value": 2250,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "Commission"
+  },
+  {
+   "key": "bonus",
+   "value": 0,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "Bonus"
+  },
+  {
+   "key": "gross_salary",
+   "value": 19550,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "Gross Pay"
+  },
+  {
+   "key": "car_use_value",
+   "value": 3600,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "Car taxable benefit"
+  },
+  {
+   "key": "other_addition",
+   "value": 350,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "Employee car copay"
+  },
+  {
+   "key": "income_tax",
+   "value": 3100,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "Income Tax"
+  },
+  {
+   "key": "national_insurance",
+   "value": 1020,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "National Insurance"
+  },
+  {
+   "key": "health_insurance",
+   "value": 750,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "Health"
+  },
+  {
+   "key": "pension_employee_amount",
+   "value": 1173,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "Pension"
+  },
+  {
+   "key": "net_pay",
+   "value": 13157,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "Net Pay"
+  }
+ ]
+}

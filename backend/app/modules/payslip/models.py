@@ -58,7 +58,25 @@ INFO_KEYS = {
     "health_insurance": ("ביטוח בריאות", "amount", "לעיון בלבד. מחושב במנוע."),
     "car_use_value": ("שווי שימוש ברכב", "amount",
                       "לעיון. שווי השימוש של הרכב הנוכחי נלקח מהקטלוג או ממאגר רשות המסים לפי הדגם."),
+    "car_copay": ("השתתפות עובד ברכב", "amount",
+                  "ניכוי מהנטו ולא תוספת לשכר, ולכן לא נכנס לשום רכיב שכר. את ההשתתפות שלכם היום רושמים "
+                  "בשיחה על הרכב הנוכחי."),
+    "car_maintenance": ("אחזקת רכב", "amount",
+                        "תשלום שקשור לרכב ולא רכיב שכר, ולכן לא נכנס לשכר הבסיס, לעמלות או לבונוס. אם אין לכם "
+                        "רכב צמוד, את האחזקה רושמים בשיחה על הרכב."),
 }
+
+# The only information item the employee may assign to an EMPTY commissions / bonus row (the server decides,
+# InfoItem.assignable): car items are never pay, whatever the model called them.
+ASSIGNABLE_INFO = ("other_addition",)
+
+# An information value that does not look like this payslip line (a use value of 3.4 read from a reversed
+# "003,4"): still shown, never as a fact, and it is information only anyway.
+SUSPECT_NOTE = "הערך הזה לא נראה סביר לשורה הזו, וייתכן שנקרא לא נכון. בדקו אותו מול התלוש. הוא לא נכנס לחישוב."
+# An addition whose label does not say what it is (none printed, or a bare "השתתפות"): not assumed to be pay
+# or a deduction. It can still be assigned, as the employee's own decision.
+UNCLEAR_NOTE = ("לא ברור מהתלוש אם זו תוספת לשכר או ניכוי (למשל השתתפות). היא לא נכנסת לחישוב. שייכו אותה "
+                "לעמלות או לבונוס רק אם אתם יודעים שזו תוספת לשכר.")
 
 # The outcome of one extraction (ExtractionResult.status).
 STATUSES = ("found", "partial", "nothing_found", "not_payslip", "unreadable", "failed")
@@ -106,11 +124,16 @@ class InfoItem:
     value: Decimal
     kind: str
     source_label: str = ""
+    suspect: bool = False           # outside what this line can be: shown with SUSPECT_NOTE, never as a fact
+    unclear: bool = False           # an addition with no label, or a bare "השתתפות": pay or a deduction?
 
     def as_dict(self) -> dict:
         label, _, note = INFO_KEYS[self.key]
         return {"key": self.key, "label": label, "value": str(self.value), "kind": self.kind,
-                "source_label": self.source_label, "note": note}
+                "source_label": self.source_label,
+                "note": SUSPECT_NOTE if self.suspect else UNCLEAR_NOTE if self.unclear else note,
+                "suspect": self.suspect, "unclear": self.unclear,
+                "assignable": self.key in ASSIGNABLE_INFO and not self.suspect}
 
 
 @dataclass(frozen=True)

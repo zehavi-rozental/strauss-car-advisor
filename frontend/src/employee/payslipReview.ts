@@ -115,9 +115,10 @@ export function choicesFor(r: ReviewRow): { id: Choice; label: string }[] {
 }
 
 /** "תוספת חודשית" can be assigned to commissions or bonus by the employee, only into an empty row:
- *  the amount is copied as printed, never added to another value. */
+ *  the amount is copied as printed, never added to another value. Only what the server marks assignable:
+ *  a car copay or car maintenance never is, and an older server that does not say is not trusted. */
 export function assignable(info: PayslipInfo, rows: ReviewRow[]): Key[] {
-  if (info.key !== 'other_addition') return []
+  if (info.key !== 'other_addition' || info.assignable !== true || info.suspect) return []
   return (['commissions', 'bonus'] as Key[]).filter((k) => rows.find((r) => r.key === k)?.value === '')
 }
 

@@ -1,0 +1,104 @@
+{
+ "is_payslip": true,
+ "readable": true,
+ "items": [
+  {
+   "key": "children_under_23",
+   "value": 3,
+   "unit": "count",
+   "certainty": "high",
+   "label": "ילדים"
+  },
+  {
+   "key": "credit_points",
+   "value": 52.3,
+   "unit": "count",
+   "certainty": "high",
+   "label": "נקודות זיכוי"
+  },
+  {
+   "key": "base_salary",
+   "value": 22000,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "שכר בסיס"
+  },
+  {
+   "key": "other_addition",
+   "value": 1100,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "תוספת קבועה"
+  },
+  {
+   "key": "commissions",
+   "value": 0,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "עמלות"
+  },
+  {
+   "key": "bonus",
+   "value": 1500,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "מענק"
+  },
+  {
+   "key": "gross_salary",
+   "value": 24600,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "ברוטו"
+  },
+  {
+   "key": "income_tax",
+   "value": 4100,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "מס הכנסה"
+  },
+  {
+   "key": "national_insurance",
+   "value": 1200,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "ביטוח לאומי"
+  },
+  {
+   "key": "health_insurance",
+   "value": 900,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "בריאות"
+  },
+  {
+   "key": "pension_employee_amount",
+   "value": 1476,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "פנסיה"
+  },
+  {
+   "key": "study_fund_employee_amount",
+   "value": 615,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "קרן השתלמות"
+  },
+  {
+   "key": "net_pay",
+   "value": 16309,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "נטו לתשלום"
+  },
+  {
+   "key": "car_use_value",
+   "value": 3.4,
+   "unit": "ILS",
+   "certainty": "high",
+   "label": "שווי שימוש ברכב"
+  }
+ ]
+}

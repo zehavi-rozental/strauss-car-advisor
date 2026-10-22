@@ -270,6 +270,9 @@ export interface PayslipInfo {
   kind: 'amount' | 'percent' | 'count'
   source_label: string
   note: string
+  suspect?: boolean       // the value does not look right for this line: shown as doubtful, never as a fact
+  unclear?: boolean       // an addition whose label does not say whether it is pay or a deduction
+  assignable?: boolean    // the server allows assigning it to an empty commissions / bonus row (never car items)
 }
 
 export type PayslipStatus = 'found' | 'partial' | 'nothing_found' | 'not_payslip' | 'unreadable' | 'failed'

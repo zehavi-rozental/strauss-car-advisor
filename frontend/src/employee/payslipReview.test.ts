@@ -15,7 +15,7 @@ const SYNTHETIC: ExtractedField[] = [
   f('pension_percent', null), f('study_fund_percent', null), f('credit_points', null), f('children_under_23', null),
 ]
 const ADDITION: PayslipInfo = { key: 'other_addition', label: 'תוספת לשכר', value: '1000', kind: 'amount',
-  source_label: 'תוספת חודשית', note: '...' }
+  source_label: 'תוספת חודשית', note: '...', suspect: false, assignable: true }
 
 describe('payslip review', () => {
   it('has a row for every field the conversation accepts, base salary first', () => {
@@ -84,6 +84,19 @@ describe('payslip review', () => {
     expect(assigned.find((r) => r.key === 'bonus')).toMatchObject({ value: '1000', choice: 'payslip', note: 'שויך על ידיכם' })
     expect(assignable(ADDITION, assigned)).toEqual(['commissions'])     // never added to a filled row
     expect(assignable({ ...ADDITION, key: 'net_pay' }, rows)).toEqual([])
+  })
+
+  it('a car copay or car maintenance can never be assigned to pay, even into empty rows (QA 22/10)', () => {
+    const rows = reviewRows(SYNTHETIC)                 // commissions and bonus are empty
+    const copay: PayslipInfo = { key: 'car_copay', label: 'השתתפות עובד ברכב', value: '300', kind: 'amount',
+      source_label: 'השתתפות עובד ברכב', note: '...', suspect: false, assignable: false }
+    expect(assignable(copay, rows)).toEqual([])
+    expect(assignable({ ...copay, key: 'car_maintenance' }, rows)).toEqual([])
+    // the server decides: an addition it did not mark assignable, a doubtful one, or an older server that
+    // does not say, offers nothing
+    expect(assignable({ ...ADDITION, assignable: false }, rows)).toEqual([])
+    expect(assignable({ ...ADDITION, suspect: true }, rows)).toEqual([])
+    expect(assignable({ ...ADDITION, assignable: undefined }, rows)).toEqual([])
   })
 
   it('the chat bubble names the base salary', () => {

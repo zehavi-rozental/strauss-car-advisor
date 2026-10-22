@@ -16,3 +16,6 @@ backend/tests/phrasings/REPORT_LLM.txt
 backend/spec-eval-*.md
 backend/tests/scenarios/TRANSCRIPT.txt
 backend/tests/scenarios/LIVE_TRANSCRIPT.txt
+
+# synthetic payslips and their reference values for manual QA: never committed
+qa/
