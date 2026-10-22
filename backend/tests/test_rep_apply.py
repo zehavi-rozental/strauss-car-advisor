@@ -21,6 +21,7 @@ NOA = [
     "אני מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים",
     "יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש",
     "אטו 3",
+    "אני רוצה שנציג התחבורה יאשר את ההשתתפות",   # the new rule (22/10): the rep only when asked
 ]
 # a stated group that contradicts the occupations table (מנהל מוצר is group ג): the one blocking question left
 CONFLICT = ["קבוצה ב, שכר בסיס 18,500", "אני מנהלת מוצר",
@@ -87,8 +88,8 @@ def engine_delta(copay: int) -> Decimal:
 # ---------- השתתפות ברכב החדש ----------
 
 def test_rep_changes_the_copay_and_the_option_is_recalculated(client, sessions):
-    cid, body = start(client, *NOA)
-    assert body["results"][0]["delta_display"] == "661"
+    cid, _ = start(client, *NOA)
+    assert client.get(f"/api/conversations/{cid}").json()["results"][0]["result"]["delta_display"] == "661"
     [q] = open_questions(client)
     seq, runs_before = last_seq(client, cid), runs(sessions)
 
@@ -317,15 +318,14 @@ PENDING_SENTENCE = ("חישבתי עם השתתפות של 300 ₪ בחודש ב
 
 
 def test_pending_copay_uses_the_scenario_wording_until_the_rep_confirms(client):
-    cid, body = start(client, *NOA)
-    assert PENDING_SENTENCE in body["reply"]
-    assert "לפי הקטלוג — ממתינה לאישור נציג" not in body["reply"]      # במקום שורת ההנחה הכללית
-    assert body["results"][0]["copay_pending"] is True
-    assert "השתתפות ב-ATTO 3 (2025) לפי הקטלוג — ממתינה לאישור נציג" in body["results"][0]["assumptions"]
+    """The rule since 22/10: the catalog amount is used and said; the employee's request opens the question, the
+    card waits for the answer, and the answer makes it approved."""
+    cid, body = start(client, *NOA[:3])
+    assert "לפי הקטלוג, ההשתתפות ברכב הזה היא 300 ₪" in body["reply"] and open_questions(client) == []
+    body = say(client, cid, NOA[3])
+    assert "פניתי לנציג התחבורה לבירור ההשתתפות ב-ATTO 3 (2025)" in body["reply"]
     [q] = open_questions(client)
+    assert client.get(f"/api/conversations/{cid}").json()["results"][0]["result"]["copay_pending"] is True
     answer(client, q["id"], q["suggested_value"])
-    updates = client.get(f"/api/conversations/{cid}/updates").json()
-    assert updates["results"][0]["result"]["copay_pending"] is False
-    body = say(client, cid, "אטו 3")                                   # חישוב מאוחר יותר
-    assert PENDING_SENTENCE not in body["reply"]
-    assert "השתתפות ב-ATTO 3 (2025) — אושר על ידי נציג התחבורה" in body["results"][0]["assumptions"]
+    result = client.get(f"/api/conversations/{cid}/updates").json()["results"][0]["result"]
+    assert result["copay_pending"] is False and result["copay_source"] == "representative"

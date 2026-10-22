@@ -18,7 +18,8 @@ TOKEN = "answer-limit-test-token"
 NOA = ["מנהלת מוצר, שכר בסיס 18,500",
        "אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים",
        'יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש"ח בחודש',
-       "אטו 3"]                                           # ATTO 3: its copay waits for the rep's approval
+       "אטו 3",
+       "אני רוצה שנציג התחבורה יאשר את ההשתתפות"]          # the rule since 22/10: the rep only when asked
 
 
 def rep(session: str | None = None) -> dict[str, str]:

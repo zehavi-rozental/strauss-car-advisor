@@ -78,7 +78,7 @@ def test_unknown_copay_is_recorded_and_never_sent_to_the_rep(sessions):
     assert "ההשתתפות ברכב של היום" in turn.reply
     turn, _ = talk(svc, ["300"], start=(turn, token))
     assert turn.stage == Stage.PRESENTED and turn.results
-    assert [q.missing_field.value for q in open_questions(svc)] == ["NEW_CAR_COPAY"]   # only the new car's
+    assert open_questions(svc) == []                   # the catalog amount is used; no question (22/10)
 
 
 def test_car_not_found_asks_payslip_use_value(sessions):

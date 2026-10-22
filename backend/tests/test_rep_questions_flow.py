@@ -1,6 +1,8 @@
 """פתיחת שאלות לנציג מהשיחה: באותה טרנזקציה של התור, בלי כפילויות, ולפי מדיניות ההשתתפות."""
 from __future__ import annotations
 
+import re
+
 import shutil
 import threading
 
@@ -10,7 +12,7 @@ from app.modules.conversation.llm.port import LLMResponse
 from app.modules.conversation.public import ConversationConflict, ConversationService, LLMChain, Stage, TurnResult
 from app.modules.rules.public import RulesStore
 
-from .conftest import CONFIG, make_client
+from .conftest import CONFIG, CONFIG_ASYNC, make_client
 from .legacy_wait import seed_legacy_wait
 from .test_turn_transactions import file_db
 
@@ -28,7 +30,7 @@ CONFLICT = ["קבוצה ב, שכר בסיס 18,500", "אני מנהלת מוצר
             "יש לי קורולה קרוס, משלמת 300"]
 
 
-def service(sessions, llm=None, config=CONFIG):
+def service(sessions, llm=None, config=CONFIG_ASYNC):
     return ConversationService(sessions, RulesStore(config), llm or LLMChain())
 
 
@@ -42,7 +44,7 @@ def talk(svc, messages, start=None):
 # ---------- השתתפות ברכב חדש: CONFIRM, התוצאה מוצגת מיד ----------
 
 def test_new_car_copay_question_is_opened_once_and_the_result_is_shown(engine):
-    client = make_client(engine)
+    client = make_client(engine, config_dir=CONFIG_ASYNC)
     cases = client.app.state.ctx.service.cases
     cid = client.post("/api/conversations").json()["conversation_id"]
     for text in NOA:
@@ -74,7 +76,7 @@ def test_waiting_makes_no_llm_call(sessions):
 
 
 def test_correcting_the_car_cancels_its_questions(engine):
-    client = make_client(engine)
+    client = make_client(engine, config_dir=CONFIG_ASYNC)
     cases = client.app.state.ctx.service.cases
     cid = client.post("/api/conversations").json()["conversation_id"]
     for text in [NOA[0], "יש לי קורולה 2026", "לא יודע"]:
@@ -99,9 +101,8 @@ def _policy(tmp_path, policy):
     shutil.copytree(CONFIG, config)
     p = config / "extensions.yaml"
     text = p.read_text(encoding="utf-8")
-    assert "copay_policy: CATALOG_DEFAULT_CONFIRM_ASYNC" in text
-    p.write_text(text.replace("copay_policy: CATALOG_DEFAULT_CONFIRM_ASYNC", f"copay_policy: {policy}"),
-                 encoding="utf-8")
+    assert re.search(r"(?m)^copay_policy:", text)
+    p.write_text(re.sub(r"(?m)^copay_policy:.*$", f"copay_policy: {policy}", text), encoding="utf-8")
     return config
 
 
@@ -145,7 +146,7 @@ class ChooseAtTheBarrier(FakeLLM):
 
 def test_a_discarded_turn_leaves_no_question(tmp_path):
     sessions = file_db(tmp_path)
-    svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([ChooseAtTheBarrier(threading.Barrier(2))]),
+    svc = ConversationService(sessions, RulesStore(CONFIG_ASYNC), LLMChain([ChooseAtTheBarrier(threading.Barrier(2))]),
                               llm_mode="parser_first")       # ההכנה בקורא; רק שתי ההודעות המתחרות במודל
     turn, token = talk(svc, NOA[:2])                      # הקורא — בלי מודל
     assert turn.stage == Stage.CHOOSE_OPTIONS

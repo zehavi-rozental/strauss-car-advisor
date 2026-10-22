@@ -1664,6 +1664,10 @@ class Agent:
             item.result["assumptions"] = [
                 confirmed_assumption(item.label, event.effective_date) if a == pending_text else a
                 for a in item.result.get("assumptions", [])]
+            if pending_text not in (item.result.get("assumptions") or [""]) and not any(
+                    "אושר על ידי נציג התחבורה" in a for a in item.result["assumptions"]):
+                # a catalog amount that was final (CATALOG_DEFAULT) and that the employee asked to confirm
+                item.result["assumptions"].append(confirmed_assumption(item.label, event.effective_date))
             item.result["copay_pending"] = False
             item.result["copay_source"] = "representative"
             item.result["copay_effective_date"] = event.effective_date.isoformat() if event.effective_date else None

@@ -11,7 +11,7 @@ from app.modules.cases.public import MissingField, Mode
 from app.modules.conversation.llm.fake import FakeLLM
 from app.modules.conversation.public import Stage
 
-from .conftest import make_client
+from .conftest import CONFIG, make_client
 from .test_rep_policy_2026_10_22 import NO_CAR, PROFILE_B, Chat, _no_catalog_copay
 
 TODAY = "יש לי קורולה 2026, משלמת 280"          # CAR-07: catalog 250; the employee pays 280
@@ -21,7 +21,7 @@ MODES = ["template", "llm"]
 
 
 def niro(sessions, mode):
-    chat = Chat(sessions, FakeLLM() if mode == "llm" else None)
+    chat = Chat(sessions, FakeLLM() if mode == "llm" else None, config=CONFIG)
     for m in [*PROFILE_B, TODAY]:
         chat.say(m)
     return chat, chat.choose([NIRO])
@@ -115,7 +115,7 @@ def test_11_the_request_survives_a_refresh_and_a_recalculation(sessions):
 
 
 def test_12_a_salary_correction_while_waiting_for_the_rep_is_saved(sessions):
-    chat = Chat(sessions)
+    chat = Chat(sessions, config=CONFIG)
     for m in ["קבוצה ב, שכר בסיס 18,500", "אני מנהלת מוצר",
               "אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים", TODAY]:
         chat.say(m)

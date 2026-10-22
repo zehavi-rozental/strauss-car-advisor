@@ -24,7 +24,9 @@ from app.modules.conversation.stage import Stage
 from app.modules.conversation.templates import UNANSWERED
 from app.modules.rules.public import RulesStore
 
-from .conftest import CONFIG, make_client
+from .conftest import CONFIG, CONFIG_ASYNC, make_client
+# These pin the async-confirm policy (every new car's copay to the rep). The production policy since 22/10
+# (CATALOG_DEFAULT: the rep only with a reason) is tested in test_catalog_copay_policy.py.
 
 TOKEN = "rep-policy"
 AUTH = {"X-Rep-Token": TOKEN}
@@ -36,7 +38,7 @@ CATALOG = {"CAR-05": "250", "CAR-02": "200", "CAR-01": "150", "CAR-10": "300"}
 
 
 class Chat:
-    def __init__(self, sessions, llm: FakeLLM | None = None, config=CONFIG):
+    def __init__(self, sessions, llm: FakeLLM | None = None, config=CONFIG_ASYNC):
         self.llm = llm
         self.svc = ConversationService(sessions, RulesStore(config), LLMChain([llm]) if llm else LLMChain())
         turn, self.token = self.svc.start()
@@ -62,7 +64,7 @@ class Http:
     """The employee and the representative through the HTTP API (template mode)."""
 
     def __init__(self, engine):
-        self.c = make_client(engine, rep_access_token=TOKEN)
+        self.c = make_client(engine, rep_access_token=TOKEN, config_dir=CONFIG_ASYNC)
         self.cid = self.c.post("/api/conversations").json()["conversation_id"]
 
     def say(self, text):
@@ -208,7 +210,7 @@ def test_c1_a_copay_the_employee_expects_for_a_new_car_is_kept_apart_and_sent_fo
 
 def _no_catalog_copay(tmp_path, code="CAR-01"):
     config = tmp_path / "config"
-    shutil.copytree(CONFIG, config)
+    shutil.copytree(CONFIG_ASYNC, config)
     wb = openpyxl.load_workbook(config / "strauss-data.xlsx")
     ws = wb["קטלוג רכבים"]
     header = [c.value for c in ws[1]]

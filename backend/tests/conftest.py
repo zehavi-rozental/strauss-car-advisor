@@ -95,3 +95,20 @@ def without_cta(reply: str) -> str:
 NOA_WORDS = ("מנהלת מוצר, משכורת בסיס שמונה עשר וחצי אלף, בלי עמלות ובלי בונוס, פנסיה שש אחוז, "
              "קרן השתלמות 2.5, 2.75 נקודות זיכוי ושני ילדים")
 CAR_WORDS = "יש לי קורולה קרוס 2025 ואני משלמת עליה שלוש מאות"
+
+
+def async_confirm_config() -> Path:
+    """The configuration with copay_policy CATALOG_DEFAULT_CONFIRM_ASYNC (every new car's catalog copay goes to the
+    representative to confirm). Production uses CATALOG_DEFAULT since 22/10; tests of that mechanism pin this one."""
+    import re as _re
+    import shutil as _shutil
+    import tempfile as _tempfile
+    target = Path(_tempfile.mkdtemp(prefix="cfg-async-")) / "config"
+    _shutil.copytree(CONFIG, target)
+    ext = target / "extensions.yaml"
+    ext.write_text(_re.sub(r"(?m)^copay_policy:.*$", "copay_policy: CATALOG_DEFAULT_CONFIRM_ASYNC",
+                           ext.read_text(encoding="utf-8")), encoding="utf-8")
+    return target
+
+
+CONFIG_ASYNC = async_confirm_config()
