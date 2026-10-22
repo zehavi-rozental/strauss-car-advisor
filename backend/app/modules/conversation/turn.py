@@ -235,9 +235,13 @@ def _notable(name: str, facts: dict[str, Any]) -> bool:
     return name != "save_profile"
 
 
+ACK = "רשמתי"
+
+
 def run_rounds(llm: LLMChain, messages: list[ChatMessage], tools_allowed: Sequence[str], execute,
-               deadline: Optional[float]) -> Candidate:
-    """The tool loop. `execute(call) -> facts` runs one call through the code checks."""
+               deadline: Optional[float], force_on_claim: bool = False) -> Candidate:
+    """The tool loop. `execute(call) -> facts` runs one call through the code checks. `force_on_claim`: the model
+    reads the message itself (code saved nothing), so an acknowledgement with no tool call is asked again."""
     cand = Candidate(messages=messages)
     specs = [TOOL_SPECS[n] for n in tools_allowed]
     for round_no in range(MAX_ROUNDS):
@@ -247,13 +251,26 @@ def run_rounds(llm: LLMChain, messages: list[ChatMessage], tools_allowed: Sequen
             if round_no == 0:
                 raise                  # nothing saved: the parser path reads the message
             return cand                # a later round failed: what was saved stays; the template answers
+        if round_no == 0 and force_on_claim and not response.tool_calls and ACK in response.text:
+            # "רשמתי: …" with no tool call: the model says it saved what it never saved (live QA 22/10; the guard
+            # rejected the reply, the values were lost and asked again). Once more, a tool call required: each call
+            # still goes through every code check.
+            try:
+                forced = llm.complete(messages, specs, require_tool=True, deadline=deadline)
+                if forced.tool_calls:
+                    response = forced
+            except LLMError:
+                pass
         if not response.tool_calls:
             cand.text = response.text.strip()
             return cand
         messages.append(ChatMessage("assistant", response.text, tool_calls=response.tool_calls, raw=response.raw))
         notable = False
-        order = {"save_profile": 0, "match_current_car": 1, "select_options": 2, "calculate": 2, "rank_options": 2}
-        for call in sorted(response.tool_calls, key=lambda c: order.get(c.name, 3)):   # the profile first
+        # the car first: save_profile's car fields depend on it ("אין לי רכב, אחזקה 1,500" in one round saved the
+        # maintenance before no_car was recorded, so it was ignored and asked again — live QA 22/10); the car
+        # itself depends on nothing save_profile sets. Then the profile, then the selection.
+        order = {"match_current_car": 0, "save_profile": 1, "select_options": 2, "calculate": 2, "rank_options": 2}
+        for call in sorted(response.tool_calls, key=lambda c: order.get(c.name, 3)):
             facts = execute(call)
             cand.tools_called.append("select_options" if call.name == "calculate" else call.name)
             cand.tool_results.append(facts)

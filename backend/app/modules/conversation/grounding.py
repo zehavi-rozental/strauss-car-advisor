@@ -160,6 +160,24 @@ def _zero_next_to_field(field: str, toks: list[str], cues: Sequence[str]) -> boo
             n = len(seq)
             if j - n + 1 >= 0 and [bare(t) for t in toks[j - n + 1:j + 1]] == seq:
                 return True
+        # "אין לי עמלות או בונוס": a negative reaches across "או" to the next field (neither one). "ו" stays as
+        # it was: "אין נקודות זיכוי וילדים" is not "no children". Live QA 22/10.
+        if i >= 2 and toks[i - 1] == "או":
+            for words_back in (1, 2):                 # the other field's word(s): "עמלות", "נקודות זיכוי"
+                m = i - 2 - words_back                # the token before them
+                while m >= 0 and toks[m] in _BETWEEN:
+                    m -= 1
+                if any(m - len(seq) + 1 >= 0 and [bare(t) for t in toks[m - len(seq) + 1:m + 1]] == seq
+                       for seq in seqs):
+                    return True
+        # "עמלות ובונוס אין לי": the negative after a list joined with "ו" covers each field in it; never after
+        # "יש" ("יש לי עמלות ובונוס אין" has commissions)
+        if "יש" not in toks[max(0, i - 3):i]:
+            for k in range(i + 1, min(i + 4, len(toks))):
+                if toks[k] in ("0", "אפס", "אין"):
+                    if toks[i + 1].startswith("ו") and len(toks[i + 1]) > 2:
+                        return True
+                    break
     return False
 
 

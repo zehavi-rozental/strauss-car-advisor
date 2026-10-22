@@ -403,9 +403,14 @@ def match_current_car(ctx: ToolContext, args: MatchCarArgs) -> dict[str, Any]:
         # "זה לא הרכב שלי" / "התכוונתי לרכב אחר": only the model is wrong. There is a car (has_car), its copay
         # stays, and the model just rejected is not offered again.
         rejected = [*old.rejected, *([old.catalog_code] if old.catalog_code else [])]
-        ctx.state.current = CurrentCar(**{**keep, "rejected": rejected, "has_car": True})
+        keep = {**keep, "rejected": rejected, "has_car": True}
+        ctx.state.current = CurrentCar(**keep)
         _invalidate_results(ctx.state)
-        return {"status": "RESET", "next": "ask the employee for the exact model (they have a company car)"}
+        if not args.model:
+            return {"status": "RESET", "next": "ask the employee for the exact model (they have a company car)"}
+        # "טעיתי, הרכב שלי הוא מאזדה 3": the model said with the correction is matched now (it was dropped and
+        # asked again — live QA 22/10); the rejected one is never offered again
+        old = ctx.state.current
 
     if args.no_car:
         ctx.state.current = CurrentCar(source="none", label="ללא רכב")

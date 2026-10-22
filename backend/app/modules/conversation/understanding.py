@@ -234,10 +234,23 @@ def says_phrase(text: str, phrases: Iterable[str]) -> bool:
 
 
 def _names_any(terms: Iterable[str], ws: list[str], starts: bool = True) -> bool:
+    """A listed term in the words. A phrase is its words in order, at most one other word between two of them
+    ("רכב של החברה" is "רכב החברה"); never words from different places in the message: "כמה עולה לחברה ביטוח…
+    ומגיע לי החזר" is not "עולה לי" (live QA 22/10: an arrangement question was read as a net request)."""
     for term in terms:
         parts = [_spelling(p) for p in words(term)]
-        if parts and all(any(_term_hit(p, w, starts) for w in ws) for p in parts):
-            return True
+        if not parts:
+            continue
+        for i, w in enumerate(ws):
+            if not _term_hit(parts[0], w, starts):
+                continue
+            pos = i
+            for p in parts[1:]:
+                pos = next((k for k in range(pos + 1, min(pos + 3, len(ws))) if _term_hit(p, ws[k], starts)), -1)
+                if pos < 0:
+                    break
+            if pos >= 0:
+                return True
     return False
 
 

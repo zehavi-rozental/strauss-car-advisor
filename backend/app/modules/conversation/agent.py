@@ -482,7 +482,11 @@ def _rep_offer_answer(text: str) -> Optional[bool]:
 
 _CHILDREN_WORDS = {"ילד אחד": 1, "אחד": 1, "שני": 2, "שתי": 2, "שניים": 2, "שלושה": 3, "שלוש": 3, "ארבעה": 4,
                    "ארבע": 4, "חמישה": 5, "חמש": 5}
-_CHILDREN_WORDS_RE = re.compile(r"(?<![א-ת])(שני|שתי|שלושה|שלוש|ארבעה|ארבע|חמישה|חמש)\s+(?:ילדים|ילדות)")
+# "ושני ילדים" at the end of a list too (the "ו" prefix was missed and the count was lost, live QA 22/10)
+_CHILDREN_WORDS_RE = re.compile(r"(?<![א-ת])ו?(שני|שתי|שלושה|שלוש|ארבעה|ארבע|חמישה|חמש)\s+(?:ילדים|ילדות)")
+# "יש לי 2 ילדים": a count right before the word. The gap fill takes it even when the parser distrusts the rest of
+# the message ("6% פנסיה ו-2.5% השתלמות… ויש לי 2 ילדים" lost the children when the LLM left them out, live QA 22/10)
+_CHILDREN_DIGITS_RE = re.compile(r"(?<![\d.,])(\d{1,2})\s+(?:ילדים|ילדות)")
 
 
 def _ambiguity_answer(text: str) -> Optional[str]:
@@ -934,16 +938,21 @@ class Agent:
         if (und.compare and not just_calculated and not map_shown
                 and state.stage not in (Stage.PRESENTED, Stage.WAITING_FOR_REP) and RANK_DEFERRED not in confirmations):
             lines.append(compare_needs_text(state))
-        reply_plan = plan_reply(
-            state, snapshot, understood=understood or bool(problems) or und.anything, just_calculated=just_calculated,
-            matched_car=matched_car, notice="\n".join(problems) or notice, rep_opened=rep_opened,
-            notice_asks=bool(problems) or plan.asks is not None, cta_field=asks_field,
-            confirmations=[*confirmations, *refused], answers=list(zip(answers, terms)),
-            follow_up=und.presence, explain=und.help or len(no_car_lines) > 1, extra=lines)
-        if map_line:
-            reply_plan.ack.append(map_line)  # after what was saved and identified this turn
-        if map_shown and state.stage in (Stage.CHOOSE_OPTIONS, Stage.PRESENTED):
-            reply_plan.ask = []      # the map answered the request; the call to action still offers a comparison
+        def build_plan():
+            built = plan_reply(
+                state, snapshot, understood=understood or bool(problems) or und.anything,
+                just_calculated=just_calculated, matched_car=matched_car, notice="\n".join(problems) or notice,
+                rep_opened=rep_opened, notice_asks=bool(problems) or plan.asks is not None, cta_field=asks_field,
+                confirmations=[*confirmations, *refused], answers=list(zip(answers, terms)),
+                follow_up=und.presence, explain=und.help or len(no_car_lines) > 1, extra=lines)
+            if map_line:
+                built.ack.append(map_line)  # after what was saved and identified this turn
+            if map_shown and state.stage in (Stage.CHOOSE_OPTIONS, Stage.PRESENTED):
+                built.ask = []      # the map answered the request; the call to action still offers a comparison
+            return built
+
+        reply_plan = build_plan()
+        rep_skipped = state.rep_skipped
         _mark_asked(state)
         # the reply about unknown fields alternates its wording: "לא יודע" twice never gets the same text
         state.unknown_told = state.unknown_told + 1 if current_group(state)[0] == "unknown" else 0
@@ -971,6 +980,15 @@ class Agent:
                                                     must_answer=bool(und.audit or und.all_at_once or und.faq_ids
                                                                      or und.catalog or und.unanswered or und.help
                                                                      or und.complaint or restated_no_car))
+        if (source == "template" and und.unanswered and state.unanswered_question is None and not rep_skipped
+                and not und.redirect):
+            # the LLM's reply answered the employee's question, but a guard rejected it: the template that replaces
+            # it must not drop the question. Code found a concrete question about the arrangements (scope "org"),
+            # so the template offers the representative, as it does without an LLM (live QA 22/10).
+            state.unanswered_question = und.unanswered[0]
+            offered = build_plan()
+            reply = offered.text()
+            state.last_ask = offered.ask[-1] if offered.ask else ""
         if gap_ack and source == "llm":
             reply = f"{gap_ack}\n{reply}"
         if source == "llm" and und.catalog and not _answers_catalog(reply, und.catalog, snapshot):
@@ -1001,6 +1019,9 @@ class Agent:
         kids = _CHILDREN_WORDS_RE.search(text)        # "שני ילדים": a number in words
         if kids and current["children_under_23"] is None:
             said["children_under_23"] = _CHILDREN_WORDS[kids.group(1)]
+        kids = _CHILDREN_DIGITS_RE.search(mask_ages(text))   # "2 ילדים" ("ילדים מתחת גיל 23" is not a count)
+        if kids and current["children_under_23"] is None and "children_under_23" not in said:
+            said["children_under_23"] = int(kids.group(1))
         args = {k: v for k, v in said.items()
                 if k in current and current[k] is None and k not in conflicts}
         copay = parse_copay(text)
@@ -1066,7 +1087,7 @@ class Agent:
 
         messages = [system_message(state, snap, "" if applied or not plan.complete else parser_hint(plan.calls), applied),
                     *history[-HISTORY:], user_message(text)]
-        cand = run_rounds(self.llm, messages, _understand_tools(state), execute, deadline)
+        cand = run_rounds(self.llm, messages, _understand_tools(state), execute, deadline, force_on_claim=not applied)
         return recorded[0], cand
     @staticmethod
     def _grounded(ctx: ToolContext, args: dict[str, Any], text: str) -> Optional[dict[str, Any]]:
@@ -1531,7 +1552,9 @@ class Agent:
 
     # ---------- ניסוח ----------
 
-    VERIFY_BUDGET_S = 1.2       # the claim verifier's own cap
+    # the claim verifier's own cap. One flash-lite call takes 1.7-1.9 s with this prompt: at 1.2 s the verifier never
+    # finished, the turn waited for its deadline and the reply lost its sentences (llm:trimmed). Live QA 22/10.
+    VERIFY_BUDGET_S = 2.5
     MIN_VERIFY_S = 0.4          # less than this left in the turn: no verifier, only template-safe sentences
     MIN_RETRY_S = 1.5           # less than this left: no retry (the trimmed reply or the template)
 

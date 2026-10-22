@@ -25,7 +25,20 @@ from app.modules.rules.public import RulesSnapshot, matched_name
 from .llm.port import ChatMessage, LLMChain, LLMError
 from .parsing import numbers_in
 
-TAG_RE = re.compile(r"\s*\[\[(faq|tool|state|catalog)(?::([\w-]+))?\]\]")
+# any hidden tag, so none ever reaches the screen; its content may list several sources ("faq:a,faq:b"), and
+# each one is checked (_tag_refs). An unknown form is removed and counts as a missing source (live QA 22/10).
+TAG_RE = re.compile(r"\s*\[\[([^\[\]\n]*)\]\]")
+_TAG_PART_RE = re.compile(r"(faq|tool|state|catalog)(?::([\w-]+))?")
+
+
+def _tag_refs(sentence: str) -> list[Optional[tuple[str, str]]]:
+    """Every source a sentence's tags name, as (kind, ref); None for a part that is not a known form."""
+    out: list[Optional[tuple[str, str]]] = []
+    for content in TAG_RE.findall(sentence):
+        for part in content.split(","):
+            m = _TAG_PART_RE.fullmatch(part.strip())
+            out.append((m.group(1), m.group(2) or "") if m else None)
+    return out
 SINGULAR_RE = re.compile(r"(?<![א-ת])(?:שלך|לך|ממך|אותך|עבורך|בחרת|כתבת|התכוונת|ביקשת|תרצה|תרצי)(?![א-ת])")
 OPENERS = ("בשמחה", "שמנו לב", "איזה יופי", "רשמנו", "מעולה", "נהדר", "כדי שנוכל להתקדם", "היי", "תודה רבה")
 BANNED = ("לא הצלחתי להבין את התשובה", "אני רק בוט", "אני רק מודל", "כבינה מלאכותית")
@@ -129,10 +142,12 @@ def check(raw: str, *, snapshot: RulesSnapshot, allowed: set[Decimal], tools_cal
     tools = set(tools_called)
     out = Check(strip_tags(raw))
     for s in sentences(raw):
-        tags = TAG_RE.findall(s)
+        tags = _tag_refs(s)
         clean = TAG_RE.sub("", s).strip()
-        for kind, ref in tags:
-            if (kind == "faq" and ref not in snapshot.faq.ids) or (kind == "tool" and ref not in tools) or (
+        for tag in tags:
+            kind, ref = tag if tag is not None else ("", "")
+            if tag is None or (kind == "faq" and ref not in snapshot.faq.ids) or (
+                    kind == "tool" and ref not in tools) or (
                     kind == "catalog" and not _catalog_supported(clean, snapshot)):
                 out.violations.append(Violation("source", clean))
         if not tags and not _is_question(clean) and not clean.startswith("רשמתי") and \

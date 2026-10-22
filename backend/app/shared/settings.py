@@ -54,8 +54,13 @@ class Settings(BaseSettings):
     llm_fallback_api_key: str = ""
     llm_base_url: str = ""            # ספק תואם OpenAI: ריק = ברירת המחדל של הספק
     llm_fallback_base_url: str = ""
-    llm_timeout_s: float = 4.0        # לכל קריאה: רשומה איטית → הבאה בשרשרת
-    llm_turn_deadline_s: float = 4.0   # a whole turn (UNDERSTAND + SAY); after it — the template of the same plan
+    # לכל קריאה: רשומה איטית → הבאה בשרשרת. Measured live 22/10: flash-lite takes 1.7-4 s per call when the API is
+    # busy; at 4 s one slow call timed out and its entry cooled down for llm_cooldown_fail_s (templates meanwhile)
+    llm_timeout_s: float = 6.0
+    # a whole turn (UNDERSTAND + SAY); after it — the template of the same plan. A ceiling, not a wait: measured live
+    # (22/10) a turn is two rounds + the verifier, median 4.5 s; with a retry up to ~7-8 s. At 4 s every turn was cut
+    # (replies trimmed or templated), at 8 s a turn that needed its retry still was.
+    llm_turn_deadline_s: float = 12.0
     llm_intro_budget_s: float = 2.5    # פתיח לתוצאות: לא ענה בזמן → התוצאה מהתבנית מיד
 
     max_message_chars: int = 1000
