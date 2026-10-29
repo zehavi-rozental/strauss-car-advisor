@@ -201,6 +201,18 @@ employee_data_terms: [שכר, משכורת, ברוטו, בסיס, עמלות, ע
 # what a result on screen is made of: with results shown, a question naming one is about them (answered from them)
 result_terms: [הערכה, זמני, זמנית, סופי, סופית, מאושר, מאושרת, אושר, אושרה, אישור, ממתין, ממתינה, השתתפות, קטלוג,
                מדויק, מדויקת, חישוב, החישוב, מחושב, הפרש, הנטו]
+# a property the catalog does not hold (29/10): never a model name, never "כן, בקטלוג יש"; with a car named (or
+# "רכב", "הרכב") it is a question for the representative. Whole words, a prefix letter allowed.
+attribute_terms: [צבע, צבעים, בצבע, אדום, אדומה, לבן, לבנה, שחור, שחורה, כחול, כחולה, אפור, אפורה, כסוף, כסופה,
+                  ירוק, ירוקה, צהוב, בורדו, מטאלי, גג נפתח, גג פנורמי, חלון גג, אבזור, אבזורים,
+                  וו גרירה, מושבי עור, ריפוד, מערכת שמע, מולטימדיה, מצלמה, מצלמת, חיישני, ג'אנטים, חישוקים, מלאי,
+                  זמינות, אספקה, זמן אספקה, מועד אספקה, מסירה, מתי מגיע, מתי יגיע, נפח תא, תא מטען, טווח]
+# the employee asks for the representative (29/10): the offer to ask, at once, with the open question
+rep_request_cues: [לדבר עם נציג, לדבר עם הנציג, לשאול את הנציג, לשאול נציג, לשאול את נציג התחבורה, תשאל את הנציג,
+                   תשאלי את הנציג, תשאלו את הנציג, שאל את הנציג, תשאל נציג, תעביר לנציג, תעבירי לנציג, להעביר לנציג,
+                   להעביר את זה לנציג, רוצה נציג, נציג אנושי, בן אדם אמיתי, לדבר עם בן אדם, פנייה לנציג, לפנות לנציג]
+# two catalog cars compared: their catalog facts (group, drive), never a copay
+comparison_terms: [ההבדל, הבדל, ההבדלים, הבדלים, לעומת, השוואה, להשוות]
 # with a new car's copay on screen, these ask for the representative (no amount said): a question is opened
 copay_rep_terms: [נציג, הנציג, לנציג, יאשר, לאשר, אישור, תאשר, לברר, בירור, תברר, סוכם, הסדר, אחרת, שונה, לבדוק]
 # the employee's own pay / net: the calculation answers it ("כדי להשוות, חסרים לי עוד…" until it can)

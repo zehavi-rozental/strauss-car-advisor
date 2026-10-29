@@ -55,8 +55,9 @@ test.describe('representative flow', () => {
     const q = rep.locator('.rep-card', { hasText: 'MAZDA 3' }).last()
     await expect(q).toBeVisible({ timeout: 20_000 })
     await expect(q).not.toContainText('18,500')
-    await expect(q.getByLabel('ההשתתפות חלה מתאריך')).toBeVisible()
-    await q.getByRole('button', { name: /אישור סכום ושליחת תשובה/ }).click()
+    await expect(q.getByLabel('ההשתתפות חלה מתאריך')).toHaveCount(0)    // no effective date is asked (29/10)
+    await expect(q.getByLabel('הערה לעובד (לא חובה)')).toBeVisible()      // a note is optional
+    await q.getByRole('button', { name: /אישור סכום ברירת המחדל/ }).click()   // one click, no note
     await close()
 
     await expect(page.locator(BOT, { hasText: 'נציג התחבורה אישר את ההשתתפות ב-MAZDA 3 (2025): 350 ₪ בחודש.' }))
@@ -66,30 +67,33 @@ test.describe('representative flow', () => {
     await expect(page.locator('.result-card').last().locator('.copay-box')).toContainText('אושר על ידי הנציג')
   })
 
-  test('another amount from a future date recalculates, and the date is never shown as in force today', async ({ browser }) => {
+  // the effective date left the rep screen (29/10): another amount is recalculated at once, with no date at all
+  test('another amount recalculates at once, with no effective date asked or shown', async ({ browser }) => {
     const page = await employee(browser)
     for (const m of [PROFILE, 'יש לי קורולה קרוס, משלמת 300', 'DOLPHIN', 'אני רוצה שנציג התחבורה יאשר את ההשתתפות']) await send(page, m)
     await expect(page.locator('.result-card').last().locator('.copay-box')).toContainText('200')
-    const year = new Date().getFullYear() + 1
 
     const { rep, close } = await repScreen(browser)
     const q = rep.locator('.rep-card', { hasText: 'BYD DOLPHIN' }).last()
     await expect(q).toBeVisible({ timeout: 20_000 })
+    await expect(q.getByLabel('ההשתתפות חלה מתאריך')).toHaveCount(0)
     await q.getByRole('button', { name: 'סכום אחר' }).click()
     await q.locator('input[inputmode="decimal"]').fill('260')
-    await q.getByLabel('ההשתתפות חלה מתאריך').fill(`${year}-01-01`)
-    await q.getByRole('button', { name: 'שליחת תשובה' }).click()
+    await q.getByRole('button', { name: 'אישור סכום ושליחת תשובה' }).click()   // no note needed
     await close()
 
     const answer = page.locator(BOT, { hasText: 'נציג התחבורה קבע השתתפות של 260 ₪ בחודש ב-BYD DOLPHIN (2025)' })
     await expect(answer).toBeVisible({ timeout: 30_000 })
-    await expect(answer).toContainText(`ההשתתפות תחול מ-01.01.${year}.`)
     await expect(answer).toContainText('חישבתי מחדש')
+    await expect(answer).not.toContainText('תחול')
     await expect(answer).not.toContainText('בתוקף')
     const copay = page.locator('.result-card').last().locator('.copay-box')
     await expect(copay).toContainText('260')
-    await expect(copay).toContainText(`תחול מ-01.01.${year}`)
     await expect(copay).toContainText('אושר על ידי הנציג')
+    await expect(copay).not.toContainText('תחול מ-')
+    await page.reload()                                                    // the recalculation survives a refresh
+    await expect(page.locator('.result-card').last().locator('.copay-box')).toContainText('260')
+    await expect(page.locator(BOT, { hasText: 'נציג התחבורה קבע השתתפות של 260 ₪' })).toHaveCount(1)
   })
 
   test('a stated group that contradicts the occupations table waits for the rep, who answers with a button', async ({ browser }) => {

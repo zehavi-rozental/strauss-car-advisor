@@ -65,6 +65,15 @@ class Faq(BaseModel):
     # a reason to ask the representative about a new car's copay, said by the employee with the copay on screen
     # ("שהנציג יאשר", "סוכם אחרת", "לברר"): with no amount given, a question is opened for that car
     copay_rep_terms: tuple[str, ...] = ()
+    # a property of a car the catalog does not hold (colour, a sunroof, equipment, stock, delivery time): a question
+    # naming one is never read as a model name and never answered "yes, it is in the catalog" (29/10); it is a
+    # concrete question for the representative when it is about a car
+    attribute_terms: tuple[str, ...] = ()
+    # the employee asks for the representative ("אני רוצה לדבר עם נציג", "היית צריך לשאול את הנציג"): offered at
+    # once, with the question still open, never "not understood" and never back to the pay questions (29/10)
+    rep_request_cues: tuple[str, ...] = ()
+    # two catalog cars compared ("מה ההבדל בין NIRO ל-DOLPHIN?"): the catalog facts of both, never a copay
+    comparison_terms: tuple[str, ...] = ()
     # a question whose intent is truly unclear: one short line, no buttons, never the representative
     clarify: str = "לא בטוח שהבנתי את השאלה. כתבו אותה במילים אחרות, למשל על הרכב, הזכאות או הנטו."
 

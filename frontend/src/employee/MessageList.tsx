@@ -4,6 +4,7 @@ import type { OptionResult, RepInquiry } from '../api/types'
 import { formatTime } from '../format/time'
 import { BrandMark } from '../ui/BrandMark'
 import { Icon } from '../ui/Icon'
+import { InquiryRecord } from './InquiryRecord'
 import { ResultCard } from './ResultCard'
 import { bubbleText, copyText, copyableText, lastUserSeq as findLastUserSeq } from './messages'
 import { RichText } from './richText'
@@ -20,6 +21,8 @@ interface Props {
   typing: boolean
   onOpenTable?: () => void
   onAskCopay?: (item: OptionResult) => void
+  /** a new verification link while an address waits for it (mail on, not verified): on the latest open inquiry */
+  onResendVerification?: () => Promise<string>
   /** 360°: the option map's chat card, under the results */
   mapCard?: ReactNode
   /** the current question's widget, drawn under the latest message */
@@ -34,7 +37,7 @@ interface Props {
 export const STALE_NOTE = 'לא מעודכן: החישוב הזה נעשה לפני השינוי האחרון, ויחושב מחדש כשכל הפרטים יהיו ידועים.'
 
 export function MessageList({ messages, repQuestions = [], results, resultsStale = false, resultsAnchor, typing,
-                              onOpenTable, onAskCopay, mapCard, tail,
+                              onOpenTable, onAskCopay, onResendVerification, mapCard, tail,
                               onRetry, onCorrect, busy }: Props) {
   const end = useRef<HTMLDivElement>(null)
   const [copied, setCopied] = useState<number | null>(null)
@@ -56,6 +59,8 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
   const lastUserSeq = findLastUserSeq(messages)
   const anchored = resultsAnchor != null && messages.some((m) => m.seq === resultsAnchor)
   const inquiries = new Map(repQuestions.map((question) => [question.id, question]))
+  // each inquiry is drawn once: at its record message; an older conversation's question with no record, under
+  // the first message that carries its id (the representative's answer)
   const inquiryMessages = new Map<string, number>()
   for (const message of messages) {
     const id = message.rep_question_id
@@ -66,14 +71,25 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
   const answerMessages = new Map(messages
     .filter((message) => message.source === 'rep' && message.rep_question_id)
     .map((message) => [message.rep_question_id as string, message.seq]))
+  // the new verification link is offered once, on the latest open inquiry
+  const resendOn = onResendVerification
+    ? [...messages].reverse().find((m) => m.source === 'rep_inquiry' && m.rep_question_id
+        && inquiries.get(m.rep_question_id)?.status === 'OPEN')?.seq ?? null
+    : null
+  // a car with an open copay inquiry: its card shows the status tag only, not another "ask" button
+  const askedCopay = new Set(repQuestions
+    .filter((q) => q.status === 'OPEN' && q.missing_field === 'NEW_CAR_COPAY' && q.option_id)
+    .map((q) => q.option_id as string))
+  const askFor = (item: OptionResult) => (resultsStale || askedCopay.has(item.option_id) ? undefined : onAskCopay)
   const cards = results.length > 0 && (
     <div className={resultsStale ? 'result-cards result-stale' : 'result-cards'} data-stale={resultsStale || undefined}>
       {resultsStale && <p className="stale-note" role="status">{STALE_NOTE}</p>}
       {results.length > 1
         ? <SummaryCard items={results} current={!resultsStale} onOpenTable={onOpenTable}
-                       onAskCopay={resultsStale ? undefined : onAskCopay} />
+                       onAskCopay={resultsStale ? undefined : onAskCopay}
+                       canAskCopay={(item) => askFor(item) !== undefined} />
         : results.map((r) => <ResultCard key={`${r.option_id}:${r.run_id}`} item={r} onOpenTable={onOpenTable}
-                                         onAskCopay={resultsStale ? undefined : onAskCopay} />)}
+                                         onAskCopay={askFor(r)} />)}
     </div>
   )
 
@@ -89,6 +105,21 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
             <Icon name={done ? 'check' : 'copy'} size={16} />
           </button>
         )
+        if (m.source === 'rep_inquiry') {
+          // the inquiry's record replaces the bubble: one place for the car, the question and the status
+          const question = m.rep_question_id ? inquiries.get(m.rep_question_id) : undefined
+          const first = !m.rep_question_id || inquiryMessages.get(m.rep_question_id) === m.seq
+          return (
+            <div id={`message-${m.seq}`} key={m.seq} className="message-group from-bot inquiry-group">
+              {first && (
+                <InquiryRecord question={question} content={m.content}
+                               answerSeq={m.rep_question_id ? answerMessages.get(m.rep_question_id) : undefined}
+                               onResend={m.seq === resendOn ? onResendVerification : undefined} />
+              )}
+              {anchored && m.seq === resultsAnchor && cards}
+            </div>
+          )
+        }
         return (
           <div id={`message-${m.seq}`} key={m.seq} className={`message-group ${bot ? 'from-bot' : 'from-user'}`}>
             {bot && m.source === 'rep' && (
@@ -134,39 +165,11 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
                 </div>
               </div>
             )}
+            {/* an older conversation: its question has no record message; shown once, without the answer */}
             {m.rep_question_id && inquiries.has(m.rep_question_id)
-              && inquiryMessages.get(m.rep_question_id) === m.seq && (() => {
-              const question = inquiries.get(m.rep_question_id!)!
-              const answeredAt = question.answered_at ? new Date(question.answered_at) : null
-              const createdAt = new Date(question.created_at)
-              const elapsedMs = Math.max(0, (answeredAt?.getTime() ?? Date.now()) - createdAt.getTime())
-              const minutes = Math.floor(elapsedMs / 60_000)
-              const duration = minutes >= 1440
-                ? `${Math.floor(minutes / 1440)} ימים, ${Math.floor((minutes % 1440) / 60)} שעות`
-                : minutes >= 60 ? `${Math.floor(minutes / 60)} שעות, ${minutes % 60} דקות`
-                  : `${minutes} דקות`
-              const fullTime = (date: Date) => new Intl.DateTimeFormat('he-IL', {
-                dateStyle: 'short', timeStyle: 'short',
-              }).format(date)
-              const answerSeq = answerMessages.get(question.id)
-              const status = question.status === 'ANSWERED' ? 'נענתה'
-                : question.status === 'CANCELLED' ? 'בוטלה' : 'ממתינה לתשובת הנציג'
-              return (
-                <section id={`rep-inquiry-${question.id}`} className="rep-inquiry-history" data-testid="rep-inquiry-history"
-                         aria-label={`הפנייה לנציג: ${status}`}>
-                  <header><Icon name="rep" size={16} /><strong>{status}</strong></header>
-                  <p className="rep-inquiry-history-question">{question.question_text}</p>
-                  <dl>
-                    <div><dt>נפתחה</dt><dd>{fullTime(createdAt)}</dd></div>
-                    {answeredAt && <div><dt>נענתה</dt><dd>{fullTime(answeredAt)}</dd></div>}
-                    <div><dt>משך המתנה</dt><dd>{duration}</dd></div>
-                  </dl>
-                  {answerSeq != null && (
-                    <a href={`#message-${answerSeq}`}>לצפייה בתשובת הנציג</a>
-                  )}
-                </section>
-              )
-            })()}
+              && inquiryMessages.get(m.rep_question_id) === m.seq && (
+              <InquiryRecord question={inquiries.get(m.rep_question_id)} />
+            )}
             {anchored && m.seq === resultsAnchor && cards}
           </div>
         )

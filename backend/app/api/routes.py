@@ -169,10 +169,7 @@ def get_updates(conversation_id: str, request: Request, after: int = 0) -> dict[
     conversation_id = conversation_id.strip()
     try:
         result = _service(request).updates(conversation_id, request.cookies.get(COOKIE, ""), after)
-        email = _service(request).email_status(conversation_id)
-        result["rep_email"] = email["email"]
-        result["rep_email_verified"] = email["verified"]
-        return result
+        return {**result, **_email_fields(request, conversation_id)}
     except ConversationNotFound:
         raise HTTPException(404, NOT_FOUND) from None
 
@@ -209,6 +206,35 @@ def rep_question(conversation_id: str, body: RepQuestionIn, request: Request) ->
         raise HTTPException(404, NOT_FOUND) from None
     except ConversationConflict:
         raise HTTPException(409, "הפנייה לא נשמרה עקב פעולה מקבילה. נסו שוב.") from None
+
+
+def _email_fields(request: Request, conversation_id: str) -> dict[str, Any]:
+    """The employee's own email state, read once per request (after the cookie was checked by the caller)."""
+    email = _service(request).email_status(conversation_id)
+    return {"rep_email": email["email"], "rep_email_verified": email["verified"],
+            "rep_email_delivery": email["delivery"], "rep_email_pending": email["pending_address"]}
+
+
+class EmailVerifyIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: Optional[str] = None       # none: the address this conversation is waiting to verify
+
+
+@router.post("/conversations/{conversation_id}/email/verify")
+def resend_email_verification(conversation_id: str, body: EmailVerifyIn, request: Request) -> dict[str, Any]:
+    """A new verification link for this conversation's address (the previous one expired or was not delivered).
+    Session cookie only; rate-limited; no new link while one is still valid."""
+    conversation_id = conversation_id.strip()
+    if not context(request).message_limiter.allow(f"email-verify:{conversation_id}"):
+        raise HTTPException(429, "יותר מדי בקשות בדקה. נסו שוב עוד מעט.")
+    try:
+        return _service(request).resend_verification(conversation_id, request.cookies.get(COOKIE, ""), body.email)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    except EmailNotConfigured:
+        raise HTTPException(503, "עדכונים באימייל אינם זמינים כרגע. תשובת הנציג תופיע בשיחה.") from None
+    except ConversationNotFound:
+        raise HTTPException(404, NOT_FOUND) from None
 
 
 class EmailLinkIn(BaseModel):
@@ -280,5 +306,4 @@ def get_conversation(conversation_id: str, request: Request) -> dict[str, Any]:
             **map_readiness(view.state),
             "pending_rep": state["pending_rep"]["reason"] if state["pending_rep"] else None,
             "expects": view.expects, "messages": view.messages, "rep_questions": view.rep_questions,
-            "rep_email": _service(request).email_status(conversation_id)["email"],
-            "rep_email_verified": _service(request).email_status(conversation_id)["verified"]}
+            **_email_fields(request, conversation_id)}

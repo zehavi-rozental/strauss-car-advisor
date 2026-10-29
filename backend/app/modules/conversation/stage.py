@@ -245,6 +245,9 @@ class ConversationState(BaseModel):
     unknown_told: int = 0    # replies about fields the employee does not know (the wording alternates)
     misses: int = 0          # answers in a row that were not understood (never the same reply twice)
     unanswered_question: Optional[str] = None    # a question the FAQ does not cover: "לשאול את נציג התחבורה"
+    # the employee's latest question nothing here answered, kept after its turn: "היית צריך לשאול את הנציג" offers
+    # to send exactly that (cleared once it is sent)
+    last_rep_question: Optional[str] = None
     pending_rep_question: Optional[str] = None   # the privacy-checked text shown before sending to the rep
     pending_rep_key: Optional[str] = None        # its option_id, from the employee's own words (dedup)
     general_questions: dict[str, GeneralQuestion] = Field(default_factory=dict)   # sent to the rep, by option_id

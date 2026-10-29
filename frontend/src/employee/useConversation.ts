@@ -58,6 +58,9 @@ export function useConversation() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [stage, setStage] = useState<Stage | null>(null)
   const [repEmail, setRepEmail] = useState<string | null>(null)
+  // an older server does not say: mail is assumed on (the card asks for an address, as before)
+  const [emailEnabled, setEmailEnabled] = useState(true)
+  const [emailPending, setEmailPending] = useState(false)     // an address waits for its verification
   const [expectsState, setExpectsState] = useState<Expects | null>(null)
   const setExpects = useCallback((next: Expects | null) => {
     setExpectsState((prev) => (sameExpects(prev, next) ? prev : next))
@@ -98,6 +101,8 @@ export function useConversation() {
     lastAssistantRef.current = lastAssistantSeq(view.messages)
     setStage(view.stage)
     setRepEmail(view.rep_email ?? null)
+    setEmailEnabled(view.rep_email_delivery !== 'disabled')
+    setEmailPending(view.rep_email_pending === true)
     setExpects(view.expects)
     setLastAssistant(lastAssistantRef.current)
     setResultsStale(Boolean(view.results_stale))
@@ -121,6 +126,8 @@ export function useConversation() {
       setMessages((prev) => [...prev.filter((m) => !m.pending), ...fresh])
       setStage(u.stage)
       if (u.rep_email_verified) setRepEmail(u.rep_email ?? null)
+      if (u.rep_email_delivery) setEmailEnabled(u.rep_email_delivery !== 'disabled')
+      if (u.rep_email_pending !== undefined) setEmailPending(u.rep_email_pending)
       setExpects(u.expects)
       setLastAssistant(lastAssistantRef.current)
       setResultsStale(Boolean(u.results_stale))
@@ -385,7 +392,7 @@ export function useConversation() {
   const questionKey = `${lastAssistant ?? ''}|${JSON.stringify(expects)}`
 
   return {
-    conversationId, repEmail,
+    conversationId, repEmail, emailEnabled, emailPending,
     messages, stage, expects, questionKey, results, resultsStale, mapReady, optionMap: optionMapState, resultsAnchor,
     pendingQuestions,
     repQuestions, returnTokenPending, returnTokenError, resumeEmailLink,

@@ -126,7 +126,7 @@
 .result-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
 .result-title { margin: 0; font-size: 1rem; font-weight: 400; }
 .car-title { display: inline-flex; align-items: baseline; gap: 10px; min-inline-size: 0; }
-.car-title-name { font-size: 1.5rem; font-weight: 300; letter-spacing: 0.01em; line-height: 1.1; }
+.car-title-name { font-size: 1.5rem; font-weight: 300; letter-spacing: 0.01em; line-height: 1.1; overflow-wrap: break-word; }
 .car-title-year { font-size: var(--fs-micro); font-weight: 500; color: var(--ink-3); padding: 2px 8px; border: 1px solid var(--line); border-radius: var(--r-pill); }
 .state {
   display: inline-flex; align-items: center; gap: 6px;
@@ -206,7 +206,8 @@
 .summary-row {
   display: grid;
   grid-template-columns: 26px minmax(0, 1fr) auto;
-  grid-template-areas: 'rank car figure' 'rank status figure' '. why why';
+  /* the copay line has its own row under the reason (it was auto-placed into the 22px rank column: D1, 29/10) */
+  grid-template-areas: 'rank car figure' 'rank status figure' '. why why' '. copay copay';
   align-items: center;
   gap: 4px 12px;
   padding: 14px 16px;
@@ -223,6 +224,9 @@
 .summary-status { grid-area: status; }
 .summary-figure { grid-area: figure; align-items: flex-end; text-align: end; }
 .summary-why { grid-area: why; margin-block-start: 6px; font-size: var(--fs-small); color: var(--ink-2); }
+.summary-copay { grid-area: copay; min-inline-size: 0; margin-block-start: 4px; font-size: var(--fs-small); }
+.summary-copay .copay-line { display: flex; align-items: center; gap: 4px 8px; }
+.summary-copay .tag { white-space: nowrap; }
 
 /* ---------- the comparison screen ---------- */
 body.has-sheet { overflow: hidden; }
@@ -392,6 +396,10 @@ table.compare tr.row-delta > th { border-inline-start: 0; }
   box-shadow: 0 20px 44px -26px rgb(6 48 77 / 75%);
 }
 .is-best .car-title-year { color: var(--on-hero-2); border-color: rgb(255 255 255 / 28%); }
+/* the "ask" link on the dark leading row: light, like the rest of its text, with a visible focus ring */
+.is-best .link-inline { color: var(--on-hero); }
+.is-best .link-inline:hover { color: var(--on-hero-2); }
+.link-inline:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 2px; }
 .is-best .tag-brand { background: var(--petal-orange); color: var(--ink); font-weight: 600; }
 .is-best .compare-kicker,
 .is-best .summary-rank { color: var(--on-hero-3); }
@@ -480,7 +488,7 @@ table.compare tr.row-delta > th { border-inline-start: 0; }
 }
 @media (max-width: 560px) {
   /* phones: the new net sits under the car's name, across the whole row */
-  .summary-row { grid-template-areas: 'rank car car' 'rank status status' 'rank figure figure' '. why why'; }
+  .summary-row { grid-template-areas: 'rank car car' 'rank status status' 'rank figure figure' '. why why' '. copay copay'; }
   .summary-figure { align-items: flex-start; text-align: start; margin-block-start: 8px; }
   .summary-head { flex-direction: column; }
 }
@@ -523,4 +531,5 @@ table.compare tr.row-delta > th { border-inline-start: 0; }
 .copay-amount { font-weight: 600; }
 .copay-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 6px 0 0; font-size: var(--fs-micro); color: var(--ink-3); }
 .copay-line { flex-wrap: wrap; }
+.copay-box .link-inline { margin-block-start: 8px; font-size: var(--fs-small); }
 .copay-date { font-size: var(--fs-micro); color: var(--ink-3); }

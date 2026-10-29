@@ -683,13 +683,17 @@ NOTE_MAX = 500
 
 
 def rep_note_text(note: Optional[str]) -> str:
-    """The representative's note to the employee, one plain line: no control characters, no markup the chat
-    renders (bold, bullets, links, HTML), at most NOTE_MAX characters. No note → "" (no placeholder line)."""
+    """The representative's note to the employee, as written: its line breaks and punctuation are kept; control
+    characters, bold, links and HTML are removed, empty lines collapse to one, at most NOTE_MAX characters. No note
+    → "" (no placeholder line)."""
     if not note:
         return ""
-    clean = "".join(" " if unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp") else ch for ch in note)
-    clean = _MARKUP_RE.sub("", _LINK_RE.sub(lambda m: m.group(1), clean))
-    clean = " ".join(w for w in clean.split() if w not in ("-", "*", "•"))[:NOTE_MAX].strip()
+    text = note.replace("\r\n", "\n").replace("\r", "\n")
+    text = "".join(ch if ch == "\n" else " " if unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp") else ch
+                   for ch in text)
+    text = _MARKUP_RE.sub("", _LINK_RE.sub(lambda m: m.group(1), text))
+    lines = [" ".join(line.split()) for line in text.split("\n")]
+    clean = re.sub(r"\n{2,}", "\n", "\n".join(lines))[:NOTE_MAX].strip()
     return f"הערת הנציג: {clean}" if clean else ""
 
 
@@ -1206,3 +1210,36 @@ def to_plural(text: str) -> str:
     for pattern, plural in _SINGULAR_TO_PLURAL:
         text = pattern.sub(plural, text)
     return text
+
+
+def inquiry_next_text(mail: bool, verified: bool, address_given: bool) -> str:
+    """After an inquiry is sent: where the answer will appear, and — only when mail is really configured — what the
+    email will do. Never claims an email was sent (it is queued; delivery happens after this reply)."""
+    if mail and verified:
+        return "התשובה תופיע כאן בשיחה, ונעדכן אתכם גם באימייל כשהנציג יענה."
+    if mail and address_given:
+        return ("התשובה תופיע כאן בשיחה. ביקשנו לשלוח לכתובת שלכם קישור לאימות. "
+                "אחרי האימות נעדכן אתכם גם באימייל כשהנציג יענה.")
+    return "התשובה תופיע כאן בשיחה."
+
+
+# what an inquiry the system opened by itself is about (no words of the employee's to show): the employee's screen
+INQUIRY_PURPOSE = {
+    "NEW_CAR_COPAY": "בקשה לאשר את סכום ההשתתפות החודשי.",
+    "ELIGIBILITY_GROUP": "בירור קבוצת הזכאות שלכם.",
+    "CURRENT_COPAY": "בירור ההשתתפות ברכב שלכם היום.",
+    "CURRENT_USE_VALUE": "בירור שווי השימוש ברכב שלכם היום.",
+    "MAINTENANCE_AMOUNT": "בירור סכום האחזקה.",
+    "OCCUPATION_OPT_OUT": "בירור אפשרות הוויתור על רכב.",
+}
+INQUIRY_PURPOSE_DEFAULT = "בירור מול נציג התחבורה."
+
+
+def rep_request_text(question: Optional[str]) -> str:
+    """"אני רוצה לדבר עם נציג": the offer, at once, with the question still open (29/10). Nothing the employee
+    already gave is asked again here; the conversation goes on from where it was after this."""
+    if question:
+        return (f"אפשר להעביר לנציג התחבורה את השאלה: \"{question}\". התשובה תגיע לכאן, "
+                "והפרטים שכבר מסרתם נשמרים. רוצים שאשאל אותו?")
+    return ("אפשר לפנות לנציג התחבורה. כתבו מה תרצו לשאול, והתשובה תגיע לכאן. "
+            "הפרטים שכבר מסרתם נשמרים.")

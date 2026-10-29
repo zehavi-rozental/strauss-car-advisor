@@ -16,26 +16,25 @@ interface Props {
 export function AnswerForm({ question: q, token, onAnswered, onUnauthorized, onConflict }: Props) {
   const confirmValue = q.mode === 'CONFIRM' && q.answer_type === 'MONEY' ? q.suggested_value : null
   const newCarCopay = q.missing_field === 'NEW_CAR_COPAY'
+  // a general question is answered in one field: the answer is what the employee reads, a note would repeat it
+  const general = q.missing_field === 'GENERAL_QUESTION'
   // a stated group the occupations table contradicts: the two candidates from the context, or another letter
   const groups = q.missing_field === 'ELIGIBILITY_GROUP'
     ? [q.context.stated_group, q.context.table_group].filter((g): g is string => !!g) : []
   const quick = confirmValue !== null || groups.length > 0
-  const [other, setOther] = useState(!quick || newCarCopay)
-  const [value, setValue] = useState(newCarCopay ? confirmValue ?? '' : '')
+  const [other, setOther] = useState(!quick)
+  const [value, setValue] = useState('')
   const [note, setNote] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
+  // the note is optional everywhere: sent only when written
   const submit = async (answer: string) => {
-    if (newCarCopay && !note.trim()) {
-      setError('יש לכתוב הסבר לעובד.')
-      return
-    }
     setBusy(true)
     setError(null)
     try {
       const answered = await repApi.answer(token, q.id, {
-        value: answer, ...(note.trim() ? { note: note.trim() } : {}),
+        value: answer, ...(!general && note.trim() ? { note: note.trim() } : {}),
       })
       onAnswered(answered)
     } catch (e) {
@@ -63,9 +62,9 @@ export function AnswerForm({ question: q, token, onAnswered, onUnauthorized, onC
     <form className="answer-form" onSubmit={onSubmit}>
       {confirmValue !== null && (
         <div className="confirm-row">
-          <button type="button" className="chip chip-primary" disabled={busy}
-                    onClick={() => newCarCopay ? setValue(confirmValue) : submit(confirmValue)}>
-              <Icon name="check" size={18} />{newCarCopay ? 'בחירת סכום ברירת המחדל' : 'אישור'}{' '}
+          <button type="button" className="chip chip-primary" disabled={busy} onClick={() => submit(confirmValue)}>
+            <Icon name="check" size={18} />
+            {newCarCopay ? 'אישור סכום ברירת המחדל' : 'אישור'}{' '}
             <bdi className="num">{newCarCopay ? '(' : ''}{Number(confirmValue).toLocaleString('he-IL')} ₪{newCarCopay ? ')' : ''}</bdi>
           </button>
           {!other && <button type="button" className="chip chip-quiet" disabled={busy}
@@ -97,37 +96,38 @@ export function AnswerForm({ question: q, token, onAnswered, onUnauthorized, onC
           ) : (
             <>
               <label htmlFor={`a-${q.id}`}>
-                {q.answer_type === 'MONEY' ? 'סכום (₪)' : q.answer_type === 'DATE' ? 'תאריך'
-                  : groups.length > 0 ? 'אות הקבוצה' : 'תשובה'}
+                {q.answer_type === 'MONEY' ? (newCarCopay ? 'סכום ההשתתפות (₪)' : 'סכום (₪)')
+                  : q.answer_type === 'DATE' ? 'תאריך' : groups.length > 0 ? 'אות הקבוצה' : 'תשובה'}
               </label>
-              <input id={`a-${q.id}`} value={value} disabled={busy} aria-invalid={error ? true : undefined}
-                     type={q.answer_type === 'DATE' ? 'date' : 'text'}
-                     inputMode={q.answer_type === 'MONEY' ? 'decimal' : undefined}
-                     onChange={(e) => { setValue(e.target.value); setError(null) }} />
+              {general ? (
+                <textarea id={`a-${q.id}`} value={value} rows={4} maxLength={500} disabled={busy}
+                          aria-invalid={error ? true : undefined}
+                          onChange={(e) => { setValue(e.target.value); setError(null) }} />
+              ) : (
+                <input id={`a-${q.id}`} value={value} disabled={busy} aria-invalid={error ? true : undefined}
+                       type={q.answer_type === 'DATE' ? 'date' : 'text'}
+                       inputMode={q.answer_type === 'MONEY' ? 'decimal' : undefined}
+                       onChange={(e) => { setValue(e.target.value); setError(null) }} />
+              )}
             </>
           )}
         </div>
       )}
 
-      <div className="form-grid answer-extras">
-        {/* the date is real only for a new car's copay: the employee is shown "תחול מ-" / "בתוקף מ-" with it */}
-        <div className="form-field">
-          <label htmlFor={`n-${q.id}`}>הסבר לעובד</label>
-          {newCarCopay ? (
-            <textarea id={`n-${q.id}`} value={note} maxLength={500} required disabled={busy}
+      {!general && (
+        <div className="form-grid answer-extras">
+          <div className="form-field">
+            <label htmlFor={`n-${q.id}`}>הערה לעובד (לא חובה)</label>
+            <textarea id={`n-${q.id}`} value={note} rows={2} maxLength={500} disabled={busy}
                       onChange={(e) => setNote(e.target.value)} />
-          ) : (
-            <input id={`n-${q.id}`} value={note} maxLength={500} disabled={busy}
-                   onChange={(e) => setNote(e.target.value)} />
-          )}
+          </div>
         </div>
-      </div>
+      )}
 
       {error && <p className="field-error" role="alert">{error}</p>}
       {other && (
         <div className="form-actions">
-          <button type="submit" className="chip chip-primary"
-                  disabled={busy || !value.trim() || (newCarCopay && !note.trim())}>
+          <button type="submit" className="chip chip-primary" disabled={busy || !value.trim()}>
             {busy ? 'שולח…' : newCarCopay ? 'אישור סכום ושליחת תשובה' : 'שליחת תשובה לעובד'}
           </button>
         </div>

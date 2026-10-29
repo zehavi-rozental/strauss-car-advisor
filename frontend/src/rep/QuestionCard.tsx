@@ -49,13 +49,18 @@ export function QuestionCard(props: Props) {
       {open ? (
         <AnswerForm {...props} />
       ) : (
-        <p className="answered-line">
-          <Icon name="check" size={16} />
-          נענתה: <bdi>{q.answer_value}</bdi>{q.answered_by ? ` · ${q.answered_by}` : ''}
-          {q.answered_at ? ` · ${formatTime(q.answered_at)}` : ''}
-          {q.effective_date ? ` · חלה מ-${q.effective_date.split('-').reverse().join('.')}` : ''}
-          {q.answer_note ? <span className="answered-note">הסבר לעובד: <bdi>{q.answer_note}</bdi></span> : null}
-        </p>
+        // the status line (who, when), then the answer itself in its own block, full width: a multi-line answer
+        // is never squeezed into a narrow column beside the status (QA 29/10, 375px)
+        <div className="answered">
+          <p className="answered-line">
+            <Icon name="check" size={16} />
+            נענתה{q.answered_by ? ` · ${q.answered_by}` : ''}
+            {q.answered_at ? ` · ${formatTime(q.answered_at)}` : ''}
+            {q.effective_date ? ` · חלה מ-${q.effective_date.split('-').reverse().join('.')}` : ''}
+          </p>
+          <p className="answered-value"><bdi>{q.answer_value}</bdi></p>
+          {q.answer_note ? <p className="answered-note">הערה לעובד: <bdi>{q.answer_note}</bdi></p> : null}
+        </div>
       )}
     </article>
   )

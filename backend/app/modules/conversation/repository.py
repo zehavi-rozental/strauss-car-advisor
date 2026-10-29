@@ -79,6 +79,12 @@ class ConversationRepository:
         return list(self.session.scalars(select(MessageRow).where(MessageRow.conversation_id == conversation_id)
                                          .order_by(MessageRow.seq)))
 
+    def recorded_inquiries(self, conversation_id: uuid.UUID) -> set[str]:
+        """The questions to the representative that already have their inquiry record in this conversation."""
+        return set(self.session.scalars(select(MessageRow.rep_question_id).where(
+            MessageRow.conversation_id == conversation_id, MessageRow.source == "rep_inquiry",
+            MessageRow.rep_question_id.is_not(None))))
+
     # ---------- גרסאות הגדרות והרצות ----------
 
     def find_snapshot(self, key: str) -> Optional[uuid.UUID]:

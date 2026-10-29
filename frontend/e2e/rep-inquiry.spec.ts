@@ -147,7 +147,9 @@ test.describe('rep inquiry card in the conversation', () => {
     await openSecureLink.click()
     await expect.poll(() => returnRequests.length).toBe(1)
     await expect(returnedEmployee.locator(BOT).first()).toBeVisible({ timeout: 30_000 })
-    await expect(returnedEmployee.locator(BOT, { hasText: edited })).toBeVisible()
+    // the employee's question stands once, in the conversation's inquiry record (not a separate message bubble)
+    await expect(returnedEmployee.getByTestId('rep-inquiry-history').filter({ hasText: edited })).toHaveCount(1)
+    await expect(returnedEmployee.locator(BOT, { hasText: edited })).toHaveCount(0)
 
     // the rep sees the exact question and answers it with free text (general → no copay fields)
     const { rep, close } = await repScreen(browser)

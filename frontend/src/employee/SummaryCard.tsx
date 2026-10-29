@@ -14,9 +14,11 @@ export function rankResults(items: OptionResult[]): OptionResult[] {
   return [...items.filter(ok).sort((a, b) => delta(b) - delta(a)), ...items.filter((i) => !ok(i))]
 }
 
-export function SummaryCard({ items, onOpenTable, current = true, onAskCopay }:
+export function SummaryCard({ items, onOpenTable, current = true, onAskCopay, canAskCopay = () => true }:
   { items: OptionResult[]; onOpenTable?: () => void; current?: boolean;
-    onAskCopay?: (item: OptionResult) => void }) {
+    onAskCopay?: (item: OptionResult) => void
+    /** false for a car whose copay inquiry is already open: the row keeps its status tag, no second "ask" */
+    canAskCopay?: (item: OptionResult) => boolean }) {
   // an out-of-date result (current=false) is never ranked and has no leader: shown in the order chosen, as history
   const ranked = current ? rankResults(items) : items
   const today = ranked.find((i) => i.result.today)?.result.today ?? null
@@ -59,7 +61,7 @@ export function SummaryCard({ items, onOpenTable, current = true, onAskCopay }:
                   {r.why && <span className="summary-why">{r.why}</span>}
                   {onAskCopay && (
                     <span className="summary-copay">
-                      <CopayLine result={r} compact onAskCopay={() => onAskCopay(i)} />
+                      <CopayLine result={r} compact onAskCopay={canAskCopay(i) ? () => onAskCopay(i) : undefined} />
                     </span>
                   )}
                 </>

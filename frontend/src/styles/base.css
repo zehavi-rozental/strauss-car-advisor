@@ -104,11 +104,31 @@ img, svg { display: block; }
   font-variant-numeric: tabular-nums;
   transition: border-color var(--t-fast) var(--ease-soft), box-shadow var(--t-fast) var(--ease-soft);
 }
-.input:hover, .form-field input:not([type='radio']):hover:not(:disabled) { border-color: var(--ink-3); }
-.input:focus, .form-field input:not([type='radio']):focus, .rep-login input:focus, .reply-select:focus {
+/* a multi-line field in a form (the representative's answer and note): the same field, taller, resized only down */
+.form-field textarea {
+  inline-size: 100%;
+  min-inline-size: 0;
+  min-block-size: 72px;
+  padding-block: 10px;
+  padding-inline: 14px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--card);
+  color: var(--ink);
+  line-height: 1.55;
+  resize: vertical;
+  overflow-wrap: break-word;
+  transition: border-color var(--t-fast) var(--ease-soft), box-shadow var(--t-fast) var(--ease-soft);
+}
+.input:hover, .form-field input:not([type='radio']):hover:not(:disabled),
+.form-field textarea:hover:not(:disabled) { border-color: var(--ink-3); }
+.input:focus, .form-field input:not([type='radio']):focus, .rep-login input:focus, .reply-select:focus,
+.form-field textarea:focus {
   outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--petal-blue) 22%, transparent);
 }
-.form-field input[aria-invalid='true'] { border-color: var(--down); box-shadow: 0 0 0 3px var(--down-tint); }
+.form-field input[aria-invalid='true'], .form-field textarea[aria-invalid='true'] {
+  border-color: var(--down); box-shadow: 0 0 0 3px var(--down-tint);
+}
 .field-error { margin: 0; color: var(--down); font-size: var(--fs-small); }
 .field-note { margin: 0; color: var(--pending); font-size: var(--fs-small); }
 .field-source { color: var(--ink-3); font-size: var(--fs-micro); }

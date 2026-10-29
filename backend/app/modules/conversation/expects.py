@@ -136,8 +136,9 @@ def build_expects(state: ConversationState, snapshot: RulesSnapshot) -> dict[str
     for f in fields:
         f["closed"] = f["field"] in CLOSED or only_group
     if state.unanswered_question is not None and state.pending_rep_question is None:
+        # question: what the inquiry card opens with (the employee's own words; "" when they are still to be said)
         fields.append({"field": "ask_rep", "type": "choice", "choices": ASK_REP, "quick_replies": [],
-                       "max": None, "closed": True})
+                       "max": None, "closed": True, "question": state.unanswered_question})
         expects["fields"] = fields
     expects["closed"] = bool(fields) and fields[0].get("closed", False)
     cta, link = call_to_action(state, snapshot) if next_stage(state) != Stage.WAITING_FOR_REP else ("", None)

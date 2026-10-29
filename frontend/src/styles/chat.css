@@ -171,7 +171,11 @@
 .message-group { display: flex; flex-direction: column; gap: 14px; }
 .message-group.from-bot { animation: rise var(--t-slow) var(--ease-out) both; }
 
-.bubble { overflow-wrap: anywhere; }
+/* break a word only when it cannot fit on its own line ("anywhere" split model names mid-word: D2, 29/10) */
+.bubble { overflow-wrap: break-word; }
+/* a car name with its prefix and year ("ב-BYD DOLPHIN (2025)"): moves to the next line whole; never wider than the
+   line (a name longer than the line still wraps inside), so it never adds a horizontal scroll */
+.latin-run { display: inline-block; max-inline-size: 100%; text-indent: 0; }
 .bubble-text { white-space: pre-wrap; }
 .bubble-bot { display: flex; align-items: flex-start; gap: 14px; max-inline-size: 100%; }
 .bubble-avatar {
@@ -600,8 +604,28 @@
   color: var(--ink-2);
   font-size: var(--fs-small);
 }
-.rep-inquiry-history > header { display: flex; align-items: center; gap: var(--s1); color: var(--pending); }
-.rep-inquiry-history-question { margin: var(--s2) 0; color: var(--ink); }
+.rep-inquiry-history > header { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s1) var(--s2); color: var(--ink); }
+.rep-inquiry-history-question { margin: var(--s2) 0; color: var(--ink); white-space: pre-line; overflow-wrap: break-word; }
+/* one inquiry record: the status is the only coloured part; answered and cancelled read calmly */
+.rep-inquiry-status {
+  margin-inline-start: auto;
+  padding: 2px 10px;
+  border-radius: var(--r-pill);
+  background: var(--pending-tint);
+  color: var(--pending);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.rep-inquiry-history.is-answered { border-right-color: var(--up); }
+.rep-inquiry-history.is-answered .rep-inquiry-status { background: var(--up-tint); color: var(--up); }
+.rep-inquiry-history.is-cancelled { border-right-color: var(--line-2); }
+.rep-inquiry-history.is-cancelled .rep-inquiry-status { background: var(--card); color: var(--ink-3); }
+.rep-inquiry-car { margin: var(--s2) 0 0; color: var(--ink-2); }
+.rep-inquiry-next { margin: 0 0 var(--s2); color: var(--ink-3); }
+.rep-inquiry-resend { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s1) var(--s2); margin-top: var(--s2); }
+.rep-inquiry-resend .rep-inquiry-hint { flex-basis: 100%; }
+.inquiry-group { max-width: min(640px, 100%); }
 .rep-inquiry-history dl { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s4); margin: 0; }
 .rep-inquiry-history dl div { display: flex; gap: var(--s1); }
 .rep-inquiry-history dt { color: var(--ink-3); }

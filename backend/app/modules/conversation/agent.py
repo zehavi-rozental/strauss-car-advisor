@@ -90,6 +90,7 @@ from .templates import (
     rep_current_text,
     rep_maintenance_text,
     rep_note_text,
+    rep_request_text,
     rep_copay_text,
     rep_group_text,
     copay_rep_request_text,
@@ -165,7 +166,29 @@ class RepQuestionResult:
     option_id: Optional[str] = None
     car_label: Optional[str] = None
     catalog_amount: Optional[str] = None
-    question_text: Optional[str] = None
+    question_text: Optional[str] = None   # the employee's own wording (never the representative's structured text)
+    message: str = ""                     # status "invalid": why, in Hebrew, for the employee
+
+
+# the employee's own question inside a structured copay question: the representative reads the whole text, the
+# employee is shown only what follows this mark (employee_wording)
+EMPLOYEE_QUESTION_MARK = "\nשאלת העובד: "
+
+
+def employee_wording(missing_field: MissingField, question_text: str) -> Optional[str]:
+    """What the employee wrote, for the employee's screen: the part after the mark in a copay question, the whole
+    text of a general question (it is the employee's own), None for a question code opened by itself."""
+    if EMPLOYEE_QUESTION_MARK in question_text:
+        return question_text.split(EMPLOYEE_QUESTION_MARK, 1)[1]
+    return question_text if missing_field == MissingField.GENERAL_QUESTION else None
+
+
+def cars_named(snapshot: RulesSnapshot, text: str) -> list[Any]:
+    """The catalog cars a free text names, once each; a name inside a longer one named too ("COROLLA" within
+    "COROLLA CROSS") is the longer car only."""
+    found = list({c.catalog_code: c for c in named_cars(text, snapshot.catalog)}.values())
+    return [c for c in found
+            if not any(o is not c and c.model_name != o.model_name and c.model_name in o.model_name for o in found)]
 
 
 CUE_WORDS = 3                  # מילת תיקון נספרת באחת משלוש המילים הראשונות
@@ -824,6 +847,8 @@ class Agent:
         before = next_stage(state)
 
         und = understand(state, snapshot, text)
+        if und.unanswered:
+            state.last_rep_question = und.unanswered[0]     # kept for "היית צריך לשאול את הנציג" in a later turn
         ctx.question_message = und.question_only or text.strip().endswith("?")
         pace = _pace_change(state, snapshot, text)
         if pace is not None and len(words(text)) <= 6:
@@ -867,6 +892,9 @@ class Agent:
         elif asked := _copay_rep_request(state, snapshot, text):
             plan = self._ask_rep_copay(ctx, asked)
             und = replace(und, about_results=True, remainder="", unanswered=[], clarify=False, redirect=False)
+        elif und.rep_request:
+            # "אני רוצה לדבר עם נציג": the offer at once, code decides (both modes); no pay question this turn
+            return self._rep_requested(ctx, und)
         elif und.question_only and und.anything and und.ambiguity is None:
             # only questions / "מה?" / off topic: nothing to save, and a pending question stays open.
             # With an LLM it answers (from the FAQ / STATE); without one, the FAQ template.
@@ -1496,7 +1524,7 @@ class Agent:
         if stated is not None:
             text += f". העובד ציין שהוא מצפה להשתתפות של {stated} ₪"
         if employee_note:
-            text += f"\nשאלת העובד: {employee_note}"
+            text += f"{EMPLOYEE_QUESTION_MARK}{employee_note}"
         self._request(ctx, MissingField.NEW_CAR_COPAY, mode, AnswerType.MONEY, text, context,
                       str(default) if default is not None else None, option.id, replace=replace)
 
@@ -1525,24 +1553,37 @@ class Agent:
                 missing_field, option_id = MissingField.GENERAL_QUESTION, None
         if missing_field == MissingField.NEW_CAR_COPAY:
             catalog_amount = str(option.car.default_copay)
+            # the car is the option_id, never the text: a question that names another catalog car (a card opened
+            # for NIRO still holding a question about DOLPHIN) is refused, so the answer can never land on a car
+            # the representative was not asked about
+            others = [c for c in cars_named(snapshot, question)
+                      if c.catalog_code != option.car.catalog_code and c.model_name not in option.car.model_name]
+            if others:
+                named = ", ".join(c.label for c in others)
+                return TurnOutcome(reply="", source="rep", path="choice",
+                                   rep_question_result=RepQuestionResult(
+                                       status="invalid", missing_field=missing_field.value, option_id=option_id,
+                                       car_label=option.label, catalog_amount=catalog_amount,
+                                       message=f"השאלה מזכירה את {named}, אבל הפנייה היא על {option.label}. "
+                                               f"כתבו את השאלה על {option.label}, או פתחו פנייה מהכרטיס של "
+                                               f"{named}."))
             if existing_text is not None:
                 return TurnOutcome(reply="", source="rep", path="choice",
                                    rep_question_result=RepQuestionResult(
                                        status="exists", missing_field=missing_field.value, option_id=option_id,
                                        car_label=option.label, catalog_amount=catalog_amount,
-                                       question_text=existing_text))
+                                       question_text=employee_wording(missing_field, existing_text)))
             self._request_new_car_copay(ctx, option, snapshot.extensions.copay_policy, employee_note=question)
+            state.unanswered_question = state.last_rep_question = None   # asked: not offered again
             if option_id not in state.rep_copay_asked:
                 state.rep_copay_asked.append(option_id)
             for item in state.results:
                 if item.option_id == option_id:
                     item.result.update(copay_source="catalog", copay_pending=True)
-            built = next((q for q in ctx.question_requests if q.option_id == option_id), None)
             return TurnOutcome(reply="", source="rep", path="choice", question_requests=ctx.question_requests,
                                rep_question_result=RepQuestionResult(
                                    status="created", missing_field=missing_field.value, option_id=option_id,
-                                   car_label=option.label, catalog_amount=catalog_amount,
-                                   question_text=built.question_text if built is not None else None))
+                                   car_label=option.label, catalog_amount=catalog_amount, question_text=question))
         # GENERAL_QUESTION: informational, never changes the calculation. option_id is the content hash, so the
         # same question is recognised (never sent twice) while different questions open their own case.
         if existing_text is not None:
@@ -1551,10 +1592,16 @@ class Agent:
                                    status="exists", missing_field=MissingField.GENERAL_QUESTION.value,
                                    question_text=existing_text))
         gq_id = general_question_id(question)
-        car = rep_car_label(state.current, snapshot) if state.current.source in ("catalog", "tax", "stated") else None
+        # the car the question is about: the catalog cars it names; only a question that names none is about the
+        # car the employee drives today
+        named = cars_named(snapshot, question)[:MAX_OPTIONS]
+        car = (", ".join(c.label for c in named) if named
+               else rep_car_label(state.current, snapshot) if state.current.source in ("catalog", "tax", "stated")
+               else None)
         self._request(ctx, MissingField.GENERAL_QUESTION, Mode.CONFIRM, AnswerType.TEXT, question,
                       {"group": state.profile.group, "car_label": car}, option_id=gq_id)
         state.general_questions[gq_id] = GeneralQuestion(text=question)
+        state.unanswered_question = state.last_rep_question = None       # asked: not offered again
         return TurnOutcome(reply="", source="rep", path="choice", question_requests=ctx.question_requests,
                            rep_question_result=RepQuestionResult(
                                status="created", missing_field=MissingField.GENERAL_QUESTION.value,
@@ -1947,11 +1994,29 @@ class Agent:
         return set().union(*(collect_numbers(s) for s in sources))
     # ---------- a question the FAQ does not cover → the transport representative ----------
 
+    def _rep_requested(self, ctx: ToolContext, und: Understanding) -> TurnOutcome:
+        """The employee asks for the representative: the question of this message, else the latest one nothing
+        answered, is offered (the inquiry card opens pre-filled with it); with none, the employee is asked what to
+        ask. An earlier "להמשיך בלי" does not stop an explicit request. Already sent: its status, never twice."""
+        state = ctx.state
+        question = und.unanswered[0] if und.unanswered else state.last_rep_question
+        known = known_question_line(state, question) if question else None
+        if known is not None:
+            return TurnOutcome(reply=known, source="template", path="rep_request")
+        state.unanswered_question, state.rep_skipped = question or "", False
+        state.asked_field = None
+        return TurnOutcome(reply=rep_request_text(question), source="template", path="rep_request")
+
     def _prepare_rep_question(self, ctx: ToolContext) -> TurnOutcome:
         """"לשאול את נציג התחבורה": the question is rewritten without amounts or personal numbers, checked
         in code, and shown to the employee before anything is sent."""
         state, snap = ctx.state, ctx.snapshot
         question, state.unanswered_question = state.unanswered_question, None
+        if not question:
+            # a request for the representative with no question yet: what to ask (the next message is read as usual)
+            plan = plan_reply(state, snap, understood=True, just_calculated=False,
+                              confirmations=["מה תרצו לשאול את נציג התחבורה? כתבו את השאלה כאן."])
+            return TurnOutcome(reply=plan.text(), source="template", path="choice")
         known = known_question_line(state, question) if question else None
         if known is not None:             # already asked: its status or the answer, never a second question
             plan = plan_reply(state, snap, understood=True, just_calculated=False, confirmations=[known])
@@ -1967,6 +2032,7 @@ class Agent:
             plan = plan_reply(state, snap, understood=True, just_calculated=False, confirmations=[line])
         else:
             state.pending_rep_question = text
+            state.last_rep_question = None
             plan = plan_reply(state, snap, understood=True, just_calculated=False)
         return TurnOutcome(reply=plan.text(), source="template", path="choice")
 

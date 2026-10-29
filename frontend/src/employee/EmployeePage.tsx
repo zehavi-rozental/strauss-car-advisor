@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { ApiError, api } from '../api/client'
 import type { OptionResult } from '../api/types'
 import { FlowCar } from '../art/FlowCar'
 import { Icon } from '../ui/Icon'
@@ -30,6 +31,13 @@ function offersAskRep(expects: Expects | null): boolean {
   return fieldsOf(expects).some((f) => f.field === 'ask_rep')
 }
 
+/** The question the advisor offers to forward: the server's (the open question, never "תשאל את הנציג" itself);
+ *  an older server does not say, so the employee's last message. */
+function offeredQuestion(expects: Expects | null, messages: Message[]): string {
+  const field = fieldsOf(expects).find((f) => f.field === 'ask_rep')
+  return field && field.question !== undefined ? field.question ?? '' : lastUserQuestion(messages)
+}
+
 /** The question the employee last asked, used to pre-fill the inquiry card the advisor offered to forward. */
 function lastUserQuestion(messages: Message[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -48,8 +56,13 @@ export function EmployeePage() {
   const [correcting, setCorrecting] = useState(false)
   // a rep-inquiry card, opened inside the conversation (the advisor's offer, or the pre-results banner link).
   // null = closed. intent/option carry what the advisor proposed; the server re-validates.
-  const [inquiry, setInquiry] = useState<{ intent: RepQuestionIntent; question: string; optionId?: string;
-                                           carLabel?: string; catalogAmount?: string } | null>(null)
+  // `opened` counts every opening: the card is remounted each time (its key), so text typed for one car never stays
+  // in the field when the card is opened for another one (the NIRO inquiry that carried a DOLPHIN question)
+  const [inquiry, setInquiryState] = useState<{ intent: RepQuestionIntent; question: string; optionId?: string;
+                                                carLabel?: string; catalogAmount?: string; opened: number } | null>(null)
+  const inquiryCount = useRef(0)
+  const setInquiry = (next: Omit<NonNullable<typeof inquiry>, 'opened'> | null) =>
+    setInquiryState(next && { ...next, opened: ++inquiryCount.current })
   const repEmail = c.repEmail ?? undefined
   // the selection card, the profile form, and the payslip upload open only from the reply's link
   // What a link opened belongs to the question it was opened for: a new question closes it. Only a new
@@ -124,7 +137,7 @@ export function EmployeePage() {
       <div className="reply-buttons">
         <div className="reply-row">
           <button type="button" className="chip chip-primary" disabled={busy}
-                  onClick={() => setInquiry({ intent: 'general', question: lastUserQuestion(c.messages) })}>
+                  onClick={() => setInquiry({ intent: 'general', question: offeredQuestion(c.expects, c.messages) })}>
             <Icon name="rep" size={16} />לשאול את נציג הרכב
           </button>
           <button type="button" className="chip chip-quiet" disabled={busy}
@@ -154,25 +167,38 @@ export function EmployeePage() {
   // the explanation of catalog copay, shown before results appear (while choosing options / calculating), with a
   // gentle link to raise a copay inquiry with the rep. Derived from the stage, so it never repeats on a poll.
   const showCopayBanner = c.stage === 'CHOOSE_OPTIONS' || c.stage === 'CALCULATING'
-  const openCopayInquiry = (item?: OptionResult) => {
-    const car = item
+  // a car's card asks about that car (its option_id is the inquiry's car); without a card, a general question
+  const openCopayInquiry = (car?: OptionResult) => {
+    const catalogSource = car?.result.copay_source === 'catalog' || car?.result.copay_source === 'catalog_final'
     setInquiry({
-      intent: 'copay_verification',
-      question: car?.label
+      intent: car ? 'copay_verification' : 'general',
+      question: car
         ? `אני מבקש/ת לברר את סכום ההשתתפות החודשי האישי שלי עבור ${car.label}. האם הסכום שבקטלוג הוא הסכום שיחול עליי?`
         : 'אני מבקש/ת לברר את סכום ההשתתפות החודשי האישי שלי. האם הסכום שבקטלוג הוא הסכום שיחול עליי?',
       optionId: car?.option_id,
       carLabel: car?.label,
-      catalogAmount: car?.result.alternative?.copay ?? undefined,
+      // the amount on the card is the catalog's only while its source is the catalog
+      catalogAmount: catalogSource ? car?.result.alternative?.copay ?? undefined : undefined,
     })
   }
   const onInquirySaved = (res: RepQuestionResult) => {
-    // reflect the just-opened question honestly: the server returned the current results and status
-    if (res.status !== 'invalid') {
-      setInquiry(null)
-      void c.reload()
-    }
+    // created: the inquiry's record now stands in the chat, so the card closes. exists: the card stays and says
+    // so, with a link to the record already in the chat (nothing new was sent)
+    if (res.status === 'created') setInquiry(null)
+    void c.reload()
   }
+  // a new verification link, offered on the latest open inquiry only while mail is on and the address waits
+  const resendVerification = c.emailEnabled && c.emailPending && !repEmail && c.conversationId
+    ? async () => {
+        try {
+          const res = await api.resendVerification(c.conversationId!)
+          void c.reload()
+          return res.resend
+        } catch (e) {
+          throw new Error(e instanceof ApiError ? e.message_he : 'לא הצלחנו לשלוח קישור חדש. נסו שוב בעוד רגע.')
+        }
+      }
+    : undefined
   const tail = (
     <div className="answer-tail" ref={tailRef}>
       {area}
@@ -185,7 +211,7 @@ export function EmployeePage() {
           <Icon name="info" size={16} />
           <span>
             ההשוואה מחושבת לפי סכומי ההשתתפות שבקטלוג הרכבים של שטראוס. אם יש לכם הסדר השתתי שונה,{' '}
-            <button type="button" className="link-inline" disabled={busy} onClick={() => openCopayInquiry(c.results[0])}>
+            <button type="button" className="link-inline" disabled={busy} onClick={() => openCopayInquiry()}>
               אפשר לברר מול נציג הרכב
             </button>.
           </span>
@@ -193,6 +219,7 @@ export function EmployeePage() {
       )}
       {inquiry && (
         <RepInquiryCard
+          key={`${inquiry.opened}:${inquiry.intent}:${inquiry.optionId ?? ''}`}
           conversationId={c.conversationId ?? ''}
           initialQuestion={inquiry.question}
           intent={inquiry.intent}
@@ -200,6 +227,7 @@ export function EmployeePage() {
           carLabel={inquiry.carLabel}
           catalogAmount={inquiry.catalogAmount}
           knownEmail={repEmail}
+          emailEnabled={c.emailEnabled}
           disabled={busy}
           onCancel={() => setInquiry(null)}
           onSaved={(res) => { onInquirySaved(res); }}
@@ -255,6 +283,7 @@ export function EmployeePage() {
                        resultsAnchor={c.resultsAnchor} typing={c.sending}
                        onOpenTable={() => setTableOpen(true)}
                        onAskCopay={(item) => openCopayInquiry(item)}
+                       onResendVerification={resendVerification}
                        mapCard={c.optionMap && <OptionMapSummary map={c.optionMap} onOpen={() => setMapOpen(true)} />}
                        tail={c.loading ? null : tail}
                        onRetry={(seq) => void c.retry(seq)} onCorrect={firstVisit ? undefined : correct} busy={busy} />

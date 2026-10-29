@@ -194,7 +194,8 @@ def test_answer_notice_waits_for_email_verification_without_spending_retries(eng
     assert len(service.fake_messages) == 1
     with session_factory(employee.app.state.ctx.sessions.kw["bind"])() as session:
         answer_notice = session.query(EmailOutboxRow).filter_by(purpose="ANSWER").one()
-        assert answer_notice.status == "PENDING" and answer_notice.attempts == 0
+        # out of the sending queue until verified (AWAITING), so it never holds back other mail
+        assert answer_notice.status == "AWAITING" and answer_notice.attempts == 0
 
     other_device = _client(engine)
     returned = other_device.post("/api/conversations/return", json={"token": _link(verification)})

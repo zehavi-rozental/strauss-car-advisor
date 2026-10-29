@@ -45,6 +45,7 @@ export interface ExpectsField {
   quick_replies: QuickReply[]
   max: number | null
   closed?: boolean           // a closed question: the client shows buttons; open questions are typed
+  question?: string | null   // ask_rep: the employee's question the inquiry card opens with ("" — still to be said)
 }
 
 export interface ExpectsLink {
@@ -178,7 +179,9 @@ export interface Message {
 export interface RepInquiry {
   id: string
   missing_field: string
-  question_text: string
+  question_text: string          // the representative's full text (never shown to the employee)
+  employee_text?: string | null  // what the employee wrote; null for a question the system opened itself
+  option_id?: string | null      // the car of a copay inquiry
   car_label: string | null
   status: 'OPEN' | 'ANSWERED' | 'CANCELLED'
   created_at: string
@@ -215,7 +218,12 @@ export interface ConversationView {
   map_missing?: string[]      // what the map still needs, in Hebrew
   rep_email?: string | null
   rep_email_verified?: boolean
+  rep_email_delivery?: EmailDelivery
+  rep_email_pending?: boolean   // an address waits for its verification (a new link may be offered)
 }
+
+/** 'disabled': mail is not configured — the inquiry and the answer stay in the chat and nothing mentions email */
+export type EmailDelivery = 'enabled' | 'disabled'
 
 export interface PendingQuestion {
   missing_field: RepReason
@@ -238,6 +246,8 @@ export interface UpdatesResponse {
   map_missing?: string[]      // what the map still needs, in Hebrew
   rep_email?: string | null
   rep_email_verified?: boolean
+  rep_email_delivery?: EmailDelivery
+  rep_email_pending?: boolean
 }
 
 export interface CarSearchItem {
@@ -286,7 +296,7 @@ export interface RepQuestionIn {
   question: string
   intent: RepQuestionIntent
   option_id?: string
-  email: string
+  email?: string             // only while mail delivery is on and the address is not verified yet
 }
 
 /** The server's honest outcome: 'created' (a new question was saved), 'exists' (an open one already held — the
@@ -302,7 +312,8 @@ export interface RepQuestionResult {
   question_text: string | null
   results: FlatOptionResult[]      // the current results, so the client can reflect copay_pending honestly
   email_verified?: boolean
-  email_status?: 'verified' | 'sent' | 'pending' | 'failed'
+  email_status?: 'verified' | 'sent' | 'pending' | 'failed' | 'disabled'
+  email_delivery?: EmailDelivery
 }
 
 // ---------- payslip upload (backend/app/modules/payslip) ----------

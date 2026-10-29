@@ -103,7 +103,8 @@
   background: var(--card-2); color: var(--ink-3);
   font-size: var(--fs-micro); white-space: nowrap;
 }
-.rep-question { margin: 0; font-size: 1.0625rem; line-height: 1.6; }
+/* the question as written: its line breaks kept (the employee's own question starts on its own line) */
+.rep-question { margin: 0; font-size: 1.0625rem; line-height: 1.6; white-space: pre-line; overflow-wrap: break-word; }
 .rep-context { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
 .rep-context div { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: var(--r-pill); background: var(--card-2); }
 .rep-context dt { color: var(--ink-3); font-size: var(--fs-micro); }
@@ -117,6 +118,15 @@
 .answer-extras { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
 .answered-line { display: inline-flex; align-items: center; gap: 8px; margin: 0; color: var(--ink-2); }
 .answered-line .ico { color: var(--up); }
+/* an answer or a note written in several lines is shown as written */
+.answered { display: grid; gap: 6px; }
+.answered-value {
+  margin: 0; padding-block: 8px; padding-inline: 12px;
+  border-inline-start: 3px solid var(--up); border-radius: var(--r-sm);
+  background: var(--card); color: var(--ink); font-weight: 600;
+  white-space: pre-line; overflow-wrap: break-word;
+}
+.answered .answered-note { margin: 0; white-space: pre-line; overflow-wrap: break-word; }
 
 /* ---------- login ---------- */
 .rep-login {

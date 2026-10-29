@@ -29,6 +29,10 @@ log = logging.getLogger(__name__)
 EMAIL_RE = r"^[^\s@]+@[^\s@]+\.[^\s@]+$"
 MAX_ATTEMPTS = 8
 LINK_TTL = timedelta(hours=24)
+MAX_VERIFY_SENDS = 5          # verification links per conversation and address (a new one only when none is valid)
+# an answer notice for an address not verified yet: kept out of the sending queue (it never blocks other mail) and
+# released to PENDING when the address is verified
+AWAITING = "AWAITING"
 
 
 class EmailNotConfigured(Exception):
@@ -58,6 +62,18 @@ class EmailNotificationService:
         ):
             raise EmailNotConfigured("SMTP host, sender, and public app URL are required")
 
+    @property
+    def enabled(self) -> bool:
+        """Mail can be sent: a fake or SMTP backend with a usable key. Otherwise the conversation and the
+        representative work as usual, and nothing is said about email."""
+        return self.settings.email_backend in ("fake", "smtp") and self.fernet is not None
+
+    @property
+    def sends_inline(self) -> bool:
+        """The fake backend delivers within the request (tests, local runs); SMTP only from the worker, so a slow
+        mail server never holds the representative's answer or the employee's inquiry."""
+        return self.settings.email_backend == "fake"
+
     @staticmethod
     def normalize_email(value: str) -> str:
         import re
@@ -81,28 +97,44 @@ class EmailNotificationService:
             raise EmailNotConfigured("Stored email data cannot be decrypted with EMAIL_ENCRYPTION_KEY") from exc
 
     def prepare_verification(self, session, conversation: ConversationRow, email: str,
-                             question_id: str | None = None) -> None:
+                             question_id: str | None = None) -> str:
+        """A verification link for this address, unless one is still valid (never two at once). An expired or
+        undeliverable one is replaced, at most MAX_VERIFY_SENDS times per conversation and address. An address
+        verified for this conversation is not verified again. Returns what happened: "queued" (a new link),
+        "valid" (the previous link still works), "limit" (no more links), "verified" (nothing to do)."""
         email = self.normalize_email(email)
         digest = hashlib.sha256(email.encode("utf-8")).hexdigest()
         if conversation.email_verified_at:
             if not conversation.email_ciphertext or self._decrypt(conversation.email_ciphertext) != email:
                 raise ValueError("כתובת האימייל כבר אומתה ואי אפשר להחליף אותה דרך הפנייה.")
-            return
+            return "verified"
         conversation.email_ciphertext = self._encrypt(email)
-        dedupe_key = f"verify:{conversation.id}:{digest}"
-        if session.scalar(select(EmailOutboxRow.id).where(EmailOutboxRow.dedupe_key == dedupe_key)):
-            return
+        now = utcnow()
+        sent = list(session.scalars(select(EmailOutboxRow).where(
+            EmailOutboxRow.conversation_id == conversation.id, EmailOutboxRow.purpose == "VERIFY",
+            EmailOutboxRow.dedupe_key.startswith(f"verify:{conversation.id}:{digest}"))))
+        live = session.scalar(select(EmailLinkRow.id).where(
+            EmailLinkRow.conversation_id == conversation.id, EmailLinkRow.purpose == "VERIFY",
+            EmailLinkRow.email_hash == digest, EmailLinkRow.consumed_at.is_(None), EmailLinkRow.expires_at > now))
+        if live is not None and any(r.status != "FAILED" for r in sent):
+            return "valid"
+        if len(sent) >= MAX_VERIFY_SENDS:
+            return "limit"
+        dedupe_key = f"verify:{conversation.id}:{digest}" + (f":{len(sent)}" if sent else "")
         self._queue(session, conversation, email, "VERIFY", question_id, dedupe_key, digest)
+        return "queued"
 
     def prepare_answer(self, session, conversation: ConversationRow, question_id: str) -> None:
-        if not conversation.email_ciphertext:
+        """One notice per answer. Before the address is verified it waits outside the queue (AWAITING)."""
+        if not conversation.email_ciphertext or not self.enabled:
             return
         email = self._decrypt(conversation.email_ciphertext)
         digest = hashlib.sha256(email.encode("utf-8")).hexdigest()
         dedupe_key = f"answer:{question_id}"
         if session.scalar(select(EmailOutboxRow.id).where(EmailOutboxRow.dedupe_key == dedupe_key)):
             return
-        self._queue(session, conversation, email, "ANSWER", question_id, dedupe_key, digest)
+        self._queue(session, conversation, email, "ANSWER", question_id, dedupe_key, digest,
+                    status="PENDING" if conversation.email_verified_at else AWAITING)
 
     @staticmethod
     def verification_status(session, conversation: ConversationRow) -> str:
@@ -118,7 +150,7 @@ class EmailNotificationService:
         return {"SENT": "sent", "FAILED": "failed"}.get(row.status, "pending")
 
     def _queue(self, session, conversation: ConversationRow, email: str, purpose: str,
-               question_id: str | None, dedupe_key: str, email_hash: str) -> None:
+               question_id: str | None, dedupe_key: str, email_hash: str, status: str = "PENDING") -> None:
         raw_token = secrets.token_urlsafe(32)
         session.add(EmailLinkRow(
             conversation_id=conversation.id, question_id=question_id, purpose=purpose,
@@ -126,7 +158,7 @@ class EmailNotificationService:
         session.add(EmailOutboxRow(
             dedupe_key=dedupe_key, conversation_id=conversation.id, question_id=question_id, purpose=purpose,
             recipient_ciphertext=self._encrypt(email), token_ciphertext=self._encrypt(raw_token),
-            status="PENDING", attempts=0, next_attempt_at=utcnow()))
+            status=status, attempts=0, next_attempt_at=utcnow()))
 
     def redeem(self, raw_token: str) -> tuple[str, str, str | None]:
         if not raw_token or len(raw_token) > 200:
@@ -145,6 +177,11 @@ class EmailNotificationService:
                 raise InvalidEmailLink()
             if link.purpose == "VERIFY":
                 conversation.email_verified_at = now
+                # answer notices that waited for this verification join the queue now
+                session.execute(
+                    update(EmailOutboxRow)
+                    .where(EmailOutboxRow.conversation_id == conversation.id, EmailOutboxRow.status == AWAITING)
+                    .values(status="PENDING", next_attempt_at=now))
             elif not conversation.email_verified_at:
                 raise InvalidEmailLink()
             consumed = session.execute(
@@ -177,6 +214,16 @@ class EmailNotificationService:
                        EmailOutboxRow.attempts < MAX_ATTEMPTS)
                 .values(status="RETRY")
             )
+            # answer notices of addresses not verified yet (also ones queued before AWAITING existed) leave the
+            # queue before it is read, so they can never fill the batch and hold back mail that can be sent
+            session.execute(
+                update(EmailOutboxRow)
+                .where(EmailOutboxRow.status.in_(("PENDING", "RETRY")), EmailOutboxRow.purpose == "ANSWER",
+                       EmailOutboxRow.conversation_id.in_(
+                           select(ConversationRow.id).where(ConversationRow.email_verified_at.is_(None))))
+                .values(status=AWAITING)
+                .execution_options(synchronize_session=False)
+            )
             ids = list(session.scalars(
                 select(EmailOutboxRow.id)
                 .where(EmailOutboxRow.status.in_(("PENDING", "RETRY")), EmailOutboxRow.next_attempt_at <= now)
@@ -196,6 +243,7 @@ class EmailNotificationService:
                 return False
             conversation = session.get(ConversationRow, row.conversation_id)
             if row.purpose == "ANSWER" and (conversation is None or not conversation.email_verified_at):
+                row.status = AWAITING           # out of the queue until verified (a notice queued before AWAITING)
                 return False
             claimed = session.execute(
                 update(EmailOutboxRow)
@@ -207,8 +255,15 @@ class EmailNotificationService:
             if claimed.rowcount != 1:
                 return False
             session.refresh(row)
-            values = (str(row.id), row.purpose, row.question_id, self._decrypt(row.recipient_ciphertext),
-                      self._decrypt(row.token_ciphertext), row.attempts)
+            try:
+                values = (str(row.id), row.purpose, row.question_id, self._decrypt(row.recipient_ciphertext),
+                          self._decrypt(row.token_ciphertext), row.attempts)
+            except EmailNotConfigured:
+                # the key changed or is missing: this message can never be sent; it leaves the queue for good
+                row.status, row.last_error = "FAILED", "undecryptable"
+                row.recipient_ciphertext = row.token_ciphertext = ""
+                log.warning("email outbox id=%s cannot be decrypted; dropped", row.id)
+                return False
         message_id, purpose, question_id, recipient, raw_token, attempt = values
         url = f"{self.settings.email_public_app_url.rstrip('/')}/employee#return_token={quote(raw_token)}"
         if purpose == "VERIFY":

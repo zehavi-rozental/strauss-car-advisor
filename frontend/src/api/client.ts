@@ -80,6 +80,10 @@ export const api = {
    *  the server classifies by intent (re-validated against the conversation) and returns an honest status. */
   repQuestion: (id: string, body: RepQuestionIn) =>
     request<RepQuestionResult>(`${conv(id)}/rep-question`, { method: 'POST', body: JSON.stringify(body) }),
+  /** A new verification link for the address this conversation waits to verify: "queued" | "valid" | "limit" |
+   *  "verified" (what happened, for the status line). */
+  resendVerification: (id: string) =>
+    request<{ resend: string }>(`${conv(id)}/email/verify`, { method: 'POST', body: JSON.stringify({}) }),
   redeemEmailLink: (token: string) =>
     request<{ conversation_id: string; question_id: string | null }>('/api/conversations/return', {
       method: 'POST', body: JSON.stringify({ token }),

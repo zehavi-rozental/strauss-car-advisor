@@ -103,9 +103,6 @@ export function CopayLine({ result, compact = false, onAskCopay }: {
       {c.tone === 'pending' && (
         <p className="copay-meta">הנטו כאן הוא הערכה לפי הסכום שבקטלוג. אם הנציג יקבע סכום אחר, הנטו ישתנה בהתאם.</p>
       )}
-      {c.effective && (
-        <p className="copay-meta">הנציג ציין תאריך תחולה, אך החישוב עודכן מיד. המערכת אינה מתזמנת עדכון לפי התאריך.</p>
-      )}
       {onAskCopay && (c.tone === 'pending' || c.tone === 'final') && (
         <button type="button" className="link-inline" onClick={onAskCopay}>לבקש בירור אישי מול הנציג</button>
       )}

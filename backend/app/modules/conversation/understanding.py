@@ -77,6 +77,8 @@ class Understanding:
     # results on screen and the question is about them ("למה ההערכה זמנית?", "זה סופי?"): answered from them (C5)
     about_results: bool = False
     result_focus: list[str] = field(default_factory=list)  # the options the question names ("ולמה דווקא אטו?")
+    # "אני רוצה לדבר עם נציג", "היית צריך לשאול את הנציג": the offer to ask, at once (29/10)
+    rep_request: bool = False
 
     @property
     def question_only(self) -> bool:
@@ -86,7 +88,8 @@ class Understanding:
     @property
     def anything(self) -> bool:
         return bool(self.audit or self.all_at_once or self.faq_ids or self.catalog or self.unanswered or self.presence or self.help or self.redirect
-                    or self.ambiguity or self.compare or self.complaint or self.clarify or self.about_results)
+                    or self.ambiguity or self.compare or self.complaint or self.clarify or self.about_results
+                    or self.rep_request)
 
 
 def meaningful(text: str) -> bool:
@@ -298,6 +301,22 @@ def off_topic(snapshot: RulesSnapshot, clause: str) -> bool:
             and not _strong(snapshot, clause, ws))
 
 
+def asks_attribute(snapshot: RulesSnapshot, clause: str) -> bool:
+    """A property of a car the catalog does not hold (colour, sunroof, equipment, stock, delivery): `attribute_terms`.
+    Never a model name, never answered from the catalog (29/10)."""
+    return bool(snapshot.faq.attribute_terms) and _names_any(snapshot.faq.attribute_terms,
+                                                             [_spelling(w) for w in words(clause)])
+
+
+def _about_a_car(snapshot: RulesSnapshot, clause: str, ws: list[str]) -> bool:
+    """The question is about a car: a catalog car or brand, or a car word ("רכב", "רכבים", "הרכב")."""
+    faq = snapshot.faq
+    car_words = [t for t in faq.generic_domain_terms if t in ("רכב", "מכונית", "אוטו")] + ["רכבים", "מכוניות"]
+    return (bool(named_cars(clause, snapshot.catalog))
+            or any(_contains_any(clause, names) for names in snapshot.extensions.manufacturer_brands.values())
+            or _names_any((*car_words, *faq.reference_terms), ws))
+
+
 def question_scope(snapshot: RulesSnapshot, clause: str) -> str:
     """What to do with a question nothing else answered (QA 22/10, layered; never a guess from a number):
     "net" — about the employee's own pay / net: the calculation answers it, never the representative;
@@ -316,6 +335,8 @@ def question_scope(snapshot: RulesSnapshot, clause: str) -> str:
         return "net"
     if _about_own_data(snapshot, clause, ws):
         return "self"
+    if asks_attribute(snapshot, clause) and _about_a_car(snapshot, clause, ws):
+        return "org"                    # "יש לכם רכב אדום?": a property of the company's cars, for the representative
     if _strong(snapshot, clause, ws) or _topic_hit(faq, clause) or _anchored(snapshot, clause, ws):
         return "org"
     if _names_any(faq.context_markers, ws, starts=False):
@@ -346,6 +367,8 @@ def _about_results(snapshot: RulesSnapshot, state: ConversationState, clause: st
     """With results on screen: the options the question is about — the ones it names, or all of them when it names
     what a result is made of ("הערכה", "ממתינה לאישור", "השתתפות"); [] when it is about something else."""
     ws = [_spelling(w) for w in words(clause)]
+    if asks_attribute(snapshot, clause) or _compares(snapshot, clause):
+        return []        # a colour / sunroof / stock question, or two cars compared: not about the calculation
     named = {c.catalog_code for c in named_cars(clause, snapshot.catalog)}
     focus = [r.option_id for r in state.results if r.option_id in named]
     if focus:
@@ -396,9 +419,31 @@ _CATALOG_CUES = ("יש לכם", "יש אצלכם", "בקטלוג", "קיים", "
 NOT_IN_CATALOG = "לא מצאתי את הדגם הזה בקטלוג הרכבים הזמין במערכת."
 
 
-def catalog_answer(snapshot: RulesSnapshot, clause: str) -> Optional[str]:
+def _compares(snapshot: RulesSnapshot, clause: str) -> bool:
+    """Two catalog cars or more, compared ("מה ההבדל בין NIRO ל-DOLPHIN?")."""
+    return (bool(snapshot.faq.comparison_terms) and len(named_cars(clause, snapshot.catalog)) >= 2
+            and _names_any(snapshot.faq.comparison_terms, [_spelling(w) for w in words(clause)]))
+
+
+def _car_facts(c: CatalogCar) -> str:
+    return (f"{c.label}, " + ("במסלול המשפחתי" if c.group == FAMILY_GROUP else f"קבוצה {c.group}")
+            + f", {_DRIVE_HE[c.drive.value]}")
+
+
+def catalog_answer(snapshot: RulesSnapshot, clause: str, on_screen: Iterable[str] = ()) -> Optional[str]:
     """A question about which cars exist, answered from the catalog only (model, year, group, drive, family
-    track); a brand / model question with no catalog match → "not in the catalog". Never prices or specs."""
+    track); a brand / model question with no catalog match → "not in the catalog". Never prices or specs.
+    A property the catalog does not hold (colour, sunroof, stock) is never answered here — not even "yes, it is in
+    the catalog", which reads as yes to the colour (29/10): it is a question for the representative. Two cars
+    compared: the catalog facts of each, and where their effect on the net is (never a copay)."""
+    if asks_attribute(snapshot, clause):
+        return None
+    if _compares(snapshot, clause):
+        cars = named_cars(clause, snapshot.catalog)
+        shown = set(on_screen)
+        where = ("ההשפעה של כל אחד מהם על הנטו מופיעה בתוצאות." if all(c.catalog_code in shown for c in cars)
+                 else "כדי לראות איך כל אחד מהם משפיע על הנטו, אפשר לבחור אותם להשוואה.")
+        return "לפי הקטלוג: " + "; ".join(_car_facts(c) for c in cars) + ". " + where
     switching = any(cue in clause for cue in _SWITCH_CUES)
     if not (switching or any(cue in clause for cue in _CATALOG_CUES)):
         return None
@@ -448,6 +493,9 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
         if any(cue in clause for cue in snapshot.extensions.all_at_once_cues):
             u.all_at_once = True                  # about the conversation itself: never the representative
             continue
+        if faq.rep_request_cues and says_phrase(clause, faq.rep_request_cues):
+            u.rep_request = True                  # "תשאל את הנציג": the offer to ask, never "not understood"
+            continue
         short = [_spelling(w) for w in words(clause)]
         if "?" in clause and len(short) <= 3 and _names_any(faq.context_markers, short, starts=False) \
                 and not any(ch.isdigit() for ch in clause) and not off_topic(snapshot, clause) \
@@ -459,7 +507,8 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
                 u.redirect = True     # plainly not about this service: one redirect line, never the FAQ or the rep
                 continue
             entry = match_faq(faq, clause)
-            catalog = catalog_answer(snapshot, clause) if entry is None else None
+            catalog = (catalog_answer(snapshot, clause, [r.option_id for r in state.results])
+                       if entry is None else None)
             if entry is None and _is_help(clause):
                 u.help = True
             elif catalog:
