@@ -145,7 +145,7 @@ test('cloud conversation 2: no car, a payslip that differs, a salary correction,
   await expect(card).toBeVisible({ timeout: 20_000 })
   await expect(card).not.toContainText('נתוני השכר')                 // the notice line is gone; the data still is
   await expect(card).not.toContainText('16,000')
-  await card.getByLabel('הערה לעובד').fill('האישור בתוקף מהחודש הבא')
+  await card.getByLabel('הסבר לעובד').fill('האישור בתוקף מהחודש הבא')
   await card.getByRole('button', { name: /אישור/ }).first().click()
   await expect(page.locator('.event-pill').first()).toBeVisible({ timeout: 30_000 })
   await expect(page.locator(BOT, { hasText: 'הערת הנציג: האישור בתוקף מהחודש הבא' })).toBeVisible()

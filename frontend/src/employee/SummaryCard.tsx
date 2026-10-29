@@ -5,7 +5,7 @@
 import type { OptionResult } from '../api/types'
 import { Money } from '../format/Amount'
 import { Icon } from '../ui/Icon'
-import { CarName, NetChange, StateBadge } from './ResultCard'
+import { CarName, CopayLine, NetChange, StateBadge } from './ResultCard'
 import { resultState, toneOf } from './resultView'
 
 export function rankResults(items: OptionResult[]): OptionResult[] {
@@ -14,8 +14,9 @@ export function rankResults(items: OptionResult[]): OptionResult[] {
   return [...items.filter(ok).sort((a, b) => delta(b) - delta(a)), ...items.filter((i) => !ok(i))]
 }
 
-export function SummaryCard({ items, onOpenTable, current = true }:
-  { items: OptionResult[]; onOpenTable?: () => void; current?: boolean }) {
+export function SummaryCard({ items, onOpenTable, current = true, onAskCopay }:
+  { items: OptionResult[]; onOpenTable?: () => void; current?: boolean;
+    onAskCopay?: (item: OptionResult) => void }) {
   // an out-of-date result (current=false) is never ranked and has no leader: shown in the order chosen, as history
   const ranked = current ? rankResults(items) : items
   const today = ranked.find((i) => i.result.today)?.result.today ?? null
@@ -56,6 +57,11 @@ export function SummaryCard({ items, onOpenTable, current = true }:
                   </span>
                   <span className="summary-status"><StateBadge state={resultState(r)} /></span>
                   {r.why && <span className="summary-why">{r.why}</span>}
+                  {onAskCopay && (
+                    <span className="summary-copay">
+                      <CopayLine result={r} compact onAskCopay={() => onAskCopay(i)} />
+                    </span>
+                  )}
                 </>
               ) : (
                 <span className="summary-why">

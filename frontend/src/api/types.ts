@@ -172,6 +172,19 @@ export interface Message {
   source: string             // user / template / llm / fallback / rep ...
   content: string
   created_at: string         // ISO, UTC
+  rep_question_id?: string | null
+}
+
+export interface RepInquiry {
+  id: string
+  missing_field: string
+  question_text: string
+  car_label: string | null
+  status: 'OPEN' | 'ANSWERED' | 'CANCELLED'
+  created_at: string
+  answered_at: string | null
+  answer_value: string | null
+  answer_note: string | null
 }
 
 export interface TurnResponse {
@@ -195,10 +208,13 @@ export interface ConversationView {
   pending_rep: RepReason | null
   expects: Expects
   messages: Message[]
+  rep_questions?: RepInquiry[]
   results_stale?: boolean     // the results predate the last change: history, not a recommendation
   option_map?: OptionMap | null      // 360°: null until the employee asks for it
   map_ready?: boolean         // the option map can be built now (an older server does not say: not offered)
   map_missing?: string[]      // what the map still needs, in Hebrew
+  rep_email?: string | null
+  rep_email_verified?: boolean
 }
 
 export interface PendingQuestion {
@@ -213,12 +229,15 @@ export interface UpdatesResponse {
   stage: Stage
   messages: Message[]
   pending_questions: PendingQuestion[]
+  rep_questions?: RepInquiry[]
   expects: Expects
   results: OptionResult[]
   results_stale?: boolean     // the results predate the last change: history, not a recommendation
   option_map?: OptionMap | null      // 360°: null until the employee asks for it
   map_ready?: boolean         // the option map can be built now (an older server does not say: not offered)
   map_missing?: string[]      // what the map still needs, in Hebrew
+  rep_email?: string | null
+  rep_email_verified?: boolean
 }
 
 export interface CarSearchItem {
@@ -256,6 +275,35 @@ export type MessageIn =
   | { choice: string; field?: string }
   | { choices: string[]; field?: string }
   | { fields: ProfileFields; source?: 'payslip' }     // source: values approved from a reviewed payslip
+
+// ---------- employee-initiated rep question (POST /conversations/{id}/rep-question) ----------
+
+/** intent decides the kind, not the car: 'general' is informational (never changes the calculation);
+ *  'copay_verification' is a structured copay check the server re-validates against the car on screen. */
+export type RepQuestionIntent = 'general' | 'copay_verification'
+
+export interface RepQuestionIn {
+  question: string
+  intent: RepQuestionIntent
+  option_id?: string
+  email: string
+}
+
+/** The server's honest outcome: 'created' (a new question was saved), 'exists' (an open one already held — the
+ *  saved text is returned, the new wording was NOT sent), 'invalid' (not an authorised car). missing_field is
+ *  internal (GENERAL_QUESTION / NEW_CAR_COPAY) and never shown to the employee. */
+export interface RepQuestionResult {
+  status: 'created' | 'exists' | 'invalid'
+  missing_field: string
+  question_id: string | null
+  option_id: string | null
+  car_label: string | null
+  catalog_amount: string | null
+  question_text: string | null
+  results: FlatOptionResult[]      // the current results, so the client can reflect copay_pending honestly
+  email_verified?: boolean
+  email_status?: 'verified' | 'sent' | 'pending' | 'failed'
+}
 
 // ---------- payslip upload (backend/app/modules/payslip) ----------
 

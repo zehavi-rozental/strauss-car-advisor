@@ -64,7 +64,9 @@ function Portal({ token, onLogout }: { token: string; onLogout: (message?: strin
       fetchAnswered: () => repApi.listQuestions(token, 'ANSWERED'),
       onOpen: (o) => { setOpen(o); setLoaded(true) },
       onAnswered: (a) => {
-        setAnswered([...a].sort((x, y) => (y.answered_at ?? '').localeCompare(x.answered_at ?? '')).slice(0, 20))
+        // keep every answered question reachable (newest first); the server returns the full history and the
+        // rep must be able to reach old ones — no arbitrary cap that hides them
+        setAnswered([...a].sort((x, y) => (y.answered_at ?? '').localeCompare(x.answered_at ?? '')))
         setAnsweredLoaded(true)
       },
       onLoaded: () => setError(null),
@@ -103,7 +105,7 @@ function Portal({ token, onLogout }: { token: string; onLogout: (message?: strin
     onAnswered: (q: RepQuestion) => {
       setSuccess((n) => n + 1)
       setOpen((o) => o.filter((x) => x.id !== q.id))
-      setAnswered((a) => [q, ...a.filter((x) => x.id !== q.id)].slice(0, 20))
+      setAnswered((a) => [q, ...a.filter((x) => x.id !== q.id)])     // full history, newest first
     },
     onConflict: () => poller.current?.refreshAll(),          // another rep answered first: both lists now
   }

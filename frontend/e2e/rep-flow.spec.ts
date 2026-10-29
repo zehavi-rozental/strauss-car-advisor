@@ -56,7 +56,7 @@ test.describe('representative flow', () => {
     await expect(q).toBeVisible({ timeout: 20_000 })
     await expect(q).not.toContainText('18,500')
     await expect(q.getByLabel('ההשתתפות חלה מתאריך')).toBeVisible()
-    await q.getByRole('button', { name: /אישור סכום ברירת המחדל/ }).click()
+    await q.getByRole('button', { name: /אישור סכום ושליחת תשובה/ }).click()
     await close()
 
     await expect(page.locator(BOT, { hasText: 'נציג התחבורה אישר את ההשתתפות ב-MAZDA 3 (2025): 350 ₪ בחודש.' }))

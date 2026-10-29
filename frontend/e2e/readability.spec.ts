@@ -94,7 +94,7 @@ test('the representative’s fields are readable', async ({ browser }) => {
   await rep.getByRole('button', { name: 'כניסה' }).click()
   const card = rep.locator('.rep-card').last()
   await expect(card).toBeVisible({ timeout: 20_000 })
-  expect(await contrastWhileTyping(card.getByLabel('הערה לעובד'), 'הערה')).toBeGreaterThanOrEqual(MIN_CONTRAST)
+  expect(await contrastWhileTyping(card.getByLabel('הסבר לעובד'), 'הערה')).toBeGreaterThanOrEqual(MIN_CONTRAST)
   await card.getByRole('button', { name: 'סכום אחר' }).click()
   expect(await contrastWhileTyping(card.getByLabel('סכום (₪)'), '300')).toBeGreaterThanOrEqual(MIN_CONTRAST)
   await rep.context().close()

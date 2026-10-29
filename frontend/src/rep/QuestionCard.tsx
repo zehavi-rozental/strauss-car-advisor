@@ -3,7 +3,7 @@ import { formatTime } from '../format/time'
 import { Icon } from '../ui/Icon'
 import { AnswerForm } from './AnswerForm'
 import { CONTEXT_LABELS, MODE_LABELS, questionTitle } from './labels'
-import { relativeTime } from './repForm'
+import { relativeTime, waitingDuration } from './repForm'
 
 interface Props {
   question: RepQuestion
@@ -32,6 +32,15 @@ export function QuestionCard(props: Props) {
         <span className={`mode-pill mode-pill-${q.mode}`}>{MODE_LABELS[q.mode] ?? q.mode}</span>
         <span className="time-pill"><Icon name="clock" size={14} />{relativeTime(open ? q.created_at : q.answered_at ?? q.created_at)}</span>
       </header>
+      {/* real server timestamps; the rep never sets them. Open: when it arrived + how long it has waited. */}
+      <p className="rep-times">
+        <span>נפתחה: {formatTime(q.created_at)}</span>
+        {open ? (
+          <span className="rep-waiting">{waitingDuration(q.created_at)}</span>
+        ) : q.answered_at ? (
+          <span>נענתה: {formatTime(q.answered_at)}</span>
+        ) : null}
+      </p>
       <p className="rep-question">{q.question_text}</p>
       <dl className="rep-context">
         {context.map(([label, v]) => <div key={label}><dt>{label}</dt><dd>{v}</dd></div>)}
@@ -45,7 +54,7 @@ export function QuestionCard(props: Props) {
           נענתה: <bdi>{q.answer_value}</bdi>{q.answered_by ? ` · ${q.answered_by}` : ''}
           {q.answered_at ? ` · ${formatTime(q.answered_at)}` : ''}
           {q.effective_date ? ` · חלה מ-${q.effective_date.split('-').reverse().join('.')}` : ''}
-          {q.answer_note ? <span className="answered-note">הערה לעובד: <bdi>{q.answer_note}</bdi></span> : null}
+          {q.answer_note ? <span className="answered-note">הסבר לעובד: <bdi>{q.answer_note}</bdi></span> : null}
         </p>
       )}
     </article>

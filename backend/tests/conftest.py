@@ -26,6 +26,7 @@ def rules(snapshot):
 from decimal import Decimal  # noqa: E402
 
 from fastapi.testclient import TestClient  # noqa: E402
+from cryptography.fernet import Fernet  # noqa: E402
 from sqlalchemy.pool import StaticPool  # noqa: E402
 
 from app.api.main import create_app  # noqa: E402
@@ -76,6 +77,9 @@ def sessions(engine):
 
 
 def make_client(engine, llm=None, **overrides) -> TestClient:
+    overrides.setdefault("email_backend", "fake")
+    overrides.setdefault("email_encryption_key", Fernet.generate_key().decode("ascii"))
+    overrides.setdefault("email_public_app_url", "http://testserver")
     settings = Settings(_env_file=None, llm_provider="none", **overrides)
     app = create_app(settings, engine=engine, llm=llm if llm is not None else LLMChain())
     return TestClient(app)

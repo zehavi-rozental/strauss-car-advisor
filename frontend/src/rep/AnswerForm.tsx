@@ -20,19 +20,22 @@ export function AnswerForm({ question: q, token, onAnswered, onUnauthorized, onC
   const groups = q.missing_field === 'ELIGIBILITY_GROUP'
     ? [q.context.stated_group, q.context.table_group].filter((g): g is string => !!g) : []
   const quick = confirmValue !== null || groups.length > 0
-  const [other, setOther] = useState(!quick)
-  const [value, setValue] = useState('')
-  const [date, setDate] = useState('')
+  const [other, setOther] = useState(!quick || newCarCopay)
+  const [value, setValue] = useState(newCarCopay ? confirmValue ?? '' : '')
   const [note, setNote] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   const submit = async (answer: string) => {
+    if (newCarCopay && !note.trim()) {
+      setError('יש לכתוב הסבר לעובד.')
+      return
+    }
     setBusy(true)
     setError(null)
     try {
       const answered = await repApi.answer(token, q.id, {
-        value: answer, ...(date ? { effective_date: date } : {}), ...(note.trim() ? { note: note.trim() } : {}),
+        value: answer, ...(note.trim() ? { note: note.trim() } : {}),
       })
       onAnswered(answered)
     } catch (e) {
@@ -60,12 +63,13 @@ export function AnswerForm({ question: q, token, onAnswered, onUnauthorized, onC
     <form className="answer-form" onSubmit={onSubmit}>
       {confirmValue !== null && (
         <div className="confirm-row">
-          <button type="button" className="chip chip-primary" disabled={busy} onClick={() => submit(confirmValue)}>
-            <Icon name="check" size={18} />
-            {newCarCopay ? 'אישור סכום ברירת המחדל' : 'אישור'}{' '}
+          <button type="button" className="chip chip-primary" disabled={busy}
+                    onClick={() => newCarCopay ? setValue(confirmValue) : submit(confirmValue)}>
+              <Icon name="check" size={18} />{newCarCopay ? 'בחירת סכום ברירת המחדל' : 'אישור'}{' '}
             <bdi className="num">{newCarCopay ? '(' : ''}{Number(confirmValue).toLocaleString('he-IL')} ₪{newCarCopay ? ')' : ''}</bdi>
           </button>
-          {!other && <button type="button" className="chip chip-quiet" disabled={busy} onClick={() => setOther(true)}>סכום אחר</button>}
+          {!other && <button type="button" className="chip chip-quiet" disabled={busy}
+                               onClick={() => setOther(true)}>סכום אחר</button>}
         </div>
       )}
 
@@ -107,23 +111,24 @@ export function AnswerForm({ question: q, token, onAnswered, onUnauthorized, onC
 
       <div className="form-grid answer-extras">
         {/* the date is real only for a new car's copay: the employee is shown "תחול מ-" / "בתוקף מ-" with it */}
-        {newCarCopay && (
-          <div className="form-field">
-            <label htmlFor={`d-${q.id}`}>ההשתתפות חלה מתאריך</label>
-            <input id={`d-${q.id}`} type="date" value={date} disabled={busy} onChange={(e) => setDate(e.target.value)} />
-          </div>
-        )}
         <div className="form-field">
-          <label htmlFor={`n-${q.id}`}>הערה לעובד</label>
-          <input id={`n-${q.id}`} value={note} maxLength={500} disabled={busy} onChange={(e) => setNote(e.target.value)} />
+          <label htmlFor={`n-${q.id}`}>הסבר לעובד</label>
+          {newCarCopay ? (
+            <textarea id={`n-${q.id}`} value={note} maxLength={500} required disabled={busy}
+                      onChange={(e) => setNote(e.target.value)} />
+          ) : (
+            <input id={`n-${q.id}`} value={note} maxLength={500} disabled={busy}
+                   onChange={(e) => setNote(e.target.value)} />
+          )}
         </div>
       </div>
 
       {error && <p className="field-error" role="alert">{error}</p>}
       {other && (
         <div className="form-actions">
-          <button type="submit" className="chip chip-primary" disabled={busy || !value.trim()}>
-            {busy ? 'שולח…' : 'שליחת תשובה'}
+          <button type="submit" className="chip chip-primary"
+                  disabled={busy || !value.trim() || (newCarCopay && !note.trim())}>
+            {busy ? 'שולח…' : newCarCopay ? 'אישור סכום ושליחת תשובה' : 'שליחת תשובה לעובד'}
           </button>
         </div>
       )}

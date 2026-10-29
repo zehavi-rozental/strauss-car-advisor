@@ -9,6 +9,8 @@ import type {
   QuestionStatus,
   RepAnswerIn,
   RepQuestion,
+  RepQuestionIn,
+  RepQuestionResult,
   TurnResponse,
   UpdatesResponse,
 } from './types'
@@ -74,6 +76,14 @@ export const api = {
   sendMessage: (id: string, body: MessageIn) =>
     request<TurnResponse>(`${conv(id)}/messages`, { method: 'POST', body: JSON.stringify(body) }),
   getUpdates: (id: string, after: number) => request<UpdatesResponse>(`${conv(id)}/updates?after=${after}`),
+  /** Send an employee-initiated question to the transport representative. Uses the existing cases mechanism;
+   *  the server classifies by intent (re-validated against the conversation) and returns an honest status. */
+  repQuestion: (id: string, body: RepQuestionIn) =>
+    request<RepQuestionResult>(`${conv(id)}/rep-question`, { method: 'POST', body: JSON.stringify(body) }),
+  redeemEmailLink: (token: string) =>
+    request<{ conversation_id: string; question_id: string | null }>('/api/conversations/return', {
+      method: 'POST', body: JSON.stringify({ token }),
+    }),
   searchCars: (q: string) => request<CarSearchItem[]>(`/api/catalog/search?q=${encodeURIComponent(q)}`),
   /** The company catalog (GET /api/catalog), for display details on the selection cards only. */
   catalog: () => request<CatalogItem[]>('/api/catalog'),

@@ -148,6 +148,24 @@ class TurnOutcome:
     # a calculation ran for this selection: open new-car copay questions for other cars are cancelled (a car taken
     # out of the comparison); answered ones and their amounts are kept
     copay_selection: Optional[list[str]] = None
+    # the rep-question endpoint (unified path, Package A): what the write phase reports back to the employee.
+    # Filled only by the rep_question handler.
+    rep_question_result: Optional["RepQuestionResult"] = None
+
+
+@dataclass
+class RepQuestionResult:
+    """The outcome of an employee-initiated rep question, for the API to return. status says whether a new
+    question was created or an open one already existed; missing_field distinguishes an informational question
+    (GENERAL_QUESTION) from a structured copay verification (NEW_CAR_COPAY), for internal use only."""
+
+    status: str                        # "created" | "exists" | "invalid"
+    missing_field: str = ""            # "GENERAL_QUESTION" | "NEW_CAR_COPAY" (internal; never shown to the employee)
+    question_id: str = ""
+    option_id: Optional[str] = None
+    car_label: Optional[str] = None
+    catalog_amount: Optional[str] = None
+    question_text: Optional[str] = None
 
 
 CUE_WORDS = 3                  # מילת תיקון נספרת באחת משלוש המילים הראשונות
@@ -1454,10 +1472,15 @@ class Agent:
         calls = tuple(c for c in response.tool_calls if c.name == "match_current_car")
         return calls or None
 
-    def _request_new_car_copay(self, ctx: ToolContext, option: Any, policy: str, replace: bool = False) -> None:
+    def _request_new_car_copay(self, ctx: ToolContext, option: Any, policy: str, replace: bool = False,
+                               employee_note: Optional[str] = None) -> None:
         """The representative is asked the copay of a new car compared (C1): the catalog amount to confirm, or — when
         the catalog has none (C2) — the amount itself; a copay the employee expects goes with it. Context: the group,
-        the car, the catalog amount and that expectation only — never pay data."""
+        the car, the catalog amount and that expectation only — never pay data.
+
+        employee_note: the employee's own question (rep-question endpoint, copay verification). Appended to
+        question_text so the representative reads it verbatim; the answer still updates this car's copay by
+        option_id, never by the text."""
         state = ctx.state
         default = option.car.default_copay
         stated = state.stated_new_copays.get(option.id)
@@ -1472,8 +1495,70 @@ class Agent:
             mode = Mode.REQUIRED if policy == "REP_REQUIRED" else Mode.CONFIRM
         if stated is not None:
             text += f". העובד ציין שהוא מצפה להשתתפות של {stated} ₪"
+        if employee_note:
+            text += f"\nשאלת העובד: {employee_note}"
         self._request(ctx, MissingField.NEW_CAR_COPAY, mode, AnswerType.MONEY, text, context,
                       str(default) if default is not None else None, option.id, replace=replace)
+
+    def rep_question(self, snapshot: RulesSnapshot, find_vehicle: VehicleLookup, state: ConversationState,
+                     question: str, missing_field: MissingField, option_id: Optional[str],
+                     existing_text: Optional[str], record_run: RecordRun) -> TurnOutcome:
+        """Employee-initiated question to the representative (rep-question endpoint, Package A). Runs OUTSIDE the
+        conversation turn: no understand, no parser, no LLM. The service has already decided the type and validated
+        the car against the state; this only builds the question and marks the result.
+
+        missing_field is NEW_CAR_COPAY only when the service confirmed a structured copay verification with a valid
+        car in the authorised results; otherwise GENERAL_QUESTION (the safe informational default). existing_text is
+        the question_text of an OPEN question already held for this key (de-dup, no replace): when set we never
+        overwrite it — "exists" is returned with the saved text so a differently-worded new question is never lost
+        silently and the employee is told the earlier one is still open. GENERAL_QUESTION never touches the
+        calculation; NEW_CAR_COPAY leaves the card on the catalog amount (copay_pending) until the rep answers."""
+        ctx = ToolContext(snapshot=snapshot, find_vehicle=find_vehicle, state=state)
+        if missing_field == MissingField.NEW_CAR_COPAY:
+            option = next((o for o in available_options(snapshot, state)
+                           if o.id == option_id and o.car is not None), None)
+            on_screen = any(r.option_id == option_id
+                            and r.result.get("copay_source") in ("catalog", "catalog_final")
+                            for r in state.results)
+            if option is None or not on_screen or option.car.default_copay is None:
+                # the car is no longer a catalog-copay option on screen: fall back to the safe informational path
+                missing_field, option_id = MissingField.GENERAL_QUESTION, None
+        if missing_field == MissingField.NEW_CAR_COPAY:
+            catalog_amount = str(option.car.default_copay)
+            if existing_text is not None:
+                return TurnOutcome(reply="", source="rep", path="choice",
+                                   rep_question_result=RepQuestionResult(
+                                       status="exists", missing_field=missing_field.value, option_id=option_id,
+                                       car_label=option.label, catalog_amount=catalog_amount,
+                                       question_text=existing_text))
+            self._request_new_car_copay(ctx, option, snapshot.extensions.copay_policy, employee_note=question)
+            if option_id not in state.rep_copay_asked:
+                state.rep_copay_asked.append(option_id)
+            for item in state.results:
+                if item.option_id == option_id:
+                    item.result.update(copay_source="catalog", copay_pending=True)
+            built = next((q for q in ctx.question_requests if q.option_id == option_id), None)
+            return TurnOutcome(reply="", source="rep", path="choice", question_requests=ctx.question_requests,
+                               rep_question_result=RepQuestionResult(
+                                   status="created", missing_field=missing_field.value, option_id=option_id,
+                                   car_label=option.label, catalog_amount=catalog_amount,
+                                   question_text=built.question_text if built is not None else None))
+        # GENERAL_QUESTION: informational, never changes the calculation. option_id is the content hash, so the
+        # same question is recognised (never sent twice) while different questions open their own case.
+        if existing_text is not None:
+            return TurnOutcome(reply="", source="rep", path="choice",
+                               rep_question_result=RepQuestionResult(
+                                   status="exists", missing_field=MissingField.GENERAL_QUESTION.value,
+                                   question_text=existing_text))
+        gq_id = general_question_id(question)
+        car = rep_car_label(state.current, snapshot) if state.current.source in ("catalog", "tax", "stated") else None
+        self._request(ctx, MissingField.GENERAL_QUESTION, Mode.CONFIRM, AnswerType.TEXT, question,
+                      {"group": state.profile.group, "car_label": car}, option_id=gq_id)
+        state.general_questions[gq_id] = GeneralQuestion(text=question)
+        return TurnOutcome(reply="", source="rep", path="choice", question_requests=ctx.question_requests,
+                           rep_question_result=RepQuestionResult(
+                               status="created", missing_field=MissingField.GENERAL_QUESTION.value,
+                               option_id=gq_id, car_label=car, question_text=question))
 
     def _ask_rep_copay(self, ctx: ToolContext, options: list[Any]) -> ParserPlan:
         """A question per car (open_question keeps one); the cards show it waiting until the answer."""

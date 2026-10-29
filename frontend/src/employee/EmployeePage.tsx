@@ -14,13 +14,29 @@ import { Progress } from './Progress'
 import { SelectionCard } from './SelectionCard'
 import { payslipFormText, profileFormText } from './formFields'
 import { SelectedBar } from './SummaryCard'
+import { RepInquiryCard } from './RepInquiryCard'
 import { useCatalog } from './useCatalog'
 import { useConversation } from './useConversation'
-import { linkFor, optionsField, placeholderFor } from './widgets'
+import { fieldsOf, linkFor, optionsField, placeholderFor } from './widgets'
+import type { Expects, Message, RepQuestionIntent, RepQuestionResult } from '../api/types'
 
 const LINK_ICON: Record<string, string> = { profile_form: 'form', selection: 'grid', payslip_upload: 'upload' }
 
 type OpenKind = 'selection' | 'profile_form' | 'payslip_upload'
+
+/** The advisor offered to ask the representative (a question it could not answer): the server put an ask_rep
+ *  field in expects. We open the inquiry card for it instead of the old two-step choice. */
+function offersAskRep(expects: Expects | null): boolean {
+  return fieldsOf(expects).some((f) => f.field === 'ask_rep')
+}
+
+/** The question the employee last asked, used to pre-fill the inquiry card the advisor offered to forward. */
+function lastUserQuestion(messages: Message[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') return messages[i].content.trim()
+  }
+  return ''
+}
 
 export function EmployeePage() {
   const c = useConversation()
@@ -30,6 +46,11 @@ export function EmployeePage() {
   // 360°: options chosen in the map for the side-by-side table (the map itself keeps every option)
   const [mapCompare, setMapCompare] = useState<OptionResult[] | null>(null)
   const [correcting, setCorrecting] = useState(false)
+  // a rep-inquiry card, opened inside the conversation (the advisor's offer, or the pre-results banner link).
+  // null = closed. intent/option carry what the advisor proposed; the server re-validates.
+  const [inquiry, setInquiry] = useState<{ intent: RepQuestionIntent; question: string; optionId?: string;
+                                           carLabel?: string; catalogAmount?: string } | null>(null)
+  const repEmail = c.repEmail ?? undefined
   // the selection card, the profile form, and the payslip upload open only from the reply's link
   // What a link opened belongs to the question it was opened for: a new question closes it. Only a new
   // question: a poll that re-sends the same one (every 3 s while waiting for the representative) keeps the
@@ -95,6 +116,24 @@ export function EmployeePage() {
   else if (opened === 'selection' && options) {
     area = <SelectionCard f={options} disabled={busy} onSend={c.send} initial={c.results.map((r) => r.option_id)}
                           onDone={() => setOpened(null)} details={catalog} />
+  } else if (offersAskRep(c.expects) && !inquiry) {
+    // the advisor offered to ask the representative (a question it could not answer). Instead of the old
+    // two-step choice, open the inquiry card inside the chat, pre-filled with the question the employee asked,
+    // ready to edit and confirm — one conversation, no separate service channel.
+    area = (
+      <div className="reply-buttons">
+        <div className="reply-row">
+          <button type="button" className="chip chip-primary" disabled={busy}
+                  onClick={() => setInquiry({ intent: 'general', question: lastUserQuestion(c.messages) })}>
+            <Icon name="rep" size={16} />לשאול את נציג הרכב
+          </button>
+          <button type="button" className="chip chip-quiet" disabled={busy}
+                  onClick={() => void c.send({ choice: 'skip', field: 'ask_rep' }, 'להמשיך בלי')}>
+            להמשיך בלי
+          </button>
+        </div>
+      </div>
+    )
   } else if (c.results.length > 0 && options) {
     area = <SelectedBar items={c.results} disabled={busy} onChange={() => setOpened('selection')} />
   } else {
@@ -112,6 +151,28 @@ export function EmployeePage() {
   // 360°: offered only when the server can build the map now (map_ready: every value and today's car known), so
   // the button never leads to "חסרים לי עוד" (QA 22/10). A map typed for earlier is still built when ready.
   const offerMap = !c.optionMap && c.mapReady
+  // the explanation of catalog copay, shown before results appear (while choosing options / calculating), with a
+  // gentle link to raise a copay inquiry with the rep. Derived from the stage, so it never repeats on a poll.
+  const showCopayBanner = c.stage === 'CHOOSE_OPTIONS' || c.stage === 'CALCULATING'
+  const openCopayInquiry = (item?: OptionResult) => {
+    const car = item
+    setInquiry({
+      intent: 'copay_verification',
+      question: car?.label
+        ? `אני מבקש/ת לברר את סכום ההשתתפות החודשי האישי שלי עבור ${car.label}. האם הסכום שבקטלוג הוא הסכום שיחול עליי?`
+        : 'אני מבקש/ת לברר את סכום ההשתתפות החודשי האישי שלי. האם הסכום שבקטלוג הוא הסכום שיחול עליי?',
+      optionId: car?.option_id,
+      carLabel: car?.label,
+      catalogAmount: car?.result.alternative?.copay ?? undefined,
+    })
+  }
+  const onInquirySaved = (res: RepQuestionResult) => {
+    // reflect the just-opened question honestly: the server returned the current results and status
+    if (res.status !== 'invalid') {
+      setInquiry(null)
+      void c.reload()
+    }
+  }
   const tail = (
     <div className="answer-tail" ref={tailRef}>
       {area}
@@ -119,8 +180,53 @@ export function EmployeePage() {
         <button type="button" className="chip map-request" disabled={busy}
                 onClick={() => void c.send({ text: MAP_REQUEST }, MAP_REQUEST)}>גלו לי את כל האפשרויות</button>
       )}
+      {showCopayBanner && !inquiry && (
+        <div className="copay-banner" role="note">
+          <Icon name="info" size={16} />
+          <span>
+            ההשוואה מחושבת לפי סכומי ההשתתפות שבקטלוג הרכבים של שטראוס. אם יש לכם הסדר השתתי שונה,{' '}
+            <button type="button" className="link-inline" disabled={busy} onClick={() => openCopayInquiry(c.results[0])}>
+              אפשר לברר מול נציג הרכב
+            </button>.
+          </span>
+        </div>
+      )}
+      {inquiry && (
+        <RepInquiryCard
+          conversationId={c.conversationId ?? ''}
+          initialQuestion={inquiry.question}
+          intent={inquiry.intent}
+          optionId={inquiry.optionId}
+          carLabel={inquiry.carLabel}
+          catalogAmount={inquiry.catalogAmount}
+          knownEmail={repEmail}
+          disabled={busy}
+          onCancel={() => setInquiry(null)}
+          onSaved={(res) => { onInquirySaved(res); }}
+        />
+      )}
     </div>
   )
+
+  if (c.returnTokenPending) {
+    return (
+      <main className="chat-entry" dir="rtl">
+        <section className="rep-inquiry-card" aria-labelledby="email-return-title">
+          <header className="rep-inquiry-head"><span className="rep-inquiry-icon"><Icon name="rep" size={18} /></span>
+            <h1 id="email-return-title">חזרה מאובטחת לשיחה</h1>
+          </header>
+          <div className="rep-inquiry-body">
+            <p>כדי לפתוח את השיחה ואת תשובת נציג הרכב, אשרו את הכניסה כאן.</p>
+            {c.returnTokenError && <p className="rep-inquiry-error" role="alert">{c.returnTokenError}</p>}
+            <button type="button" className="btn btn-primary" disabled={c.sending}
+                    onClick={() => void c.resumeEmailLink()}>
+              {c.sending ? 'מאמתים…' : 'פתיחת השיחה המאובטחת'}
+            </button>
+          </div>
+        </section>
+      </main>
+    )
+  }
 
   return (
     <div className={`chat is-chat${c.waitingForRep ? ' is-waiting' : ''}`}>
@@ -145,9 +251,10 @@ export function EmployeePage() {
             <p className="loading"><span className="loading-bar" aria-hidden="true" />טוען את השיחה…</p>
           )}
           {/* the interactive area stays mounted while a message is sent (disabled), so nothing typed is lost */}
-          <MessageList messages={c.messages} results={c.results} resultsStale={c.resultsStale}
+          <MessageList messages={c.messages} repQuestions={c.repQuestions} results={c.results} resultsStale={c.resultsStale}
                        resultsAnchor={c.resultsAnchor} typing={c.sending}
                        onOpenTable={() => setTableOpen(true)}
+                       onAskCopay={(item) => openCopayInquiry(item)}
                        mapCard={c.optionMap && <OptionMapSummary map={c.optionMap} onOpen={() => setMapOpen(true)} />}
                        tail={c.loading ? null : tail}
                        onRetry={(seq) => void c.retry(seq)} onCorrect={firstVisit ? undefined : correct} busy={busy} />

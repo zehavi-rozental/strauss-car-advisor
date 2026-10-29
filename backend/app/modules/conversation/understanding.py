@@ -368,6 +368,24 @@ def rep_scope_ok(snapshot: RulesSnapshot, text: str) -> bool:
     return not _contains_any(text, snapshot.faq.injection_patterns) and question_scope(snapshot, text) == "org"
 
 
+def rep_scope_ok_in_context(snapshot: RulesSnapshot, text: str, *, has_car_context: bool) -> bool:
+    """Like rep_scope_ok, but for the employee-initiated rep-question drawer, where the conversation is already
+    about specific cars (a current car and/or options on screen). A short natural question asked in that context
+    ("אפשר לקבל אותו עם וו גרירה?", "יש גרסה בצבע אחר?") is about the service even when its wording carries no
+    standalone topic word, so with a car in context we accept any scope EXCEPT the ones that must never go to the
+    representative: injection/off-topic (manipulative or another domain), "net"/"self" (the employee's own pay —
+    the calculation answers those, the rep never sees them). Without a car in context it is the strict check."""
+    if _contains_any(text, snapshot.faq.injection_patterns):
+        return False
+    scope = question_scope(snapshot, text)
+    if scope == "org":
+        return True
+    if not has_car_context:
+        return False
+    # a car is on screen: accept a contextual question, but never pay/own-data or plainly off-topic questions
+    return scope not in ("off", "net", "self")
+
+
 _DRIVE_HE = {"PETROL": "בנזין", "HYBRID": "היברידי", "PLUG_IN": "פלאג-אין", "ELECTRIC": "חשמלי"}
 # "אפשר לעבור לקורולה?": a wish to check a car, not a question for the representative: the catalog facts, and
 # the comparison itself comes once the details are collected

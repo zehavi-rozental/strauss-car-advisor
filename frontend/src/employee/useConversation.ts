@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, api } from '../api/client'
 import { normalizeResults } from '../api/normalize'
-import type { ConversationView, Expects, Message, MessageIn, OptionMap, OptionResult, PendingQuestion, ProfileFields, Stage } from '../api/types'
+import type { ConversationView, Expects, Message, MessageIn, OptionMap, OptionResult, PendingQuestion, ProfileFields, RepInquiry, Stage } from '../api/types'
 
 const STORAGE_KEY = 'sca.conversationId'
 const POLL_MS = 3000
@@ -57,6 +57,7 @@ export function useConversation() {
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [stage, setStage] = useState<Stage | null>(null)
+  const [repEmail, setRepEmail] = useState<string | null>(null)
   const [expectsState, setExpectsState] = useState<Expects | null>(null)
   const setExpects = useCallback((next: Expects | null) => {
     setExpectsState((prev) => (sameExpects(prev, next) ? prev : next))
@@ -71,6 +72,9 @@ export function useConversation() {
   const [lastAssistant, setLastAssistant] = useState<number | null>(null)
   const [resultsAnchor, setResultsAnchor] = useState<number | null>(null)
   const [pendingQuestions, setPendingQuestions] = useState<PendingQuestion[]>([])
+  const [repQuestions, setRepQuestions] = useState<RepInquiry[]>([])
+  const [returnTokenPending, setReturnTokenPending] = useState(false)
+  const [returnTokenError, setReturnTokenError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -81,6 +85,7 @@ export function useConversation() {
   const runKeyRef = useRef('')
   const syncChain = useRef<Promise<void>>(Promise.resolve())
   const started = useRef(false)
+  const emailReturnToken = useRef<string | null>(null)
   const failedRef = useRef(new Map<number, Failed>())
 
   const applyView = useCallback((view: ConversationView) => {
@@ -88,9 +93,11 @@ export function useConversation() {
     idRef.current = view.conversation_id
     setConversationId(view.conversation_id)
     setMessages(view.messages)
+    setRepQuestions(view.rep_questions ?? [])
     lastSeqRef.current = view.messages.reduce((m, x) => Math.max(m, x.seq), 0)
     lastAssistantRef.current = lastAssistantSeq(view.messages)
     setStage(view.stage)
+    setRepEmail(view.rep_email ?? null)
     setExpects(view.expects)
     setLastAssistant(lastAssistantRef.current)
     setResultsStale(Boolean(view.results_stale))
@@ -113,12 +120,14 @@ export function useConversation() {
       lastAssistantRef.current = lastAssistantSeq(fresh) ?? lastAssistantRef.current
       setMessages((prev) => [...prev.filter((m) => !m.pending), ...fresh])
       setStage(u.stage)
+      if (u.rep_email_verified) setRepEmail(u.rep_email ?? null)
       setExpects(u.expects)
       setLastAssistant(lastAssistantRef.current)
       setResultsStale(Boolean(u.results_stale))
       setMapReady(u.map_ready === true)
       setOptionMap(u.option_map)
       setPendingQuestions(u.pending_questions)
+      setRepQuestions(u.rep_questions ?? [])
       const res = normalizeResults(u.results)
       const key = runKey(res)
       if (key !== runKeyRef.current) {
@@ -148,7 +157,17 @@ export function useConversation() {
     started.current = true
     ;(async () => {
       try {
-        const stored = readStoredId()
+        let stored = readStoredId()
+        const returnToken = new URLSearchParams(window.location.hash.slice(1)).get('return_token')
+        if (returnToken) {
+          emailReturnToken.current = returnToken
+          const url = new URL(window.location.href)
+          url.hash = ''
+          window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
+          setReturnTokenPending(true)
+          setLoading(false)
+          return
+        }
         let view: ConversationView | null = null
         if (stored) {
           try {
@@ -165,6 +184,7 @@ export function useConversation() {
           idRef.current = turn.conversation_id
           setConversationId(turn.conversation_id)
           setStage(turn.stage)
+          setRepEmail(null)
           setExpects(turn.expects)
         }
         await sync()
@@ -176,6 +196,39 @@ export function useConversation() {
       }
     })()
   }, [applyView, sync, setExpects])
+
+  const resumeEmailLink = useCallback(async () => {
+    const token = emailReturnToken.current
+    if ((!token && !idRef.current) || sending) return
+    setSending(true)
+    setReturnTokenError(null)
+    try {
+      let targetQuestionId: string | null = null
+      if (token) {
+        const returned = await api.redeemEmailLink(token)
+        emailReturnToken.current = null
+        storeId(returned.conversation_id)
+        idRef.current = returned.conversation_id
+        targetQuestionId = returned.question_id
+      }
+      const id = idRef.current
+      if (!id) return
+      const view = await api.getConversation(id)
+      applyView(view)
+      await sync()
+      setReturnTokenPending(false)
+      if (targetQuestionId) {
+        const message = view.messages.find((item) => item.source === 'rep' &&
+          item.rep_question_id === targetQuestionId)
+        const target = message ? `message-${message.seq}` : `rep-inquiry-${targetQuestionId}`
+        window.requestAnimationFrame(() => document.getElementById(target)?.scrollIntoView({ behavior: 'smooth' }))
+      }
+    } catch (e) {
+      setReturnTokenError(e instanceof ApiError ? e.message_he : String(e))
+    } finally {
+      setSending(false)
+    }
+  }, [applyView, sending, sync])
 
   /** Sends one message. The result says whether it was handled, and (for the profile form) which fields the server
    *  refused, so the form can show each error next to its field and keep everything typed. A typed message lost on
@@ -286,6 +339,7 @@ export function useConversation() {
       setResults([])
       setResultsAnchor(null)
       setPendingQuestions([])
+      setRepQuestions([])
       setStage(turn.stage)
       setExpects(turn.expects)
       await sync()
@@ -331,9 +385,11 @@ export function useConversation() {
   const questionKey = `${lastAssistant ?? ''}|${JSON.stringify(expects)}`
 
   return {
+    conversationId, repEmail,
     messages, stage, expects, questionKey, results, resultsStale, mapReady, optionMap: optionMapState, resultsAnchor,
     pendingQuestions,
-    waitingForRep, sending, loading, error, send, sendFields, retry, loadProfile, newConversation,
+    repQuestions, returnTokenPending, returnTokenError, resumeEmailLink,
+    waitingForRep, sending, loading, error, send, sendFields, retry, reload, loadProfile, newConversation,
     dismissError: () => setError(null),
   }
 }

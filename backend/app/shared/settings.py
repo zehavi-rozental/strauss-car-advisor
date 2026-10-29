@@ -63,6 +63,17 @@ class Settings(BaseSettings):
     llm_turn_deadline_s: float = 12.0
     llm_intro_budget_s: float = 2.5    # פתיח לתוצאות: לא ענה בזמן → התוצאה מהתבנית מיד
 
+    email_backend: Literal["disabled", "fake", "smtp"] = "disabled"
+    email_encryption_key: str = ""
+    email_public_app_url: str = ""
+    email_smtp_host: str = ""
+    email_smtp_port: int = 587
+    email_smtp_username: str = ""
+    email_smtp_password: str = ""
+    email_from: str = ""
+    email_smtp_starttls: bool = True
+    email_fake_dir: str = ""
+
     max_message_chars: int = 1000
     rate_limit_per_minute: int = 30      # הודעות לשיחה בדקה
     create_rate_limit_per_minute: int = 20

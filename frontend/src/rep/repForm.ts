@@ -11,6 +11,21 @@ export function checkMoney(text: string): MoneyCheck {
   return { ok: true, value: t }
 }
 
+/** How long an open question has been waiting, from its real created_at to now, in Hebrew ("ממתינה 3 שעות").
+ *  Computed from the server timestamp only; the rep never sets it. */
+export function waitingDuration(createdIso: string, now: number = Date.now()): string {
+  const t = new Date(createdIso).getTime()
+  if (Number.isNaN(t)) return ''
+  const s = Math.max(0, Math.round((now - t) / 1000))
+  const m = Math.floor(s / 60)
+  if (m < 1) return 'ממתינה פחות מדקה'
+  if (m < 60) return m === 1 ? 'ממתינה דקה' : `ממתינה ${m} דקות`
+  const h = Math.floor(m / 60)
+  if (h < 24) return h === 1 ? 'ממתינה שעה' : `ממתינה ${h} שעות`
+  const d = Math.floor(h / 24)
+  return d === 1 ? 'ממתינה יום' : `ממתינה ${d} ימים`
+}
+
 /** "לפני 5 דקות" / "לפני 2 שעות" / "הרגע" */
 export function relativeTime(iso: string, now: number = Date.now()): string {
   const t = new Date(iso).getTime()
