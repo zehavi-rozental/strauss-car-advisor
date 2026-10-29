@@ -94,9 +94,11 @@ test('the representative’s fields are readable', async ({ browser }) => {
   await rep.getByRole('button', { name: 'כניסה' }).click()
   const card = rep.locator('.rep-card').last()
   await expect(card).toBeVisible({ timeout: 20_000 })
-  expect(await contrastWhileTyping(card.getByLabel('הסבר לעובד'), 'הערה')).toBeGreaterThanOrEqual(MIN_CONTRAST)
+  // the note is optional (29/10); its field is as readable as any other
+  expect(await contrastWhileTyping(card.getByLabel('הערה לעובד (לא חובה)'), 'הערה')).toBeGreaterThanOrEqual(MIN_CONTRAST)
   await card.getByRole('button', { name: 'סכום אחר' }).click()
-  expect(await contrastWhileTyping(card.getByLabel('סכום (₪)'), '300')).toBeGreaterThanOrEqual(MIN_CONTRAST)
+  // "סכום (₪)", or "סכום ההשתתפות (₪)" on a new car's copay
+  expect(await contrastWhileTyping(card.getByLabel(/^סכום( ההשתתפות)? \(₪\)$/), '300')).toBeGreaterThanOrEqual(MIN_CONTRAST)
   await rep.context().close()
   await page.context().close()
 })

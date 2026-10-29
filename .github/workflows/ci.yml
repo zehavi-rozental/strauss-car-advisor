@@ -125,6 +125,15 @@ jobs:
         working-directory: backend
       - run: npm ci && npm run build && npx playwright install --with-deps chromium
         working-directory: frontend
+      # Fake mail only: a throwaway key made for this run (never a secret, masked in the log) and a temporary
+      # folder the fake backend writes its messages to. Nothing reaches a real mail server.
+      - name: Test-only mail key and folders
+        working-directory: backend
+        run: |
+          key=$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')
+          echo "::add-mask::$key"
+          echo "E2E_MAIL_KEY=$key" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/mail" "$RUNNER_TEMP/shots"
       - name: Start the app the way Render does (migrations, tax file, React, uvicorn)
         working-directory: backend
         env:
@@ -140,27 +149,65 @@ jobs:
           PAYSLIP_FAKE_VISION_DIR: ${{ github.workspace }}/frontend/e2e/fixtures/payslips/vision
           PAYSLIP_RATE_LIMIT_PER_MINUTE: "200"
           CREATE_RATE_LIMIT_PER_MINUTE: "500"   # the suite opens ~40 conversations a minute from one address
+          # representative inquiries with email (29/10): the fake backend, its messages in a temporary folder
+          EMAIL_BACKEND: fake
+          EMAIL_FAKE_DIR: ${{ runner.temp }}/mail
+          EMAIL_PUBLIC_APP_URL: http://localhost:10000
+        # the throwaway key from the step above (E2E_MAIL_KEY, in this job's environment)
         run: |
-          nohup python deploy/render_start.py > ../server.log 2>&1 &
+          EMAIL_ENCRYPTION_KEY="$E2E_MAIL_KEY" nohup python deploy/render_start.py > ../server.log 2>&1 &
           for i in $(seq 1 180); do
             curl -sf http://localhost:10000/api/health && exit 0
             sleep 2
           done
           cat ../server.log; exit 1
+      # The same app with mail off, on its own temporary SQLite (not the PostgreSQL service): an inquiry and its
+      # answer must work there and say nothing about email (e2e/qa-2026-10-29.spec.ts, OFF_BASE_URL).
+      - name: Second server, mail off
+        working-directory: backend
+        env:
+          DATABASE_URL: sqlite:///${{ runner.temp }}/mail-off.db
+          PORT: "10001"
+          FRONTEND_DIST_DIR: ${{ github.workspace }}/frontend/dist
+          CONFIG_MODE: strict
+          LLM_MODE: llm_first
+          SESSION_COOKIE_SECURE: "false"
+          REP_ACCESS_TOKEN: ci-only-rep-token
+          EMAIL_BACKEND: disabled
+          CREATE_RATE_LIMIT_PER_MINUTE: "500"
+        run: |
+          nohup python deploy/render_start.py > ../server-off.log 2>&1 &
+          for i in $(seq 1 180); do
+            curl -sf http://localhost:10001/api/health && exit 0
+            sleep 2
+          done
+          cat ../server-off.log; exit 1
       - name: Playwright
         working-directory: frontend
         env:
           E2E_BASE_URL: http://localhost:10000
+          OFF_BASE_URL: http://localhost:10001
           REP_TOKEN: ci-only-rep-token
-        run: npx playwright test
-      - name: Playwright traces and server log
+          EMAIL_FAKE_DIR: ${{ runner.temp }}/mail
+          SHOTS_DIR: ${{ runner.temp }}/shots
+          PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ runner.temp }}/playwright-report.json
+        run: npx playwright test --reporter=list,github,json
+      # the representative / email tests ran in full: 14 tests, all passed, none skipped for a missing setting
+      - name: Required representative tests ran
+        if: ${{ !cancelled() }}
+        working-directory: frontend
+        run: node e2e/required-specs.mjs "$RUNNER_TEMP/playwright-report.json"
+      # on failure: traces, screenshots and both server logs (never the mail folder: its links are one-time tokens)
+      - name: Playwright traces, screenshots and server logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: e2e-failure
           path: |
             frontend/test-results
+            ${{ runner.temp }}/shots
             server.log
+            server-off.log
 
   docker:
     name: Docker image (the one Render builds)

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import type { Browser, Locator, Page } from '@playwright/test'
+import type { Browser, BrowserContext, Locator, Page } from '@playwright/test'
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -25,6 +25,31 @@ test.skip(!BASE || !OFF || !REP_TOKEN || !MAIL || !SHOTS, 'E2E_BASE_URL, OFF_BAS
 let employee: Page
 const shot = (page: Page, name: string) => page.screenshot({ path: join(SHOTS, `${name}.png`), fullPage: true })
 
+// Every browser context this file opens is recorded and closed, also when a test fails: what one test opens for
+// itself (a rep screen, another device, the mail-off employee) closes in afterEach, right when that test ends; the
+// employee page the tests share closes in afterAll. A rep screen left open keeps polling the rep API from this
+// address and uses up the rate-limit budget of the specs that run after this one (CI runs them all on one server).
+const perTest: BrowserContext[] = []
+const perFile: BrowserContext[] = []
+const opened = new Set<BrowserContext>()
+
+async function newPage(browser: Browser, options: Parameters<Browser['newContext']>[0],
+                       scope: 'test' | 'file' = 'test'): Promise<Page> {
+  const context = await browser.newContext(options)
+  opened.add(context)
+  ;(scope === 'file' ? perFile : perTest).push(context)
+  return context.newPage()
+}
+
+const closeAll = (list: BrowserContext[]) => Promise.all(list.splice(0).map((c) => c.close().catch(() => undefined)))
+test.afterEach(async () => { await closeAll(perTest) })
+test.afterAll(async ({ browser }) => {
+  await closeAll(perTest)
+  await closeAll(perFile)
+  // nothing this file opened is still open (and polling) for the specs that run after it
+  expect(browser.contexts().filter((c) => opened.has(c)), 'contexts left open by this file').toEqual([])
+})
+
 async function send(page: Page, text: string) {
   const n = await page.locator(BOT).count()
   await page.getByLabel('הודעה').fill(text)
@@ -32,8 +57,8 @@ async function send(page: Page, text: string) {
   await expect.poll(async () => page.locator(BOT).count(), { timeout: 45_000 }).toBeGreaterThan(n)
 }
 
-async function open(browser: Browser, base: string, width = 1280) {
-  const page = await (await browser.newContext({ baseURL: base, viewport: { width, height: 900 } })).newPage()
+async function open(browser: Browser, base: string, width = 1280, scope: 'test' | 'file' = 'test') {
+  const page = await newPage(browser, { baseURL: base, viewport: { width, height: 900 } }, scope)
   await page.goto('/employee')
   await expect(page.locator(BOT).first()).toBeVisible({ timeout: 30_000 })
   return page
@@ -49,8 +74,11 @@ async function noOverflow(page: Page) {
   expect(cut, 'car names cut').toEqual([])
 }
 
+// the fake mail folder may hold an earlier run's messages: only the ones written during this run are counted
+let mailBefore = new Set<string>()
+
 async function mails(): Promise<{ name: string; to: string; subject: string; body: string }[]> {
-  const files = (await readdir(MAIL)).filter((f) => f.endsWith('.json'))
+  const files = (await readdir(MAIL)).filter((f) => f.endsWith('.json') && !mailBefore.has(f))
   return Promise.all(files.map(async (name) => ({ name, ...JSON.parse(await readFile(join(MAIL, name), 'utf8')) })))
 }
 
@@ -58,7 +86,7 @@ const token = (body: string) => body.match(/return_token=([A-Za-z0-9_-]+)/)?.[1]
 const row = (page: Page, car: string): Locator => page.locator('.summary-row', { hasText: car })
 
 async function repScreen(browser: Browser, base: string) {
-  const page = await (await browser.newContext({ baseURL: base, viewport: { width: 1280, height: 1000 } })).newPage()
+  const page = await newPage(browser, { baseURL: base, viewport: { width: 1280, height: 1000 } })
   await page.goto('/rep')
   await page.getByLabel('קוד גישה').fill(REP_TOKEN)
   await page.getByRole('button', { name: 'כניסה' }).click()
@@ -66,7 +94,8 @@ async function repScreen(browser: Browser, base: string) {
 }
 
 test('1. results: summary and cards on desktop and at 375px, English names whole, no horizontal scroll', async ({ browser }) => {
-  employee = await open(browser, BASE)
+  mailBefore = new Set((await readdir(MAIL)).filter((f) => f.endsWith('.json')))
+  employee = await open(browser, BASE, 1280, 'file')     // the one employee story the tests share
   for (const m of [PROFILE, CAR, 'NIRO ו-DOLPHIN']) await send(employee, m)
   await expect(employee.locator('.summary-card')).toBeVisible({ timeout: 30_000 })
   await expect(row(employee, 'NIRO')).toBeVisible()
@@ -126,7 +155,7 @@ test('3. resend before verification says the link is still valid; the fake verif
   await expect(employee.locator(RECORD)).toContainText('הקישור הקודם עדיין בתוקף')
   const verify = (await mails()).filter((m) => m.to === EMAIL && m.subject.includes('אימות'))
   expect(verify).toHaveLength(1)
-  const other = await (await browser.newContext({ baseURL: BASE })).newPage()
+  const other = await newPage(browser, { baseURL: BASE })            // another device, closed when the test ends
   await other.goto(`/employee#return_token=${token(verify[0].body)}`)
   await other.getByRole('button', { name: 'פתיחת השיחה המאובטחת' }).click()
   await expect(other.locator(RECORD)).toHaveCount(1, { timeout: 30_000 })
@@ -159,12 +188,19 @@ test('5. a question in the chat: offered with its own words, one record', async 
 
 test('6. the representative: a multi-line general answer, one-click approval, and another amount', async ({ browser }) => {
   const rep = await repScreen(browser, BASE)
-  const general = rep.locator('.rep-card', { hasText: 'גג נפתח' })
-  const niro = rep.locator('.rep-card', { hasText: 'מה ההשתתפות החודשית של העובד ב-NIRO' })
-  const dolphin = rep.locator('.rep-card', { hasText: 'מה ההשתתפות החודשית של העובד ב-BYD DOLPHIN' })
+  // a shared server (CI runs every spec on one) may hold other employees' open questions: this conversation's are
+  // the newest of each kind, and each one answered leaves the open list (one card fewer of its kind)
+  const generals = rep.locator('.rep-card:has(.answer-form)', { hasText: 'יש גג נפתח ב-NIRO?' })
+  const niros = rep.locator('.rep-card:has(.answer-form)', { hasText: 'מה ההשתתפות החודשית של העובד ב-NIRO' })
+  const dolphins = rep.locator('.rep-card:has(.answer-form)',
+                               { hasText: 'מה ההשתתפות החודשית של העובד ב-BYD DOLPHIN' })
+  const general = generals.last()
+  const niro = niros.last()
+  const dolphin = dolphins.last()
   await expect(general).toBeVisible({ timeout: 20_000 })
   await expect(niro).toBeVisible()
   await expect(dolphin).toBeVisible()
+  const before = [await generals.count(), await niros.count(), await dolphins.count()]
   await expect(niro.getByLabel('הערה לעובד (לא חובה)')).toBeVisible()
   await expect(general.getByLabel('הערה לעובד (לא חובה)')).toHaveCount(0)
   await expect(rep.getByText('ההשתתפות חלה מתאריך')).toHaveCount(0)
@@ -176,15 +212,17 @@ test('6. the representative: a multi-line general answer, one-click approval, an
   await shot(rep, '06-rep-open-questions')
   await general.getByLabel('תשובה').fill(GENERAL_ANSWER)
   await general.getByRole('button', { name: 'שליחת תשובה לעובד' }).click()
+  await expect(generals).toHaveCount(before[0] - 1, { timeout: 20_000 })
   await niro.getByRole('button', { name: /אישור סכום ברירת המחדל/ }).click()       // one click, no note
+  await expect(niros).toHaveCount(before[1] - 1, { timeout: 20_000 })
   await dolphin.getByRole('button', { name: 'סכום אחר' }).click()
   await dolphin.locator('input[inputmode="decimal"]').fill('320')
   await dolphin.getByRole('button', { name: 'אישור סכום ושליחת תשובה' }).click()
-  await expect(rep.locator('.rep-card .answer-form')).toHaveCount(0, { timeout: 20_000 })
+  await expect(dolphins).toHaveCount(before[2] - 1, { timeout: 20_000 })
   await rep.getByRole('tab', { name: /נענו/ }).click().catch(() => undefined)
   // the multi-line answer in its own full-width block, at 375px too (7B)
   await rep.setViewportSize({ width: 375, height: 900 })
-  const value = rep.locator('.rep-card', { hasText: 'גג נפתח' }).locator('.answered-value')
+  const value = rep.locator('.rep-card .answered-value', { hasText: 'התוספת מטופלת מול היבואן' }).first()
   await expect(value).toContainText('התוספת מטופלת מול היבואן')
   const [valueW, cardW] = await value.evaluate((e) => [e.getBoundingClientRect().width,
     (e.closest('.rep-card') as HTMLElement).getBoundingClientRect().width])
@@ -218,7 +256,7 @@ test('7. the employee: the answer once with its lines, only the right car change
 test('8. the answer notice: one per answer, its link opens the conversation on another device', async ({ browser }) => {
   const notices = (await mails()).filter((m) => m.to === EMAIL && !m.subject.includes('אימות'))
   expect(notices).toHaveLength(3)
-  const other = await (await browser.newContext({ baseURL: BASE })).newPage()
+  const other = await newPage(browser, { baseURL: BASE })            // another device, closed when the test ends
   await other.goto(`/employee#return_token=${token(notices[0].body)}`)
   await other.getByRole('button', { name: 'פתיחת השיחה המאובטחת' }).click()
   await expect(other.locator(BOT, { hasText: 'התוספת מטופלת מול היבואן' })).toHaveCount(1, { timeout: 30_000 })

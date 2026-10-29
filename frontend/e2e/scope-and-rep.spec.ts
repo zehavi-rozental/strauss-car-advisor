@@ -23,12 +23,6 @@ async function send(page: Page, text: string) {
   await expect.poll(async () => page.locator(BOT).count(), { timeout: 45_000 }).toBeGreaterThan(bots)
 }
 
-async function click(page: Page, name: string) {
-  const bots = await page.locator(BOT).count()
-  await page.getByRole('button', { name }).click()
-  await expect.poll(async () => page.locator(BOT).count(), { timeout: 45_000 }).toBeGreaterThan(bots)
-}
-
 for (const viewport of [{ width: 1366, height: 860 }, { width: 375, height: 800 }]) {
   test(`an off-topic question is redirected, with no representative buttons (${viewport.width}px)`, async ({ browser }) => {
     const page = await (await browser.newContext({ viewport })).newPage()
@@ -37,7 +31,8 @@ for (const viewport of [{ width: 1366, height: 860 }, { width: 375, height: 800 
     await send(page, 'מה מזג האויר?')                                       // the screenshot, one vav
     await expect(page.locator(BOT).last()).toContainText(REDIRECT)
     await expect(page.locator(BOT).last()).not.toContainText('נציג')
-    await expect(page.getByRole('button', { name: 'לשאול את הנציג' })).toHaveCount(0)
+    // no offer to ask the representative, whatever the button says ("לשאול את נציג הרכב" since the inquiry card)
+    await expect(page.getByRole('button', { name: /לשאול את (ה)?נציג/ })).toHaveCount(0)
     await page.context().close()
   })
 }
@@ -47,16 +42,32 @@ test('a question about the service goes to the representative once; asked again,
   const open_ = async () => (await (await request.get('/api/rep/questions?status=OPEN', {
     headers: { 'X-Rep-Token': REP_TOKEN } })).json()) as { question_text: string }[]
   const question = 'אפשר לקבל אטו 3 בצבע אחר?'
+  // the offer opens the inquiry card in the chat, pre-filled with the question; sending it is confirmed
+  const ask = async () => {
+    await page.getByRole('button', { name: 'לשאול את נציג הרכב' }).click()
+    const card = page.locator('.rep-inquiry-card')
+    await expect(card.getByLabel('מה תרצו לשאול?')).toHaveValue(question)
+    const email = card.getByLabel('כתובת אימייל לעדכונים')
+    if (await email.count()) await email.fill('scope.employee@example.test')     // mail on: an address is asked
+    await card.getByRole('button', { name: 'המשך' }).click()
+    await card.getByRole('button', { name: 'שליחת הפנייה לנציג' }).click()
+  }
+  const asked = async () => (await open_()).filter((q) => q.question_text.includes('בצבע אחר')).length
+  const base = await asked()                       // another conversation's same question may be open already
   await open(page)
   await send(page, 'מנהלת מוצר, שכר בסיס 18,500')
   await send(page, question)
-  await click(page, 'לשאול את הנציג')
-  await click(page, 'לשלוח')
-  await expect(page.locator(BOT).last()).toContainText('שלחתי את השאלה לנציג התחבורה')
-  const sent = (await open_()).filter((q) => q.question_text.includes('בצבע אחר')).length
+  await ask()
+  const records = page.getByTestId('rep-inquiry-history')
+  await expect(records).toHaveCount(1)
+  await expect(records.first()).toContainText('ממתינה לתשובת הנציג')
+  const sent = await asked()
+  expect(sent).toBe(base + 1)                      // sent once
   await send(page, question)                                                 // the same question again
-  await click(page, 'לשאול את הנציג')
-  await expect(page.locator(BOT).last()).toContainText('כבר שאלתי את נציג התחבורה את השאלה הזו')
-  await expect(page.getByRole('button', { name: 'לשלוח' })).toHaveCount(0)
-  expect((await open_()).filter((q) => q.question_text.includes('בצבע אחר')).length).toBe(sent)
+  await ask()
+  // the open inquiry is pointed to, nothing is sent again
+  await expect(page.locator('.rep-inquiry-card.is-exists')).toContainText('כבר קיימת פנייה פתוחה')
+  await expect(page.locator('.rep-inquiry-card.is-exists')).toContainText('לא שלחנו פנייה נוספת')
+  await expect(records).toHaveCount(1)
+  expect(await asked()).toBe(sent)                 // not sent again
 })
