@@ -280,6 +280,10 @@
 .reply-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .reply-row .chip { --bg: var(--card); }
 .reply-row .chip:hover:not(:disabled) { --fg: #fff; --bd: var(--brand); background: var(--brand); }
+/* the primary choice keeps its filled brand look here: the row's card background above left its white label
+   invisible until hover ("לשאול את נציג הרכב") */
+.reply-row .chip-primary { --bg: var(--brand); --fg: #fff; --bd: var(--brand); }
+.reply-row .chip-primary:hover:not(:disabled) { --bd: var(--brand-deep); background: var(--brand-deep); }
 .reply-select { max-inline-size: 420px; appearance: none; background-image: none; }
 .answer-tail .link-button {
   align-self: flex-start;
