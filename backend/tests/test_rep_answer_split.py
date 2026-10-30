@@ -139,5 +139,6 @@ def test_a_conversation_stored_before_the_change_reads_as_before(client, engine)
                                               rep_question_id=str(uuid.uuid4()))
     last = _messages(client, cid)[-1]
     assert (last["source"], last["content"]) == ("rep", legacy)
-    assert len(list(Session(engine).scalars(select(MessageRow).where(
-        MessageRow.conversation_id == uuid.UUID(cid))))) == len(_messages(client, cid))
+    with Session(engine) as s:                 # closed here: an open one would lock the next test's drop_all
+        stored = len(list(s.scalars(select(MessageRow).where(MessageRow.conversation_id == uuid.UUID(cid)))))
+    assert stored == len(_messages(client, cid))
