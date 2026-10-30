@@ -584,6 +584,8 @@ class ConversationService:
                 if outcome.reply:
                     repo.add_message(conv_id, "assistant", outcome.reply, "rep",
                                      rep_question_id=event.question_id)
+                if outcome.follow_up:                # the advisor's next step: its own message, same transaction
+                    repo.add_message(conv_id, "assistant", outcome.follow_up, "template")
                 self._record_inquiries(repo, conv_id, opened)       # a question this answer led to
                 _store_runs(repo, conv_id, snapshot_id, pending)
                 if self._mail_enabled:

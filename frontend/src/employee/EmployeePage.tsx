@@ -5,6 +5,7 @@ import { FlowCar } from '../art/FlowCar'
 import { Icon } from '../ui/Icon'
 import { AnswerWidgets } from './AnswerWidgets'
 import { ComparisonPanel } from './ComparisonPanel'
+import { EmailReturnCard } from './EmailReturnCard'
 import { OptionMapPanel, OptionMapSummary } from './OptionMapPanel'
 import { MAP_REQUEST } from './optionMap'
 import { Composer } from './Composer'
@@ -238,21 +239,9 @@ export function EmployeePage() {
 
   if (c.returnTokenPending) {
     return (
-      <main className="chat-entry" dir="rtl">
-        <section className="rep-inquiry-card" aria-labelledby="email-return-title">
-          <header className="rep-inquiry-head"><span className="rep-inquiry-icon"><Icon name="rep" size={18} /></span>
-            <h1 id="email-return-title">חזרה מאובטחת לשיחה</h1>
-          </header>
-          <div className="rep-inquiry-body">
-            <p>כדי לפתוח את השיחה ואת תשובת נציג הרכב, אשרו את הכניסה כאן.</p>
-            {c.returnTokenError && <p className="rep-inquiry-error" role="alert">{c.returnTokenError}</p>}
-            <button type="button" className="btn btn-primary" disabled={c.sending}
-                    onClick={() => void c.resumeEmailLink()}>
-              {c.sending ? 'מאמתים…' : 'פתיחת השיחה המאובטחת'}
-            </button>
-          </div>
-        </section>
-      </main>
+      <EmailReturnCard error={c.returnTokenError} invalid={c.returnLinkInvalid} canReturn={c.returnStored}
+                       sending={c.sending} onOpen={() => void c.resumeEmailLink()}
+                       onNew={() => void c.newConversation()} />
     )
   }
 

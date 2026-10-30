@@ -156,9 +156,12 @@ def test_rep_answer_unblocks_and_the_flow_continues(client):
     assert answer(client, q["id"], "ג").status_code == 200
     updates = client.get(f"/api/conversations/{cid}/updates?after={seq}").json()
     assert updates["stage"] == "CHOOSE_OPTIONS"
-    [rep] = updates["messages"]
+    # the representative's answer, then the advisor's next question as a message of its own
+    [rep, follow] = updates["messages"]
+    assert (rep["source"], follow["source"]) == ("rep", "template") and follow["seq"] == rep["seq"] + 1
     assert rep["content"].startswith("נציג התחבורה השיב: קבוצת הזכאות שלכם היא ג.")
-    assert "איזה רכבים להשוות" in rep["content"]
+    assert "איזה רכבים להשוות" not in rep["content"]
+    assert "איזה רכבים להשוות" in follow["content"]
     body = say(client, cid, "אטו 3")                                  # ממשיכים כרגיל
     assert body["stage"] == "PRESENTED" and body["results"][0]["delta_display"] == "661"
 

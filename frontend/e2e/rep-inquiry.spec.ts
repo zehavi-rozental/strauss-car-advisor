@@ -209,6 +209,35 @@ test.describe('rep inquiry card in the conversation', () => {
     await expect(reconnectedEmployee.getByTestId('rep-inquiry-history')).toHaveCount(1)
     expect(browserErrors).toEqual([])
     await reconnectedEmployee.close()
+
+    // The used link opened again (410 expected, so these pages are not watched): refused once and never sent
+    // again; this browser's stored conversation can be reopened, and only through its own session.
+    const reusedEmployee = await answerContext.newPage()
+    const reuseRequests: string[] = []
+    reusedEmployee.on('request', (request) => {
+      if (request.method() === 'POST' && request.url().includes('/api/conversations/return')) {
+        reuseRequests.push(request.url())
+      }
+    })
+    await reusedEmployee.goto(`/employee#return_token=${answerToken}`)
+    await reusedEmployee.getByRole('button', { name: 'פתיחת השיחה המאובטחת' }).click()
+    await expect(reusedEmployee.getByRole('alert')).toContainText('הקישור אינו תקף')
+    await expect(reusedEmployee.getByRole('button', { name: 'פתיחת השיחה המאובטחת' })).toHaveCount(0)
+    await reusedEmployee.getByRole('button', { name: 'חזרה לשיחה' }).click()
+    await expect(reusedEmployee.locator(BOT, { hasText: answerText })).toHaveCount(1, { timeout: 30_000 })
+    expect(reuseRequests).toHaveLength(1)
+    await reusedEmployee.close()
     await answerContext.close()
+
+    // nothing stored in this browser: no way into any conversation, only a new one
+    const strangerContext = await browser.newContext()
+    const stranger = await strangerContext.newPage()
+    await stranger.goto(`/employee#return_token=${answerToken}`)
+    await stranger.getByRole('button', { name: 'פתיחת השיחה המאובטחת' }).click()
+    await expect(stranger.getByRole('alert')).toContainText('הקישור אינו תקף')
+    await expect(stranger.getByRole('button', { name: 'חזרה לשיחה' })).toHaveCount(0)
+    await expect(stranger.getByRole('button', { name: 'שיחה חדשה' })).toBeVisible()
+    await expect(stranger.locator(BOT, { hasText: answerText })).toHaveCount(0)
+    await strangerContext.close()
   })
 })

@@ -19,6 +19,11 @@ interface Failed { body: MessageIn; display: string }
 // worth sending again: the request may never have arrived. A 422 / 404 / 409 is the server's answer, not a loss.
 const RETRYABLE = (status: number) => status === 0 || status === 429 || status >= 500
 
+/** An email link that failed: worth trying again with the same token only when the request may not have reached
+ *  the server (no connection, too many requests, a server error). A 410 (used or expired) and any other answer
+ *  would refuse the same token again. */
+export const returnLinkRetryable = (e: unknown) => !(e instanceof ApiError) || RETRYABLE(e.status)
+
 function readStoredId(): string | null {
   try {
     return localStorage.getItem(STORAGE_KEY)
@@ -78,6 +83,10 @@ export function useConversation() {
   const [repQuestions, setRepQuestions] = useState<RepInquiry[]>([])
   const [returnTokenPending, setReturnTokenPending] = useState(false)
   const [returnTokenError, setReturnTokenError] = useState<string | null>(null)
+  // the link was refused for good: its token is dropped; a conversation stored in this browser may be reopened
+  // (the server still checks the session cookie)
+  const [returnLinkInvalid, setReturnLinkInvalid] = useState(false)
+  const [returnStored, setReturnStored] = useState(false)
   const [sending, setSending] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -231,6 +240,16 @@ export function useConversation() {
         window.requestAnimationFrame(() => document.getElementById(target)?.scrollIntoView({ behavior: 'smooth' }))
       }
     } catch (e) {
+      if (!returnLinkRetryable(e)) {
+        if (token) {
+          emailReturnToken.current = null
+          setReturnLinkInvalid(true)
+        }
+        // after a refused link: the conversation stored here, if any; a stored one the server refused: none
+        const stored = token ? readStoredId() : null
+        idRef.current = stored
+        setReturnStored(stored !== null)
+      }
       setReturnTokenError(e instanceof ApiError ? e.message_he : String(e))
     } finally {
       setSending(false)
@@ -349,6 +368,10 @@ export function useConversation() {
       setRepQuestions([])
       setStage(turn.stage)
       setExpects(turn.expects)
+      emailReturnToken.current = null
+      setReturnTokenPending(false)
+      setReturnLinkInvalid(false)
+      setReturnTokenError(null)
       await sync()
     } catch (e) {
       setError(e instanceof ApiError ? e.message_he : String(e))
@@ -395,7 +418,7 @@ export function useConversation() {
     conversationId, repEmail, emailEnabled, emailPending,
     messages, stage, expects, questionKey, results, resultsStale, mapReady, optionMap: optionMapState, resultsAnchor,
     pendingQuestions,
-    repQuestions, returnTokenPending, returnTokenError, resumeEmailLink,
+    repQuestions, returnTokenPending, returnTokenError, returnLinkInvalid, returnStored, resumeEmailLink,
     waitingForRep, sending, loading, error, send, sendFields, retry, reload, loadProfile, newConversation,
     dismissError: () => setError(null),
   }

@@ -59,6 +59,31 @@ describe('inquiry record in the chat', () => {
     expect(answered).not.toContain('שליחת קישור אימות מחדש')      // never on an answered inquiry
   })
 
+  it("the advisor's next question is its own bubble, outside the representative's answer", () => {
+    const next = 'מה קבוצת הזכאות שלכם (א-ד), או מה התפקיד שלכם?'
+    const html = render({
+      messages: [msg(2, 'rep_inquiry', RECORD, 'q1'), msg(3, 'rep', ANSWER, 'q1'), msg(4, 'template', next)],
+      repQuestions: [inquiry('ANSWERED')],
+    })
+    expect(count(html, 'הנציג ענה')).toBe(1)                     // the representative's marker: once
+    expect(html).toContain('href="#message-3"')                  // the record links the answer, not the question
+    const answer = html.slice(html.indexOf('id="message-3"'), html.indexOf('id="message-4"'))
+    expect(answer).toContain('לבן, שחור ואפור.')
+    expect(answer).not.toContain(next)
+    const follow = html.slice(html.indexOf('id="message-4"'))
+    expect(follow).toContain(next)
+    expect(follow).not.toContain('הנציג ענה')
+  })
+
+  it('an older conversation whose answer holds the follow-up too is shown as it was saved', () => {
+    const legacy = `${ANSWER}\n\nמה קבוצת הזכאות שלכם?`
+    const html = render({ messages: [msg(2, 'rep_inquiry', RECORD, 'q1'), msg(3, 'rep', legacy, 'q1')],
+                          repQuestions: [inquiry('ANSWERED')] })
+    expect(count(html, 'הנציג ענה')).toBe(1)
+    expect(html).toContain('מה קבוצת הזכאות שלכם?')
+    expect(html).toContain('href="#message-3"')
+  })
+
   it('an older conversation without a record shows its question once, under the answer', () => {
     const html = render({ messages: [msg(3, 'rep', ANSWER, 'q1')], repQuestions: [inquiry('ANSWERED')] })
     expect(count(html, 'data-testid="rep-inquiry-history"')).toBe(1)

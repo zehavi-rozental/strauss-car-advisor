@@ -152,6 +152,9 @@ class TurnOutcome:
     # the rep-question endpoint (unified path, Package A): what the write phase reports back to the employee.
     # Filled only by the rep_question handler.
     rep_question_result: Optional["RepQuestionResult"] = None
+    # a representative's answer only: the advisor's own next step (the flow question, the results, the map), stored
+    # as a message of its own so it never reads as the representative asking it
+    follow_up: str = ""
 
 
 @dataclass
@@ -1762,22 +1765,27 @@ class Agent:
         if next_stage(state) == Stage.CALCULATING:
             self._calculate(ctx, record_run)
             just_calculated = True
+        follow: list[str] = []                 # the advisor's next step, after the answer and what it changed
         map_had = state.option_map is not None
         if self._resolve_map(ctx):
             # the representative's answer completed the map (presented now, as it was asked for) or changed it
-            lines.append(map_reply(state) if not map_had else MAP_UPDATED)
+            follow.append(map_reply(state) if not map_had else MAP_UPDATED)
         state.stage = next_stage(state)
         rep_opened = any(r.mode == Mode.REQUIRED for r in ctx.question_requests)
         if field == MissingField.NEW_CAR_COPAY:
             if show_results and state.results:
-                lines.append(results_text(state))
+                follow.append(results_text(state))
         elif field == MissingField.GENERAL_QUESTION and state.stage == Stage.PRESENTED:
             pass                                   # the results stay on screen; nothing else to ask
         elif not (field == MissingField.OCCUPATION_OPT_OUT and state.profile.rep_opt_out_allowed):
-            lines.append(render(state, snapshot, understood=True, just_calculated=just_calculated,
-                                rep_opened=rep_opened))
-        return TurnOutcome(reply="\n\n".join(x for x in lines if x), source="rep", just_calculated=just_calculated,
-                           path="rep", question_requests=ctx.question_requests, copay_selection=ctx.copay_selection)
+            follow.append(render(state, snapshot, understood=True, just_calculated=just_calculated,
+                                 rep_opened=rep_opened))
+        reply, follow_up = "\n\n".join(x for x in lines if x), "\n\n".join(x for x in follow if x)
+        if not reply:                          # nothing from the representative to show: one message, as before
+            reply, follow_up = follow_up, ""
+        return TurnOutcome(reply=reply, source="rep", just_calculated=just_calculated, path="rep",
+                           question_requests=ctx.question_requests, copay_selection=ctx.copay_selection,
+                           follow_up=follow_up)
 
     def _apply_new_car_copay(self, ctx: ToolContext, event: QuestionAnswered, amount: Decimal,
                              record_run: RecordRun) -> Optional[str]:
