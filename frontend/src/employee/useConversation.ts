@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, api } from '../api/client'
 import { normalizeResults } from '../api/normalize'
-import type { ConversationView, Expects, Message, MessageIn, OptionMap, OptionResult, PendingQuestion, ProfileFields, RepInquiry, Stage } from '../api/types'
+import type { ConversationView, EngineState, Expects, Message, MessageIn, OptionMap, OptionResult, PendingQuestion, ProfileFields, RepInquiry, Stage } from '../api/types'
 
 const STORAGE_KEY = 'sca.conversationId'
 const POLL_MS = 3000
@@ -62,6 +62,7 @@ export function useConversation() {
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [stage, setStage] = useState<Stage | null>(null)
+  const [engine, setEngine] = useState<EngineState | null>(null)   // the badge: /api/health at load, then each turn
   const [repEmail, setRepEmail] = useState<string | null>(null)
   // an older server does not say: mail is assumed on (the card asks for an address, as before)
   const [emailEnabled, setEmailEnabled] = useState(true)
@@ -167,6 +168,11 @@ export function useConversation() {
     await sync()
   }, [applyView, sync])
 
+  // the engine's real state at load (no model call); each turn then says what answered it
+  useEffect(() => {
+    api.health().then((h) => { if (h.engine) setEngine((e) => e ?? h.engine ?? null) }).catch(() => {})
+  }, [])
+
   // load: the stored conversation, or a new one
   useEffect(() => {
     if (started.current) return
@@ -268,6 +274,7 @@ export function useConversation() {
                                       created_at: new Date().toISOString(), pending: true }])
     try {
       const turn = await api.sendMessage(id, body)
+      if (turn.engine) setEngine(turn.engine)
       setStage(turn.stage)
       setExpects(turn.expects)
       await sync()
@@ -322,6 +329,7 @@ export function useConversation() {
         return
       }
       const turn = await api.sendMessage(id, f.body)
+      if (turn.engine) setEngine(turn.engine)
       setStage(turn.stage)
       setExpects(turn.expects)
       drop()
@@ -415,6 +423,7 @@ export function useConversation() {
   const questionKey = `${lastAssistant ?? ''}|${JSON.stringify(expects)}`
 
   return {
+    engine,
     conversationId, repEmail, emailEnabled, emailPending,
     messages, stage, expects, questionKey, results, resultsStale, mapReady, optionMap: optionMapState, resultsAnchor,
     pendingQuestions,

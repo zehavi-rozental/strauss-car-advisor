@@ -61,6 +61,14 @@
   border: 1px solid var(--on-hero-live); opacity: 0;
   animation: ping 2.4s var(--ease-out) infinite;
 }
+/* the engine badge (31/10): its colour says what really answers; only a live model pulses */
+.status-pending { color: var(--on-hero-2); }
+.status-pending .status-dot { background: var(--on-hero-3); }
+.status-limited { color: var(--on-hero-down); }
+.status-limited .status-dot { background: var(--on-hero-down); }
+.status-off { color: var(--on-hero-3); }
+.status-off .status-dot { background: transparent; border: 1px solid var(--on-hero-3); }
+.status-pending .status-dot::after, .status-limited .status-dot::after, .status-off .status-dot::after { animation: none; opacity: 0; }
 @keyframes ping { 0% { transform: scale(0.6); opacity: 0.7; } 80%, 100% { transform: scale(1.8); opacity: 0; } }
 .chat-actions { display: flex; align-items: center; gap: var(--s3); margin-inline-start: auto; }
 .new-chat {

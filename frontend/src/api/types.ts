@@ -190,11 +190,15 @@ export interface RepInquiry {
   answer_note: string | null
 }
 
+/** What really answers the conversation (server-side, from the provider chain and each turn): never from a key alone. */
+export type EngineState = 'ai' | 'untried' | 'limited' | 'none'
+
 export interface TurnResponse {
   conversation_id: string
   stage: Stage
   reply: string
   source: string
+  engine?: EngineState | null   // what answered this turn; null: code alone (buttons, a form)
   results: FlatOptionResult[]  // only when this turn calculated
   pending_rep: RepReason | null
   expects: Expects

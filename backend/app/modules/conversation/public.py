@@ -689,11 +689,34 @@ def reproduce_run(sessions: sessionmaker, run_id: str) -> ScenarioResult:
                         _STATE.validate_python(inputs["alternative"]), snapshot.calc, occupation)
 
 
+_MODEL_RAN = ("fixed", "pending")      # the model understood the turn; code's template phrased it
+
+
+def engine_state(llm: LLMChain, say: Optional[str] = None) -> Optional[str]:
+    """What the conversation engine really is, for the employee's badge (31/10) — never from a key alone.
+    "none": no model configured (templates only); "ai": the model ran; "limited": the model failed (a turn that fell
+    back to the templates, or every entry failing / cooling down); "untried": configured, not called yet.
+    With `say` (one turn's SAY): what that turn shows, or None when code answered it alone (buttons, a form)."""
+    if not llm.available:
+        return "none"
+    if say is not None:
+        if say == "outage":
+            return "limited"
+        return "ai" if say.startswith(("llm", "guard")) or say in _MODEL_RAN else None
+    live = [s for s in llm.status() if s["status"] != "disabled"]
+    ready = [s for s in live if not s["cooling_down"]]
+    if any(s["status"] == "ok" for s in ready):
+        return "ai"
+    if ready and all(s["status"] == "untried" for s in ready):
+        return "untried"
+    return "limited"
+
+
 __all__ = [
     "ChatMessage", "LLMError", "EmailNotificationService", "EmailNotConfigured", "InvalidEmailLink",
     "ConversationConflict", "ConversationLimitReached", "ConversationNotFound", "ConversationService",
     "ConversationState",
     "ConversationView", "LLMChain", "LLMPort", "OptionResult", "RepReason", "Stage",
-    "TurnResult", "build_llm_chain", "map_json", "map_readiness", "results_stale", "reproduce_run", "ChoiceInvalid",
+    "TurnResult", "build_llm_chain", "engine_state", "map_json", "map_readiness", "results_stale", "reproduce_run", "ChoiceInvalid",
     "FieldsInvalid",
 ]

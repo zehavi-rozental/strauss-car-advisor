@@ -21,6 +21,7 @@ from app.modules.conversation.public import (
     InvalidEmailLink,
     RepQuestionInvalid,
     TurnResult,
+    engine_state,
     map_json,
     map_readiness,
     results_stale,
@@ -57,12 +58,14 @@ class MessageIn(BaseModel):
     source: Optional[Literal["payslip"]] = None   # fields only: values approved from a reviewed payslip
 
 
-def _turn(t: TurnResult) -> dict[str, Any]:
+def _turn(t: TurnResult, service: ConversationService) -> dict[str, Any]:
     return {
         "conversation_id": t.conversation_id,
         "stage": t.stage.value,
         "reply": t.reply,
         "source": t.source,
+        # what really answered this turn (the model / templates after a failure / none configured); null: code alone
+        "engine": engine_state(service.llm, t.say),
         "results": [{"option_id": r.option_id, "label": r.label, "run_id": r.run_id, **r.result}
                     for r in t.results],
         "pending_rep": t.pending_rep.value if t.pending_rep else None,
@@ -88,7 +91,8 @@ def health(request: Request) -> dict[str, Any]:
     return {"status": "ok" if db_ok else "degraded", "db": db_ok, "rules_version": calc.rules_version,
             "extensions_version": calc.extensions_version, "engine_version": ENGINE_VERSION,
             "config_error": ctx.rules.last_error, "llm": ctx.service.llm.mode, "llm_mode": ctx.service.agent.mode,
-            "llm_chain": ctx.service.llm.status(), "payslip": ctx.payslip.enabled}
+            "llm_chain": ctx.service.llm.status(), "engine": engine_state(ctx.service.llm),
+            "payslip": ctx.payslip.enabled}
 
 
 @router.get("/catalog")
@@ -120,7 +124,7 @@ def create_conversation(request: Request, response: Response) -> dict[str, Any]:
     turn, token = ctx.service.start()
     response.set_cookie(COOKIE, token, httponly=True, samesite="lax", secure=ctx.settings.session_cookie_secure,
                         path="/api")
-    return _turn(turn)
+    return _turn(turn, ctx.service)
 
 
 @router.post("/conversations/{conversation_id}/messages")
@@ -146,10 +150,10 @@ def send_message(conversation_id: str, body: MessageIn, request: Request) -> Any
         raise HTTPException(429, "יותר מדי הודעות בדקה. נסו שוב עוד מעט.")
     try:
         if form is not None:
-            return _turn(ctx.service.send_fields(conversation_id, token, form, body.source))
+            return _turn(ctx.service.send_fields(conversation_id, token, form, body.source), ctx.service)
         if choice is not None:
-            return _turn(ctx.service.send_choice(conversation_id, token, choice, body.field))
-        return _turn(ctx.service.send(conversation_id, token, text))
+            return _turn(ctx.service.send_choice(conversation_id, token, choice, body.field), ctx.service)
+        return _turn(ctx.service.send(conversation_id, token, text), ctx.service)
     except FieldsInvalid as exc:
         # all or nothing: every field outside its range, so the form can mark each one and keep the input
         return JSONResponse({"detail": str(exc), "message_he": str(exc), "errors": exc.errors}, status_code=422)

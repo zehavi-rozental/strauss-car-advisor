@@ -6,6 +6,7 @@ import { Icon } from '../ui/Icon'
 import { AnswerWidgets } from './AnswerWidgets'
 import { ComparisonPanel } from './ComparisonPanel'
 import { EmailReturnCard } from './EmailReturnCard'
+import { engineBadge } from './engineStatus'
 import { OptionMapPanel, OptionMapSummary } from './OptionMapPanel'
 import { MAP_REQUEST } from './optionMap'
 import { Composer } from './Composer'
@@ -251,7 +252,15 @@ export function EmployeePage() {
       <header className="chat-header">
         <div className="chat-title">
           <h1>יועץ הרכב</h1>
-          <span className="status"><i className="status-dot" />זמין עכשיו</span>
+          {(() => {
+            const badge = engineBadge(c.engine)
+            return (
+              <span className={`status status-${badge.tone}`} title={badge.title} data-engine={c.engine ?? ''}
+                    role="status" aria-live="polite">
+                <i className="status-dot" />{badge.text}
+              </span>
+            )
+          })()}
         </div>
         <Progress stage={c.stage} hasResults={c.results.length > 0} />
         <div className="chat-actions">

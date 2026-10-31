@@ -4,6 +4,7 @@ import type {
   CarSearchItem,
   CatalogItem,
   ConversationView,
+  EngineState,
   ExtractionResult,
   MessageIn,
   QuestionStatus,
@@ -71,6 +72,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 const conv = (id: string) => `/api/conversations/${encodeURIComponent(id)}`
 
 export const api = {
+  /** The engine's real state (this request makes no model call). */
+  health: () => request<{ engine?: EngineState }>('/api/health'),
   createConversation: () => request<TurnResponse>('/api/conversations', { method: 'POST' }),
   getConversation: (id: string) => request<ConversationView>(conv(id)),
   sendMessage: (id: string, body: MessageIn) =>
