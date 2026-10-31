@@ -257,7 +257,7 @@ export function EmployeePage() {
             const badge = engineBadge(c.engine)
             return (
               <span className={`status status-${badge.tone}`} title={badge.title} data-engine={c.engine ?? ''}
-                    role="status" aria-live="polite">
+                    aria-live="polite">
                 <i className="status-dot" />{badge.text}
               </span>
             )
