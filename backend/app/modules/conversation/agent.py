@@ -69,6 +69,7 @@ from .templates import (
     NEXT_AFTER_RESULTS,
     UNANSWERED,
     CHOOSE_TO_COMPARE,
+    COPAY_WITH_REP,
     catalog_copay_hint,
     ENGINE_OFFLINE,
     compare_needs_text,
@@ -852,6 +853,9 @@ class Agent:
         else:
             state.pending_confirmation = None
             plan = ParserPlan(choice_calls(field_, ids, snapshot), True, direct=True)
+            if field_ == "copay" and ids == ["rep"]:
+                # the inquiry about today's copay was sent: said as such, never as "not known, on the payslip" (31/10)
+                plan = replace(plan, notice=COPAY_WITH_REP, acked=True)
         return self._finish(ctx, (), label, plan, before, record_run, choice=True)
 
     def run_fields(self, snapshot: RulesSnapshot, find_vehicle: VehicleLookup, get_vehicle: VehicleGetter,
@@ -956,6 +960,13 @@ class Agent:
               and (hint := catalog_copay_hint(state, snapshot)) is not None):
             # "כן" to "בקטלוג רשום 300 ₪… זה הסכום שאתם משלמים?": the employee confirmed the catalog amount (31/10)
             plan = ParserPlan([ToolCall("save_profile", {"current_copay": str(hint)}, "catalog_confirmed")], True,
+                              direct=True)
+        elif (state.current.source in ("catalog", "tax", "stated") and (amount := parse_copay(text)) is not None
+              and amount != state.current.copay and "?" not in text and len(re.findall(r"\d[\d,.]*", text)) == 1
+              and all(car.catalog_code == state.current.catalog_code for car in named_cars(text, snapshot.catalog))):
+            # today's copay changed later in the conversation ("טעיתי, ההשתתפות שלי 220", 31/10): saved as said, at any
+            # stage; the results are recalculated. A copay said about another car is a new car's (the branch above)
+            plan = ParserPlan([ToolCall("save_profile", {"current_copay": str(amount)}, "combined")], True,
                               direct=True)
         else:
             # another answer: the earlier closed questions no longer apply. A value held for confirmation stays
@@ -1118,6 +1129,9 @@ class Agent:
             notice = None
         said = (notice or "").startswith("רשמתי") or plan.acked
         confirmations = before_turn.confirmations(state, snapshot, just_calculated, said)
+        if plan.notice == COPAY_WITH_REP:
+            # the copay is pending with the rep, not "unknown, look at the payslip": that line says it instead
+            confirmations = [line for line in confirmations if line != CURRENT_UNKNOWN_ACK]
 
         # רכב שזוהה בתור הזה (מהקורא, מהמודל או מהגיבוי) — אומרים איזה, כדי שטעות לא תעבור בשקט
         matched_car = state.current.source in ("catalog", "tax") and _car_key(state) != car_before

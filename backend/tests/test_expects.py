@@ -58,8 +58,11 @@ def test_expects_follows_the_state_machine(engine):
     assert (e["field"], e["type"], ids(e, "quick_replies")) == ("car", "car_search", ["no_car"])
     e = say(client, cid, "יש לי קורולה קרוס")["expects"]
     assert [f["field"] for f in e["fields"]] == ["copay", "options"]
-    # today's car is a catalog car: its catalog amount is offered for confirmation first (unverified, 31/10)
-    assert (e["field"], ids(e, "quick_replies")) == ("copay", ["catalog:CAR-09", "none", "unknown"])
+    # today's car is a catalog car: three choices only (31/10) — the catalog amount, another amount, the rep
+    copay = next(f for f in e["fields"] if f["field"] == "copay")
+    assert (copay["type"], copay["closed"], [c["id"] for c in copay["choices"]]) == (
+        "choice", True, ["catalog:CAR-09", "other", "rep"])
+    assert [c["label"] for c in copay["choices"]] == ["זה הסכום שלי", "הסכום שונה", "לברר מול נציג"]
     e = say(client, cid, "300")["expects"]
     assert (e["field"], e["type"], e["max"], ids(e, "quick_replies")) == ("options", "multi_choice", 3, ["rank"])
     atto = next(c for c in e["choices"] if c["id"] == "CAR-10")
@@ -165,7 +168,7 @@ def test_unknown_copay_quick_reply_is_recorded_and_the_flow_goes_on(engine):
     assert post(client, cid, choice="CAR-09").status_code == 422   # ב-Q3 גם חלופה מציעה את CAR-09
     body = post(client, cid, choice="CAR-09", field="car").json()
     assert body["expects"]["field"] == "copay"
-    body = post(client, cid, choice="unknown").json()
+    body = say(client, cid, "לא ידוע")         # a catalog car: three choices on screen; "לא ידוע" is typed
     assert body["stage"] == "CHOOSE_OPTIONS" and body["results"] == []
     assert client.app.state.ctx.service.cases.list_open() == []
 

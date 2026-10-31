@@ -61,10 +61,18 @@ export function EmployeePage() {
   // `opened` counts every opening: the card is remounted each time (its key), so text typed for one car never stays
   // in the field when the card is opened for another one (the NIRO inquiry that carried a DOLPHIN question)
   const [inquiry, setInquiryState] = useState<{ intent: RepQuestionIntent; question: string; optionId?: string;
-                                                carLabel?: string; catalogAmount?: string; opened: number } | null>(null)
+                                                carLabel?: string; catalogAmount?: string; copayToday?: boolean;
+                                                opened: number } | null>(null)
   const inquiryCount = useRef(0)
   const setInquiry = (next: Omit<NonNullable<typeof inquiry>, 'opened'> | null) =>
     setInquiryState(next && { ...next, opened: ++inquiryCount.current })
+  // "לברר מול נציג" on today's copay (31/10): a draft only; the copay is marked as pending with the rep once the
+  // inquiry was really sent (created / already open), never by opening the card
+  const openTodayCopayInquiry = (car?: string, amount?: string) => setInquiry({
+    intent: 'general', copayToday: true, carLabel: car, catalogAmount: amount,
+    question: `אני מבקש/ת לברר מה סכום ההשתתפות החודשי שלי ברכב הנוכחי${car ? ` (${car})` : ''}. ` +
+      'האם הסכום שבקטלוג הוא הסכום שחל עליי?',
+  })
   const repEmail = c.repEmail ?? undefined
   // the selection card, the profile form, and the payslip upload open only from the reply's link
   // What a link opened belongs to the question it was opened for: a new question closes it. Only a new
@@ -154,7 +162,7 @@ export function EmployeePage() {
   } else {
     area = (
       <>
-        <AnswerWidgets expects={c.expects} disabled={busy} onSend={c.send} />
+        <AnswerWidgets expects={c.expects} disabled={busy} onSend={c.send} onCopayRep={openTodayCopayInquiry} />
         {link && (
           <button type="button" className={`link-button link-${link.kind}`} disabled={busy} onClick={openLink}>
             <Icon name={LINK_ICON[link.kind] ?? 'chevron'} size={18} />{link.label}
@@ -184,6 +192,9 @@ export function EmployeePage() {
     })
   }
   const onInquirySaved = (res: RepQuestionResult) => {
+    if (inquiry?.copayToday && (res.status === 'created' || res.status === 'exists')) {
+      void c.send({ choice: 'rep', field: 'copay' }, 'לברר מול נציג')
+    }
     // created: the inquiry's record now stands in the chat, so the card closes. exists: the card stays and says
     // so, with a link to the record already in the chat (nothing new was sent)
     if (res.status === 'created') setInquiry(null)

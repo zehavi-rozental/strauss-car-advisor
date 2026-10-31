@@ -108,8 +108,8 @@ def question(field: str, state: ConversationState, snapshot: RulesSnapshot) -> s
     if field == "options":
         return options_ask(state, snapshot)
     if field == "copay" and (hint := catalog_copay_hint(state, snapshot)) is not None:
-        return (f"מה ההשתתפות החודשית שלכם היום ב-{c.label}? בקטלוג החברה רשום לרכב הזה {money(hint)}, "
-                "אבל זה סכום כללי ולא מאומת עבורכם: בהסכם שלכם ייתכן שסוכם אחרת. זה הסכום שאתם משלמים?")
+        return (f"לפי הקטלוג, ההשתתפות החודשית ב-{c.label} היא {money(hint)}. זה סכום כללי, ובהסכם האישי שלכם "
+                "הוא עשוי להיות שונה. מה נכון אצלכם?")
     return texts[field]
 
 
@@ -937,6 +937,9 @@ def compare_needs_text(state: ConversationState) -> str:
 
 
 # the question about the language engine answered without the model (an outage, a cap, none configured): said (31/10)
+# today's copay sent to the representative (31/10): no amount is assumed until the answer
+COPAY_WITH_REP = ("רשמתי: את ההשתתפות ברכב שלכם היום נברר מול נציג התחבורה, והתשובה תגיע לכאן. "
+                  "עד אז לא אחשב את השינוי בנטו לעומת היום, ולא אשתמש בסכום משוער.")
 ENGINE_OFFLINE = "התשובה הזו לא נכתבה על ידי Gemini: כרגע מנוע השפה לא זמין, והיא מגיעה מתבנית קבועה."
 
 ADVICE_FIRST = ("זה תלוי ברכב שלכם היום, ברכבים שאתם זכאים להם ובנטו שיישאר לכם אחרי ההחלפה. "
@@ -1011,6 +1014,8 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
                 link)
     # the field the question text asks (group_question's order), not just the first open one
     first = next((f for f in ("car", "copay", "opt_out_occupation", "options") if f in fields), fields[0])
+    if first == "copay" and catalog_copay_hint(state, snapshot) is not None:
+        return "בחרו אחת משלוש האפשרויות.", None          # the three copay choices (31/10)
     if _is_q2(fields):
         example = q2_example(fields) if len(fields) > 1 else _faq_example(snapshot, first)
         ext = snapshot.extensions

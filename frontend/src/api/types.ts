@@ -46,6 +46,7 @@ export interface ExpectsField {
   max: number | null
   closed?: boolean           // a closed question: the client shows buttons; open questions are typed
   question?: string | null   // ask_rep: the employee's question the inquiry card opens with ("" — still to be said)
+  context?: { car?: string; catalog_amount?: string }   // copay: today's car and its (unverified) catalog amount
 }
 
 export interface ExpectsLink {

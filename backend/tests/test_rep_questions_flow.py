@@ -89,7 +89,7 @@ def test_correcting_the_car_cancels_its_questions(engine):
     body = client.post(f"/api/conversations/{cid}/messages", json={"text": "לא, זו קורולה קרוס"}).json()
     assert cases.get(old.id).status == Status.CANCELLED and cases.list_open() == []
     assert body["stage"] == "COLLECT_CURRENT_CAR"
-    assert body["reply"].startswith("זיהיתי: COROLLA CROSS (2025)") and "מה ההשתתפות החודשית שלכם היום" in body["reply"]
+    assert body["reply"].startswith("זיהיתי: COROLLA CROSS (2025)") and "ההשתתפות החודשית ב-" in body["reply"]
     state = client.get(f"/api/conversations/{cid}").json()
     assert state["pending_rep"] is None and state["current_car"]["catalog_code"] == "CAR-09"
 

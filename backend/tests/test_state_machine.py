@@ -234,7 +234,7 @@ def test_correction_at_the_copay_question_rematches_the_car(sessions):
     current = svc.view(turn.conversation_id, token).state.current
     assert current.catalog_code == "CAR-09" and current.copay is None
     assert turn.reply.startswith("זיהיתי: COROLLA CROSS (2025), קבוצה ג, היברידי.")
-    assert "ההשתתפות החודשית שלכם היום" in turn.reply and turn.stage == Stage.COLLECT_CURRENT_CAR
+    assert "ההשתתפות החודשית ב-COROLLA CROSS" in turn.reply and turn.stage == Stage.COLLECT_CURRENT_CAR
 
 
 def test_plain_number_at_the_copay_question_is_still_the_copay(sessions):

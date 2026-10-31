@@ -96,14 +96,39 @@ def at_copay(client):
     return cid, send, turn
 
 
-def test_the_catalog_copay_is_offered_as_unverified_and_never_saved_by_itself(engine):
+def test_the_catalog_copay_is_offered_with_three_choices_and_never_saved_by_itself(engine):
     client = make_client(engine)
     cid, _, turn = at_copay(client)
-    assert "בקטלוג החברה רשום" in turn["reply"] and "לא מאומת" in turn["reply"]
+    assert f"היא {int(COROLLA.default_copay)} ₪" in turn["reply"] and "סכום כללי" in turn["reply"]
+    assert "עשוי להיות שונה" in turn["reply"] and "בחרו אחת משלוש האפשרויות" in turn["reply"]
     assert client.get(f"/api/conversations/{cid}").json()["current_car"]["copay"] is None
-    quick = [q for f in turn["expects"]["fields"] for q in f["quick_replies"]]
-    assert {"id": "catalog:CAR-07", "label": f"כן, {int(COROLLA.default_copay)} ₪ בחודש"} in quick
-    assert any(q["id"] == "unknown" for q in quick)        # "לא ידוע" stays possible
+    copay = next(f for f in turn["expects"]["fields"] if f["field"] == "copay")
+    assert copay["closed"] and [c["label"] for c in copay["choices"]] == ["זה הסכום שלי", "הסכום שונה",
+                                                                          "לברר מול נציג"]
+    assert copay["context"] == {"car": "COROLLA (2026)", "catalog_amount": str(COROLLA.default_copay)}   # the draft
+
+
+def test_another_amount_is_saved_and_recalculates_later(engine):
+    client = make_client(engine)
+    cid, send, _ = at_copay(client)
+    send({"text": "180"})                                  # "הסכום שונה": the client sends the amount typed
+    assert client.get(f"/api/conversations/{cid}").json()["current_car"]["copay"] == "180"
+    first = send({"text": "הכי משתלם"})["results"][0]
+    turn = send({"text": "טעיתי, ההשתתפות שלי היום 220"})   # changed later in the conversation
+    assert client.get(f"/api/conversations/{cid}").json()["current_car"]["copay"] == "220"
+    again = next(r for r in turn["results"] if r["option_id"] == first["option_id"])
+    assert int(again["today"]["net_display"]) == int(first["today"]["net_display"]) - 40   # today pays 40 more
+    assert again["alternative"]["net_display"] == first["alternative"]["net_display"]      # the new car: unchanged
+
+
+def test_asking_the_rep_invents_no_amount_and_calculates_nothing_on_it(engine):
+    client = make_client(engine)
+    cid, send, _ = at_copay(client)
+    before = len(client.app.state.ctx.service.cases.list_open())
+    turn = send({"choice": "rep", "field": "copay"})       # sent by the client after the inquiry itself was sent
+    view = client.get(f"/api/conversations/{cid}").json()
+    assert view["current_car"]["copay"] is None and view["current_car"]["copay_unknown"] is True
+    assert turn["results"] == [] and len(client.app.state.ctx.service.cases.list_open()) == before
 
 
 def test_the_button_confirms_the_catalog_copay(engine):
@@ -122,3 +147,24 @@ def test_a_typed_yes_confirms_it_and_another_amount_replaces_it(engine):
     cid2, send2, _ = at_copay(client2)
     send2({"text": "180"})
     assert client2.get(f"/api/conversations/{cid2}").json()["current_car"]["copay"] == "180"
+
+
+def test_the_card_s_copay_inquiry_is_accepted_and_only_then_the_copay_waits(engine):
+    client = make_client(engine)
+    cid, send, _ = at_copay(client)
+    question = ("אני מבקש/ת לברר מה סכום ההשתתפות החודשי שלי ברכב הנוכחי (COROLLA (2026)). "
+                "האם הסכום שבקטלוג הוא הסכום שחל עליי?")
+    assert client.get(f"/api/conversations/{cid}").json()["current_car"]["copay_unknown"] is False   # card opened
+    r = client.post(f"/api/conversations/{cid}/rep-question", json={"question": question, "intent": "general"})
+    assert r.status_code == 200 and r.json()["status"] == "created"
+    send({"choice": "rep", "field": "copay"})                # the client, after the send
+    view = client.get(f"/api/conversations/{cid}").json()
+    assert view["current_car"]["copay"] is None and view["current_car"]["copay_unknown"] is True
+
+
+def test_the_rep_choice_says_the_copay_is_with_the_rep_not_on_the_payslip(engine):
+    from app.modules.conversation.templates import COPAY_WITH_REP
+    client = make_client(engine)
+    _, send, _ = at_copay(client)
+    reply = send({"choice": "rep", "field": "copay"})["reply"]
+    assert reply.startswith(COPAY_WITH_REP) and "בתלוש" not in reply
