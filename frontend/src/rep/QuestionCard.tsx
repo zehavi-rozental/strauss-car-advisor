@@ -1,4 +1,5 @@
 import type { RepQuestion } from '../api/types'
+import { inquiryNumber } from '../format/inquiry'
 import { formatTime } from '../format/time'
 import { Icon } from '../ui/Icon'
 import { AnswerForm } from './AnswerForm'
@@ -34,6 +35,7 @@ export function QuestionCard(props: Props) {
       </header>
       {/* real server timestamps; the rep never sets them. Open: when it arrived + how long it has waited. */}
       <p className="rep-times">
+        <span>פנייה <bdi dir="ltr">{inquiryNumber(q.id)}</bdi></span>
         <span>נפתחה: {formatTime(q.created_at)}</span>
         {open ? (
           <span className="rep-waiting">{waitingDuration(q.created_at)}</span>

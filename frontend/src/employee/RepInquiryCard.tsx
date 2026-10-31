@@ -19,6 +19,8 @@ interface Props {
   optionId?: string
   carLabel?: string
   catalogAmount?: string
+  /** a ready subject ("בירור סכום ההשתתפות ברכב הנוכחי"), shown above the editable question */
+  subject?: string
   /** a verified email stored earlier in this conversation; shown pre-filled, editable */
   knownEmail?: string
   /** mail delivery is configured; false: no address is asked and nothing mentions email */
@@ -34,7 +36,7 @@ interface Props {
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export function RepInquiryCard({
-  conversationId, initialQuestion, intent, optionId, carLabel, catalogAmount, knownEmail, emailEnabled = true,
+  conversationId, initialQuestion, intent, optionId, carLabel, catalogAmount, subject, knownEmail, emailEnabled = true,
   emailSimulated = false, disabled = false, onCancel, onSaved,
 }: Props) {
   const [step, setStep] = useState<Step>('edit')
@@ -99,6 +101,7 @@ export function RepInquiryCard({
 
       {step === 'edit' && (
         <div className="rep-inquiry-body">
+          {subject && <p className="rep-inquiry-subject"><strong>נושא:</strong> {subject}</p>}
           {carLabel && (
             <p className="rep-inquiry-context">
               <span>הרכב: <bdi>{carLabel}</bdi></span>
@@ -140,6 +143,7 @@ export function RepInquiryCard({
         <div className="rep-inquiry-body">
           <p className="rep-inquiry-summary-title">סיכום לפני שליחה</p>
           <dl className="rep-inquiry-summary">
+            {subject && <div><dt>נושא</dt><dd>{subject}</dd></div>}
             {carLabel && <div><dt>הרכב</dt><dd><bdi>{carLabel}</bdi></dd></div>}
             {catalogAmount && <div><dt>השתתפות לפי הקטלוג</dt><dd>{catalogAmount} ₪</dd></div>}
             <div><dt>השאלה לנציג</dt><dd><bdi>{trimmed}</bdi></dd></div>

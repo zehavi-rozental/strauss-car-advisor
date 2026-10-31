@@ -50,13 +50,15 @@ def test_simple_answers_are_saved_by_code_without_a_model_call(engine, answers):
 
 def test_a_percent_and_a_bare_none_are_code_too(engine):
     fake, client = model_client(engine)
-    _, send = start(client)
+    cid, send = start(client)
     send({"text": "קבוצה א"})
     send({"text": "18000"})
     before = len(fake.calls)
-    send({"text": "אין"})                                  # commissions, bonus, study fund, children: 0, said
-    send({"text": "5%"})                                   # the pension asked next
+    send({"text": "אין"})                                  # the salary components asked: 0 for those it may mean
+    send({"text": "פנסיה 5%"})                             # labelled: saved wherever it is said
     assert len(fake.calls) == before
+    profile = client.get(f"/api/conversations/{cid}").json()["profile"]
+    assert profile["commissions"] == "0" and profile["pension_percent"] == "5"
 
 
 @pytest.mark.parametrize("text", [
@@ -168,3 +170,46 @@ def test_the_rep_choice_says_the_copay_is_with_the_rep_not_on_the_payslip(engine
     _, send, _ = at_copay(client)
     reply = send({"choice": "rep", "field": "copay"})["reply"]
     assert reply.startswith(COPAY_WITH_REP) and "בתלוש" not in reply
+
+
+def test_controlled_today_copay_200_then_300_changes_only_today(engine, tmp_path):
+    """Same employee, same car; only today's copay changes (31/10). Every card is recalculated: today's net drops by
+    exactly 100, each alternative's own net is unchanged, and each change against today grows by 100."""
+    client = make_client(engine)
+    cid, send, _ = at_copay(client)
+    send({"text": "השתתפות 200"})
+    before = {r["option_id"]: r for r in send({"text": "הכי משתלם"})["results"]}
+    turn = send({"text": "טעיתי, ההשתתפות שלי היום 300"})
+    after = {r["option_id"]: r for r in turn["results"]}
+    assert set(after) == set(before) and len(after) >= 2                   # every card recalculated
+    lines = []
+    for oid, b in before.items():
+        a = after[oid]
+        assert int(a["today"]["net_display"]) == int(b["today"]["net_display"]) - 100
+        assert a["alternative"]["net_display"] == b["alternative"]["net_display"]
+        assert int(a["delta_display"]) == int(b["delta_display"]) + 100
+        lines.append(f"{b['label']}: today {b['today']['net_display']} -> {a['today']['net_display']}, "
+                     f"alt {b['alternative']['net_display']} -> {a['alternative']['net_display']}, "
+                     f"delta {b['delta_display']} -> {a['delta_display']}")
+    (tmp_path / "copay_200_300.txt").write_text("\n".join(lines), encoding="utf-8")
+    print("\n".join(lines))
+    assert client.get(f"/api/conversations/{cid}").json()["today_copay"] == "300"
+
+
+def test_a_percent_or_a_fraction_at_the_car_question_is_never_a_rounded_copay(engine):
+    """Found in the acceptance run (31/10): with the car-and-copay question on screen, "5%" (meant for the pension)
+    was asked back as "5 ₪ or 5,000 ₪?", and "2.75" as "3 ₪ or 2,750 ₪?"."""
+    client = make_client(engine)
+    cid, send = start(client)
+    send({"text": "קבוצה א"})
+    send({"text": "18000"})
+    send({"text": "אין"})                                  # Q2 leftovers wait; the car question is on screen
+    reply = send({"text": "5%"})["reply"]
+    assert "5 ₪" not in reply and "5,000 ₪" not in reply
+    assert client.get(f"/api/conversations/{cid}").json()["current_car"]["copay"] is None
+
+
+def test_a_held_amount_with_a_fraction_is_asked_back_exactly():
+    from decimal import Decimal
+    from app.modules.conversation.templates import confirm_value_text
+    assert confirm_value_text("current_copay", Decimal("2.75"), scale=True) == "התכוונתם ל-2.75 ₪ או ל-2,750 ₪?"

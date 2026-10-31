@@ -98,7 +98,7 @@ export function CopayLine({ result, compact = false, onAskCopay }: {
         </p>
       )}
       {c.tone === 'final' && (
-        <p className="copay-meta">אם אצלכם סוכם אחרת, אפשר לעדכן אותי ואפנה לנציג התחבורה לבירור.</p>
+        <p className="copay-meta">זה הסכום בקטלוג לרכב הזה. אם לרכב החדש סוכם אתכם סכום אחר, אפשר לעדכן אותי ואפנה לנציג התחבורה לבירור.</p>
       )}
       {c.tone === 'pending' && (
         <p className="copay-meta">הנטו כאן הוא הערכה לפי הסכום שבקטלוג. אם הנציג יקבע סכום אחר, הנטו ישתנה בהתאם.</p>

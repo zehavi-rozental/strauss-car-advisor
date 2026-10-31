@@ -808,6 +808,9 @@ def _car_detail_plan(snapshot: RulesSnapshot, question: str, text: str) -> Parse
         if only(none_span(text)):
             return ParserPlan(_call("save_profile", current_copay="0"), True)
     arg = {"use_value": "current_use_value", "copay": "current_copay", "maintenance": "current_maintenance"}[question]
+    if "%" in text or "אחוז" in text:
+        # a percent is never an amount in shekels (31/10: "5%" typed for the pension was asked as "5 ₪ or 5,000 ₪?")
+        return ParserPlan()
     read = read_value(text, fillers)
     if read is None:
         return ParserPlan()

@@ -6,7 +6,7 @@ import { Icon } from '../ui/Icon'
 import { AnswerWidgets } from './AnswerWidgets'
 import { ComparisonPanel } from './ComparisonPanel'
 import { EmailReturnCard } from './EmailReturnCard'
-import { engineBadge } from './engineStatus'
+import { copayBannerText, engineBadge } from './engineStatus'
 import { OptionMapPanel, OptionMapSummary } from './OptionMapPanel'
 import { MAP_REQUEST } from './optionMap'
 import { Composer } from './Composer'
@@ -61,7 +61,7 @@ export function EmployeePage() {
   // `opened` counts every opening: the card is remounted each time (its key), so text typed for one car never stays
   // in the field when the card is opened for another one (the NIRO inquiry that carried a DOLPHIN question)
   const [inquiry, setInquiryState] = useState<{ intent: RepQuestionIntent; question: string; optionId?: string;
-                                                carLabel?: string; catalogAmount?: string; copayToday?: boolean;
+                                                carLabel?: string; catalogAmount?: string; copayToday?: boolean; subject?: string;
                                                 opened: number } | null>(null)
   const inquiryCount = useRef(0)
   const setInquiry = (next: Omit<NonNullable<typeof inquiry>, 'opened'> | null) =>
@@ -70,6 +70,7 @@ export function EmployeePage() {
   // inquiry was really sent (created / already open), never by opening the card
   const openTodayCopayInquiry = (car?: string, amount?: string) => setInquiry({
     intent: 'general', copayToday: true, carLabel: car, catalogAmount: amount,
+    subject: 'בירור סכום ההשתתפות ברכב הנוכחי',
     question: `אני מבקש/ת לברר מה סכום ההשתתפות החודשי שלי ברכב הנוכחי${car ? ` (${car})` : ''}. ` +
       'האם הסכום שבקטלוג הוא הסכום שחל עליי?',
   })
@@ -223,7 +224,7 @@ export function EmployeePage() {
         <div className="copay-banner" role="note">
           <Icon name="info" size={16} />
           <span>
-            ההשוואה מחושבת לפי סכומי ההשתתפות שבקטלוג הרכבים של שטראוס. אם יש לכם הסדר השתתי שונה,{' '}
+            {copayBannerText(c.todayCopay)}{' '}
             <button type="button" className="link-inline" disabled={busy} onClick={() => openCopayInquiry()}>
               אפשר לברר מול נציג הרכב
             </button>.
@@ -239,6 +240,7 @@ export function EmployeePage() {
           optionId={inquiry.optionId}
           carLabel={inquiry.carLabel}
           catalogAmount={inquiry.catalogAmount}
+          subject={inquiry.subject}
           knownEmail={repEmail}
           emailEnabled={c.emailEnabled}
           emailSimulated={c.emailSimulated}

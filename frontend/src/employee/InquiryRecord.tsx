@@ -3,6 +3,7 @@
 // status tag. The same record for an inquiry opened from a car card, from the chat, or by the system.
 import { useState } from 'react'
 import type { RepInquiry } from '../api/types'
+import { inquiryNumber } from '../format/inquiry'
 import { Icon } from '../ui/Icon'
 
 const STATUS: Record<RepInquiry['status'], string> = {
@@ -70,6 +71,7 @@ export function InquiryRecord({ question, content, answerSeq, onResend }: Props)
       {open && parsed.next && <p className="rep-inquiry-next">{parsed.next}</p>}
       {createdAt && (
         <dl>
+          {question && <div><dt>מספר פנייה</dt><dd dir="ltr">{inquiryNumber(question.id)}</dd></div>}
           <div><dt>נפתחה</dt><dd>{fullTime(createdAt)}</dd></div>
           {answeredAt && <div><dt>נענתה</dt><dd>{fullTime(answeredAt)}</dd></div>}
         </dl>

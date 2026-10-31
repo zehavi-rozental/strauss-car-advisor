@@ -16,7 +16,9 @@ from .test_rep_policy_2026_10_22 import NO_CAR, PROFILE_B, Chat, _no_catalog_cop
 
 TODAY = "יש לי קורולה 2026, משלמת 280"          # CAR-07: catalog 250; the employee pays 280
 NIRO = "CAR-05"                                 # catalog 250
-CATALOG_LINE = "לפי הקטלוג, ההשתתפות ברכב הזה היא 250 ₪. אם אצלכם סוכם אחרת, אפשר לעדכן אותי ואפנה לנציג התחבורה לבירור."
+# the new car's catalog amount, named, and today's own amount said apart (31/10)
+CATALOG_LINE = ("ההשתתפות ב-NIRO (2025) לפי הקטלוג היא 250 ₪. אם לרכב החדש סוכם אתכם סכום אחר, אפשר לעדכן אותי "
+                "ואפנה לנציג התחבורה לבירור.\nלרכב שלכם היום חישבתי עם ההשתתפות שמסרתם: 280 ₪.")
 MODES = ["template", "llm"]
 
 

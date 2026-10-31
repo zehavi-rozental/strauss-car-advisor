@@ -302,15 +302,22 @@ def pending_copay_text(label: str, amount: Any) -> str:
     return WAITING_COPAY_ONLY
 
 
-COPAY_UPDATE = "אם אצלכם סוכם אחרת, אפשר לעדכן אותי ואפנה לנציג התחבורה לבירור."
+# about the NEW car's catalog amount only — never today's car, whose copay is the employee's own (31/10: after the
+# employee typed today's amount, the general line read as if that amount still had to be checked with the rep)
+COPAY_UPDATE = "אם לרכב החדש סוכם אתכם סכום אחר, אפשר לעדכן אותי ואפנה לנציג התחבורה לבירור."
 
 
-def catalog_copays_text(items: Sequence[tuple[str, Any]]) -> str:
-    """The catalog amount used as is (the challenge owner, 22/10): its source, and how to say it differs."""
+def catalog_copays_text(items: Sequence[tuple[str, Any]], today_copay: Any = None) -> str:
+    """The new cars' catalog amounts used as is (the challenge owner, 22/10), and — kept apart — the amount used for
+    today's car, which the employee gave or confirmed."""
     if len(items) == 1:
-        return f"לפי הקטלוג, ההשתתפות ברכב הזה היא {money(items[0][1])}. {COPAY_UPDATE}"
-    each = ", ".join(f"{in_label(label)} {money(amount)}" for label, amount in items)
-    return f"לפי הקטלוג, ההשתתפות היא: {each}.\n{COPAY_UPDATE}"
+        line = f"ההשתתפות ב-{items[0][0]} לפי הקטלוג היא {money(items[0][1])}. {COPAY_UPDATE}"
+    else:
+        each = ", ".join(f"{in_label(label)} {money(amount)}" for label, amount in items)
+        line = f"ההשתתפות ברכבים החדשים לפי הקטלוג: {each}.\n{COPAY_UPDATE}"
+    if today_copay is not None and Decimal(str(today_copay)) > 0:
+        line += f"\nלרכב שלכם היום חישבתי עם ההשתתפות שמסרתם: {money(today_copay)}."
+    return line
 
 
 def copay_rep_request_text(labels: Sequence[str], amounts: Sequence[Any]) -> str:
@@ -464,7 +471,7 @@ def results_text(state: ConversationState) -> str:
     final = [(i.label, (i.result.get("alternative") or {}).get("copay")) for i in ok
              if i.result.get("copay_source") == "catalog_final"]
     if final and all(a is not None for _, a in final):
-        lines.append(catalog_copays_text(final))
+        lines.append(catalog_copays_text(final, state.current.copay))
     if pending and all(a is not None for _, a in pending):
         lines.append(pending_copays_text(pending))
     elif pending:
@@ -510,6 +517,9 @@ def _show(field: str, value: Any) -> str:
     kind = _VALUE_LABELS[field][1]
     number = Decimal(str(value))
     if kind == "money":
+        if number != number.to_integral_value():
+            # the value as typed, never rounded (31/10: "2.75" was asked back as "3 ₪")
+            return f"{format(number.normalize(), ',f')} ₪"
         return money(number)
     text = format(number.normalize(), "f")
     return f"{text}%" if kind == "percent" else text

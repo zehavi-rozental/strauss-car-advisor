@@ -46,7 +46,8 @@ def test_atto_3_is_explained_in_plain_lines(sessions):
     # the chat text is two short lines; the detail lives in the structured result
     # the catalog amount is used and said with its source; the representative only if the employee asks (22/10)
     summary = ("בדקתי את ATTO 3 (2025). הנטו שלכם יגדל ב-661 ₪ בחודש.\n"
-               "לפי הקטלוג, ההשתתפות ברכב הזה היא 300 ₪. אם אצלכם סוכם אחרת, אפשר לעדכן אותי ואפנה לנציג התחבורה לבירור.")
+               "ההשתתפות ב-ATTO 3 (2025) לפי הקטלוג היא 300 ₪. אם לרכב החדש סוכם אתכם סכום אחר, אפשר לעדכן אותי "
+               "ואפנה לנציג התחבורה לבירור.\nלרכב שלכם היום חישבתי עם ההשתתפות שמסרתם: 300 ₪.")
     # the summary, then why (the engine's main driver, in words), then one next step
     assert turn.reply.split("\n\n") == [summary, "הסיבה העיקרית ב-ATTO 3 (2025): שווי השימוש נמוך יותר, ולכן המס יקטן.",
                                         T.NEXT_AFTER_RESULTS]

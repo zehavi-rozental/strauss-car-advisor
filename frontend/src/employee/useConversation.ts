@@ -74,6 +74,7 @@ export function useConversation() {
   }, [])
   const [results, setResults] = useState<OptionResult[]>([])
   const [resultsStale, setResultsStale] = useState(false)
+  const [todayCopay, setTodayCopay] = useState<string | null>(null)   // the employee's own amount, not the catalog's
   const [mapReady, setMapReady] = useState(false)          // the server can build the option map now
   const [optionMapState, setOptionMapState] = useState<OptionMap | null>(null)
   const setOptionMap = useCallback((next: OptionMap | null | undefined) => {
@@ -118,6 +119,7 @@ export function useConversation() {
     setExpects(view.expects)
     setLastAssistant(lastAssistantRef.current)
     setResultsStale(Boolean(view.results_stale))
+    setTodayCopay(view.today_copay ?? null)
     setMapReady(view.map_ready === true)
     setOptionMap(view.option_map)
     setResults(res)
@@ -144,6 +146,7 @@ export function useConversation() {
       setExpects(u.expects)
       setLastAssistant(lastAssistantRef.current)
       setResultsStale(Boolean(u.results_stale))
+      if (u.today_copay !== undefined) setTodayCopay(u.today_copay)
       setMapReady(u.map_ready === true)
       setOptionMap(u.option_map)
       setPendingQuestions(u.pending_questions)
@@ -426,7 +429,7 @@ export function useConversation() {
   const questionKey = `${lastAssistant ?? ''}|${JSON.stringify(expects)}`
 
   return {
-    engine,
+    engine, todayCopay,
     conversationId, repEmail, emailEnabled, emailSimulated, emailPending,
     messages, stage, expects, questionKey, results, resultsStale, mapReady, optionMap: optionMapState, resultsAnchor,
     pendingQuestions,
