@@ -66,6 +66,7 @@ export function useConversation() {
   const [repEmail, setRepEmail] = useState<string | null>(null)
   // an older server does not say: mail is assumed on (the card asks for an address, as before)
   const [emailEnabled, setEmailEnabled] = useState(true)
+  const [emailSimulated, setEmailSimulated] = useState(false)   // fake mail: say no real email is sent
   const [emailPending, setEmailPending] = useState(false)     // an address waits for its verification
   const [expectsState, setExpectsState] = useState<Expects | null>(null)
   const setExpects = useCallback((next: Expects | null) => {
@@ -112,6 +113,7 @@ export function useConversation() {
     setStage(view.stage)
     setRepEmail(view.rep_email ?? null)
     setEmailEnabled(view.rep_email_delivery !== 'disabled')
+    setEmailSimulated(view.rep_email_simulated === true)
     setEmailPending(view.rep_email_pending === true)
     setExpects(view.expects)
     setLastAssistant(lastAssistantRef.current)
@@ -138,6 +140,7 @@ export function useConversation() {
       if (u.rep_email_verified) setRepEmail(u.rep_email ?? null)
       if (u.rep_email_delivery) setEmailEnabled(u.rep_email_delivery !== 'disabled')
       if (u.rep_email_pending !== undefined) setEmailPending(u.rep_email_pending)
+      if (u.rep_email_simulated !== undefined) setEmailSimulated(u.rep_email_simulated)
       setExpects(u.expects)
       setLastAssistant(lastAssistantRef.current)
       setResultsStale(Boolean(u.results_stale))
@@ -424,7 +427,7 @@ export function useConversation() {
 
   return {
     engine,
-    conversationId, repEmail, emailEnabled, emailPending,
+    conversationId, repEmail, emailEnabled, emailSimulated, emailPending,
     messages, stage, expects, questionKey, results, resultsStale, mapReady, optionMap: optionMapState, resultsAnchor,
     pendingQuestions,
     repQuestions, returnTokenPending, returnTokenError, returnLinkInvalid, returnStored, resumeEmailLink,

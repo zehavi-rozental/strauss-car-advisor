@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     email_from: str = ""
     email_smtp_starttls: bool = True
     email_fake_dir: str = ""
+    # the fake backend tells the employee no real email is sent (31/10: a local server said "we sent a link").
+    # Off only where a test drives the real mail flow through the fake backend (the test client, the e2e server).
+    email_fake_notice: bool = True
 
     max_message_chars: int = 1000
     rate_limit_per_minute: int = 30      # הודעות לשיחה בדקה

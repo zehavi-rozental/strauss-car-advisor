@@ -216,7 +216,9 @@ def _email_fields(request: Request, conversation_id: str) -> dict[str, Any]:
     """The employee's own email state, read once per request (after the cookie was checked by the caller)."""
     email = _service(request).email_status(conversation_id)
     return {"rep_email": email["email"], "rep_email_verified": email["verified"],
-            "rep_email_delivery": email["delivery"], "rep_email_pending": email["pending_address"]}
+            "rep_email_delivery": email["delivery"], "rep_email_pending": email["pending_address"],
+            # the fake backend (a local test server): nothing leaves the machine, and the screen must say so
+            "rep_email_simulated": email.get("simulated", False)}
 
 
 class EmailVerifyIn(BaseModel):

@@ -112,8 +112,13 @@ def sentences(text: str) -> list[str]:
     return [s.strip() for s in re.split(r"(?<=[.?])\s+|\n+", _attach_tags(text)) if s.strip()]
 
 
+# brackets a tag stood in alone ("עמלות חודשיות ([[state]])?" reached the screen as "עמלות חודשיות ()?", 31/10)
+_EMPTY_BRACKETS_RE = re.compile(r"\s*[(\[{]\s*[)\]}]")
+
+
 def strip_tags(text: str) -> str:
-    return "\n".join(TAG_RE.sub("", line).rstrip() for line in _attach_tags(text).splitlines()).strip()
+    return "\n".join(_EMPTY_BRACKETS_RE.sub("", TAG_RE.sub("", line)).rstrip()
+                     for line in _attach_tags(text).splitlines()).strip()
 
 
 def _is_question(s: str) -> bool:

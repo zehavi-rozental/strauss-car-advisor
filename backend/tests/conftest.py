@@ -78,6 +78,7 @@ def sessions(engine):
 
 def make_client(engine, llm=None, **overrides) -> TestClient:
     overrides.setdefault("email_backend", "fake")
+    overrides.setdefault("email_fake_notice", False)      # the fake backend stands in for real mail here
     overrides.setdefault("email_encryption_key", Fernet.generate_key().decode("ascii"))
     overrides.setdefault("email_public_app_url", "http://testserver")
     settings = Settings(_env_file=None, llm_provider="none", **overrides)

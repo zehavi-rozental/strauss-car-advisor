@@ -365,8 +365,8 @@ class ConversationService:
             about = f" בנושא {car}" if car else ""
             said = wording or employee_wording(q.missing_field, q.question_text) or INQUIRY_PURPOSE.get(
                 q.missing_field, INQUIRY_PURPOSE_DEFAULT)
-            after = inquiry_next_text(mail, bool(conversation.email_verified_at),
-                                      bool(conversation.email_ciphertext)) if conversation is not None else ""
+            after = inquiry_next_text(mail, bool(conversation.email_verified_at), bool(conversation.email_ciphertext),
+                                      simulated=self._mail_simulated) if conversation is not None else ""
             repo.add_message(conv_id, "assistant", f"פנייה לנציג הרכב{about}:\n{said}\n\n{after}".strip(),
                              "rep_inquiry", rep_question_id=q.id)
             recorded.add(q.id)
@@ -473,6 +473,12 @@ class ConversationService:
     def _mail_enabled(self) -> bool:
         return self.email_notifications is not None and self.email_notifications.enabled
 
+    @property
+    def _mail_simulated(self) -> bool:
+        """The fake backend: mail is written to local files, nothing reaches a real inbox (31/10)."""
+        s = self.email_notifications.settings if self.email_notifications is not None else None
+        return self._mail_enabled and s.email_backend == "fake" and s.email_fake_notice
+
     def _flush_email(self) -> None:
         """Delivers queued mail within the request only with the fake backend; SMTP is the worker's. A failure is
         logged (no address, no token) and never undoes what the request saved."""
@@ -487,7 +493,8 @@ class ConversationService:
     def _email_payload(self, conversation_id: str) -> dict[str, Any]:
         state = self.email_status(conversation_id)
         return {"email_verified": state["verified"], "email_status": state["status"],
-                "email_delivery": state["delivery"], "email_pending": state["pending_address"]}
+                "email_delivery": state["delivery"], "email_pending": state["pending_address"],
+                "email_simulated": state.get("simulated", False)}
 
     def email_status(self, conversation_id: str) -> dict[str, Any]:
         """The employee's email state for this conversation. delivery "disabled": no mail at all (say nothing about
@@ -505,14 +512,15 @@ class ConversationService:
                 # pending_address: an address was given and waits for its verification (the screen offers a new
                 # link); the address itself is never sent back before it is verified
                 return {"verified": False, "email": None, "status": notifier.verification_status(session, row),
-                        "delivery": "enabled", "pending_address": bool(row.email_ciphertext)}
+                        "delivery": "enabled", "pending_address": bool(row.email_ciphertext),
+                        "simulated": self._mail_simulated}
             try:
                 address = notifier._decrypt(row.email_ciphertext)
             except EmailNotConfigured:
                 return {"verified": False, "email": None, "status": "failed", "delivery": "enabled",
                         "pending_address": False}
             return {"verified": True, "email": address, "status": "verified", "delivery": "enabled",
-                    "pending_address": False}
+                    "pending_address": False, "simulated": self._mail_simulated}
 
     def resend_verification(self, conversation_id: str, token: str, email: Optional[str] = None) -> dict[str, Any]:
         """A new verification link when the previous one expired or could not be delivered (never while one is

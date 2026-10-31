@@ -23,6 +23,8 @@ interface Props {
   knownEmail?: string
   /** mail delivery is configured; false: no address is asked and nothing mentions email */
   emailEnabled?: boolean
+  /** a local test server's fake mail: no address is asked, and the card says no real email is sent */
+  emailSimulated?: boolean
   disabled?: boolean
   onCancel: () => void
   /** called after a question is saved (status created/exists), so the parent can refresh results/status */
@@ -33,7 +35,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export function RepInquiryCard({
   conversationId, initialQuestion, intent, optionId, carLabel, catalogAmount, knownEmail, emailEnabled = true,
-  disabled = false, onCancel, onSaved,
+  emailSimulated = false, disabled = false, onCancel, onSaved,
 }: Props) {
   const [step, setStep] = useState<Step>('edit')
   const [question, setQuestion] = useState(initialQuestion)
@@ -51,7 +53,7 @@ export function RepInquiryCard({
   }, [])
 
   // an address is asked only when mail is on and none is verified for this conversation yet
-  const needsEmail = emailEnabled && !knownEmail
+  const needsEmail = emailEnabled && !emailSimulated && !knownEmail
   const trimmed = question.trim()
   const emailTyped = email.trim().length > 0
   const emailOk = emailTyped && EMAIL_RE.test(email.trim())
@@ -107,6 +109,11 @@ export function RepInquiryCard({
           <textarea ref={field} id="rep-q" className="rep-inquiry-text" rows={3} value={question} disabled={disabled || sending}
                     onChange={(e) => setQuestion(e.target.value)} maxLength={500}
                     placeholder="כתבו כאן את השאלה לנציג הרכב" />
+          {emailSimulated && (
+            <p className="rep-inquiry-hint" role="note">
+              סביבת בדיקות: לא נשלח מייל אמיתי. התשובה של הנציג תופיע כאן בשיחה.
+            </p>
+          )}
           {needsEmail && (
             <>
               <label className="rep-inquiry-label" htmlFor="rep-email">כתובת אימייל לעדכונים</label>

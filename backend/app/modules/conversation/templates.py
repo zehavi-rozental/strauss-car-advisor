@@ -11,7 +11,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Optional, Sequence
 
-from app.modules.rules.public import RulesSnapshot
+from app.modules.rules.public import FAMILY_GROUP, RulesSnapshot
 from app.shared.money import to_shekel
 
 from .stage import (MAX_OPTIONS, PROFILE_ARGS, Q2_FIELDS, profile_args, ConversationState, RepReason, Stage, current_group,
@@ -783,7 +783,12 @@ def confirm_car_text(state: ConversationState) -> str:
         details.append(f"קבוצה {c.group}")
     if c.drive:
         details.append(DRIVE_HE[c.drive.value])
-    return f"זיהיתי: {', '.join(details)}. אם זה לא הרכב שלכם, אפשר לתקן."
+    # the car's catalog group is not the employee's eligibility (31/10: group א with a COROLLA of group ב read as a
+    # contradiction): said once, so it is clear which group the alternatives come from
+    own = state.profile.group
+    whose = (f" זו הקבוצה של הרכב בקטלוג; את החלופות אבדוק לפי קבוצת הזכאות שלכם, {own}."
+             if c.group and own and c.group != own and c.group != FAMILY_GROUP else "")
+    return f"זיהיתי: {', '.join(details)}.{whose} אם זה לא הרכב שלכם, אפשר לתקן."
 
 
 
@@ -1277,9 +1282,12 @@ def to_plural(text: str) -> str:
     return text
 
 
-def inquiry_next_text(mail: bool, verified: bool, address_given: bool) -> str:
+def inquiry_next_text(mail: bool, verified: bool, address_given: bool, simulated: bool = False) -> str:
     """After an inquiry is sent: where the answer will appear, and — only when mail is really configured — what the
     email will do. Never claims an email was sent (it is queued; delivery happens after this reply)."""
+    if mail and simulated:
+        # a local test server with the fake mail backend: no real email is ever sent (31/10)
+        return "התשובה תופיע כאן בשיחה. בסביבת הבדיקות הזו לא נשלח מייל אמיתי."
     if mail and verified:
         return "התשובה תופיע כאן בשיחה, ונעדכן אתכם גם באימייל כשהנציג יענה."
     if mail and address_given:

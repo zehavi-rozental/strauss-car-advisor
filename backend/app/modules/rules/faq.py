@@ -81,6 +81,8 @@ class Faq(BaseModel):
     social_cues: dict[str, tuple[str, ...]] = {}
     # kind -> short replies, used in turn so the same line does not come twice in a row
     social_replies: dict[str, tuple[str, ...]] = {}
+    # "let's move on" with nothing else to read ("אוקי אז מה ההמשך"): the open question picked up, never "not sure"
+    proceed_terms: tuple[str, ...] = ()
     # feedback about the bot's previous reply ("מה הקשר", "זה לא תשובה", "לא קשור"): acknowledged, and the open
     # question is explained in other, simpler words — never the same template again (30/10)
     feedback_cues: tuple[str, ...] = ()

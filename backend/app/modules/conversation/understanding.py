@@ -581,6 +581,11 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
     if kind is not None:
         u.social, u.remainder, u.resume = kind, "", True
         return u              # small talk only: answered in a few words, then the open question (never a miss)
+    if (faq.proceed_terms and _names_any(faq.proceed_terms, [_spelling(w) for w in words(text)], starts=False)
+            and not answer_like(snapshot, text)):
+        # "let's move on" with nothing to read in it: the open question, picked up (31/10)
+        u.social, u.remainder, u.resume = "proceed", "", True
+        return u
     if _contains_any(text, faq.injection_patterns) or (
             off_topic(snapshot, text) and not any(ch.isdigit() for ch in text)):
         u.redirect = True

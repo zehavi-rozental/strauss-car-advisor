@@ -176,6 +176,10 @@ social_replies:
   how_are_you: ["מצוין.", "מצוין, תודה.", "הכול מצוין."]
   greeting: ["שלום.", "שלום שוב."]
   thanks: ["בשמחה.", "אין בעד מה."]
+  proceed: ["בסדר, ממשיכים.", "בשמחה, נמשיך."]
+# "let's move on" with no value and no question in it ("אוקי אז מה ההמשך אני כבר רוצה", 31/10): the open
+# question is picked up (social kind "proceed"); without a model it got "לא בטוח שהבנתי" and the question explained
+proceed_terms: [המשך, להמשיך, נמשיך, תמשיך, הלאה, להתקדם, נתקדם, קדימה]
 # A question that refers to the advisor itself ("איך אתה יודע…", "המערכת שלך…"): question_scope "bot", answered by the
 # how_it_works entry, before the "follow-up" scope (whose "איך" made it an explanation of the open question).
 bot_reference_terms: [אתה, שלך, ממך, איתך, בוט, הבוט, המערכת, היועץ]

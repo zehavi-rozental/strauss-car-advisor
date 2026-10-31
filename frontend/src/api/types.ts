@@ -224,6 +224,7 @@ export interface ConversationView {
   rep_email_verified?: boolean
   rep_email_delivery?: EmailDelivery
   rep_email_pending?: boolean   // an address waits for its verification (a new link may be offered)
+  rep_email_simulated?: boolean // the fake mail backend (a local test server): no real email is sent
 }
 
 /** 'disabled': mail is not configured — the inquiry and the answer stay in the chat and nothing mentions email */
@@ -252,6 +253,7 @@ export interface UpdatesResponse {
   rep_email_verified?: boolean
   rep_email_delivery?: EmailDelivery
   rep_email_pending?: boolean
+  rep_email_simulated?: boolean
 }
 
 export interface CarSearchItem {

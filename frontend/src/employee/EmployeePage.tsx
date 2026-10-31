@@ -230,6 +230,7 @@ export function EmployeePage() {
           catalogAmount={inquiry.catalogAmount}
           knownEmail={repEmail}
           emailEnabled={c.emailEnabled}
+          emailSimulated={c.emailSimulated}
           disabled={busy}
           onCancel={() => setInquiry(null)}
           onSaved={(res) => { onInquirySaved(res); }}

@@ -151,6 +151,7 @@ jobs:
           CREATE_RATE_LIMIT_PER_MINUTE: "500"   # the suite opens ~40 conversations a minute from one address
           # representative inquiries with email (29/10): the fake backend, its messages in a temporary folder
           EMAIL_BACKEND: fake
+          EMAIL_FAKE_NOTICE: "false"          # the specs drive the real mail flow (verify links)
           EMAIL_FAKE_DIR: ${{ runner.temp }}/mail
           EMAIL_PUBLIC_APP_URL: http://localhost:10000
         # the throwaway key from the step above (E2E_MAIL_KEY, in this job's environment)
