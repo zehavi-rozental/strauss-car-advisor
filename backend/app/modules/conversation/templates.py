@@ -909,12 +909,18 @@ def compare_needs_text(state: ConversationState) -> str:
         # advice asked before the basics are known ("כדאי לי להחליף רכב?"): what the answer depends on, never the
         # whole list of missing fields; one question follows (30/10)
         return ADVICE_FIRST
+    if names == [FIELD_NAMES["options"]]:
+        # "כדאי לי להחליף את הרכב?" with everything known but the cars: what the answer depends on, never the
+        # missing choice twice (live QA 31/10: "חסרים לי עוד: הרכבים להשוואה" + "עדיין חסר לי: הרכבים להשוואה")
+        return CHOOSE_TO_COMPARE
     what = "למפות את כל האפשרויות" if state.map_requested else "להשוות"
     return f"כדי {what}, חסרים לי עוד: {_list(names)}."
 
 
 ADVICE_FIRST = ("זה תלוי ברכב שלכם היום, ברכבים שאתם זכאים להם ובנטו שיישאר לכם אחרי ההחלפה. "
                 "כדי לבדוק, אצטרך כמה פרטים, ונתחיל באחד.")
+CHOOSE_TO_COMPARE = ("זה תלוי בנטו שיישאר לכם בכל רכב לעומת המצב שלכם היום. "
+                     "אחשב את זה לכל רכב שתבחרו, או לכל הרכבים שאתם זכאים להם.")
 
 
 ALL_AT_ONCE = "אני שואל בשלבים כדי שלא יחסר דבר, אבל אפשר לענות על הכול בהודעה אחת."

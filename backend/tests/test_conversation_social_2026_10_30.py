@@ -284,3 +284,46 @@ def test_switching_to_a_company_car_is_not_a_model_missing_from_the_catalog():
         assert catalog_answer(SNAP, text) != NOT_IN_CATALOG, text
     assert catalog_answer(SNAP, "יש לכם רכב פולו?") == NOT_IN_CATALOG       # a model that is not there: still said
     assert catalog_answer(SNAP, "יש לכם דגם גולף?") == NOT_IN_CATALOG
+
+
+def test_should_i_switch_with_only_the_cars_missing_says_what_it_depends_on_once(client):
+    from app.modules.conversation.templates import CHOOSE_TO_COMPARE
+    cid = client.post("/api/conversations").json()["conversation_id"]
+    send = lambda body: client.post(f"/api/conversations/{cid}/messages", json=body).json()
+    send({"text": "קבוצה ג"})
+    send({"fields": {"base_salary": 17000, "commissions": 0, "bonus": 0, "pension_percent": 6,
+                     "study_fund_percent": 2.5, "credit_points": 2.25, "children_under_23": 1}})
+    assert send({"text": "קורולה קרוס 2025, משלמת 300"})["stage"] == "CHOOSE_OPTIONS"
+    for _ in range(2):                                     # the live turn, and the same message again
+        reply = send({"text": "האם כדאי לי להחליף את הרכב שלי?"})["reply"]
+        assert reply.startswith(CHOOSE_TO_COMPARE)
+        assert "עדיין חסר" not in reply and "חסרים לי עוד" not in reply
+        assert reply.count("הרכבים להשוואה") == 0 and len(asks(reply)) == 1
+
+
+def test_today_describes_the_car_before_it_not_the_next_one():
+    from app.modules.conversation.fallback import car_roles
+    from app.modules.conversation.understanding import named_cars
+    text = "תשווה לי בין הקורולה קרוס שיש לי היום לבין ATTO 3"
+    roles = car_roles(text, named_cars(text, SNAP.catalog), SNAP.extensions.car_role_cues)
+    assert roles == {"CAR-09": "current", "CAR-10": None}
+    text = "היום יש לי קורולה קרוס"                                    # nothing before it: still the next car
+    assert car_roles(text, named_cars(text, SNAP.catalog), SNAP.extensions.car_role_cues) == {"CAR-09": "current"}
+
+
+def test_compare_today_s_car_with_an_alternative_named_in_one_message(engine):
+    from app.modules.conversation.llm.port import ToolCall
+    fake = FakeLLM()
+    client = make_client(engine, llm=LLMChain([fake]))
+    cid = client.post("/api/conversations").json()["conversation_id"]
+    send = lambda body: client.post(f"/api/conversations/{cid}/messages", json=body).json()
+    send({"text": "קבוצה ג"})
+    send({"fields": {"base_salary": 17000, "commissions": 0, "bonus": 0, "pension_percent": 6,
+                     "study_fund_percent": 2.5, "credit_points": 2.25, "children_under_23": 1}})
+    send({"text": "קורולה קרוס 2025, משלמת 300"})
+    fake.turn(ToolCall(name="select_options", args={"options": ["ATTO 3"]}, id="c1"), reply="")
+    turn = send({"text": "תשווה לי בין הקורולה קרוס שיש לי היום לבין ATTO 3"})
+    print(turn["reply"], turn["stage"])
+    assert "הרכב שלכם היום, או חלופה" not in turn["reply"]
+    assert "זה תלוי בנטו" not in turn["reply"]
+    assert turn["stage"] == "PRESENTED" and [r["label"] for r in turn["results"]] == ["ATTO 3 (2025)"]

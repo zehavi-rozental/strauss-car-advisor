@@ -68,6 +68,7 @@ from .templates import (
     ALL_AT_ONCE,
     NEXT_AFTER_RESULTS,
     UNANSWERED,
+    CHOOSE_TO_COMPARE,
     compare_needs_text,
     unknown_ack_text,
     call_to_action,
@@ -1139,7 +1140,12 @@ class Agent:
         # a request the bot cannot do yet ("תשווה ביניהם" before the profile is complete): what is needed
         if (und.compare and not just_calculated and not map_shown
                 and state.stage not in (Stage.PRESENTED, Stage.WAITING_FOR_REP) and RANK_DEFERRED not in confirmations):
-            lines.append(compare_needs_text(state))
+            need = compare_needs_text(state)
+            # "what it depends on" answers a general question; cars named are a request, read as one (live QA 31/10)
+            if need != CHOOSE_TO_COMPARE or not named_cars(text, snapshot.catalog):
+                lines.append(need)
+        # answered with what it depends on: the question that follows is the same one, picked up, not "still missing"
+        compare_answered = CHOOSE_TO_COMPARE in lines
         # A turn that gave no data (small talk, a question, feedback, a style request, advice asked too early, or a
         # remark that is no answer at all) is answered first and then ONE light question follows: never the whole
         # compound question with an example, never "לא הצלחתי להבין את התשובה" for something that was no answer (30/10).
@@ -1165,7 +1171,7 @@ class Agent:
                 confirmations=[*confirmations, *refused], answers=list(zip(answers, terms)),
                 # feedback on the last reply: the open question again in other, simpler words (never the same template)
                 follow_up=und.presence, explain=und.help or und.complaint or len(no_car_lines) > 1, extra=lines,
-                about_results=about_results, resume=und.resume, light=light, attempted=attempted,
+                about_results=about_results, resume=und.resume or compare_answered, light=light, attempted=attempted,
                 open_help=open_help)
             if map_line:
                 built.ack.append(map_line)  # after what was saved and identified this turn

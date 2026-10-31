@@ -129,6 +129,8 @@ class CarRoleCues(_Strict):
 
     current: list[str] = Field(default_factory=list)
     alternative: list[str] = Field(default_factory=list)
+    # words that describe the car BEFORE them ("הקורולה שיש לי היום לבין ATTO 3"): bound backward when a car precedes
+    trailing: list[str] = Field(default_factory=list)
 
 
 class Extensions(_Strict):

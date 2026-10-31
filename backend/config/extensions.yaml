@@ -58,6 +58,8 @@ option_message_fillers: [אני, לי, רוצה, לבדוק, תבדוק, בדו�
 car_role_cues:
   current: [יש לי, הרכב שלי, היום, נוהג, נוהגת, משתתף, משתתפת, משלם, משלמת]
   alternative: [רוצה, מעניין, מעניינת, לבדוק, לעבור ל, להשוות, חלופה]
+  # these describe the car before them ("הקורולה שיש לי היום לבין ATTO 3"), not the next one (31/10)
+  trailing: [היום]
 manufacturer_brands:
   "בי ווי די": [BYD, ביד]
   "טויוטה": [TOYOTA, טויוטה]

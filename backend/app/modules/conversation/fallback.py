@@ -699,7 +699,11 @@ def car_roles(text: str, cars: list[CatalogCar], cues: CarRoleCues) -> dict[str,
                 for i, j in _phrase_at(ws, phrase):
                     after = [c for a, _, c in at if a >= j]
                     before = [c for _, b, c in at if b <= i]
-                    if after or before:
+                    # "היום" and a relative clause ("הקורולה שיש לי") describe the car before them, not the next one
+                    relative = ws[i].startswith("ש") and not phrase.startswith("ש")
+                    if (phrase in cues.trailing or relative) and before:
+                        found[before[-1]].add(role)
+                    elif after or before:
                         found[after[0] if after else before[-1]].add(role)
     return {code: next(iter(roles)) if len(roles) == 1 else None for code, roles in found.items()}
 
