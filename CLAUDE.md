@@ -253,6 +253,7 @@ Template mode is also the fallback when the model is off, fails, hits a cap or i
 - A generic car phrase ("לעבור לרכב צמוד", "רכב חברה", "רכב חשמלי", `understanding._GENERIC_CAR_RE`) is not a model missing from the catalog (live QA 31/10).
 - **"כדאי לי להחליף?" with only the cars missing** (`templates.CHOOSE_TO_COMPARE`): what the answer depends on, then the options question picked up (never "חסרים לי עוד: הרכבים להשוואה" + "עדיין חסר לי: הרכבים להשוואה"); not when the message names a catalog car (that is a request, read as one).
 - **Car roles bind backward for trailing words** (`car_role_cues.trailing: [היום]`, and any cue in a relative clause "ש…"): "הקורולה קרוס שיש לי היום לבין ATTO 3" made ATTO 3 today's car, so `_role_conflict` refused `select_options` and asked "ATTO 3 הוא הרכב שלכם היום, או חלופה?" (live QA 31/10).
+- **A request for the net is the service** (`faq.net_intent_terms` includes "נטו", 31/10; `tests/test_net_request_2026_10_31.py`): "אני רוצה לדעת את הנטו" was scope `org` and got the representative offer (the offer only: no `rep_questions` row is ever written before "לשלוח"). Now it starts the calculation path (what it depends on + one missing item); "מה זה נטו?" and FAQ questions mentioning the net keep their FAQ answers, and a model's `propose_rep_question` for it is refused.
 - Limits: word lists, not understanding (new phrasings go in `faq.yaml` / `extensions.yaml`).
 
 ### Live Gemini acceptance (31/10, outside the repo)

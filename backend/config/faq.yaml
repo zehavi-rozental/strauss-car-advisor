@@ -246,7 +246,8 @@ comparison_terms: [ההבדל, הבדל, ההבדלים, הבדלים, לעומ�
 # with a new car's copay on screen, these ask for the representative (no amount said): a question is opened
 copay_rep_terms: [נציג, הנציג, לנציג, יאשר, לאשר, אישור, תאשר, לברר, בירור, תברר, סוכם, הסדר, אחרת, שונה, לבדוק]
 # the employee's own pay / net: the calculation answers it ("כדי להשוות, חסרים לי עוד…" until it can)
-net_intent_terms: [מרוויח, להרוויח, ארוויח, מפסיד, להפסיד, אפסיד, כסף, כיס, ביד, נשאר לי, יישאר לי, ישאר לי,
+# "נטו" itself (31/10): "אני רוצה לדעת את הנטו" was offered to the representative; "מה זה נטו?" is the FAQ's, first
+net_intent_terms: [נטו, מרוויח, להרוויח, ארוויח, מפסיד, להפסיד, אפסיד, כסף, כיס, ביד, נשאר לי, יישאר לי, ישאר לי,
                    יוצא לי, ברווח, נפסד, יעלה לי, עולה לי, יורד לי, יוריד לי, מוריד לי, משנה לי, ישנה לי, משתלם לי,
                    עדיף לי, כדאי לי, ההשפעה, השפעה, אשלם, הנטו שלי, יקרה לי, הכי זול, הכי שווה,
                    ממליץ, תמליץ, שווה לי, ישתלם לי]
