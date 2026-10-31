@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { messageAuthor } from './engineStatus'
 import type { ReactNode } from 'react'
 import type { OptionResult, RepInquiry } from '../api/types'
 import { formatTime } from '../format/time'
@@ -32,13 +33,15 @@ interface Props {
   /** "תיקון נתונים" from a message of the employee: the form that saves through {fields} and recalculates */
   onCorrect?: () => void
   busy?: boolean
+  /** a model is configured: each bot message says who wrote it (Gemini / the system) */
+  showAuthor?: boolean
 }
 
 export const STALE_NOTE = 'לא מעודכן: החישוב הזה נעשה לפני השינוי האחרון, ויחושב מחדש כשכל הפרטים יהיו ידועים.'
 
 export function MessageList({ messages, repQuestions = [], results, resultsStale = false, resultsAnchor, typing,
                               onOpenTable, onAskCopay, onResendVerification, mapCard, tail,
-                              onRetry, onCorrect, busy }: Props) {
+                              onRetry, onCorrect, busy, showAuthor = false }: Props) {
   const end = useRef<HTMLDivElement>(null)
   const [copied, setCopied] = useState<number | null>(null)
   useEffect(() => {
@@ -132,6 +135,11 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
                   <div className="bubble-text"><RichText text={text} /></div>
                   <div className="bubble-meta">
                     <span className="bubble-time">{formatTime(m.created_at)}</span>
+                    {showAuthor && messageAuthor(m.source) && (
+                      <span className={`bubble-author author-${m.source === 'llm' ? 'model' : 'system'}`}>
+                        {messageAuthor(m.source)}
+                      </span>
+                    )}
                     <span className="msg-actions">{copyButton}</span>
                   </div>
                 </div>

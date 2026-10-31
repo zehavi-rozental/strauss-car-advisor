@@ -17,7 +17,7 @@ from app.modules.rules.public import FAMILY_GROUP, RulesSnapshot
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
 from .stage import (ConversationState, Stage, current_group, missing_current_car, next_stage, open_profile,
                     results_stale, unknown_missing)
-from .templates import DRIVE_HE, FIELD_NAMES, group_question, money, paced
+from .templates import DRIVE_HE, FIELD_NAMES, catalog_copay_hint, group_question, money, paced
 from .tools import TOOL_SPECS, available_options
 
 HISTORY = 12
@@ -122,6 +122,10 @@ def state_block(state: ConversationState, snapshot: RulesSnapshot, parser_hint: 
         drive = DRIVE_HE.get(c.drive.value, "") if c.drive else ""
         lines.append(f"current car: {c.label} group {c.group or '-'} {drive}; use value {_v(c.use_value)}; "
                      f"copay {_v(c.copay) if c.copay is not None else ('unknown' if c.copay_unknown else 'missing')}")
+        if (hint := catalog_copay_hint(state, snapshot)) is not None:
+            lines.append(f"today's copay: the catalog lists {_v(hint)} for this car as a general default; it is NOT "
+                         "verified for this employee's agreement. You may mention it as unverified and ask whether "
+                         "it is what they pay; never save or use it unless they confirm it")
     elif c.has_car and not c.choices:
         lines.append("current car: the employee HAS a company car; only its model is missing (never ask whether "
                      "they have a car, never offer \"no car\")"

@@ -649,3 +649,8 @@
   .rep-inquiry-actions { flex-direction: column-reverse; }
   .rep-inquiry-actions .btn { width: 100%; }
 }
+
+/* who wrote a bot message (31/10): the model or the system; quiet, next to the time */
+.bubble-author { font-size: var(--fs-micro); padding: 0 6px; border-radius: 999px; border: 1px solid currentColor; opacity: .8; }
+.author-model { color: var(--brand); }
+.author-system { color: var(--ink-3); }

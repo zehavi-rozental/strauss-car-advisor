@@ -69,6 +69,8 @@ from .templates import (
     NEXT_AFTER_RESULTS,
     UNANSWERED,
     CHOOSE_TO_COMPARE,
+    catalog_copay_hint,
+    ENGINE_OFFLINE,
     compare_needs_text,
     unknown_ack_text,
     call_to_action,
@@ -545,6 +547,22 @@ def bare_value(text: str) -> bool:
     return bool(_BARE_RE.match(text)) and any(ch.isdigit() for ch in text)
 
 
+_SIMPLE_MAX_WORDS = 3            # "קבוצה א", "18,000 ₪", "פנסיה 5%", "קורולה 2026"; a sentence goes to the model
+_SIMPLE_TOOLS = {"save_profile", "match_current_car", "select_options", "calculate", "rank_options"}
+
+
+def _simple_answer(text: str, und: Understanding, plan: ParserPlan) -> bool:
+    """A short answer that code read in full and nothing else ("18000", "5%", "אין", "קבוצה א", "קורולה 2026"):
+    code saves it and the template replies — no model call (31/10: a bare "18000" cost three Gemini calls). Anything
+    with language in it goes to the model: a question, a request, a remark, an uncertainty, small talk, a longer
+    message. In doubt, the model: only a plan the parser read in full, with values to save, qualifies."""
+    if not plan.complete or not plan.calls or plan.clarify is not None or plan.clarify_scope:
+        return False
+    if "?" in text or len(words(text)) > _SIMPLE_MAX_WORDS or und.anything or und.has_car or und.map_all:
+        return False
+    return all(c.name in _SIMPLE_TOOLS for c in plan.calls)
+
+
 _SEND ={"לשלוח", "שלח", "שלחו", "תשלח", "כן", "send"}
 _CANCEL = {"לבטל", "בטל", "ביטול", "לא", "cancel"}
 
@@ -933,6 +951,12 @@ class Agent:
             plan = _occupation_plan(ctx, answer)  # "כן" / מספר הצעה / "לא" על "לא מצאתי את ... בטבלה"
         elif state.pending_clarification is not None and (answer := _clarification_answer(text)) is not None:
             plan = self._clarified(state, snapshot, answer)[0]   # "הרכב שלי היום" / "חלופה לבדוק"
+        elif (state.asked_field == "current_copay" and len(words(text)) <= 3 and "?" not in text
+              and words(text)[:1] in (["כן"], ["נכון"], ["בדיוק"], ["כן,"])
+              and (hint := catalog_copay_hint(state, snapshot)) is not None):
+            # "כן" to "בקטלוג רשום 300 ₪… זה הסכום שאתם משלמים?": the employee confirmed the catalog amount (31/10)
+            plan = ParserPlan([ToolCall("save_profile", {"current_copay": str(hint)}, "catalog_confirmed")], True,
+                              direct=True)
         else:
             # another answer: the earlier closed questions no longer apply. A value held for confirmation stays
             # held (never dropped silently) and is asked again; a new value for its field resolves it (save_profile)
@@ -999,7 +1023,8 @@ class Agent:
         before_turn_unanswered = state.unanswered_question
         deadline = self.llm.turn_deadline()   # אחרי LLM_TURN_DEADLINE_S — תבניות, בלי ספקים נוספים
         conflicts: list[str] = []
-        parser_decides = plan.complete and (self.mode == "parser_first" or plan.calls == [] or plan.direct)
+        simple = _simple_answer(text, und, plan)       # code saves it, the template replies (no model call)
+        parser_decides = plan.complete and (self.mode == "parser_first" or plan.calls == [] or plan.direct or simple)
         if parser_decides or not self.llm.available:
             path = "choice" if choice else "parser" if plan.complete else "templates"
             # a direct answer to the code's own question ("לא" to a confirmation) is understood
@@ -1012,7 +1037,8 @@ class Agent:
                 state.pending_clarification = plan.clarify     # "<רכב> הוא הרכב שלכם היום, או חלופה?"
                 state.role_asked.append(plan.clarify.catalog_code)
                 understood = True
-            if self._llm_led() and not choice and next_stage(state) != Stage.CALCULATING:
+            if (self._llm_led() and not choice and next_stage(state) != Stage.CALCULATING
+                    and not simple):
                 # saved in code (an answer to the bot's own question, or a message read in full); the LLM
                 # still writes the reply, told what was saved
                 try:
@@ -1105,6 +1131,9 @@ class Agent:
         asks_field = plan.asks or (ctx.range_problems[0][0] if ctx.range_problems and not held and not conflicts
                                    else None)
         answers, terms = self._answers(snapshot, und)
+        if "ai_engine" in und.faq_ids and not used_llm:
+            answers.append(ENGINE_OFFLINE)   # "אתה באמת Gemini?" answered by a template: it says so (31/10)
+            terms.append("Gemini")
         # "אין רכב": said now, or said again ("כתבתי שאין לי רכב"): acknowledged first; said again while the
         # maintenance question is open, the question is explained in its own words (never a stale field)
         restated_no_car = state.current.source == "none" and car_before[0] == "none" and bool(no_car_span(text))

@@ -61,6 +61,17 @@ GREETING = ("שלום! אני יועץ הרכב של שטראוס.\n"
             "אפשר לענות על הכול יחד או בהדרגה, ואת פרטי השכר נשלים בהמשך.")
 
 
+def catalog_copay_hint(state: ConversationState, snapshot: RulesSnapshot) -> Optional[Any]:
+    """The catalog's default copay for today's car (31/10), when today's car is a catalog car and its copay is not
+    known. Only a suggestion: the catalog amount is a general default ("דמה" in the data file), not the employee's
+    agreement — it is shown as unverified and saved only when the employee confirms it."""
+    c = state.current
+    if c.source != "catalog" or not c.catalog_code or c.copay is not None:
+        return None
+    car = next((x for x in snapshot.catalog if x.catalog_code == c.catalog_code), None)
+    return car.default_copay if car is not None else None
+
+
 def question(field: str, state: ConversationState, snapshot: RulesSnapshot) -> str:
     c = state.current
     age = snapshot.strauss.family_track.child_max_age
@@ -96,6 +107,9 @@ def question(field: str, state: ConversationState, snapshot: RulesSnapshot) -> s
                 "קוד הדגם מופיע ברישיון הרכב.\n" + "\n".join(lines))
     if field == "options":
         return options_ask(state, snapshot)
+    if field == "copay" and (hint := catalog_copay_hint(state, snapshot)) is not None:
+        return (f"מה ההשתתפות החודשית שלכם היום ב-{c.label}? בקטלוג החברה רשום לרכב הזה {money(hint)}, "
+                "אבל זה סכום כללי ולא מאומת עבורכם: בהסכם שלכם ייתכן שסוכם אחרת. זה הסכום שאתם משלמים?")
     return texts[field]
 
 
@@ -921,6 +935,9 @@ def compare_needs_text(state: ConversationState) -> str:
     what = "למפות את כל האפשרויות" if state.map_requested else "להשוות"
     return f"כדי {what}, חסרים לי עוד: {_list(names)}."
 
+
+# the question about the language engine answered without the model (an outage, a cap, none configured): said (31/10)
+ENGINE_OFFLINE = "התשובה הזו לא נכתבה על ידי Gemini: כרגע מנוע השפה לא זמין, והיא מגיעה מתבנית קבועה."
 
 ADVICE_FIRST = ("זה תלוי ברכב שלכם היום, ברכבים שאתם זכאים להם ובנטו שיישאר לכם אחרי ההחלפה. "
                 "כדי לבדוק, אצטרך כמה פרטים, ונתחיל באחד.")

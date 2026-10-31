@@ -14,7 +14,7 @@ from app.modules.vehicles.public import VehicleInfo, VehicleKey
 from .free_text import looks_like_title
 from .llm.port import ToolCall
 from .stage import MAX_OPTIONS, ConversationState, Stage, next_stage, question_fields
-from .templates import DRIVE_HE, LINK_LABELS, call_to_action, money, placeholder_text
+from .templates import DRIVE_HE, LINK_LABELS, call_to_action, catalog_copay_hint, money, placeholder_text
 from .tools import available_options
 
 VehicleGetter = Callable[[VehicleKey], Optional[VehicleInfo]]
@@ -203,7 +203,11 @@ def _field_expects(question: str, state: ConversationState, snapshot: RulesSnaps
             for o in available_options(snapshot, state)], _quick("rank"), MAX_OPTIONS)
     if question in NUMBER_ARGS:
         quick = [q for q, allowed in (("none", _NONE_ALLOWED), ("unknown", _UNKNOWN_ALLOWED)) if question in allowed]
-        return _expects(question, "number", quick=_quick(*quick))
+        buttons = _quick(*quick)
+        if question == "copay" and (hint := catalog_copay_hint(state, snapshot)) is not None:
+            # the catalog amount, confirmed by the employee (never assumed): "כן, 300 ₪ בחודש"
+            buttons.insert(0, {"id": f"catalog:{state.current.catalog_code}", "label": f"כן, {money(hint)} בחודש"})
+        return _expects(question, "number", quick=buttons)
     return _expects(None, "none")
 
 
@@ -267,6 +271,11 @@ def choice_calls(field: str, ids: list[str], snapshot: RulesSnapshot) -> list[To
     if field == "options":
         return call("rank_options") if first == "rank" else call("calculate", options=ids)
     if field in NUMBER_ARGS:
+        if field == "copay" and first.startswith("catalog:"):
+            car = next((c for c in snapshot.catalog if c.catalog_code == first.split(":", 1)[1]), None)
+            if car is None or car.default_copay is None:
+                return []
+            return call("save_profile", current_copay=str(car.default_copay))   # the employee confirmed it
         if first == "unknown":
             return call("save_profile", **{_UNKNOWN_FLAGS[field]: True})
         return call("save_profile", **{NUMBER_ARGS[field]: "0"})       # "none"

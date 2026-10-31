@@ -116,7 +116,7 @@ def test_catalog_tag_is_valid_only_on_a_sentence_naming_a_catalog_car():
 def test_the_catalog_is_in_the_cached_prompt_prefix(sessions):
     fake = FakeLLM()
     svc = service(sessions, fake)
-    start(svc, "קבוצה ג")
+    start(svc, "קבוצה ג ושכר בסיס 18,000")      # read in full but not a bare answer: the model writes the reply
     system = fake.calls[0].messages[0].content
     catalog = system.index("CATALOG (the Strauss")
     assert system.index("FAQ (the only source") < catalog < system.index("the rule-based reader")

@@ -58,7 +58,8 @@ def test_expects_follows_the_state_machine(engine):
     assert (e["field"], e["type"], ids(e, "quick_replies")) == ("car", "car_search", ["no_car"])
     e = say(client, cid, "יש לי קורולה קרוס")["expects"]
     assert [f["field"] for f in e["fields"]] == ["copay", "options"]
-    assert (e["field"], ids(e, "quick_replies")) == ("copay", ["none", "unknown"])
+    # today's car is a catalog car: its catalog amount is offered for confirmation first (unverified, 31/10)
+    assert (e["field"], ids(e, "quick_replies")) == ("copay", ["catalog:CAR-09", "none", "unknown"])
     e = say(client, cid, "300")["expects"]
     assert (e["field"], e["type"], e["max"], ids(e, "quick_replies")) == ("options", "multi_choice", 3, ["rank"])
     atto = next(c for c in e["choices"] if c["id"] == "CAR-10")

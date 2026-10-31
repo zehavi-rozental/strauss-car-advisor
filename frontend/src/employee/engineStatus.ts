@@ -24,3 +24,12 @@ export function engineBadge(state: EngineState | null): EngineBadge {
       return { text: 'בודק את מצב השירות', tone: 'pending', title: '' }
   }
 }
+
+/** Who wrote one bot message (31/10): the model, or the system (a template, code, a fixed message). The rep's own
+ * answers carry their event pill instead. Shown only where a model is configured, so a no-AI environment is not
+ * labelled message by message. */
+export function messageAuthor(source: string): string | null {
+  if (source === 'llm') return 'Gemini'
+  if (source === 'rep') return null
+  return 'מערכת'
+}

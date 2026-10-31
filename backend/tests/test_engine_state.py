@@ -34,7 +34,7 @@ def test_a_model_is_untried_until_it_answers_and_health_or_a_new_chat_never_call
     client.get("/api/health")
     assert fake.calls == []                                  # no call for health, the page or a new conversation
     fake.turn(reply="רשמתי: קבוצה ג.\nמה שכר הבסיס החודשי שלכם?")
-    turn = send({"text": "אני בקבוצה ג"})
+    turn = send({"text": "שלום, אני בקבוצה ג ויש לי שאלה"})   # "אני בקבוצה ג" alone: code saves it, no model
     assert fake.calls and turn["engine"] == "ai"
     assert client.get("/api/health").json()["engine"] == "ai"
 
@@ -42,7 +42,7 @@ def test_a_model_is_untried_until_it_answers_and_health_or_a_new_chat_never_call
 def test_a_failing_model_is_limited_in_the_turn_and_in_health(engine):
     client = make_client(engine, llm=LLMChain([FailingLLM()]))
     _, send = start(client)
-    turn = send({"text": "אני בקבוצה ג"})
+    turn = send({"text": "שלום, אני בקבוצה ג ויש לי שאלה"})
     assert turn["engine"] == "limited" and turn["reply"]     # the templates answered
     assert client.get("/api/health").json()["engine"] == "limited"
 
