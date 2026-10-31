@@ -903,8 +903,18 @@ def missing_names(state: ConversationState) -> list[str]:
 def compare_needs_text(state: ConversationState) -> str:
     """A request the bot cannot do yet ("תשווה ביניהם" before the profile is complete): what is needed."""
     names = missing_names(state)
+    if not names:
+        return ""
+    if not state.map_requested and any(f in ("occupation", "group", "base") for f in open_profile(state.profile)):
+        # advice asked before the basics are known ("כדאי לי להחליף רכב?"): what the answer depends on, never the
+        # whole list of missing fields; one question follows (30/10)
+        return ADVICE_FIRST
     what = "למפות את כל האפשרויות" if state.map_requested else "להשוות"
-    return f"כדי {what}, חסרים לי עוד: {_list(names)}." if names else ""
+    return f"כדי {what}, חסרים לי עוד: {_list(names)}."
+
+
+ADVICE_FIRST = ("זה תלוי ברכב שלכם היום, ברכבים שאתם זכאים להם ובנטו שיישאר לכם אחרי ההחלפה. "
+                "כדי לבדוק, אצטרך כמה פרטים, ונתחיל באחד.")
 
 
 ALL_AT_ONCE = "אני שואל בשלבים כדי שלא יחסר דבר, אבל אפשר לענות על הכול בהודעה אחת."
@@ -930,6 +940,7 @@ _PRESENT_NAMES = {"commissions": "עמלות", "bonus": "בונוס", "pension_p
                   "study_fund_percent": "קרן השתלמות", "children": "ילדים"}
 _Q2_SIMPLE = ("במילים פשוטות: אני צריך לדעת כמה כסף נוסף על הבסיס מקבלים בחודש, כמה אחוזים יורדים "
               "לפנסיה ולקרן השתלמות, וכמה נקודות זיכוי יש לכם.")
+_GROUP_SIMPLE = "במילים פשוטות: לאיזו קבוצת רכב אתם זכאים, א, ב, ג או ד? אם אתם לא יודעים, כתבו את התפקיד שלכם."
 
 
 def _faq_example(snapshot: RulesSnapshot, key: str) -> str:
@@ -1041,13 +1052,17 @@ def placeholder_text(state: ConversationState, snapshot: RulesSnapshot) -> str:
 
 def explain_text(state: ConversationState, snapshot: RulesSnapshot, fields: Sequence[str]) -> str:
     """"מה?" / the same question again: the question in simpler words (never a verbatim repeat)."""
+    fields = paced(state, fields)          # "one question at a time": the explanation names that one field too
     if not fields:
         return ""
     group = current_group(state)[0]
     first = next((f for f in ("car", "copay", "opt_out_occupation", "options") if f in fields), fields[0])
     if _is_q2(fields) and len(fields) > 1:
         return _Q2_SIMPLE
-    key = "occupation" if group == "Q1" else "car" if first in ("car", "copay") and "car" in fields else first
+    if fields in (["occupation"], ["group"]):
+        return _GROUP_SIMPLE
+    key = ("occupation" if group == "Q1" and len(fields) > 1
+           else "car" if first in ("car", "copay") and "car" in fields else first)
     entry = snapshot.faq.get(key)
     if entry is not None and entry.simple:
         return f"במילים פשוטות: {entry.simple}"
@@ -1083,9 +1098,12 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
                rep_opened: bool = False, notice_asks: bool = False, cta_field: Optional[str] = None,
                confirmations: Sequence[str] = (),
                answers: Sequence[tuple[str, str]] = (), follow_up: Sequence[str] = (),
-               explain: bool = False, extra: Sequence[str] = (), about_results: bool = False) -> ReplyPlan:
+               explain: bool = False, extra: Sequence[str] = (), about_results: bool = False,
+               resume: bool = False, light: bool = False, attempted: bool = True,
+               open_help: bool = False) -> ReplyPlan:
     """The next reply, from the state only. answers: (FAQ answer, term) pairs; extra: lines that come
-    from code (an unanswered question, a redirect) and go right after the answers."""
+    from code (an unanswered question, a redirect) and go right after the answers. resume: the employee only
+    made small talk, so the open question is asked again as it was, picked up where it stopped."""
     plan = ReplyPlan(answers=[a for a, _ in answers] + list(extra), terms=[t for _, t in answers],
                      ack=[*confirmations])
     if matched_car:
@@ -1124,7 +1142,7 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
         plan.cta = NEXT_AFTER_RANK if state.ranked_count else NEXT_AFTER_RESULTS
         return plan
     cta, _ = call_to_action(state, snapshot)
-    plan.cta = cta
+    plan.cta = brief_cta(cta) if state.brief else cta
     if state.pending_rep_question is not None:
         plan.ask.append(f"אשלח לנציג התחבורה: \"{state.pending_rep_question}\". לשלוח?")
         return plan
@@ -1155,15 +1173,26 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
     asked_something = bool(answers or extra or follow_up)
     repeat = not understood and not asked_something and fields == state.last_asked
     if not understood and not asked_something and not explain:
-        plan.ask.append(CAR_AGAIN if fields[:1] == ["car"] else NOT_UNDERSTOOD)
+        if attempted:
+            plan.ask.append(CAR_AGAIN if fields[:1] == ["car"] else NOT_UNDERSTOOD)
+        else:
+            # nothing in it could answer the question (a remark, or gibberish: without a model the two look the
+            # same): never "לא הצלחתי להבין את התשובה"; the rest of the not-understood flow stays
+            plan.ask.append(UNSURE)
     present = [f for f in follow_up if f in fields]
     if present:
         plan.follow_up.append(follow_up_text(present, snapshot))
     rest = [f for f in fields if f not in present]
-    if explain or repeat:
+    # a turn that gave no data: answered first, then a light question. A compound question is narrowed to its first
+    # field; a question about one field keeps its own wording (it may carry context: an unknown value, the payslip)
+    focus = _first_field(paced(state, rest)) if light and len(paced(state, rest)) > 1 else None
+    if open_help:
+        plan.ask.append(OPEN_HELP)                     # small talk at the very start: an open question, not a form
+        plan.cta = OPEN_HELP_CTA
+    elif explain or repeat:
         compound = len(paced(state, fields)) > 1 and _is_q2(fields)
         line = (progress_text(state, fields) if repeat and not explain and compound
-                else explain_text(state, snapshot, fields))
+                else explain_text(state, snapshot, [focus] if focus else fields))
         # root cause of the duplicate bubble: the parser's notice (already in plan.ack) can be the same
         # progress line; do not add it a second time to plan.ask
         if line and line not in plan.ack:
@@ -1172,18 +1201,48 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
             one = placeholder_text(state, snapshot).removeprefix("למשל: ").split(", ")[0]
             plan.ask.append(f"אפשר גם לענות על דבר אחד בכל פעם, למשל: {one}.")
     elif rest:
-        plan.ask.append(group_question(state, snapshot, skip=present))
+        plan.ask.append(question(focus, state, snapshot) if focus else group_question(state, snapshot, skip=present))
+    if light and not explain and not open_help and plan.cta:
+        # no example on a light turn; an explanation ("מה?", feedback) keeps it: it shows how to answer
+        plan.cta = brief_cta(call_to_action(state, snapshot, [focus] if focus else None)[0])
     plan.ask = [a for a in plan.ask if a]
-    _vary_repeat(plan, state, snapshot, fields)
+    _vary_repeat(plan, state, snapshot, [focus] if focus else fields, resume=resume)
     return plan
 
 
-def _vary_repeat(plan: ReplyPlan, state: ConversationState, snapshot: RulesSnapshot, fields: Sequence[str]) -> None:
+UNSURE = "לא בטוח שהבנתי למה התכוונתם."
+OPEN_HELP = "איך אפשר לעזור לכם היום עם רכב החברה?"
+OPEN_HELP_CTA = "אפשר לכתוב כאן כל שאלה, או להתחיל מקבוצת הזכאות שלכם."
+
+
+def _first_field(fields: Sequence[str]) -> Optional[str]:
+    """The one field a light turn asks: the same order the call to action uses."""
+    if not fields:
+        return None
+    return next((f for f in ("car", "copay", "opt_out_occupation", "options") if f in fields), fields[0])
+
+
+RESUME = "נמשיך מאיפה שעצרנו: "
+_EXAMPLE_RE = re.compile(r",\s*למשל:\s*(?:\"[^\"]*\"|[^.\"]*)")
+
+
+def brief_cta(cta: str) -> str:
+    """"יותר קצר" (state.brief): the call to action without its example; the composer's placeholder keeps it.
+    "כתבו כאן, למשל: "קבוצה ג…"." -> "כתבו כאן."; the link and any other sentence stay."""
+    return _EXAMPLE_RE.sub("", cta)
+
+
+def _vary_repeat(plan: ReplyPlan, state: ConversationState, snapshot: RulesSnapshot, fields: Sequence[str],
+                 resume: bool = False) -> None:
     """The same question is never asked verbatim twice in a row: narrowed to what is still missing, or
-    in simpler words."""
+    in simpler words. After small talk it is the same question, picked up where it stopped (30/10): "עדיין
+    חסרים לי…" there read as if the employee had failed to answer."""
     if not plan.ask or plan.ask[-1] != state.last_ask:
         return
-    first = progress_text(state, fields) if len(paced(state, fields)) > 1 else still_missing_text(fields)
+    if resume and not plan.ask[-1].startswith(RESUME):
+        plan.ask[-1] = RESUME + plan.ask[-1]
+        return
+    first = progress_text(state, fields) if len(paced(state, fields)) > 1 else still_missing_text(paced(state, fields))
     for other in (first, explain_text(state, snapshot, fields)):
         if other and other != state.last_ask:
             plan.ask[-1] = other

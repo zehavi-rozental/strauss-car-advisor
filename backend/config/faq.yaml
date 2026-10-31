@@ -137,6 +137,12 @@ entries:
     term: לעזור
     aliases: [מה אתה יודע, מה אפשר, מה אתה עושה, במה אתה עוזר, מי אתה]
     answer: "אני יכול לעזור לחשב איך החלפת הרכב הצמוד תשפיע על הנטו שלכם. אני לא מאשר רכבים ולא משנה שכר. לזה יש את נציג התחבורה."
+  # a question about the advisor itself ("איך אתה יודע?", "על מה אתה מבסס?"): reached by question_scope "bot"
+  # (a reference to the advisor + a question), not only by these aliases. Says only what is really there.
+  - id: how_it_works
+    term: על מה אני מבסס את התשובות
+    aliases: [על מה אתה מבסס, מאיפה המידע, מאיפה אתה יודע, על סמך מה, איך אתה מחשב]
+    answer: "אני עובד לפי כללי רכב החברה של שטראוס, קטלוג הרכבים ונתוני שווי השימוש של רשות המסים, יחד עם הפרטים שאתם כותבים לי. את הנטו מחשב מנוע חישוב קבוע, לא ניחוש. אין לי מידע עליכם מעבר למה שכתבתם, ועל מה שאין לי מידע אני שואל את נציג התחבורה."
   - id: rep
     term: נציג התחבורה
     aliases: [נציג, נציג תחבורה, לדבר עם נציג, בן אדם, אדם אמיתי]
@@ -159,6 +165,30 @@ injection_patterns: [התעלם, תתעלם, שכח את ההוראות, הור�
 off_topic_patterns: [מזג אוויר, בדיחה, מתכון, כדורגל, פוליטיקה, שיר, מניות, ביטקוין, ראש הממשלה, קורות חיים]
 # a question whose intent is truly unclear: one line, no buttons; the employee says it again
 clarify: "לא בטוח שהבנתי את השאלה. כתבו אותה במילים אחרות, למשל על הרכב, הזכאות או הנטו."
+# Small talk that says nothing else (30/10): answered in a few words, then the open question. Never "not understood".
+# A message is small talk only when nothing but these phrases (and a few filler words) is in it.
+social_cues:
+  # not "הכל בסדר" / "מצוין": they may answer a confirmation question
+  how_are_you: [מה נשמע, מה שלומך, מה שלומכם, מה העניינים, מה המצב, מה קורה, מה איתך, איך אתה, איך את, איך הולך]
+  greeting: [שלום, היי, הי, הלו, אהלן, בוקר טוב, צהריים טובים, ערב טוב, לילה טוב, שלום לך, היי לך, שלום רב]
+  thanks: [תודה, תודה רבה, תודה לך, תודה רבה לך, תנקס]
+social_replies:
+  how_are_you: ["מצוין.", "מצוין, תודה.", "הכול מצוין."]
+  greeting: ["שלום.", "שלום שוב."]
+  thanks: ["בשמחה.", "אין בעד מה."]
+# A question that refers to the advisor itself ("איך אתה יודע…", "המערכת שלך…"): question_scope "bot", answered by the
+# how_it_works entry, before the "follow-up" scope (whose "איך" made it an explanation of the open question).
+bot_reference_terms: [אתה, שלך, ממך, איתך, בוט, הבוט, המערכת, היועץ]
+# what a question about the advisor's basis asks ("על מה מבוססות ההמלצות שלך?"): with a reference above, it is a question
+# about how the advice works, never a request to rank ("מה אתה ממליץ לי?" has none of these: a ranking request)
+bot_basis_terms: [על מה, על סמך, מאיפה, איך, מבוסס, מבוססת, מבוססות, מבוססים, מבסס, אמין, אמינה, אמינות, יודע, יודעת]
+# Feedback about the bot's previous reply (30/10): acknowledged, then the open question in other, simpler words.
+# Whole words in order; "לא הבנתי" (the employee did not understand) is a request for help, not feedback.
+feedback_cues: [מה הקשר, לא קשור, זה לא קשור, זה לא תשובה, לא תשובה, לא ענית, לא ענית לי, לא עניתם, לא לעניין,
+                לא רלוונטי, על מה אתה מדבר, על מה את מדברת, לא מה ששאלתי, לא התכוונתי לזה, אתה חוזר על עצמך,
+                את חוזרת על עצמך, שוב אותה תשובה, אותה תשובה, לא הבנת אותי, לא הבנת, זה לא עוזר, לא עזרת]
+# the first one is the persona's own acknowledgement (SYSTEM_PROMPT, test_guard); the others when it comes again
+feedback_replies: ["צודקים, סליחה.", "הבנתי, אנסה להסביר אחרת.", "סליחה, אנסה שוב בצורה ברורה יותר."]
 # Scope of a question nothing else answers (22/10, layered; understanding.question_scope). In order:
 #  1. off_topic_terms / off_topic_patterns (whole words) and nothing of the service → the redirect line;
 #  2. net_intent_terms (the employee's own pay / net) → the calculation answers it, never the representative;
@@ -219,7 +249,7 @@ copay_rep_terms: [נציג, הנציג, לנציג, יאשר, לאשר, אישו
 net_intent_terms: [מרוויח, להרוויח, ארוויח, מפסיד, להפסיד, אפסיד, כסף, כיס, ביד, נשאר לי, יישאר לי, ישאר לי,
                    יוצא לי, ברווח, נפסד, יעלה לי, עולה לי, יורד לי, יוריד לי, מוריד לי, משנה לי, ישנה לי, משתלם לי,
                    עדיף לי, כדאי לי, ההשפעה, השפעה, אשלם, הנטו שלי, יקרה לי, הכי זול, הכי שווה,
-                   ממליץ, תמליץ]
+                   ממליץ, תמליץ, שווה לי, ישתלם לי]
 # plainly not about the service (whole words, a prefix letter allowed; no word starts)
 off_topic_terms: [מזג, אויר, גשם, מעלות, טמפרטורה, משחק, ניצח, זכה, נבחרת, מונדיאל, כדורגל, כדורסל, סרט, שיר,
                   זמר, מתכון, לבשל, מטגנים, מכינים, פיצה, אורז, שקשוקה, עוגה, קפה, מסעדה, בחירות, ממשלה, כנסת,

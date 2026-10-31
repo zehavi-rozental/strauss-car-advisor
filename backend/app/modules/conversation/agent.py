@@ -37,7 +37,8 @@ from .guards import (FIELD_WORDS, SINGULAR_RE, TAG_RE, Check, Violation, ask_lin
 from .turn import LLM_TOOLS, Candidate, parser_hint, render_catalog, render_faq, run_rounds, state_block, system_message, user_message
 from .option_map import build_option_map, dump_option, dump_result as _dump, evaluate_option, map_reply
 from .option_map import with_assumptions as _with_assumptions
-from .understanding import NO_CAR_OR_ZERO, NOT_IN_CATALOG, Understanding, rep_scope_ok, says_phrase, understand
+from .understanding import (NO_CAR_OR_ZERO, NOT_IN_CATALOG, Understanding, answer_like, rep_scope_ok, says_all_words,
+                            says_phrase, understand)
 from .stage import (
     allowed_tools,
     current_group,
@@ -465,20 +466,34 @@ MAP_UPDATED = "עדכנתי את מפת האפשרויות לפי הנתונים
 MAP_DEFERRED = "אמפה את כל האפשרויות שלכם ברגע שתגיע תשובת נציג התחבורה."
 PACE_ONE = "בסדר, אשאל שאלה אחת בכל פעם."
 PACE_NORMAL = "בסדר, אפשר לענות על כמה דברים יחד."
+BRIEF_ON = "בסדר, אכתוב קצר ופשוט."
 
 
 def _pace_change(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Optional[str]:
-    """"שאלה אחת כל פעם" / "הכול ביחד" (cues in extensions.yaml): the pace is stored in the state and kept
-    across stages until the employee changes it. Returns the acknowledgement, or None."""
+    """"שאלה אחת כל פעם" / "הכול ביחד" / "יותר קצר" (cues in extensions.yaml): how the employee wants to be asked,
+    stored in the state and kept across stages until the employee changes it. Returns the acknowledgement, or None."""
     ext = snapshot.extensions
+    acks: list[str] = []
     # whole words only: "לאטו 3" (a catalog car) is not "לאט" (QA 22/10)
     if state.pace != "normal" and says_phrase(text, ext.pace_reset_cues):
         state.pace = "normal"
-        return PACE_NORMAL
-    if state.pace != "one_at_a_time" and says_phrase(text, ext.pace_cues):
+        acks.append(PACE_NORMAL)
+    elif state.pace != "one_at_a_time" and (says_phrase(text, ext.pace_cues)
+                                            or says_all_words(text, ext.pace_word_sets)    # any word order (30/10)
+                                            # by features: "תשאל" + "אחת" / "בנפרד" / "לאט" / "פחות", anywhere
+                                            or says_all_words(text, [[v, m] for v in ext.pace_ask_verbs
+                                                                     for m in ext.pace_markers])):
         state.pace = "one_at_a_time"
-        return PACE_ONE
-    return None
+        acks.append(PACE_ONE)
+    if not state.brief and says_phrase(text, ext.brief_cues):
+        state.brief = True
+        acks.append(BRIEF_ON)
+    return " ".join(acks) or None
+
+
+def _turn(options: Sequence[str], told: int) -> str:
+    """The next of several wordings: the same line never twice in a row."""
+    return options[told % len(options)] if options else ""
 
 
 # a deferral names at most these profile fields explicitly ("את השכר אבדוק אחר כך"); otherwise it defers
@@ -854,10 +869,11 @@ class Agent:
             state.last_rep_question = und.unanswered[0]     # kept for "היית צריך לשאול את הנציג" in a later turn
         ctx.question_message = und.question_only or text.strip().endswith("?")
         pace = _pace_change(state, snapshot, text)
-        if pace is not None and len(words(text)) <= 6:
-            # only the request ("שאלה אחת כל פעם"): acknowledged, kept in the state, then the next question
+        if pace is not None and (len(words(text)) <= 6 or not answer_like(snapshot, und.remainder)):
+            # only the request ("שאלה אחת כל פעם", "תעשה לי את זה לאט, שאלה שאלה"): acknowledged, kept in the state,
+            # then the next question; a longer message with a value in it goes on to be read
             return self._finish(ctx, history, text, ParserPlan(complete=True, notice=pace, direct=True), before,
-                                record_run, und=Understanding(remainder=""))
+                                record_run, und=Understanding(remainder="", resume=True))
         if before == Stage.WAITING_FOR_REP:
             correction, reply = self._waiting(state, snapshot, text)
             fix = _profile_value_correction_plan(state, snapshot, text) if correction is None else None
@@ -971,6 +987,7 @@ class Agent:
             state.link_now = "profile_form"  # the form is the way to answer everything together
         car_before = _car_key(state)
         before_turn = _Before.of(state)
+        data_before = (dict(profile_args(state.profile)), list(state.selected))
         has_car_said = und.has_car and state.current.source is None and not state.current.has_car
         if has_car_said:
             state.current.has_car = True     # "יש לי רכב חברה": a fact; the model is asked, never "אם אין רכב"
@@ -1098,8 +1115,18 @@ class Agent:
                 no_car_lines.append(entry.answer)
         if has_car_said and state.current.source is None and not state.current.choices:
             no_car_lines.append(HAS_CAR_ACK)
-        lines = [*extra, *([defer_ack] if defer_ack else []), *no_car_lines,
-                 *(["צודקים, סליחה."] if und.complaint else []),
+        faq = snapshot.faq
+        social_line = ""
+        if und.social:                                  # small talk: a few words first, then the open question
+            social_line = _turn(faq.social_replies.get(und.social, ()), state.social_told)
+            state.social_told += 1
+        feedback_line = ""
+        if und.complaint:                               # feedback on the last reply: acknowledged in turn
+            feedback_line = _turn(faq.feedback_replies, state.feedback_told) or "צודקים, סליחה."
+            state.feedback_told += 1
+        lines = [*([social_line] if social_line else []),
+                 *extra, *([defer_ack] if defer_ack else []), *no_car_lines,
+                 *([feedback_line] if feedback_line else []),
                  *([_audit_text(state)] if und.audit else []),
                  *([ALL_AT_ONCE] if und.all_at_once else []),
                  *([snapshot.faq.redirect] if und.redirect and not und.complaint else []),   # the rep offer: plan_reply
@@ -1113,14 +1140,33 @@ class Agent:
         if (und.compare and not just_calculated and not map_shown
                 and state.stage not in (Stage.PRESENTED, Stage.WAITING_FOR_REP) and RANK_DEFERRED not in confirmations):
             lines.append(compare_needs_text(state))
+        # A turn that gave no data (small talk, a question, feedback, a style request, advice asked too early, or a
+        # remark that is no answer at all) is answered first and then ONE light question follows: never the whole
+        # compound question with an example, never "לא הצלחתי להבין את התשובה" for something that was no answer (30/10).
+        attempted = answer_like(snapshot, und.remainder)
+        changed = (dict(profile_args(state.profile)), list(state.selected)) != data_before \
+            or _car_key(state) != car_before
+        # not light: "all the questions at once" asks for everything; a bare greeting gets the opening question (a
+        # number typed after it must still bind to the field it names); a remark that is no answer keeps the
+        # not-understood flow (simpler words, an example), only its first line changes (templates.UNSURE)
+        light = (not changed and not problems and (und.anything or und.resume)
+                 and not und.all_at_once and und.social != "greeting")
+        p = state.profile
+        fresh = (all(v is None for v in data_before[0].values()) and p.group is None and p.occupation is None
+                 and p.occupation_text is None and state.current.source is None
+                 and not state.current.query and not state.current.has_car)     # nothing known yet
+        open_help = light and und.social in ("how_are_you", "thanks") and fresh
+
         def build_plan():
             built = plan_reply(
                 state, snapshot, understood=understood or bool(problems) or und.anything,
                 just_calculated=just_calculated, matched_car=matched_car, notice="\n".join(problems) or notice,
                 rep_opened=rep_opened, notice_asks=bool(problems) or plan.asks is not None, cta_field=asks_field,
                 confirmations=[*confirmations, *refused], answers=list(zip(answers, terms)),
-                follow_up=und.presence, explain=und.help or len(no_car_lines) > 1, extra=lines,
-                about_results=about_results)
+                # feedback on the last reply: the open question again in other, simpler words (never the same template)
+                follow_up=und.presence, explain=und.help or und.complaint or len(no_car_lines) > 1, extra=lines,
+                about_results=about_results, resume=und.resume, light=light, attempted=attempted,
+                open_help=open_help)
             if map_line:
                 built.ack.append(map_line)  # after what was saved and identified this turn
             if map_shown and state.stage in (Stage.CHOOSE_OPTIONS, Stage.PRESENTED):
@@ -1158,7 +1204,8 @@ class Agent:
                                                     must_answer=bool(und.audit or und.all_at_once or und.faq_ids
                                                                      or und.about_results
                                                                      or und.catalog or und.unanswered or und.help
-                                                                     or und.complaint or restated_no_car))
+                                                                     or und.complaint or bool(und.social)
+                                                                     or restated_no_car))
         if (source == "template" and und.unanswered and state.unanswered_question is None and not rep_skipped
                 and not und.redirect):
             # the LLM's reply answered the employee's question, but a guard rejected it: the template that replaces

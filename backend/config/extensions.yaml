@@ -93,7 +93,18 @@ small_amount_below:
   current_copay: 10             # copays are typically a few hundred; 1-9 is shorthand ("3" for 3,000)
 
 # Phrases that ask for one question at a time; kept in the conversation state until "pace_reset_cues".
-pace_cues: [שאלה אחת כל פעם, שאלה אחת בכל פעם, אחד אחד, אחת אחת, לא ביחד, לאט, אחד כל פעם, אחת כל פעם]
+pace_cues: [שאלה אחת כל פעם, שאלה אחת בכל פעם, אחד אחד, אחת אחת, לא ביחד, לאט, אחד כל פעם, אחת כל פעם,
+            לאט לאט, שאלה שאלה, בהדרגה, כל פעם דבר אחד, שאלה אחר שאלה, אחת אחר השנייה, אחד אחר השני, פחות שאלות]
+# The same request in any word order (30/10): every word of a set, anywhere in the message, a prefix letter
+# allowed ("תשאל כל פעם שאלה אחת", "בכל פעם רק שאלה אחת"). "יש לי שאלה אחת" is not one: "פעם" is missing.
+pace_word_sets: [[שאלה, אחת, פעם], [שאלה, אחת, בנפרד], [דבר, אחד, פעם], [נושא, אחד, פעם], [שאלה, אחרי, שאלה]]
+# By features (30/10): a verb asking the advisor to ask, and a word about how many / in what order, anywhere in the
+# message ("תשאל אותי שאלה אחר שאלה", "תשאלי פחות", "לשאול אחד אחד"). "אחר" alone is not here ("תשאל אחר כך").
+pace_ask_verbs: [תשאל, תשאלי, תשאלו, לשאול, שאל, שאלי, תשאול, תשאלני]
+pace_markers: [אחת, אחד, בנפרד, לאט, פחות, בהדרגה, הדרגתי, אחרי, בנחת]
+# Short, plain replies (30/10): kept for the conversation; FAQ answers in their simple wording, the model told so.
+brief_cues: [יותר קצר, יותר בקצרה, בקצרה, תקצר, תקצרי, תקצרו, פחות מילים, בלי הסברים, בלי חפירות, בלי כל ההסברים,
+             תכתוב פשוט, תכתבי פשוט, בשפה פשוטה, תדבר פשוט, תדברי פשוט, יותר תכליתי, תהיה תכליתי]
 
 # Phrases that ask to answer a question later ("את השכר אבדוק אחר כך"). The field is postponed, not
 # dropped and never defaulted: the bot keeps asking other things and brings it back when nothing else is

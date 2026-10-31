@@ -258,6 +258,9 @@ class ConversationState(BaseModel):
     # only be saved to it, never remapped to another field.
     asked_field: Optional[str] = None
     pace: Literal["normal", "one_at_a_time"] = "normal"   # "שאלה אחת כל פעם": kept until the employee changes it
+    brief: bool = False      # "יותר קצר" / "בלי הסברים": short, plain wording, kept for the conversation
+    social_told: int = 0     # small-talk replies so far (the wording turns, never the same line twice in a row)
+    feedback_told: int = 0   # acknowledgements of feedback about a previous reply (the wording turns)
     links_shown: list[str] = Field(default_factory=list)  # links already offered (each one once)
     link_now: Optional[str] = None                        # the link of the reply on screen (kept on reload)
     # Fields the employee asked to answer later ("את השכר אבדוק אחר כך"). They are skipped as the next

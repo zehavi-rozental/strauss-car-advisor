@@ -334,7 +334,10 @@ def test_bug1_a_car_question_mid_collection_is_acknowledged_in_template_mode(ses
     assert "בקטלוג יש: COROLLA (2026), קבוצה ב, בנזין; COROLLA CROSS (2025), קבוצה ג, היברידי." in turn.reply
     assert "נחזור לזה אחרי שנסיים לאסוף את הפרטים" in turn.reply
     assert "נציג" not in turn.reply and state(svc, turn, token).unanswered_question is None   # not the rep
-    assert MISSING_LINE in turn.reply                       # and the collection goes on, with what is missing
+    # and the collection goes on: one light question, never the whole list of missing fields (browser QA 30/10)
+    assert MISSING_LINE not in turn.reply and "עמלות" in turn.reply
+    question = turn.reply.split("\n\n")[-2]
+    assert "עמלות" in question and not any(w in question for w in ("בונוס", "פנסיה", "נקודות זיכוי", "ילדים"))
 
 
 def test_bug1_the_llm_reply_that_only_re_asks_is_replaced_by_the_acknowledgement(sessions):

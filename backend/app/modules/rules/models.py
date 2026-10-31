@@ -170,6 +170,12 @@ class Extensions(_Strict):
     # a monthly amount below this is asked "3 ₪ או 3,000 ₪?" (field -> limit)
     small_amount_below: dict[str, Decimal] = Field(default_factory=dict)
     pace_cues: list[str] = Field(default_factory=list)          # "שאלה אחת כל פעם"
+    # the same request in any word order ("תשאל כל פעם שאלה אחת"): every word of a set, in any order (30/10)
+    pace_word_sets: list[list[str]] = Field(default_factory=list)
+    # by features: a verb asking the advisor to ask + a word about how many / in what order, in any order
+    pace_ask_verbs: list[str] = Field(default_factory=list)
+    pace_markers: list[str] = Field(default_factory=list)
+    brief_cues: list[str] = Field(default_factory=list)         # "יותר קצר", "בלי הסברים": short, plain replies
     pace_reset_cues: list[str] = Field(default_factory=list)    # "הכול ביחד"
     defer_cues: list[str] = Field(default_factory=list)         # "את השכר אבדוק אחר כך"
     all_at_once_cues: list[str] = Field(default_factory=list)   # "תן לי את כל השאלות בפעם אחת"

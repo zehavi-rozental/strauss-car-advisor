@@ -242,6 +242,21 @@ Only deterministic code opens a question to the representative; the LLM never do
 - **Display**: Latin car names in bubbles are isolated with their Hebrew prefix and year (`richText` `.latin-run`); the summary card's copay line has its own grid row; the "ask" link is light on the dark leading row.
 - Limits: the live Gemini path was not run (scripted FakeLLM only); the new backend tests ran on SQLite (PostgreSQL in CI); the e2e job does not set the fake-mail and mail-off servers yet, so `rep-inquiry.spec.ts` and `qa-2026-10-29.spec.ts` are skipped in CI.
 
+### Small talk, preferences and feedback (30-31/10; `tests/test_conversation_social_2026_10_30.py`)
+
+Template mode is also the fallback when the model is off, fails, hits a cap or its reply is rejected, so these hold with and without a model.
+- **Small talk** (`faq.social_cues` / `social_replies`, `understanding.social_kind`): a message that is only small talk ("מה נשמע?", "בוקר טוב", "תודה") gets a short line (never the same one twice in a row, `state.social_told`), then the open question resumed ("נמשיך מאיפה שעצרנו: …"), never "not understood" or "still missing". At the very start: `OPEN_HELP`, no pay question. A greeting before a value is dropped and the value read ("היי, אני בקבוצה ג").
+- **Pace** in any word order: `pace_word_sets` (every word of a set) and `pace_ask_verbs` + `pace_markers` ("תשאל אותי שאלה אחר שאלה"), besides `pace_cues`; "תשאל אותי על זה אחר כך" and "יש לי שאלה אחת" are not pace requests. **Brief** (`brief_cues`, `state.brief`): short replies, the CTA without its example; STATE tells the model.
+- **Feedback on a reply** (`faq.feedback_cues`, whole words: "לא הבנתי" is a request for help, not feedback): acknowledged (`feedback_replies`, alternating) and the open question said in simpler words.
+- **About the advisor** (`bot_reference_terms` + `bot_basis_terms`: "איך אתה יודע…", "על מה מבוססות ההמלצות שלך?"): the FAQ `how_it_works` answer; a ranking word inside it is not a ranking request ("מה אתה ממליץ לי?" still is). Advice asked before the basics: `ADVICE_FIRST`, then one question.
+- **A remark that is no answer** (`understanding.answer_like`: no number, group, car, yes / no or known value) gets `UNSURE`, never "לא הצלחתי להבין את התשובה" and never counted as a miss.
+- A generic car phrase ("לעבור לרכב צמוד", "רכב חברה", "רכב חשמלי", `understanding._GENERIC_CAR_RE`) is not a model missing from the catalog (live QA 31/10).
+- Limits: word lists, not understanding (new phrasings go in `faq.yaml` / `extensions.yaml`); in template mode an advice question at the options stage is not answered, only the missing selection is asked (and when the same message is sent twice the missing item is named on two lines).
+
+### Live Gemini acceptance (31/10, outside the repo)
+
+A local server with real `gemini-3.5-flash-lite` for the conversation and payslip vision, a temporary DB, fake mail, all other hosts blocked, and one guard on `httpx.Client.send`: every Google request (rounds, verifier, vision, retries) is counted on disk before it leaves, refused past 8 calls or a token budget, `maxOutputTokens` capped. 8 calls: 3 conversation turns (each 2 rounds + the verifier, ~5k input tokens a call) and one payslip; ~35k tokens. The new synthetic payslip (no recorded answer) was read exactly (6 of 7 fields, bonus missing, a shift addition kept as information, net not used); results equal the independent oracle. The Recorded Vision server (`PAYSLIP_FAKE_VISION_DIR`) answers any file it has no recording for as "rejected" ("שירות הקריאה לא קיבל את הקובץ"): that is expected there, not an upload bug.
+
 ## NEXT (not done in this pass)
 
 - Session 6 conversation bugs (salary correction after a result, "קיה נירו", "ילד אחד", "ויתור על הרכב", blanket "לא ידוע לי") were fixed by Kiro in 3b06848 and merged in 50e2195; checked by API tests and browser journeys (`journeys.spec.ts`, "merged conversation acceptance").

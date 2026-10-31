@@ -76,6 +76,19 @@ class Faq(BaseModel):
     comparison_terms: tuple[str, ...] = ()
     # a question whose intent is truly unclear: one short line, no buttons, never the representative
     clarify: str = "לא בטוח שהבנתי את השאלה. כתבו אותה במילים אחרות, למשל על הרכב, הזכאות או הנטו."
+    # small talk that says nothing else (30/10): kind -> phrases ("מה נשמע", "בוקר טוב", "תודה"); a message made only
+    # of these is answered in a few words, then the conversation goes on. Never "not understood", never a miss.
+    social_cues: dict[str, tuple[str, ...]] = {}
+    # kind -> short replies, used in turn so the same line does not come twice in a row
+    social_replies: dict[str, tuple[str, ...]] = {}
+    # feedback about the bot's previous reply ("מה הקשר", "זה לא תשובה", "לא קשור"): acknowledged, and the open
+    # question is explained in other, simpler words — never the same template again (30/10)
+    feedback_cues: tuple[str, ...] = ()
+    feedback_replies: tuple[str, ...] = ()
+    # a question that refers to the advisor itself ("איך אתה יודע…"): scope "bot", answered by how_it_works (30/10)
+    bot_reference_terms: tuple[str, ...] = ()
+    # ... and what makes it a question about the basis of the advice, which a ranking word never overrides
+    bot_basis_terms: tuple[str, ...] = ()
 
     def get(self, entry_id: str) -> Optional[FaqEntry]:
         return next((e for e in self.entries if e.id == entry_id), None)

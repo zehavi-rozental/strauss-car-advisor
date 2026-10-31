@@ -177,6 +177,9 @@ def state_block(state: ConversationState, snapshot: RulesSnapshot, parser_hint: 
                 lines.append("  waiting for a value (not ranked): " + ", ".join(waiting))
     if state.pace == "one_at_a_time":
         lines.append("pace: the employee asked for ONE question at a time; ask exactly one field, never two")
+    if state.brief:
+        lines.append("style: the employee asked for short, plain replies; at most 2 short lines before the question, "
+                     "no explanations unless asked")
     fields = paced(state, fields)
     if fields and stage not in (Stage.WAITING_FOR_REP,):
         names = ", ".join(FIELD_NAMES.get(f, f) for f in fields)
