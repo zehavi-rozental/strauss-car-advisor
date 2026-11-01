@@ -220,3 +220,19 @@ def test_with_the_model_a_short_no_is_never_saved_to_another_field(engine):
     say("גם לא, ממש לא")
     p = view(c, cid)["profile"]
     assert p["study_fund_percent"] is None
+
+
+@pytest.mark.parametrize("again", ["לא מופרש", "אין", "באמת אין", "ממש לא מופרש"])
+def test_the_zero_said_again_confirms_the_held_zero_and_a_bare_no_still_fixes(engine, again):
+    # live Gemini 1/11: with pension 0% held, "לא מופרש" was read as "לא" = "לתקן" and the pension was asked again
+    c, cid, say = start(engine)
+    run(say, PACE)
+    held = say("אין")
+    assert HOLD_PENSION in held["reply"]
+    fund = say(again)
+    assert view(c, cid)["profile"]["pension_percent"] == "0" and "קרן השתלמות" in ask_line(fund)
+    c2, cid2, say2 = start(engine)
+    run(say2, PACE)
+    say2("אין")
+    fix = say2("לא")                                                   # a bare "לא" is still "לתקן"
+    assert view(c2, cid2)["profile"]["pension_percent"] is None and "פנסיה" in ask_line(fix)

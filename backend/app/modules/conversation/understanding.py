@@ -21,7 +21,7 @@ from typing import Iterable, Optional
 from app.modules.rules.public import FAMILY_GROUP, CatalogCar, Faq, FaqEntry, RulesSnapshot, matched_name, related_cars, words
 
 from .fallback import _RANK_RE, named_cars
-from .grounding import CONTRIBUTION_FIELDS, bare_zero_answer, contributions_zero_said
+from .grounding import CONTRIBUTION_FIELDS, bare_zero_answer, contributions_zero_said, word_numbers
 from .parsing import _NO_COPAY_RE, COMPANY_CAR, match_occupation, no_car_span
 from .stage import NO_CAR_OR_ZERO, ConversationState, Stage, results_stale  # noqa: F401  (NO_CAR_OR_ZERO: re-exported)
 
@@ -672,8 +672,9 @@ def correction_request(snapshot: RulesSnapshot, text: str) -> Optional[list[str]
     message ("טעיתי, השכר שלי 20,000", "אין לי עמלות", "קבוצה ב", a car named) it is the correction itself, read as
     usual. Returns the fields it names ([] for none), or None."""
     faq = snapshot.faq
-    if not faq.correction_terms or any(ch.isdigit() for ch in text):
-        return None
+    if not faq.correction_terms or any(ch.isdigit() for ch in text) or any(n != 1 for n in word_numbers(text)):
+        return None                       # a value in digits or in words ("תשעה עשר וחצי אלף") is the correction;
+                                          # "אחד" alone is an article ("נתון אחד"), not a value
     ws = [_spelling(w) for w in words(text)]
     if not _names_any(faq.correction_terms, ws, starts=False):
         return None

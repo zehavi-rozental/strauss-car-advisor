@@ -38,7 +38,7 @@ from .turn import LLM_TOOLS, Candidate, parser_hint, render_catalog, render_faq,
 from .option_map import build_option_map, dump_option, dump_result as _dump, evaluate_option, map_reply
 from .option_map import with_assumptions as _with_assumptions
 from .understanding import (NO_CAR_OR_ZERO, NOT_IN_CATALOG, Understanding, answer_like, asks_attribute, rep_scope_ok,
-                            says_all_words, says_phrase, understand)
+                            meaningful, says_all_words, says_phrase, understand)
 from .stage import (
     allowed_tools,
     current_group,
@@ -286,6 +286,12 @@ def _confirmation_plan(state: ConversationState, text: str,
         return None if amount is None else (save(amount, "scale"), "")
     if ws[0] in _YES and not others:
         return save(pending.value, "confirmed"), rest
+    if (pending.value == 0 and snapshot is not None and not others and ws[0] not in ("לתקן", "תקן")
+            and bare_zero_answer(text, snapshot.extensions.bare_zero_negatives, snapshot.extensions.bare_zero_words)
+            and (len(ws) > 1 or ws[0] not in _NO)):
+        # "לאשר פנסיה של 0%?" → "לא מופרש", "באמת אין", "אין בכלל": the zero said again confirms it; a bare "לא" stays
+        # "to fix" (live Gemini 1/11: "לא מופרש" dropped the held 0% and asked the pension again)
+        return save(pending.value, "confirmed"), ""
     if ws[0] in _NO:
         state.pending_confirmation = None
         if others:
@@ -442,6 +448,10 @@ def _role_conflict(ctx: ToolContext, call: ToolCall, text: str) -> Optional[Cata
         targets = [o.car for o in resolved if o is not None and o.car is not None]
         wrong = "current"
     return next((c for c in targets if roles.get(c.catalog_code) == wrong), None)
+
+
+# save_profile argument → the FAQ entry that explains it (the entries are named after the fields)
+_FAQ_OF_ARG = {"base_salary": "base", "children_under_23": "children"}
 
 
 def _cars_text(state: ConversationState, snapshot: RulesSnapshot, unsure: bool = False, ask: bool = True) -> str:
@@ -1202,6 +1212,7 @@ class Agent:
         deadline = self.llm.turn_deadline()   # אחרי LLM_TURN_DEADLINE_S — תבניות, בלי ספקים נוספים
         conflicts: list[str] = []
         simple = _simple_answer(text, und, plan)       # code saves it, the template replies (no model call)
+        phrase_only = False                             # code decided the turn; the model only words it
         parser_decides = plan.complete and (self.mode == "parser_first" or plan.calls == [] or plan.direct or simple)
         if parser_decides or not self.llm.available:
             path = "choice" if choice else "parser" if plan.complete else "templates"
@@ -1221,7 +1232,9 @@ class Agent:
                 # still writes the reply, told what was saved
                 try:
                     _, candidate = self._llm_turn(ctx, history, text, plan, deadline, {}, conflicts, und,
-                                                  applied=parser_hint(plan.calls) or "nothing (the message was read)")
+                                                  applied=parser_hint(plan.calls) or "nothing (the message was read)",
+                                                  phrase_only=not meaningful(und.remainder))
+                    phrase_only = not meaningful(und.remainder)
                     used_llm = True
                 except LLMError:
                     candidate = None
@@ -1236,6 +1249,12 @@ class Agent:
             except LLMError:
                 log.warning("llm turn failed; falling back to the parser")
                 understood, path, llm_failed = False, "fallback", True
+            answered = {_FAQ_OF_ARG.get(k, k) for k, v in profile_args(state.profile).items()
+                        if v is not None and data_before[0].get(k) is None}
+            if answered & set(und.faq_ids):
+                # "קרן השתלמות? גם את זה אין לי": the field named with "?" was answered in the same message, so its
+                # explanation is not owed (live Gemini 1/11: a guard replaced the model's reply with the FAQ answer)
+                und = replace(und, faq_ids=[i for i in und.faq_ids if i not in answered])
             if ctx.cars_shown:
                 # the model understood a request to see the cars and code shows them: answered, never offered to the
                 # representative or "not understood" (live Gemini 1/11: "יש איזה רשימה לבחור ממנה?" got the offer)
@@ -1432,7 +1451,12 @@ class Agent:
                                                                      or und.about_results
                                                                      or und.catalog or und.unanswered or und.help
                                                                      or und.complaint or bool(und.social)
-                                                                     or restated_no_car))
+                                                                     or und.redirect or restated_no_car))
+        if source == "llm" and phrase_only and asked_field(state, reply) != asked_field(state, draft):
+            # code decided this turn and asks one field; the model's wording asked another (live Gemini 1/11: the pension
+            # was asked, the model's words asked the study fund, and the next "לא מופרש" went to the study fund)
+            log.info("phrased reply asks another field than code's question; template used")
+            reply, source, say = draft, "template", "guard:off_question"
         if (source == "template" and und.unanswered and state.unanswered_question is None and not rep_skipped
                 and not und.redirect):
             # the LLM's reply answered the employee's question, but a guard rejected it: the template that replaces
@@ -1458,6 +1482,16 @@ class Agent:
             state.unanswered_question = und.unanswered[0]
         if gap_ack and source == "llm":
             reply = f"{gap_ack}\n{reply}"
+        if source == "llm" and "רשמתי" not in reply:
+            # what code saved this turn is said, from the state, when the model's reply left it out (live Gemini 1/11:
+            # the study fund saved as 0 and an unknown copay were not mentioned); never saved silently
+            unknown = [f for f in state.profile.unknown_fields if f not in before_turn.unknown]
+            acks = [ack_text(before_turn.changed(state)), unknown_ack_text(unknown) if unknown else "",
+                    CURRENT_UNKNOWN_ACK if [f for f in current_unknown(state.current)
+                                            if f not in before_turn.car_unknown] else ""]
+            acks = [a for a in acks if a]
+            if acks:
+                reply = "\n".join([*acks, reply])
         if source == "llm" and und.catalog and not _answers_catalog(reply, und.catalog, snapshot):
             # the catalog sentence was trimmed by a guard: the code's answer (from the catalog) comes first
             reply = "\n".join([*und.catalog, reply])
@@ -1505,7 +1539,7 @@ class Agent:
 
     def _llm_turn(self, ctx: ToolContext, history: Sequence[ChatMessage], text: str, plan: ParserPlan,
                   deadline: Optional[float], cross: dict[str, Any], conflicts: list[str],
-                  und: Understanding, applied: str = "") -> tuple[bool, Candidate]:
+                  und: Understanding, applied: str = "", phrase_only: bool = False) -> tuple[bool, Candidate]:
         """The LLM leads the turn: it saves through tools (each call checked in code, exactly as before),
         answers and asks; the reply it writes is guarded in _finish before it is sent."""
         state, snap = ctx.state, ctx.snapshot
@@ -1516,6 +1550,8 @@ class Agent:
                 call = ToolCall("select_options", call.args, call.id)
             if call.name not in LLM_TOOLS:
                 return {"ok": False, "error": "unknown tool"}
+            if phrase_only:
+                return {"ok": False, "error": "nothing to save: the system already read the whole message"}
             if call.name == "propose_rep_question" and state.rep_skipped:
                 return {"ok": False, "error": "the employee chose to continue without the representative"}
             if call.name == "propose_rep_question" and not und.unanswered:
@@ -1555,7 +1591,10 @@ class Agent:
 
         messages = [system_message(state, snap, "" if applied or not plan.complete else parser_hint(plan.calls), applied),
                     *history[-HISTORY:], user_message(text)]
-        cand = run_rounds(self.llm, messages, _understand_tools(state), execute, deadline, force_on_claim=not applied)
+        # phrase_only: code read the whole message (a request about the conversation, "שאלה אחר שאלה"): the model
+        # writes the reply and changes nothing (live Gemini 1/11: it deferred the pension the employee never mentioned)
+        tools = () if phrase_only else _understand_tools(state)
+        cand = run_rounds(self.llm, messages, tools, execute, deadline, force_on_claim=not applied)
         return recorded[0], cand
     @staticmethod
     def _grounded(ctx: ToolContext, args: dict[str, Any], text: str) -> Optional[dict[str, Any]]:

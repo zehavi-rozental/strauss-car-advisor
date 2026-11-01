@@ -212,6 +212,13 @@ def contributions_zero_said(text: str, cues: Sequence[str], terms: Sequence[str]
     return bool(stems) and has_zero_cue(text, cues) and _zero_next_to_stems(stems, words(text.lower()), cues)
 
 
+def _names_other_field(field: str, text: str) -> bool:
+    """The message names a field other than this one ("אין נקודות זיכוי וילדים" names two): a zero cue in it is
+    then not about the question on screen alone."""
+    toks = words(text.lower())
+    return any(any(s in t for s in stems for t in toks) for f, stems in ZERO_WORDS.items() if f != field)
+
+
 def bare_zero_answer(text: str, negatives: Sequence[str], allowed: Sequence[str]) -> bool:
     """A short answer that only says "no / none" ("לא", "גם לא", "אין", "אפס", "לא יורד", "לא מופרש"): a negative
     word and nothing but the allowed words around it. Like a bare number, it answers only the one field the last
@@ -236,6 +243,8 @@ def zero_grounded(field: str, text: str, cues: Sequence[str], terms: Sequence[st
         return True
     if asked == field and bare_zero_answer(text, *bare):
         return True
+    if asked == field and has_zero_cue(text, cues) and not _names_other_field(field, text):
+        return True                    # "קרן השתלמות? גם את זה אין לי": the zero is about the question on screen
     if not has_zero_cue(text, cues):
         return False
     if _zero_next_to_field(field, words(text.lower()), cues):

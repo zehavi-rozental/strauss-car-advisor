@@ -42,6 +42,7 @@ def test_a_correction_is_recognised_in_natural_words(snapshot, text, fields):
 
 @pytest.mark.parametrize("text", [
     "טעיתי, השכר שלי 20,000",          # the value is in it: the correction itself, read as before
+    "רגע התבלבלתי, השכר שלי בעצם תשעה עשר וחצי אלף",   # a value in words, too (live Gemini 1/11)
     "אין לי עמלות, טעיתי", "טעיתי, אני בקבוצה ב", "טעיתי, הרכב שלי הוא קורולה",
     "אני רוצה להחליף את הרכב",          # another car: the service itself, never a correction
     "אני רוצה לשנות את הבחירה", "יש טעות בחישוב?", "לא, זה לא נכון", "למה ההשתתפות לא נכונה?",
@@ -154,3 +155,20 @@ def test_with_the_model_the_correction_is_decided_in_code_and_the_model_is_not_a
     assert REP_OFFER not in turn["reply"] and "מה תרצו לתקן?" in turn["reply"]
     assert fake.calls == []
     assert model.get(f"/api/conversations/{cid}").json()["rep_questions"] == []
+
+
+def test_with_the_model_a_correction_with_the_value_in_words_goes_to_the_model_and_is_recalculated(engine):
+    # live Gemini 1/11: the value in words was not seen, code asked "מה הערך הנכון?" and the model never read it
+    from app.modules.conversation.llm.fake import FakeLLM, call
+    from app.modules.conversation.public import LLMChain
+    plain = make_client(engine)
+    cid, _, first = at_results(plain)
+    fake = FakeLLM()
+    fake.turn(call("save_profile", base_salary=19500), reply="רשמתי: שכר בסיס 19,500 ₪.")
+    model = make_client(engine, llm=LLMChain([fake]))
+    model.cookies = plain.cookies
+    turn = model.post(f"/api/conversations/{cid}/messages",
+                      json={"text": "רגע התבלבלתי, השכר שלי בעצם תשעה עשר וחצי אלף"}).json()
+    view = model.get(f"/api/conversations/{cid}").json()
+    assert fake.calls and view["profile"]["base"] == "19500"
+    assert turn["results"] and nets(turn["results"]) != nets(first["results"]) and not view["results_stale"]
