@@ -107,6 +107,7 @@ test('1. today copay asked through "לברר מול נציג": the address first
   const email = card.getByLabel('כתובת אימייל לעדכון כשהנציג יענה')
   await expect(email).toBeVisible()                                                       // before "המשך"
   await expect(card.getByLabel('מה תרצו לשאול?')).toHaveValue(/COROLLA CROSS/)
+  await email.fill('not-an-address')                                                       // optional, but checked
   await card.getByRole('button', { name: 'המשך' }).click()
   await expect(card.locator('.rep-inquiry-field-error')).toBeVisible()                    // next to the address
   await email.fill(EMAIL)

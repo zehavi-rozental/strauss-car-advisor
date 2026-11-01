@@ -66,8 +66,9 @@ export function RepInquiryCard({
 
   const toSummary = () => {
     const errors: { question?: string; email?: string } = {}
-    if (needsEmail && !emailTyped) errors.email = 'כתבו כתובת אימייל, כדי שנוכל לעדכן אתכם כשהנציג יענה.'
-    else if (needsEmail && !emailOk) errors.email = 'הכתובת לא נראית תקינה. בדקו אותה, למשל name@example.com.'
+    // the address is optional (1/11): empty sends the inquiry (the answer shows here, and an address can be added on
+    // its record); only an address typed wrong stops it
+    if (needsEmail && emailTyped && !emailOk) errors.email = 'הכתובת לא נראית תקינה. בדקו אותה, למשל name@example.com.'
     if (!trimmed) errors.question = 'כתבו את השאלה לנציג.'
     setFieldErrors(errors)
     if (errors.email || errors.question) {
@@ -83,7 +84,7 @@ export function RepInquiryCard({
     setSending(true)
     setError(null)
     try {
-      const address = needsEmail ? email.trim() : undefined
+      const address = needsEmail && emailOk ? email.trim() : undefined
       const body = { question: trimmed, intent, ...(address ? { email: address } : {}),
                      ...(optionId ? { option_id: optionId } : {}) }
       const res = await api.repQuestion(conversationId, body)
@@ -126,16 +127,16 @@ export function RepInquiryCard({
           )}
           {needsEmail && (
             <>
-              <label className="rep-inquiry-label" htmlFor="rep-email">כתובת אימייל לעדכון כשהנציג יענה</label>
+              <label className="rep-inquiry-label" htmlFor="rep-email">כתובת אימייל לעדכון כשהנציג יענה (לא חובה)</label>
               <input ref={emailField} id="rep-email" className="rep-inquiry-email" type="email" dir="ltr" value={email}
-                     disabled={disabled || sending} placeholder="name@example.com" required autoComplete="email"
+                     disabled={disabled || sending} placeholder="name@example.com" autoComplete="email"
                      aria-invalid={fieldErrors.email ? true : undefined}
                      aria-describedby={fieldErrors.email ? 'rep-email-error' : 'rep-email-hint'}
                      onChange={(e) => { setEmail(e.target.value); setFieldErrors((f) => ({ ...f, email: undefined })) }} />
               {fieldErrors.email
                 ? <p id="rep-email-error" className="rep-inquiry-field-error" role="alert">{fieldErrors.email}</p>
                 : <p id="rep-email-hint" className="rep-inquiry-hint">
-                    נשלח קישור חד־פעמי לאימות הכתובת. התשובה תופיע גם כאן בשיחה.
+                    נשלח קישור חד־פעמי לאימות הכתובת. בלי כתובת, התשובה תופיע כאן בשיחה.
                   </p>}
             </>
           )}
@@ -164,7 +165,8 @@ export function RepInquiryCard({
             {carLabel && <div><dt>הרכב</dt><dd><bdi>{carLabel}</bdi></dd></div>}
             {catalogAmount && <div><dt>השתתפות לפי הקטלוג</dt><dd>{catalogAmount} ₪</dd></div>}
             <div><dt>השאלה לנציג</dt><dd><bdi>{trimmed}</bdi></dd></div>
-            {needsEmail && <div><dt>אימייל לעדכון</dt><dd dir="ltr">{email.trim()}</dd></div>}
+            {needsEmail && <div><dt>אימייל לעדכון</dt>
+              <dd dir={emailOk ? 'ltr' : undefined}>{emailOk ? email.trim() : 'בלי עדכון במייל (התשובה תופיע כאן בשיחה)'}</dd></div>}
           </dl>
           {(intent === 'copay_verification' || intent === 'current_copay') && (
             <p className="rep-inquiry-note">

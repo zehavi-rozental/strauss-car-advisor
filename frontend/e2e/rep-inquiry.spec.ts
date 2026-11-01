@@ -81,7 +81,7 @@ test.describe('rep inquiry card in the conversation', () => {
     const card = page.locator('.rep-inquiry-card')
     await expect(card).toBeVisible()
     await expect(card.getByLabel('מה תרצו לשאול?')).toHaveValue(/גג נפתח/)
-    await expect(card.getByLabel('כתובת אימייל לעדכון כשהנציג יענה')).toHaveAttribute('required', '')
+    await expect(card.getByLabel('כתובת אימייל לעדכון כשהנציג יענה')).toBeVisible()      // offered, optional (1/11)
     // cancel: nothing is created
     await card.getByRole('button', { name: 'ביטול' }).click()
     await expect(page.locator('.rep-inquiry-card')).toHaveCount(0)

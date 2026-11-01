@@ -155,3 +155,20 @@ test('8. a reload keeps the records and the answers; asked again, nothing is sen
   await expect(employee.getByRole('button', { name: 'לשאול את נציג הרכב' })).toHaveCount(0)
   expect((await view(employee)).rep_questions.length).toBe(records)
 })
+
+test('9. the address is optional: sent without one, and added afterwards from the record', async ({ browser }) => {
+  const page = await newPage(browser, 375)
+  await page.goto('/employee')
+  await expect(page.locator(BOT).first()).toBeVisible({ timeout: 30_000 })
+  for (const m of [PROFILE, 'יש לי קורולה קרוס, משלמת 300', 'NIRO']) await send(page, m)
+  const id = await ask(page, 'יש ל-NIRO מצלמת רוורס?')                       // no address typed: sent all the same
+  const record = page.locator(`#rep-inquiry-${id}`)
+  await expect(record).toContainText('השאלה נשלחה לנציג התחבורה')
+  await expect(record).toContainText('רוצים עדכון גם במייל כשהנציג יענה?')
+  const before = (await readdir(MAIL)).length
+  await record.locator('input[type="email"]').fill('later.ux@example.test')
+  await record.getByRole('button', { name: 'שליחת קישור אימות' }).click()
+  await expect(record).toContainText('שלחנו קישור אימות לכתובת')
+  await expect.poll(async () => (await readdir(MAIL)).length).toBeGreaterThan(before)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0)
+})

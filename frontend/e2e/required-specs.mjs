@@ -4,7 +4,7 @@
 // Usage: node e2e/required-specs.mjs <report.json>
 import { readFileSync } from 'node:fs'
 
-const REQUIRED = { 'rep-flow.spec.ts': 3, 'rep-inquiry.spec.ts': 2, 'qa-2026-10-29.spec.ts': 9, 'rep-inquiry-ux.spec.ts': 4 }
+const REQUIRED = { 'rep-flow.spec.ts': 3, 'rep-inquiry.spec.ts': 2, 'qa-2026-10-29.spec.ts': 9, 'rep-inquiry-ux.spec.ts': 5 }
 
 const report = JSON.parse(readFileSync(process.argv[2], 'utf8'))
 const seen = Object.fromEntries(Object.keys(REQUIRED).map((f) => [f, { passed: 0, other: [] }]))

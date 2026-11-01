@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from decimal import Decimal
 from difflib import SequenceMatcher
 from typing import Iterable, Optional
 
@@ -22,7 +23,7 @@ from app.modules.rules.public import FAMILY_GROUP, CatalogCar, Faq, FaqEntry, Ru
 from .fallback import _RANK_RE, named_cars
 from .grounding import CONTRIBUTION_FIELDS, contributions_zero_said
 from .parsing import _NO_COPAY_RE, COMPANY_CAR, match_occupation, no_car_span
-from .stage import NO_CAR_OR_ZERO, ConversationState, Stage  # noqa: F401  (NO_CAR_OR_ZERO: re-exported)
+from .stage import NO_CAR_OR_ZERO, ConversationState, Stage, results_stale  # noqa: F401  (NO_CAR_OR_ZERO: re-exported)
 
 _QUESTION_WORDS = ("מה", "מהו", "מהי", "מהם", "למה", "איך", "איפה", "האם", "מתי", "מי", "מאיפה", "ממה", "כמה זה",
                    "מה זה", "מה ההבדל", "באיזה", "לאן")
@@ -540,6 +541,72 @@ def _car_facts(c: CatalogCar) -> str:
             + f", {_DRIVE_HE[c.drive.value]}")
 
 
+def _shekel(value) -> str:
+    return f"{int(round(value)):,} ₪"
+
+
+# a fact the company catalog holds for each car (1/11): answered from it directly, in both modes, never by the model
+_FACT_CUES = (
+    (("מחיר", "מחירון", "כמה עולה", "כמה עולים", "עלות הרכב"), lambda c: f"מחיר המחירון של {c.label}: {_shekel(c.list_price)}."),
+    (("שווי השימוש", "שווי שימוש", "שווי"), lambda c: f"שווי השימוש של {c.label} לפי רשות המסים: {_shekel(c.use_value)} בחודש."),
+    (("השתתפות", "כמה משלמים", "כמה אשלם"), lambda c: (
+        f"ההשתתפות של העובד ב-{c.label} לפי הקטלוג: {_shekel(c.default_copay)} בחודש. זה סכום כללי; הסכום שלכם "
+        "יכול להיות שונה." if c.default_copay is not None else None)),
+    (("יצרן", "מי מייצר", "של איזו חברה", "איזו חברה"), lambda c: f"היצרן של {c.label}: {c.manufacturer}."),
+    (("שנת", "איזו שנה", "מאיזו שנה", "שנתון"), lambda c: f"{c.label} בקטלוג הוא משנת {c.reg_year}."),
+    (("קבוצה", "בקבוצה", "קבוצת"), lambda c: f"{c.label} בקטלוג: " + (
+        "במסלול המשפחתי." if c.group == FAMILY_GROUP else f"קבוצה {c.group}.")),
+    (("הנעה", "חשמלי", "חשמלית", "היברידי", "היברידית", "בנזין", "פלאג"),
+     lambda c: f"{c.label} בקטלוג: {_DRIVE_HE[c.drive.value]}."),
+)
+
+
+def catalog_fact(snapshot: RulesSnapshot, clause: str) -> Optional[str]:
+    """A fact about ONE catalog car that the catalog holds (price, use value, catalog copay, manufacturer, year, group,
+    drive): the catalog's own answer. A property it does not hold (colour, sunroof, equipment) is None (the
+    representative), and so is a comparison of two cars or a question with no car named."""
+    if asks_attribute(snapshot, clause) or not _is_question(clause):
+        return None
+    cars = named_cars(clause, snapshot.catalog)
+    if len(cars) != 1:
+        return None
+    for cues, say in _FACT_CUES:
+        if any(cue in clause for cue in cues):
+            return say(cars[0])
+    return None
+
+
+_NET_DIFF_CUES = ("נטו", "הפרש", "יותר משתלם", "משתלם יותר", "מרוויח", "מרוויחה")
+
+
+def results_difference(state: ConversationState, snapshot: RulesSnapshot, clause: str) -> Optional[str]:
+    """"מה ההבדל בנטו בין NIRO ל-DOLPHIN?" with both cars calculated (1/11): the engine's own figures, said in words —
+    each one's change against today and the gap between them; never "which cars to compare" again. None when a car
+    is not calculated, the results are out of date, or the question is not about the net."""
+    if not any(cue in clause for cue in _NET_DIFF_CUES) or results_stale(state):
+        return None
+    cars = named_cars(clause, snapshot.catalog)
+    if len(cars) < 2:
+        return None
+    found = []
+    for car in cars[:3]:
+        r = next((x for x in state.results if x.option_id == car.catalog_code), None)
+        if r is None or r.result.get("status") != "OK" or r.result.get("delta_display") is None:
+            return None
+        found.append((car.label, Decimal(str(r.result["delta_display"])), Decimal(str(r.result["alternative"]["net_display"]))))
+    def change(d):
+        return f"יגדל ב-{_shekel(d)}" if d > 0 else f"יקטן ב-{_shekel(-d)}" if d < 0 else "לא ישתנה"
+    lines = [f"ב-{label} הנטו שלכם {change(d)} בחודש (נטו חדש: {_shekel(net)})." for label, d, net in found]
+    if len(found) == 2:
+        (a, da, _), (b, db, _) = found
+        if da == db:
+            lines.append("ההפרש ביניהם: 0 ₪. הנטו זהה.")
+        else:
+            best, gap = (a, da - db) if da > db else (b, db - da)
+            lines.append(f"ההפרש ביניהם: {_shekel(gap)} בחודש לטובת {best}.")
+    return "\n".join(lines)
+
+
 def catalog_answer(snapshot: RulesSnapshot, clause: str, on_screen: Iterable[str] = ()) -> Optional[str]:
     """A question about which cars exist, answered from the catalog only (model, year, group, drive, family
     track); a brand / model question with no catalog match → "not in the catalog". Never prices or specs.
@@ -690,6 +757,13 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
         if _is_question(clause) and (not _RANK_RE.search(clause) or asks_basis(faq, clause)):
             if off_topic(snapshot, clause):
                 u.redirect = True     # plainly not about this service: one redirect line, never the FAQ or the rep
+                continue
+            # the engine's figures for two calculated cars, and a fact the catalog holds (1/11): answered from them,
+            # in both modes, before a general definition (the FAQ) or the representative
+            known = results_difference(state, snapshot, clause) or catalog_fact(snapshot, clause)
+            if known:
+                u.catalog.append(known)
+                u.about_results = u.about_results or bool(results_difference(state, snapshot, clause))
                 continue
             entry = match_faq(faq, clause)
             catalog = (catalog_answer(snapshot, clause, [r.option_id for r in state.results])

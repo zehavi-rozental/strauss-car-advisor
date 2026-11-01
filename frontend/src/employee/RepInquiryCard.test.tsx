@@ -24,3 +24,11 @@ describe('RepInquiryCard email', () => {
     expect(card({ emailEnabled: true, knownEmail: 'employee@example.com' })).not.toContain('type="email"')
   })
 })
+
+describe('the address is optional (1/11)', () => {
+  it('offered, marked optional, never required', () => {
+    const out = card({ emailEnabled: true })
+    expect(out).toContain('(לא חובה)')
+    expect(out).not.toContain('required')
+  })
+})
