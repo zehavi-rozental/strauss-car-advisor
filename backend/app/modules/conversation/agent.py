@@ -852,10 +852,8 @@ class Agent:
             state.rep_copay_offer = None
             plan = ParserPlan([ToolCall("save_profile", {"current_copay": str(offer.amount)}, "combined")], True,
                               notice=rep_copay_applied_text(offer.amount, previous), direct=True, acked=True)
-            outcome = self._finish(ctx, (), label, plan, before, record_run, choice=True)
-            if state.current.copay == offer.amount:
-                state.current.copay_source = "rep_confirmed"     # the representative's answer, applied by the employee
-            return outcome
+            ctx.copay_source = "rep_confirmed"       # the representative's answer, applied by the employee
+            return self._finish(ctx, (), label, plan, before, record_run, choice=True)
         if field_ == "ambiguity":
             ctx.allow_zero_copay = ids[0] == "zero_copay"     # the employee's own answer, not a guess
             plan = _ambiguity_plan(state, ids[0])

@@ -158,6 +158,10 @@ export function EmployeePage() {
         </div>
       </div>
     )
+  } else if (fieldsOf(c.expects).some((f) => f.field === 'rep_copay')) {
+    // the representative's amount for today's copay (1/11): its update button comes before the selected-cars bar —
+    // with results on screen the bar used to take the area and the button never showed
+    area = <AnswerWidgets expects={c.expects} disabled={busy} onSend={c.send} onCopayRep={openTodayCopayInquiry} />
   } else if (c.results.length > 0 && options) {
     area = <SelectedBar items={c.results} disabled={busy} onChange={() => setOpened('selection')} />
   } else {

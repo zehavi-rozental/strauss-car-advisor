@@ -92,6 +92,9 @@ class ToolContext:
     # the employee chose "יש רכב, ההשתתפות 0" (the answer to the ambiguity question): copay 0 with the model still
     # unknown is what they said — only code sets this, never the model
     allow_zero_copay: bool = False
+    # where a today's copay saved in this turn comes from ("rep_confirmed": the representative's answer the employee
+    # applied); None: the employee's own. Set before the save, so the reply built in the same turn says it (1/11)
+    copay_source: Optional[str] = None
     # the employee's message is phrased as a question ("האם 45 או 45 אלף?", "זה 45 אלף?"): set by the agent, so a
     # value held for confirmation is never resolved by it, whoever asks to save (the model or the reader)
     question_message: bool = False
@@ -353,7 +356,7 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
         ignored.append({"field": "current_copay", "reason": "no car today: there is no copay of today's car"})
     elif args.current_copay is not None:
         c.copay, c.copay_unknown = args.current_copay, False
-        c.copay_source = None            # any later amount is the employee's own, no longer the rep's (1/11)
+        c.copay_source = ctx.copay_source  # the rep's answer applied by the employee, or (None) the employee's own
         c.copay_provisional = None       # a real amount replaces the provisional catalog one
         saved.append("current_copay")
     elif args.current_copay_unknown and c.copay is None:

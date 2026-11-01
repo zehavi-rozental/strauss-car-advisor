@@ -107,3 +107,19 @@ def test_the_same_car_matched_again_keeps_the_provisional_amount_another_car_dro
     fake.turn(call("match_current_car", model="מאזדה 3", reset=True), reply="רשמתי.")
     send({"text": "טעיתי, הרכב שלי הוא מאזדה 3"})
     assert car()["catalog_code"] != "CAR-07" and car()["copay_provisional"] is None        # another car: dropped
+
+
+def test_after_confirming_the_results_say_the_amount_is_the_representative_s(engine):
+    client = make_client(engine, rep_access_token=TOKEN)
+    cid, send, _ = at_copay(client)
+    client.post(f"/api/conversations/{cid}/rep-question", json={"question": "מה ההשתתפות שלי?", "intent": "current_copay"})
+    send({"choice": "rep", "field": "copay"})
+    send({"text": "הכי משתלם"})
+    rep = {"X-Rep-Token": TOKEN}
+    [q] = [q for q in client.get("/api/rep/questions?status=OPEN", headers=rep).json()
+           if q["missing_field"] == "CURRENT_COPAY"]
+    client.post(f"/api/rep/questions/{q['id']}/answer", json={"value": "300"}, headers=rep)
+    offer = next(f for f in client.get(f"/api/conversations/{cid}").json()["expects"]["fields"]
+                 if f["field"] == "rep_copay")
+    reply = send({"choice": offer["choices"][0]["id"], "field": "rep_copay"})["reply"]
+    assert "לפי תשובת נציג התחבורה שאישרתם: 300 ₪" in reply and "שמסרתם" not in reply
