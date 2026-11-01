@@ -7,8 +7,18 @@
 A Hebrew conversational advisor that shows an employee, in shekels, how changing their company car changes their monthly net pay.
 
 [![Live Demo](https://img.shields.io/badge/Live_Demo-strauss--drive.onrender.com-0B5394?style=for-the-badge&logo=render&logoColor=white)](https://strauss-drive.onrender.com/)
-[![Representative Interface](https://img.shields.io/badge/Representative_Interface-/rep-E8590C?style=for-the-badge)](https://strauss-drive.onrender.com/rep)
-[![Repository](https://img.shields.io/badge/GitHub-strauss--car--advisor-181717?style=for-the-badge&logo=github)](https://github.com/zehavi-rozental/strauss-car-advisor)
+[![GitHub Repository](https://img.shields.io/badge/GitHub_Repository-strauss--car--advisor-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/zehavi-rozental/strauss-car-advisor)
+[![Representative Portal](https://img.shields.io/badge/Representative_Portal-/rep-E8590C?style=for-the-badge)](https://strauss-drive.onrender.com/rep)
+
+<br>
+
+<a href="https://strauss-drive.onrender.com/">
+  <img src="docs/images/employee-results.png" alt="STRAUSS DRIVE: the advisor's reply, today's car and the net-pay comparison of each alternative" width="100%">
+</a>
+
+<sub>The live product (synthetic data): the advisor's answer in Hebrew, today's car and the monthly net pay with each alternative.</sub>
+
+<br><br>
 
 [![CI](https://github.com/zehavi-rozental/strauss-car-advisor/actions/workflows/ci.yml/badge.svg?branch=deploy/render-demo)](https://github.com/zehavi-rozental/strauss-car-advisor/actions/workflows/ci.yml?query=branch%3Adeploy%2Frender-demo)
 ![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
@@ -16,9 +26,7 @@ A Hebrew conversational advisor that shows an employee, in shekels, how changing
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)
-![Gemini](https://img.shields.io/badge/Google_Gemini-tool_calling_%2B_vision-8E75B2?logo=googlegemini&logoColor=white)
-![Playwright](https://img.shields.io/badge/Playwright-E2E-2EAD33?logo=playwright&logoColor=white)
-![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
+![Google Gemini](https://img.shields.io/badge/Google_Gemini-tool_calling_%2B_vision-8E75B2?logo=googlegemini&logoColor=white)
 
 </div>
 
@@ -77,9 +85,7 @@ An employee who is thinking about switching company cars, moving to an electric 
 
 All screenshots use synthetic data.
 
-**1. Conversation and comparison.** The advisor answers in plain Hebrew, names the car with the highest net, the catalog copays and the main reason, and shows each alternative as a card with its new net and the monthly change.
-
-![Employee conversation with comparison results](docs/images/employee-results.png)
+**1. Conversation and comparison** (the screenshot at the top). The advisor answers in plain Hebrew, names the car with the highest net, the catalog copays and the main reason, and shows each alternative as a card with its new net and the monthly change.
 
 **2. Calculation breakdown.** Today's car next to every alternative, with the factors behind each difference (tax on the use value, copay).
 
