@@ -2170,9 +2170,11 @@ class Agent:
         if not cand.text:
             return draft, "template", False, "empty"
         state, snap = ctx.state, ctx.snapshot
+        copay_asked = any(f.get("field") == "copay" and f.get("type") == "choice"
+                          for f in build_expects(state, snap).get("fields") or [])
         if (state.pending_ambiguity is not None or state.pending_clarification is not None
                 or state.pending_confirmation is not None or state.pending_occupation is not None
-                or ctx.range_problems):    # a rejected value ("34% גבוה מהטווח…"): the template names it
+                or ctx.range_problems or copay_asked):     # today's copay with its choices (1/11): the code's wording    # a rejected value ("34% גבוה מהטווח…"): the template names it
             # code holds a question of its own (no car or copay 0? the car today or an alternative? 45 or 45,000?
             # this role?): the exact question, with its buttons. A held value is never left unasked: the model
             # once asked about commissions while the salary waited for confirmation (live QA 22/10)

@@ -32,6 +32,9 @@ EMAIL_RE = r"^[^\s@]+@[^\s@]+\.[^\s@]+$"
 MAX_ATTEMPTS = 8
 LINK_TTL = timedelta(hours=24)
 MAX_VERIFY_SENDS = 5          # verification links per conversation and address (a new one only when none is valid)
+# a link sent this long ago and never used may be replaced on request (1/11): an email that did not arrive (spam, a
+# provider delay) never leaves the employee waiting 24 hours; a double click within it gets "still valid"
+RESEND_AFTER = timedelta(minutes=2)
 # an answer notice for an address not verified yet: kept out of the sending queue (it never blocks other mail) and
 # released to PENDING when the address is verified
 AWAITING = "AWAITING"
@@ -146,7 +149,13 @@ class EmailNotificationService:
             EmailLinkRow.conversation_id == conversation.id, EmailLinkRow.purpose == "VERIFY",
             EmailLinkRow.email_hash == digest, EmailLinkRow.consumed_at.is_(None), EmailLinkRow.expires_at > now))
         if live is not None and any(r.status != "FAILED" for r in sent):
-            return "valid"
+            latest = max(r.created_at for r in sent)
+            if now - latest < RESEND_AFTER:
+                return "valid"
+            # asked again after a while: the earlier link stops working and a new one is sent (counted, as below)
+            session.execute(update(EmailLinkRow).where(
+                EmailLinkRow.conversation_id == conversation.id, EmailLinkRow.purpose == "VERIFY",
+                EmailLinkRow.email_hash == digest, EmailLinkRow.consumed_at.is_(None)).values(expires_at=now))
         if len(sent) >= MAX_VERIFY_SENDS:
             return "limit"
         dedupe_key = f"verify:{conversation.id}:{digest}" + (f":{len(sent)}" if sent else "")

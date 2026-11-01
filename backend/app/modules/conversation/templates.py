@@ -72,6 +72,14 @@ def catalog_copay_hint(state: ConversationState, snapshot: RulesSnapshot) -> Opt
     return car.default_copay if car is not None else None
 
 
+def copay_choices_offered(state: ConversationState, snapshot: RulesSnapshot) -> bool:
+    """Today's car is known and its copay is asked (1/11): the copay is a closed question — three choices with a
+    catalog amount, else "להזין סכום" / "לברר מול נציג" (nothing is invented when the catalog has no amount)."""
+    c = state.current
+    return (c.source in ("catalog", "tax", "stated") and c.copay is None and not c.copay_unknown
+            and c.copay_provisional is None)
+
+
 def question(field: str, state: ConversationState, snapshot: RulesSnapshot) -> str:
     c = state.current
     age = snapshot.strauss.family_track.child_max_age
@@ -1121,6 +1129,8 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
     first = next((f for f in ("car", "copay", "opt_out_occupation", "options") if f in fields), fields[0])
     if first == "copay" and catalog_copay_hint(state, snapshot) is not None:
         return "בחרו אחת משלוש האפשרויות.", None          # the three copay choices (31/10)
+    if first == "copay" and copay_choices_offered(state, snapshot):
+        return "בחרו אחת מהאפשרויות, או כתבו את הסכום.", None   # no catalog amount: a known amount or the rep (1/11)
     if _is_q2(fields):
         example = q2_example(fields) if len(fields) > 1 else _faq_example(snapshot, first)
         ext = snapshot.extensions

@@ -159,7 +159,7 @@ test('3. resend before verification says the link is still valid; the fake verif
   const resend = employee.getByRole('button', { name: 'שליחת קישור אימות מחדש' })
   await expect(resend).toBeVisible()
   await resend.click()
-  await expect(employee.locator(RECORD)).toContainText('הקישור הקודם עדיין בתוקף')
+  await expect(employee.locator(RECORD)).toContainText('הקישור נשלח לפני רגע')
   const verify = (await mails()).filter((m) => m.to === EMAIL && m.subject.includes('אימות'))
   expect(verify).toHaveLength(1)
   const other = await newPage(browser, { baseURL: BASE })            // another device, closed when the test ends

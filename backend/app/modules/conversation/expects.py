@@ -14,7 +14,8 @@ from app.modules.vehicles.public import VehicleInfo, VehicleKey
 from .free_text import looks_like_title
 from .llm.port import ToolCall
 from .stage import MAX_OPTIONS, ConversationState, Stage, next_stage, question_fields
-from .templates import DRIVE_HE, LINK_LABELS, call_to_action, catalog_copay_hint, money, placeholder_text
+from .templates import (DRIVE_HE, LINK_LABELS, call_to_action, catalog_copay_hint, copay_choices_offered, money,
+                        placeholder_text)
 from .tools import available_options
 
 VehicleGetter = Callable[[VehicleKey], Optional[VehicleInfo]]
@@ -130,6 +131,10 @@ def COPAY_CHOICES(code: Optional[str]) -> list[dict[str, str]]:
             {"id": "rep", "label": "לברר מול נציג"}]
 
 
+# no catalog amount for today's car (1/11): nothing is suggested; a known amount, or the representative
+COPAY_CHOICES_NO_CATALOG = [{"id": "other", "label": "להזין סכום"}, {"id": "rep", "label": "לברר מול נציג"}]
+
+
 CLOSED = {"confirmation", "occupation_confirmation", "clarification", "car_choice", "drive", "rep_question",
           "ambiguity", "ask_rep"}
 
@@ -226,6 +231,10 @@ def _field_expects(question: str, state: ConversationState, snapshot: RulesSnaps
             out = _expects("copay", "choice", COPAY_CHOICES(state.current.catalog_code))
             context = {"car": state.current.label, "catalog_amount": str(hint)}
             out["context"] = out["fields"][0]["context"] = context     # grouped questions read the top level
+            return out
+        if question == "copay" and copay_choices_offered(state, snapshot):
+            out = _expects("copay", "choice", COPAY_CHOICES_NO_CATALOG)
+            out["context"] = out["fields"][0]["context"] = {"car": state.current.label}
             return out
         return _expects(question, "number", quick=_quick(*quick))
     return _expects(None, "none")
