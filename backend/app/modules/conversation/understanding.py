@@ -80,6 +80,8 @@ class Understanding:
     result_focus: list[str] = field(default_factory=list)  # the options the question names ("ולמה דווקא אטו?")
     # "אני רוצה לדבר עם נציג", "היית צריך לשאול את הנציג": the offer to ask, at once (29/10)
     rep_request: bool = False
+    # "אני רוצה להעלות תלוש" (1/11): the uploader is opened at once, at any stage
+    payslip_request: bool = False
     # small talk and nothing else ("מה נשמע?", "בוקר טוב", "תודה"): its kind in faq.social_cues (30/10)
     social: Optional[str] = None
     # nothing was answered, but nothing was missed either (small talk, "שאלה אחת כל פעם", "יותר קצר"): the open
@@ -605,6 +607,11 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
             continue
         if faq.rep_request_cues and says_phrase(clause, faq.rep_request_cues):
             u.rep_request = True                  # "תשאל את הנציג": the offer to ask, never "not understood"
+            continue
+        clause_words = [_spelling(w) for w in words(clause)]
+        if (faq.payslip_upload_terms and _names_any(("תלוש", "תלושים"), clause_words, starts=False)
+                and _names_any(faq.payslip_upload_terms, clause_words, starts=False)):
+            u.payslip_request = True              # "אני רוצה להעלות תלוש": the uploader, never the flow question
             continue
         short = [_spelling(w) for w in words(clause)]
         if "?" in clause and len(short) <= 3 and _names_any(faq.context_markers, short, starts=False) \

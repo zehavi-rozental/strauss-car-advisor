@@ -6,12 +6,13 @@ import { Icon } from '../ui/Icon'
 import { AnswerWidgets } from './AnswerWidgets'
 import { ComparisonPanel } from './ComparisonPanel'
 import { EmailReturnCard } from './EmailReturnCard'
-import { PROVISIONAL_NOTE, copayBannerText, engineBadge } from './engineStatus'
+import { ANSWER_AWAITS_NOTE, PROVISIONAL_NOTE, copayBannerText, engineBadge } from './engineStatus'
 import { OptionMapPanel, OptionMapSummary } from './OptionMapPanel'
 import { MAP_REQUEST } from './optionMap'
 import { Composer } from './Composer'
 import { MessageList } from './MessageList'
 import { PayslipUpload } from './PayslipUpload'
+import { RepAnswerPending } from './ResultCard'
 import { ProfileForm } from './ProfileForm'
 import { Progress } from './Progress'
 import { SelectionCard } from './SelectionCard'
@@ -158,10 +159,6 @@ export function EmployeePage() {
         </div>
       </div>
     )
-  } else if (fieldsOf(c.expects).some((f) => f.field === 'rep_copay')) {
-    // the representative's amount for today's copay (1/11): its update button comes before the selected-cars bar —
-    // with results on screen the bar used to take the area and the button never showed
-    area = <AnswerWidgets expects={c.expects} disabled={busy} onSend={c.send} onCopayRep={openTodayCopayInquiry} />
   } else if (c.results.length > 0 && options) {
     area = <SelectedBar items={c.results} disabled={busy} onChange={() => setOpened('selection')} />
   } else {
@@ -181,6 +178,8 @@ export function EmployeePage() {
   const offerMap = !c.optionMap && c.mapReady
   // the explanation of catalog copay, shown before results appear (while choosing options / calculating), with a
   // gentle link to raise a copay inquiry with the rep. Derived from the stage, so it never repeats on a poll.
+  // the representative's amount for today's copay, waiting for the employee: its button is under the answer (1/11)
+  const repCopayOffer = fieldsOf(c.expects).find((f) => f.field === 'rep_copay') ?? null
   const showCopayBanner = c.stage === 'CHOOSE_OPTIONS' || c.stage === 'CALCULATING' || c.todayCopayProvisional != null
   // a car's card asks about that car (its option_id is the inquiry's car); without a card, a general question
   const openCopayInquiry = (car?: OptionResult) => {
@@ -228,7 +227,7 @@ export function EmployeePage() {
         <div className="copay-banner" role="note">
           <Icon name="info" size={16} />
           <span>
-            {c.todayCopayProvisional != null ? PROVISIONAL_NOTE : (
+            {repCopayOffer ? ANSWER_AWAITS_NOTE : c.todayCopayProvisional != null ? PROVISIONAL_NOTE : (
               <>
                 {copayBannerText(c.todayCopay, c.todayCopaySource)}{' '}
                 <button type="button" className="link-inline" disabled={busy} onClick={() => openCopayInquiry()}>
@@ -299,6 +298,7 @@ export function EmployeePage() {
             <p className="loading"><span className="loading-bar" aria-hidden="true" />טוען את השיחה…</p>
           )}
           {/* the interactive area stays mounted while a message is sent (disabled), so nothing typed is lost */}
+          <RepAnswerPending.Provider value={repCopayOffer != null}>
           <MessageList messages={c.messages} repQuestions={c.repQuestions} results={c.results} resultsStale={c.resultsStale}
                        resultsAnchor={c.resultsAnchor} typing={c.sending}
                        onOpenTable={() => setTableOpen(true)}
@@ -307,7 +307,10 @@ export function EmployeePage() {
                        mapCard={c.optionMap && <OptionMapSummary map={c.optionMap} onOpen={() => setMapOpen(true)} />}
                        tail={c.loading ? null : tail}
                        onRetry={(seq) => void c.retry(seq)} onCorrect={firstVisit ? undefined : correct} busy={busy}
-                       showAuthor={c.engine !== null && c.engine !== 'none'} />
+                       showAuthor={c.engine !== null && c.engine !== 'none'}
+                       repCopayOffer={repCopayOffer} onSend={c.send} todayCopay={c.todayCopay}
+                       todayCopaySource={c.todayCopaySource} focusQuestionId={c.focusQuestionId} />
+          </RepAnswerPending.Provider>
         </div>
       </main>
 

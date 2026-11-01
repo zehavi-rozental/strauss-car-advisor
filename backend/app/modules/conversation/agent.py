@@ -71,6 +71,8 @@ from .templates import (
     UNANSWERED,
     CHOOSE_TO_COMPARE,
     COPAY_WITH_REP,
+    PAYSLIP_OFFER,
+    PAYSLIP_UNAVAILABLE,
     copay_with_rep_text,
     catalog_copay_hint,
     ENGINE_OFFLINE,
@@ -966,6 +968,13 @@ class Agent:
         elif und.rep_request:
             # "אני רוצה לדבר עם נציג": the offer at once, code decides (both modes); no pay question this turn
             return self._rep_requested(ctx, und)
+        elif und.payslip_request:
+            # "אני רוצה להעלות תלוש" (1/11): the uploader at once, whatever the flow would ask; code decides (the action
+            # is the code's), the reply says what happens to the file. Unavailable here: said plainly.
+            enabled = snapshot.extensions.payslip_upload_enabled or bool(snapshot.extensions.payslip_upload_url)
+            notice = PAYSLIP_OFFER if enabled else PAYSLIP_UNAVAILABLE
+            return self._finish(ctx, history, text, ParserPlan(complete=True, notice=notice, direct=True, acked=True),
+                                before, record_run, choice=True, und=replace(und, remainder=""))
         elif und.question_only and und.anything and und.ambiguity is None:
             # only questions / "מה?" / off topic: nothing to save, and a pending question stays open.
             # With an LLM it answers (from the FAQ / STATE); without one, the FAQ template.
@@ -1048,6 +1057,8 @@ class Agent:
         state, snapshot = ctx.state, ctx.snapshot
         und = und or Understanding(remainder=text)
         state.link_now = None               # a link is offered on one reply only (templates._once)
+        if und.payslip_request and (snapshot.extensions.payslip_upload_enabled or snapshot.extensions.payslip_upload_url):
+            state.link_now = "payslip_upload"   # the uploader, on this reply, whatever the flow asks (1/11)
         if und.all_at_once:
             state.pace = "normal"           # "all at once" is an explicit change of pace
             state.link_now = "profile_form"  # the form is the way to answer everything together
@@ -1248,6 +1259,8 @@ class Agent:
                 open_help=open_help)
             if map_line:
                 built.ack.append(map_line)  # after what was saved and identified this turn
+            if und.payslip_request:
+                built.ask = []      # "אני רוצה להעלות תלוש": the upload first; the flow question waits (1/11)
             if map_shown and state.stage in (Stage.CHOOSE_OPTIONS, Stage.PRESENTED):
                 built.ask = []      # the map answered the request; the call to action still offers a comparison
             return built

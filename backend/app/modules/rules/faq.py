@@ -83,6 +83,8 @@ class Faq(BaseModel):
     social_replies: dict[str, tuple[str, ...]] = {}
     # "let's move on" with nothing else to read ("אוקי אז מה ההמשך"): the open question picked up, never "not sure"
     proceed_terms: tuple[str, ...] = ()
+    # a request to upload a payslip (1/11): "תלוש" next to one of these verbs, at any stage, before the flow question
+    payslip_upload_terms: tuple[str, ...] = ()
     # feedback about the bot's previous reply ("מה הקשר", "זה לא תשובה", "לא קשור"): acknowledged, and the open
     # question is explained in other, simpler words — never the same template again (30/10)
     feedback_cues: tuple[str, ...] = ()

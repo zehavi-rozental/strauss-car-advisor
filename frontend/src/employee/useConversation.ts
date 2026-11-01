@@ -87,6 +87,9 @@ export function useConversation() {
   const [pendingQuestions, setPendingQuestions] = useState<PendingQuestion[]>([])
   const [repQuestions, setRepQuestions] = useState<RepInquiry[]>([])
   const [returnTokenPending, setReturnTokenPending] = useState(false)
+  // the representative's answer to bring into view (1/11): from the email link, or an update waiting for the
+  // employee; cleared by the next message, so the chat follows the conversation again
+  const [focusQuestionId, setFocusQuestionId] = useState<string | null>(null)
   const [returnTokenError, setReturnTokenError] = useState<string | null>(null)
   // the link was refused for good: its token is dropped; a conversation stored in this browser may be reopened
   // (the server still checks the session cookie)
@@ -119,6 +122,8 @@ export function useConversation() {
     setEmailSimulated(view.rep_email_simulated === true)
     setEmailPending(view.rep_email_pending === true)
     setExpects(view.expects)
+    const offer = view.expects?.fields?.find((f) => f.field === 'rep_copay')?.choices?.[0]?.id
+    if (offer?.startsWith('apply:')) setFocusQuestionId(offer.slice('apply:'.length))
     setLastAssistant(lastAssistantRef.current)
     setResultsStale(Boolean(view.results_stale))
     setTodayCopay(view.today_copay ?? null)
@@ -251,12 +256,9 @@ export function useConversation() {
       applyView(view)
       await sync()
       setReturnTokenPending(false)
-      if (targetQuestionId) {
-        const message = view.messages.find((item) => item.source === 'rep' &&
-          item.rep_question_id === targetQuestionId)
-        const target = message ? `message-${message.seq}` : `rep-inquiry-${targetQuestionId}`
-        window.requestAnimationFrame(() => document.getElementById(target)?.scrollIntoView({ behavior: 'smooth' }))
-      }
+      // the answer the email is about: the list keeps it in view (a one-off scroll was overridden by the list's
+      // own scroll to the bottom), until the employee sends the next message
+      if (targetQuestionId) setFocusQuestionId(targetQuestionId)
     } catch (e) {
       if (!returnLinkRetryable(e)) {
         if (token) {
@@ -278,6 +280,7 @@ export function useConversation() {
    *  refused, so the form can show each error next to its field and keep everything typed. A typed message lost on
    *  the way stays on screen as "not sent" with "לשלוח שוב", and counts as handled. */
   const deliver = useCallback(async (body: MessageIn, display: string): Promise<SendResult> => {
+    setFocusQuestionId(null)
     const id = idRef.current
     if (!id || sending) return { ok: false, errors: {} }
     setError(null)
@@ -435,7 +438,7 @@ export function useConversation() {
   const questionKey = `${lastAssistant ?? ''}|${JSON.stringify(expects)}`
 
   return {
-    engine, todayCopay, todayCopaySource, todayCopayProvisional,
+    engine, focusQuestionId, todayCopay, todayCopaySource, todayCopayProvisional,
     conversationId, repEmail, emailEnabled, emailSimulated, emailPending,
     messages, stage, expects, questionKey, results, resultsStale, mapReady, optionMap: optionMapState, resultsAnchor,
     pendingQuestions,

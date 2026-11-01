@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { messageAuthor } from './engineStatus'
 import type { ReactNode } from 'react'
-import type { OptionResult, RepInquiry } from '../api/types'
+import type { ExpectsField, MessageIn, OptionResult, RepInquiry } from '../api/types'
+import { RepCopayUpdate } from './AnswerWidgets'
+import { Money } from '../format/Amount'
 import { formatTime } from '../format/time'
 import { BrandMark } from '../ui/BrandMark'
 import { Icon } from '../ui/Icon'
@@ -35,18 +37,36 @@ interface Props {
   busy?: boolean
   /** a model is configured: each bot message says who wrote it (Gemini / the system) */
   showAuthor?: boolean
+  /** the representative's amount for today's copay, waiting for the employee (expects field rep_copay) */
+  repCopayOffer?: ExpectsField | null
+  onSend?: (body: MessageIn, display: string) => Promise<boolean>
+  /** today's copay and where it came from: after an applied answer, its place says it was done */
+  todayCopay?: string | null
+  todayCopaySource?: string | null
+  /** an answer to keep in view (the email link, or an update waiting for the employee) */
+  focusQuestionId?: string | null
 }
 
 export const STALE_NOTE = 'לא מעודכן: החישוב הזה נעשה לפני השינוי האחרון, ויחושב מחדש כשכל הפרטים יהיו ידועים.'
 
 export function MessageList({ messages, repQuestions = [], results, resultsStale = false, resultsAnchor, typing,
                               onOpenTable, onAskCopay, onResendVerification, mapCard, tail,
-                              onRetry, onCorrect, busy, showAuthor = false }: Props) {
+                              onRetry, onCorrect, busy, showAuthor = false, repCopayOffer = null, onSend,
+                              todayCopay = null, todayCopaySource = null, focusQuestionId = null }: Props) {
   const end = useRef<HTMLDivElement>(null)
   const [copied, setCopied] = useState<number | null>(null)
   useEffect(() => {
+    if (focusQuestionId) return                 // an answer is being shown: never pulled to the bottom
     end.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [messages.length, results, typing, tail != null])
+  }, [messages.length, results, typing, tail != null, focusQuestionId])
+  useEffect(() => {
+    if (!focusQuestionId) return
+    const answer = messages.find((m) => m.source === 'rep' && m.rep_question_id === focusQuestionId)
+    const el = document.getElementById(answer ? `message-${answer.seq}` : `rep-inquiry-${focusQuestionId}`)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.add('is-focused')
+  }, [focusQuestionId, messages.length])
   useEffect(() => {
     if (copied === null) return
     const t = window.setTimeout(() => setCopied(null), 1600)
@@ -84,6 +104,30 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
     .filter((q) => q.status === 'OPEN' && q.missing_field === 'NEW_CAR_COPAY' && q.option_id)
     .map((q) => q.option_id as string))
   const askFor = (item: OptionResult) => (resultsStale || askedCopay.has(item.option_id) ? undefined : onAskCopay)
+  // the representative's answer about today's copay and its action, as one unit under the answer (1/11): the
+  // update button while it waits for the employee; once applied, what was done and where the results are
+  const copayAnswers = repQuestions.filter((q) => q.missing_field === 'CURRENT_COPAY' && q.status === 'ANSWERED')
+  const latestCopayAnswer = copayAnswers.length
+    ? copayAnswers.reduce((a, b) => ((a.answered_at ?? '') > (b.answered_at ?? '') ? a : b)).id : null
+  const repAnswerAction = (questionId: string) => {
+    if (inquiries.get(questionId)?.missing_field !== 'CURRENT_COPAY') return null
+    if (repCopayOffer && onSend && repCopayOffer.choices[0]?.id === `apply:${questionId}`) {
+      return (
+        <div className="rep-answer-action">
+          <RepCopayUpdate field={repCopayOffer} disabled={busy ?? false} onSend={onSend} />
+        </div>
+      )
+    }
+    if (questionId === latestCopayAnswer && todayCopaySource === 'rep_confirmed' && todayCopay) {
+      return (
+        <p className="rep-answer-done" role="status">
+          <Icon name="check" size={16} />העדכון בוצע: ההשתתפות <Money value={todayCopay} /> לפי תשובת הנציג שאישרתם.
+          {resultsAnchor != null && <> <a href={`#message-${resultsAnchor}`}>לתוצאות המעודכנות</a></>}
+        </p>
+      )
+    }
+    return null
+  }
   const cards = results.length > 0 && (
     <div className={resultsStale ? 'result-cards result-stale' : 'result-cards'} data-stale={resultsStale || undefined}>
       {resultsStale && <p className="stale-note" role="status">{STALE_NOTE}</p>}
@@ -142,6 +186,7 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
                     )}
                     <span className="msg-actions">{copyButton}</span>
                   </div>
+                  {m.source === 'rep' && m.rep_question_id && repAnswerAction(m.rep_question_id)}
                 </div>
               </div>
             ) : (

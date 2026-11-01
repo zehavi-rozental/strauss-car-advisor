@@ -184,6 +184,11 @@ def state_block(state: ConversationState, snapshot: RulesSnapshot, parser_hint: 
     if state.brief:
         lines.append("style: the employee asked for short, plain replies; at most 2 short lines before the question, "
                      "no explanations unless asked")
+    if snapshot.extensions.payslip_upload_enabled or snapshot.extensions.payslip_upload_url:
+        # 1/11: the model answered "אי אפשר להעלות תלוש?" with the flow question; the capability is now in STATE
+        lines.append("payslip: the employee may upload a payslip at ANY time with the 'להעלות תלוש' button; if they ask "
+                     "about it, say yes and point to that button — never ask for other data first. The file is not "
+                     "stored; its values are shown for review and used only after the employee confirms them")
     fields = paced(state, fields)
     if fields and stage not in (Stage.WAITING_FOR_REP,):
         names = ", ".join(FIELD_NAMES.get(f, f) for f in fields)

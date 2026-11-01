@@ -16,7 +16,8 @@ interface Props {
 }
 
 export function AnswerWidgets({ expects, disabled, onSend, onCopayRep }: Props) {
-  const widgets = widgetsFor(expects)
+  // the representative's copay update is drawn under the answer itself (MessageList), never here (1/11)
+  const widgets = widgetsFor(expects).filter((w) => w.field.field !== 'rep_copay')
   if (!widgets.length) return null
   const grouped = (expects?.fields.length ?? 0) > 1
   return (
@@ -115,7 +116,7 @@ function CopayChoices({ field, fieldParam, disabled, onSend, onRep }:
 
 /** The representative's amount for today's copay (1/11): one button, then a short confirmation with the amount, the
  * car and the amount it replaces. Only "אישור העדכון" sends it; the server then removes the offer (applied once). */
-function RepCopayUpdate({ field, disabled, onSend }: { field: ExpectsField; disabled: boolean; onSend: Send }) {
+export function RepCopayUpdate({ field, disabled, onSend }: { field: ExpectsField; disabled: boolean; onSend: Send }) {
   const [asking, setAsking] = useState(false)
   const choice = field.choices[0]
   const ctx = field.context ?? {}

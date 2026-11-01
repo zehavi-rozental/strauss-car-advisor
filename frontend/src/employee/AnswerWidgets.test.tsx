@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { Expects } from '../api/types'
-import { AnswerWidgets, copayAmountValid } from './AnswerWidgets'
+import { AnswerWidgets, RepCopayUpdate, copayAmountValid } from './AnswerWidgets'
 
 const copay: Expects = {
   field: 'copay', type: 'choice', quick_replies: [], max: null, closed: true,
@@ -37,8 +37,13 @@ describe("the representative's copay (1/11)", () => {
                context: { car: 'COROLLA (2026)', amount: '230', previous: '200' } }],
   } as unknown as Expects
 
+  it('is drawn under the answer, never in the bottom area', () => {
+    expect(renderToStaticMarkup(<AnswerWidgets expects={offer} disabled={false} onSend={async () => true} />)).toBe('')
+  })
+
   it('shows one update button, and no confirmation until it is pressed', () => {
-    const out = renderToStaticMarkup(<AnswerWidgets expects={offer} disabled={false} onSend={async () => true} />)
+    const field = (offer as unknown as { fields: Parameters<typeof RepCopayUpdate>[0]['field'][] }).fields[0]
+    const out = renderToStaticMarkup(<RepCopayUpdate field={field} disabled={false} onSend={async () => true} />)
     expect(out.match(/<button/g)).toHaveLength(1)
     expect(out).toContain('עדכון החישוב לפי תשובת הנציג')
     expect(out).not.toContain('אישור העדכון')

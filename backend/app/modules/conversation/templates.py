@@ -982,6 +982,14 @@ def compare_needs_text(state: ConversationState) -> str:
 
 
 # the question about the language engine answered without the model (an outage, a cap, none configured): said (31/10)
+# "אני רוצה להעלות תלוש" (1/11): the uploader opens at once; what happens to the file, said before it is chosen
+PAYSLIP_OFFER = ("בשמחה, אפשר להתחיל מהתלוש. לחצו על \"להעלות תלוש\" ובחרו קובץ PDF או תמונה. "
+                 "אקרא ממנו את פרטי השכר ואציג לכם אותם לבדיקה ולתיקון, ורק אחרי שתאשרו אשתמש בהם בחישוב. "
+                 "התלוש עצמו לא נשמר.")
+PAYSLIP_UNAVAILABLE = ("העלאת תלוש לא זמינה כרגע. אפשר לכתוב כאן את פרטי השכר מהתלוש, "
+                       "למשל: \"שכר בסיס 18,000, פנסיה 6%\".")
+
+
 # today's copay sent to the representative (31/10): no amount is assumed until the answer
 COPAY_WITH_REP = ("רשמתי: את ההשתתפות ברכב שלכם היום נברר מול נציג התחבורה, והתשובה תגיע לכאן. "
                   "עד אז לא אחשב את השינוי בנטו לעומת היום, ולא אשתמש בסכום משוער.")
@@ -1040,6 +1048,9 @@ def _is_q2(fields: Sequence[str]) -> bool:
 def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
                    fields: Optional[Sequence[str]] = None) -> tuple[str, Optional[str]]:
     """The one call to action that ends a reply, and the one link it names (or None)."""
+    if state.link_now == "payslip_upload":
+        # the employee asked to upload a payslip (1/11): the uploader, whatever the flow would ask next
+        return "לחצו על \"להעלות תלוש\" ובחרו את הקובץ.", "payslip_upload"
     if state.pending_rep_question is not None:
         return "בחרו \"לשלוח\" או \"לבטל\".", None
     if state.unanswered_question is not None:

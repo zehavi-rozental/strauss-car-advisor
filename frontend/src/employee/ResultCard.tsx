@@ -1,3 +1,4 @@
+import { createContext, useContext } from 'react'
 // The decision screen for one option, in three layers: (1) the answer: the new monthly net, how much it
 // changes in words, and whether it is final or a temporary estimate, (2) what moved it, (3) "פירוט מלא" opens
 // the transparent breakdown. Built from ScenarioResult only (the server's *_display values). Never from the
@@ -59,17 +60,24 @@ export function StateBadge({ state }: { state: ReturnType<typeof resultState> })
 
 /** The new car's copay for one option: amount, source, approval status, its effect on the net, and the date the
  *  representative's amount applies from. "compact" is the one-line form for the comparison panel. */
+/** The representative answered today's copay and the update waits for the employee (1/11): the provisional
+ * tag says so instead of "until verified". Provided by the page. */
+export const RepAnswerPending = createContext(false)
+
 export function CopayLine({ result, compact = false, onAskCopay }: {
   result: ScenarioResult
   compact?: boolean
   onAskCopay?: () => void
 }) {
   const c = copayInfo(result)
+  const answered = useContext(RepAnswerPending)   // the rep answered; the update waits for the employee
   // today's net used the catalog amount while the representative is asked (1/11): said on every card
   const provisional = result.today_copay_provisional != null && (
     <span className="today-provisional">
       <span className="tag tag-pending">מחושב לפי סכום קטלוגי זמני</span>
-      {!compact && <> ההשתתפות ברכב הנוכחי: <Money value={result.today_copay_provisional} /> לפי הקטלוג, עד לאימות מול נציג.</>}
+      {!compact && (answered
+        ? <> ההשתתפות ברכב הנוכחי: <Money value={result.today_copay_provisional} /> לפי הקטלוג. התקבלה תשובת נציג, והיא ממתינה לאישור העדכון שלכם.</>
+        : <> ההשתתפות ברכב הנוכחי: <Money value={result.today_copay_provisional} /> לפי הקטלוג, עד לאימות מול נציג.</>)}
     </span>
   )
   if (!c) return provisional || null

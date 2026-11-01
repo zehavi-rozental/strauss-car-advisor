@@ -51,3 +51,6 @@ export function copayBannerText(todayCopay: string | null, source: string | null
 /** Today's copay pending with the representative (1/11): the comparison runs on the catalog amounts meanwhile; no
  * second inquiry is offered while this one is open. */
 export const PROVISIONAL_NOTE = 'ההשוואה מחושבת לפי סכומי הקטלוג. סכום ההשתתפות ברכב הנוכחי ממתין לאימות הנציג, ולאחר קבלת התשובה אפשר לעדכן את החישוב.'
+
+/** The representative answered today's copay and the update waits for the employee (1/11): never "still waiting". */
+export const ANSWER_AWAITS_NOTE = 'התקבלה תשובת נציג להשתתפות ברכב הנוכחי, והיא ממתינה לאישור העדכון שלכם (הכפתור מתחת לתשובה). עד אז ההשוואה מחושבת לפי סכום הקטלוג הזמני.'
