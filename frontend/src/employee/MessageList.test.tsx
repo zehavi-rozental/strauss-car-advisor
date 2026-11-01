@@ -162,3 +162,20 @@ describe('an inquiry and its answer, as the employee reads them (1/11)', () => {
     expect(out.indexOf('result-card')).toBeLessThan(out.indexOf('השאלה נשלחה לנציג התחבורה'))
   })
 })
+
+describe('an inquiry sent with no address (1/11)', () => {
+  it('mail on and no address: the latest open inquiry offers to add one, never a dead end', () => {
+    const out = render({ messages: [msg(5, 'rep_inquiry', RECORD, 'q1')], repQuestions: [inquiry('OPEN')],
+                         onAddEmail: async () => 'queued' })
+    expect(out).toContain('רוצים עדכון גם במייל כשהנציג יענה?')
+    expect(out).toContain('type="email"')
+    expect(out).toContain('שליחת קישור אימות')
+  })
+
+  it('answered, or mail off: nothing to add', () => {
+    expect(render({ messages: [msg(5, 'rep_inquiry', RECORD, 'q1')], repQuestions: [inquiry('ANSWERED')],
+                    onAddEmail: async () => 'queued' })).not.toContain('type="email"')
+    expect(render({ messages: [msg(5, 'rep_inquiry', RECORD, 'q1')], repQuestions: [inquiry('OPEN')] }))
+      .not.toContain('type="email"')
+  })
+})

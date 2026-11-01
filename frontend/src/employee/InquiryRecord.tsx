@@ -33,10 +33,32 @@ interface Props {
   answerSeq?: number
   /** a new verification link, offered on the latest open inquiry only while the address waits for it */
   onResend?: () => Promise<string>
+  /** mail on and no address yet (1/11): an address for this inquiry's answer, verified by its link */
+  onAddEmail?: (email: string) => Promise<string>
 }
 
-export function InquiryRecord({ question, content, answerSeq, onResend }: Props) {
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+export function InquiryRecord({ question, content, answerSeq, onResend, onAddEmail }: Props) {
   const [resent, setResent] = useState<string | null>(null)
+  const [email, setEmail] = useState('')
+  const [emailError, setEmailError] = useState<string | null>(null)
+  const addEmail = async () => {
+    if (!onAddEmail || sending) return
+    if (!EMAIL_RE.test(email.trim())) { setEmailError('הכתובת לא נראית תקינה. בדקו אותה, למשל name@example.com.'); return }
+    setEmailError(null)
+    setSending(true)
+    try {
+      const res = await onAddEmail(email.trim())
+      setResent(res === 'queued' || !RESEND_TEXT[res]
+        ? 'שלחנו קישור אימות לכתובת. אחרי האימות נעדכן אתכם במייל כשהנציג יענה; התשובה תופיע כאן בכל מקרה.'
+        : RESEND_TEXT[res])
+    } catch (e) {
+      setEmailError(e instanceof Error && e.message ? e.message : 'לא הצלחנו לשלוח קישור אימות. נסו שוב בעוד רגע.')
+    } finally {
+      setSending(false)
+    }
+  }
   const [sending, setSending] = useState(false)
   const parsed = content ? parseRecord(content) : { question: '', next: '' }
   const status = question ? STATUS[question.status] : STATUS.OPEN
@@ -83,6 +105,22 @@ export function InquiryRecord({ question, content, answerSeq, onResend }: Props)
         </dl>
       )}
       {answerSeq != null && <a href={`#message-${answerSeq}`}>לתשובת הנציג</a>}
+      {open && onAddEmail && !resent && (
+        <div className="rep-inquiry-resend rep-inquiry-add-email">
+          <label htmlFor={`add-email-${question?.id ?? 'x'}`}>רוצים עדכון גם במייל כשהנציג יענה?</label>
+          <div className="rep-inquiry-add-row">
+            <input id={`add-email-${question?.id ?? 'x'}`} className="rep-inquiry-email" type="email" dir="ltr"
+                   value={email} placeholder="name@example.com" autoComplete="email" disabled={sending}
+                   aria-invalid={emailError ? true : undefined}
+                   onChange={(e) => { setEmail(e.target.value); setEmailError(null) }} />
+            <button type="button" className="btn btn-sm btn-ghost" disabled={sending} onClick={() => void addEmail()}>
+              {sending ? 'שולח…' : 'שליחת קישור אימות'}
+            </button>
+          </div>
+          {emailError && <p className="rep-inquiry-field-error" role="alert">{emailError}</p>}
+        </div>
+      )}
+      {open && onAddEmail && resent && <p className="rep-inquiry-hint" role="status">{resent}</p>}
       {open && onResend && (
         <div className="rep-inquiry-resend">
           <span>כתובת האימייל עדיין לא אומתה.</span>

@@ -768,3 +768,6 @@
   color: var(--ink-2); white-space: pre-line; overflow-wrap: break-word;
 }
 .rep-answer-card .bubble-text { overflow-wrap: break-word; }
+.rep-inquiry-add-email { display: grid; gap: 6px; }
+.rep-inquiry-add-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.rep-inquiry-add-row .rep-inquiry-email { flex: 1 1 200px; min-width: 0; }

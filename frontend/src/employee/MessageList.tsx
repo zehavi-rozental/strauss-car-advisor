@@ -24,6 +24,8 @@ interface Props {
   onOpenTable?: () => void
   /** a new verification link while an address waits for it (mail on, not verified): on the latest open inquiry */
   onResendVerification?: () => Promise<string>
+  /** mail on and no address in this conversation (an inquiry sent from the chat, 1/11): an address can be added */
+  onAddEmail?: (email: string) => Promise<string>
   /** 360°: the option map's chat card, under the results */
   mapCard?: ReactNode
   /** the current question's widget, drawn under the latest message */
@@ -50,7 +52,7 @@ interface Props {
 export const STALE_NOTE = 'לא מעודכן: החישוב הזה נעשה לפני השינוי האחרון, ויחושב מחדש כשכל הפרטים יהיו ידועים.'
 
 export function MessageList({ messages, repQuestions = [], results, resultsStale = false, resultsAnchor, typing,
-                              onOpenTable, onResendVerification, mapCard, tail,
+                              onOpenTable, onResendVerification, onAddEmail, mapCard, tail,
                               onRetry, onCorrect, busy, repCopayOffer = null, onSend,
                               todayCopay = null, todayCopaySource = null, focusQuestionId = null,
                               todayCard = null, mapAnchor = null }: Props) {
@@ -98,10 +100,9 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
     .filter((message) => message.source === 'rep' && message.rep_question_id)
     .map((message) => [message.rep_question_id as string, message.seq]))
   // the new verification link is offered once, on the latest open inquiry
-  const resendOn = onResendVerification
-    ? [...messages].reverse().find((m) => m.source === 'rep_inquiry' && m.rep_question_id
-        && inquiries.get(m.rep_question_id)?.status === 'OPEN')?.seq ?? null
-    : null
+  const latestOpen = [...messages].reverse().find((m) => m.source === 'rep_inquiry' && m.rep_question_id
+    && inquiries.get(m.rep_question_id)?.status === 'OPEN')?.seq ?? null
+  const resendOn = onResendVerification ? latestOpen : null
   // the copay inquiry has one place, today's car card above the comparison (1/11): the car cards carry no ask link
   // the representative's answer about today's copay and its action, as one unit under the answer (1/11): the
   // update button while it waits for the employee; once applied, what was done and where the results are
@@ -214,7 +215,8 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
               {first && (
                 <InquiryRecord question={question} content={m.content}
                                answerSeq={m.rep_question_id ? answerMessages.get(m.rep_question_id) : undefined}
-                               onResend={m.seq === resendOn ? onResendVerification : undefined} />
+                               onResend={m.seq === resendOn ? onResendVerification : undefined}
+                               onAddEmail={m.seq === latestOpen ? onAddEmail : undefined} />
               )}
               {anchored && m.seq === resultsAnchor && cards}
               {mapAnchored && m.seq === mapAnchor && mapCard}

@@ -475,8 +475,8 @@ def _about_results(snapshot: RulesSnapshot, state: ConversationState, clause: st
     """With results on screen: the options the question is about — the ones it names, or all of them when it names
     what a result is made of ("הערכה", "ממתינה לאישור", "השתתפות"); [] when it is about something else."""
     ws = [_spelling(w) for w in words(clause)]
-    if asks_attribute(snapshot, clause) or _compares(snapshot, clause):
-        return []        # a colour / sunroof / stock question, or two cars compared: not about the calculation
+    if asks_attribute(snapshot, clause) or _compares(snapshot, clause) or (ws and ws[0] == "מתי"):
+        return []        # a colour / sunroof / stock / "when" question, or two cars compared: not about the calculation
     named = {c.catalog_code for c in named_cars(clause, snapshot.catalog)}
     focus = [r.option_id for r in state.results if r.option_id in named]
     if focus:

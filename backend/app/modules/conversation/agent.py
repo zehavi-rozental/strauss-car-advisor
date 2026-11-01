@@ -37,8 +37,8 @@ from .guards import (FIELD_WORDS, SINGULAR_RE, TAG_RE, Check, Violation, ask_lin
 from .turn import LLM_TOOLS, Candidate, parser_hint, render_catalog, render_faq, run_rounds, state_block, system_message, user_message
 from .option_map import build_option_map, dump_option, dump_result as _dump, evaluate_option, map_reply
 from .option_map import with_assumptions as _with_assumptions
-from .understanding import (NO_CAR_OR_ZERO, NOT_IN_CATALOG, Understanding, answer_like, rep_scope_ok, says_all_words,
-                            says_phrase, understand)
+from .understanding import (NO_CAR_OR_ZERO, NOT_IN_CATALOG, Understanding, answer_like, asks_attribute, rep_scope_ok,
+                            says_all_words, says_phrase, understand)
 from .stage import (
     allowed_tools,
     current_group,
@@ -1389,6 +1389,15 @@ class Agent:
             state.unanswered_question = und.unanswered[0]
             offered = build_plan()
             reply = offered.text()
+            state.last_ask = offered.ask[-1] if offered.ask else ""
+        if (source == "llm" and und.unanswered and state.unanswered_question is None and not rep_skipped
+                and not _offers_rep(reply) and any(asks_attribute(snapshot, q) for q in und.unanswered)):
+            # a car's property the catalog does not hold (colour, sunroof, equipment, availability, 1/11): nothing
+            # verified answers it, so the model's own answer is not shown; the representative is offered, as without
+            # a model
+            state.unanswered_question = und.unanswered[0]
+            offered = build_plan()
+            reply, source = offered.text(), "template"
             state.last_ask = offered.ask[-1] if offered.ask else ""
         if (source == "llm" and und.unanswered and state.unanswered_question is None and not rep_skipped
                 and _offers_rep(reply)):

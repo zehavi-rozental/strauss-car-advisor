@@ -236,6 +236,19 @@ export function EmployeePage() {
         }
       }
     : undefined
+  // mail on, and no address in this conversation (an inquiry sent from the chat, 1/11): one can be added on the
+  // latest open inquiry, verified by its link; the answer shows here either way
+  const addEmail = c.emailEnabled && !c.emailSimulated && !c.emailPending && !repEmail && c.conversationId
+    ? async (email: string) => {
+        try {
+          const res = await api.resendVerification(c.conversationId!, email)
+          void c.reload()
+          return res.resend
+        } catch (e) {
+          throw new Error(e instanceof ApiError ? e.message_he : 'לא הצלחנו לשלוח קישור אימות. נסו שוב בעוד רגע.')
+        }
+      }
+    : undefined
   const tail = (
     <div className="answer-tail" ref={tailRef}>
       {area}
@@ -303,7 +316,7 @@ export function EmployeePage() {
           <MessageList messages={c.messages} repQuestions={c.repQuestions} results={c.results} resultsStale={c.resultsStale}
                        resultsAnchor={c.resultsAnchor} typing={c.sending}
                        onOpenTable={() => setTableOpen(true)}
-                       onResendVerification={resendVerification}
+                       onResendVerification={resendVerification} onAddEmail={addEmail}
                        mapCard={c.optionMap && <OptionMapSummary map={c.optionMap} onOpen={() => setMapOpen(true)} />}
                        tail={c.loading ? null : tail}
                        onRetry={(seq) => void c.retry(seq)} onCorrect={firstVisit ? undefined : correct} busy={busy}

@@ -85,8 +85,9 @@ export const api = {
     request<RepQuestionResult>(`${conv(id)}/rep-question`, { method: 'POST', body: JSON.stringify(body) }),
   /** A new verification link for the address this conversation waits to verify: "queued" | "valid" | "limit" |
    *  "verified" (what happened, for the status line). */
-  resendVerification: (id: string) =>
-    request<{ resend: string }>(`${conv(id)}/email/verify`, { method: 'POST', body: JSON.stringify({}) }),
+  resendVerification: (id: string, email?: string) =>
+    request<{ resend: string }>(`${conv(id)}/email/verify`, { method: 'POST',
+                                                             body: JSON.stringify(email ? { email } : {}) }),
   redeemEmailLink: (token: string) =>
     request<{ conversation_id: string; question_id: string | null }>('/api/conversations/return', {
       method: 'POST', body: JSON.stringify({ token }),
