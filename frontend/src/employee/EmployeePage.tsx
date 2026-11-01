@@ -320,7 +320,6 @@ export function EmployeePage() {
           <MessageList messages={c.messages} repQuestions={c.repQuestions} results={c.results} resultsStale={c.resultsStale}
                        resultsAnchor={c.resultsAnchor} typing={c.sending}
                        onOpenTable={() => setTableOpen(true)}
-                       onAskCopay={(item) => openCopayInquiry(item)}
                        onResendVerification={resendVerification}
                        mapCard={c.optionMap && <OptionMapSummary map={c.optionMap} onOpen={() => setMapOpen(true)} />}
                        tail={c.loading ? null : tail}

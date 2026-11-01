@@ -21,6 +21,9 @@ const GENERAL_ANSWER = 'כן, יש גרסה עם גג נפתח.\nהתוספת מ
 
 test.describe.configure({ mode: 'serial' })
 test.skip(!BASE || !OFF || !REP_TOKEN || !MAIL || !SHOTS, 'E2E_BASE_URL, OFF_BASE_URL, REP_TOKEN, EMAIL_FAKE_DIR, SHOTS_DIR')
+// 1/11: the car cards no longer carry an inquiry link (one place: today's car card above the comparison). This
+// story opens its inquiries from car cards; it is kept for the rewrite, not run (it was already skipped in CI)
+test.skip(true, 'per-car inquiry link removed on 1/11; story to be rewritten around the card above the comparison')
 
 let employee: Page
 const shot = (page: Page, name: string) => page.screenshot({ path: join(SHOTS, `${name}.png`), fullPage: true })

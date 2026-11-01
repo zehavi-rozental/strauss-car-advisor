@@ -89,12 +89,12 @@ describe('inquiry record in the chat', () => {
     expect(count(html, 'data-testid="rep-inquiry-history"')).toBe(1)
   })
 
-  it('a car with an open copay inquiry keeps its status, without a second ask button', () => {
-    const ask = () => {}
-    const open = inquiry('OPEN', { missing_field: 'NEW_CAR_COPAY', option_id: 'CAR-05' })
-    const withOpen = render({ results: [copayResult('CAR-05')], repQuestions: [open], onAskCopay: ask })
-    const without = render({ results: [copayResult('CAR-05')], repQuestions: [], onAskCopay: ask })
-    expect(without).toContain('בירור אישי מול הנציג')
-    expect(withOpen).not.toContain('בירור אישי מול הנציג')
+  it('the car cards carry no inquiry link: the one place is the card above the comparison (1/11)', () => {
+    for (const results of [[copayResult('CAR-05')], [copayResult('CAR-05'), copayResult('CAR-06')]]) {
+      const out = render({ results, todayCard: <button type="button">בירור השתתפות מול נציג</button> })
+      expect(out).not.toContain('בירור אישי')
+      expect(count(out, 'בירור השתתפות מול נציג')).toBe(1)
+      expect(out).toContain('השתתפות')
+    }
   })
 })

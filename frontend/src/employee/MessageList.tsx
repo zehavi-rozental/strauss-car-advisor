@@ -23,7 +23,6 @@ interface Props {
   resultsAnchor: number | null
   typing: boolean
   onOpenTable?: () => void
-  onAskCopay?: (item: OptionResult) => void
   /** a new verification link while an address waits for it (mail on, not verified): on the latest open inquiry */
   onResendVerification?: () => Promise<string>
   /** 360°: the option map's chat card, under the results */
@@ -52,7 +51,7 @@ interface Props {
 export const STALE_NOTE = 'לא מעודכן: החישוב הזה נעשה לפני השינוי האחרון, ויחושב מחדש כשכל הפרטים יהיו ידועים.'
 
 export function MessageList({ messages, repQuestions = [], results, resultsStale = false, resultsAnchor, typing,
-                              onOpenTable, onAskCopay, onResendVerification, mapCard, tail,
+                              onOpenTable, onResendVerification, mapCard, tail,
                               onRetry, onCorrect, busy, showAuthor = false, repCopayOffer = null, onSend,
                               todayCopay = null, todayCopaySource = null, focusQuestionId = null,
                               todayCard = null }: Props) {
@@ -102,11 +101,7 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
     ? [...messages].reverse().find((m) => m.source === 'rep_inquiry' && m.rep_question_id
         && inquiries.get(m.rep_question_id)?.status === 'OPEN')?.seq ?? null
     : null
-  // a car with an open copay inquiry: its card shows the status tag only, not another "ask" button
-  const askedCopay = new Set(repQuestions
-    .filter((q) => q.status === 'OPEN' && q.missing_field === 'NEW_CAR_COPAY' && q.option_id)
-    .map((q) => q.option_id as string))
-  const askFor = (item: OptionResult) => (resultsStale || askedCopay.has(item.option_id) ? undefined : onAskCopay)
+  // the copay inquiry has one place, today's car card above the comparison (1/11): the car cards carry no ask link
   // the representative's answer about today's copay and its action, as one unit under the answer (1/11): the
   // update button while it waits for the employee; once applied, what was done and where the results are
   const copayAnswers = repQuestions.filter((q) => q.missing_field === 'CURRENT_COPAY' && q.status === 'ANSWERED')
@@ -163,11 +158,8 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
       {resultsStale && <p className="stale-note" role="status">{STALE_NOTE}</p>}
       {todayCard}
       {results.length > 1
-        ? <SummaryCard items={results} current={!resultsStale} onOpenTable={onOpenTable}
-                       onAskCopay={resultsStale ? undefined : onAskCopay}
-                       canAskCopay={(item) => askFor(item) !== undefined} />
-        : results.map((r) => <ResultCard key={`${r.option_id}:${r.run_id}`} item={r} onOpenTable={onOpenTable}
-                                         onAskCopay={askFor(r)} />)}
+        ? <SummaryCard items={results} current={!resultsStale} onOpenTable={onOpenTable} />
+        : results.map((r) => <ResultCard key={`${r.option_id}:${r.run_id}`} item={r} onOpenTable={onOpenTable} />)}
     </div>
   )
 
