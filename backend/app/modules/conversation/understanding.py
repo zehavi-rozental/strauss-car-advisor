@@ -84,6 +84,9 @@ class Understanding:
     rep_request: bool = False
     # "אני רוצה להעלות תלוש" (1/11): the uploader is opened at once, at any stage
     payslip_request: bool = False
+    # "תציג לי אפשרויות", "תראה לי רשימה" (1/11): the cars, from the catalog, at the question about today's car or the
+    # alternatives (faq.show_list_verbs + show_list_objects); the clause is never read as a car name
+    show_list: bool = False
     # small talk and nothing else ("מה נשמע?", "בוקר טוב", "תודה"): its kind in faq.social_cues (30/10)
     social: Optional[str] = None
     # nothing was answered, but nothing was missed either (small talk, "שאלה אחת כל פעם", "יותר קצר"): the open
@@ -748,6 +751,10 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
         if (faq.payslip_upload_terms and _names_any(("תלוש", "תלושים"), clause_words, starts=False)
                 and _names_any(faq.payslip_upload_terms, clause_words, starts=False)):
             u.payslip_request = True              # "אני רוצה להעלות תלוש": the uploader, never the flow question
+            continue
+        if (faq.show_list_verbs and _names_any(faq.show_list_verbs, clause_words, starts=False)
+                and _names_any(faq.show_list_objects, clause_words, starts=False)):
+            u.show_list = True                    # "תציג לי אפשרויות": the catalog's cars (agent decides where)
             continue
         short = [_spelling(w) for w in words(clause)]
         if "?" in clause and len(short) <= 3 and _names_any(faq.context_markers, short, starts=False) \

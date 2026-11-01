@@ -23,7 +23,8 @@ from .tools import TOOL_SPECS, available_options
 HISTORY = 12
 MAX_ROUNDS = 3
 # tools the LLM may call; "calculate" is the old name of select_options (kept for scripted tests)
-LLM_TOOLS = ("save_profile", "match_current_car", "select_options", "rank_options", "propose_rep_question")
+LLM_TOOLS = ("save_profile", "match_current_car", "select_options", "rank_options", "propose_rep_question",
+             "show_cars")
 
 SYSTEM_PROMPT = """You are the company-car advisor of Strauss, chatting in Hebrew with an employee. You help them see how
 changing their company car changes their monthly net pay. Speak like a warm, highly professional human advisor:
@@ -36,6 +37,8 @@ HOW A TURN WORKS
   "אחד" = 1). A message that mixes data and a question: save the data AND answer. A range ("בין 15 ל-16
   אלף") or a vague amount ("קצת עמלות") is not a value: save nothing for it and ask for one number ("בערך
   כמה?"; an estimate is fine, per the FAQ).
+  A request to see the cars, or not knowing today's model ("לא זוכרת איזה רכב, תראה לי") → show_cars (the
+  system shows the real list); never no_car and never a copay for it.
   "לא יודע" about a field → save_profile unknown_fields. Never save something STATE already has unless the
   employee corrects it.
 - The employee may ask to answer a field LATER ("את השכר אבדוק אחר כך", "אח\"כ", "בינתיים תשאל דברים אחרים",

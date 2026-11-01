@@ -85,6 +85,11 @@ class Faq(BaseModel):
     proceed_terms: tuple[str, ...] = ()
     # a request to upload a payslip (1/11): "תלוש" next to one of these verbs, at any stage, before the flow question
     payslip_upload_terms: tuple[str, ...] = ()
+    # a request to see the cars (1/11): one of the verbs next to one of the objects ("תציג לי אפשרויות", "תראה לי
+    # רשימה"). At the question about today's car (also "לא זוכרת איזה רכב") or the alternatives, code shows the real
+    # catalog list; never "not understood", never "no car" or copay 0
+    show_list_verbs: tuple[str, ...] = ()
+    show_list_objects: tuple[str, ...] = ()
     # a request to correct the employee's own data (1/11): one of these words (a change or a mistake) next to one of
     # `correction_objects` or a salary / car field. Answered in code at any stage, never sent to the representative
     correction_terms: tuple[str, ...] = ()

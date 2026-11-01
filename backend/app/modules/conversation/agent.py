@@ -30,7 +30,7 @@ from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
 from .grounding import (grounded_number, group_named, occupation_named, option_named, said_numbers,
                         without_alternatives, zero_grounded, bare_zero_answer)
-from .parsing import (YEAR_RE, has_all_scope, mask_ages, match_drive, match_group, match_occupation, no_car_span,
+from .parsing import (YEAR_RE, copay_unknown_span, has_all_scope, is_unknown, mask_ages, match_drive, match_group, match_occupation, no_car_span,
                       occupation_match, parse_copay, read_profile, redact_id_numbers)
 from .guards import (FIELD_WORDS, SINGULAR_RE, TAG_RE, Check, Violation, ask_lines, check, content_sentences, drop,
                      has_statement, sentences, strip_tags, verify)
@@ -67,6 +67,8 @@ from .stage import (
     Q2_FIELDS,
 )
 from .templates import (
+    options_list_text,
+    today_cars_text,
     ALL_AT_ONCE,
     NEXT_AFTER_RESULTS,
     UNANSWERED,
@@ -118,6 +120,7 @@ from .templates import (
     held_fix_text,
 )
 from .tools import (
+    available_options,
     OPT_OUT_ID,
     OPT_OUT_WORDS,
     TOOL_SPECS,
@@ -439,6 +442,30 @@ def _role_conflict(ctx: ToolContext, call: ToolCall, text: str) -> Optional[Cata
         targets = [o.car for o in resolved if o is not None and o.car is not None]
         wrong = "current"
     return next((c for c in targets if roles.get(c.catalog_code) == wrong), None)
+
+
+def _cars_text(state: ConversationState, snapshot: RulesSnapshot, unsure: bool = False, ask: bool = True) -> str:
+    """The real cars for the question on screen (1/11): the alternatives once today's car is known (the eligible ones,
+    numbered like the selection card), else the whole catalog to find today's car in. `ask`: the template's own
+    question line; with the model, its reply asks."""
+    if state.current.source is not None and available_options(snapshot, state):
+        return options_list_text(state, snapshot, ask)
+    return today_cars_text(snapshot, unsure, ask)
+
+
+def _cars_list(state: ConversationState, snapshot: RulesSnapshot, text: str, und: Understanding) -> Optional[str]:
+    """Without the model only (1/11): an unambiguous request to see the cars ("תציג לי אפשרויות", the words in
+    faq.show_list_*) or not knowing today's model while it is asked. With the model, the model decides (show_cars).
+    None when a ranking, the map, a payslip or a car named is in the message (read as before)."""
+    if und.rank or und.map_all or und.payslip_request or named_cars(text, snapshot.catalog):
+        return None
+    fields = current_group(state)[1]
+    unsure = is_unknown(text) and not copay_unknown_span(text)
+    if "car" in fields and state.current.source is None and (und.show_list or unsure):
+        return _cars_text(state, snapshot, unsure)
+    if "options" in fields and state.current.source is not None and und.show_list:
+        return _cars_text(state, snapshot)
+    return None
 
 
 def _understand_tools(state: ConversationState) -> tuple[str, ...]:
@@ -854,6 +881,16 @@ class Agent:
         self.llm = llm
         self.mode = mode          # llm_first | parser_first
 
+    @staticmethod
+    def _with_cars(ctx: ToolContext, reply: str, from_model: bool) -> str:
+        """The model called show_cars: code's list of real cars, then the model's (guarded) reply asking which one. When
+        a guard replaced the model's reply, the list's own question and the call to action (never a generic recap)."""
+        if not ctx.cars_shown:
+            return reply
+        if not from_model:
+            return f"{_cars_text(ctx.state, ctx.snapshot)}\n\n{reply.splitlines()[-1]}"
+        return f"{_cars_text(ctx.state, ctx.snapshot, ask=False)}\n\n{reply}"
+
     def _llm_led(self) -> bool:
         return self.llm.available and self.mode == "llm_first"
 
@@ -961,6 +998,9 @@ class Agent:
             und = replace(und, unanswered=und.unanswered[1:], catalog=[*und.catalog, known])
         # a correction asked for in the last reply (1/11): this message may be its new value; asked once only
         correcting, state.correcting_field = state.correcting_field, None
+        # the model understands free text; word lists decide only without it (hybrid routing, 1/11)
+        cars = None if self._llm_led() else _cars_list(state, snapshot, text, und)
+        und = replace(und, show_list=cars is not None)
         if und.unanswered:
             state.last_rep_question = und.unanswered[0]     # kept for "היית צריך לשאול את הנציג" in a later turn
         ctx.question_message = und.question_only or text.strip().endswith("?")
@@ -1010,6 +1050,11 @@ class Agent:
         elif und.rep_request:
             # "אני רוצה לדבר עם נציג": the offer at once, code decides (both modes); no pay question this turn
             return self._rep_requested(ctx, und)
+        elif cars is not None:
+            # "תציג לי אפשרויות", "לא זוכרת איזה רכב" (1/11): the real catalog list for the question on screen (today's
+            # car or the alternatives); code decides in both modes, nothing is saved or assumed
+            return self._finish(ctx, history, text, ParserPlan(complete=True, notice=cars, direct=True, acked=True),
+                                before, record_run, choice=True, und=replace(und, remainder="", show_list=True))
         elif und.payslip_request:
             # "אני רוצה להעלות תלוש" (1/11): the uploader at once, whatever the flow would ask; code decides (the action
             # is the code's), the reply says what happens to the file. Unavailable here: said plainly.
@@ -1191,6 +1236,10 @@ class Agent:
             except LLMError:
                 log.warning("llm turn failed; falling back to the parser")
                 understood, path, llm_failed = False, "fallback", True
+            if ctx.cars_shown:
+                # the model understood a request to see the cars and code shows them: answered, never offered to the
+                # representative or "not understood" (live Gemini 1/11: "יש איזה רשימה לבחור ממנה?" got the offer)
+                understood, und = True, replace(und, unanswered=[], clarify=False)
             # המודל לא קרא לכלי, נכשל או בהמתנה: הקורא (מלא, או רק הגיבוי הבטוח שלו). ניחוש "כל ההודעה
             # היא הערך" רץ רק כשהמודל לא זמין — אם המודל קרא את ההודעה ולא רשם דבר, לא מנחשים.
             declined = path == "llm"
@@ -1340,6 +1389,8 @@ class Agent:
                 open_help=open_help)
             if map_line:
                 built.ack.append(map_line)  # after what was saved and identified this turn
+            if und.show_list:
+                built.ask = []      # the list ends with its own question (1/11)
             if und.payslip_request:
                 built.ask = []      # "אני רוצה להעלות תלוש": the upload first; the flow question waits (1/11)
             if und.correction is not None:
@@ -1371,6 +1422,7 @@ class Agent:
         if (choice or reply_plan.fixed or rep_opened or candidate is None or not self.llm.available
                 or self.mode == "parser_first" or map_shown):     # the map's summary is code's, like results
             say = ("outage" if llm_failed else "not_tried" if candidate is None or not used_llm else "fixed")
+            draft = self._with_cars(ctx, draft, from_model=False)
             state.asked_field = asked_field(state, draft)
             return TurnOutcome(reply=draft, source="template", just_calculated=just_calculated, path=path,
                                say=say, **requests)
@@ -1411,6 +1463,7 @@ class Agent:
             reply = "\n".join([*und.catalog, reply])
         if source == "llm":
             reply = _dedup_lines(reply)       # safety net: the live model sometimes repeats a line
+        reply = self._with_cars(ctx, reply, from_model=source == "llm")
         state.asked_field = asked_field(state, reply)
         return TurnOutcome(reply=reply, source=source, guard_blocked=blocked, just_calculated=just_calculated,
                            path=path, say=say, **requests)
@@ -1496,7 +1549,7 @@ class Agent:
             if len(conflicts) > before:
                 facts = {**facts, "conflict": conflicts[before:],
                          "note": "two different readings of a value: ask the employee which one is right"}
-            if checked.name != "propose_rep_question":
+            if checked.name not in ("propose_rep_question", "show_cars"):
                 recorded[0] = recorded[0] or _recorded(facts)
             return facts
 
@@ -1650,8 +1703,8 @@ class Agent:
                 return ToolCall(call.name, {**call.args, "model": said[0].catalog_code, "registration_year": None},
                                 call.id)
         if call.name == "match_current_car" and call.args.get("no_car") and not no_car_span(text):
-            if state.current.source is None:
-                state.pending_ambiguity = NO_CAR_OR_ZERO
+            # the model's guess, refused: never turned into code's question "no car, or copay 0?" (live QA 1/11: "אני
+            # לא זוכרת, תציג לי אפשרויות" got that question). Only the employee's own words raise it (und.ambiguity).
             log.info("no_car without the words for it; not saved")
             return None
         return call

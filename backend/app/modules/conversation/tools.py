@@ -92,6 +92,8 @@ class ToolContext:
     # the employee chose "יש רכב, ההשתתפות 0" (the answer to the ambiguity question): copay 0 with the model still
     # unknown is what they said — only code sets this, never the model
     allow_zero_copay: bool = False
+    # the model called show_cars (1/11): code puts the real list of cars above the model's reply
+    cars_shown: bool = False
     # where a today's copay saved in this turn comes from ("rep_confirmed": the representative's answer the employee
     # applied); None: the employee's own. Set before the save, so the reply built in the same turn says it (1/11)
     copay_source: Optional[str] = None
@@ -794,6 +796,17 @@ def propose_rep_question(ctx: ToolContext, args: RepQuestionArgs) -> dict[str, A
     return {"offered": True, "note": "end your reply by offering to ask the representative; buttons are shown"}
 
 
+
+def show_cars(ctx: ToolContext, args: "NoArgs") -> dict[str, Any]:
+    """The employee wants to see the cars (to find today's car, or to choose alternatives): the model understood it,
+    code shows the real list (1/11). Nothing is saved or chosen."""
+    ctx.cars_shown = True
+    return {"shown": True, "note": "the system shows the employee the real list of cars right above your reply. "
+                                   "Do not list or name cars yourself and do not describe the screen. Write one "
+                                   "short question only, e.g. \"איזה מהם הרכב הצמוד שלכם היום? אם הוא לא ברשימה, "
+                                   "כתבו את הדגם והשנה.\" (for the alternatives: which of them to compare)."}
+
+
 NUM = {"type": "number"}
 
 TOOL_SPECS: dict[str, ToolSpec] = {
@@ -857,6 +870,11 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         "Select up to 3 alternatives to compare (option ids or model names from STATE). The system calculates "
         "as soon as the profile and the current car are known; you never calculate.",
         _obj({"options": {"type": "array", "items": {"type": "string"}}}, ["options"])),
+    "show_cars": ToolSpec(
+        "show_cars",
+        "The employee asks to see the cars or the options, or cannot name today's car and wants help finding it "
+        "(any wording). The system shows the real list from the catalog (today's car: the whole catalog; the "
+        "alternatives: the eligible ones, numbered). Nothing is saved.", _obj({})),
     "propose_rep_question": ToolSpec(
         "propose_rep_question",
         "The employee asked something the FAQ and STATE do not answer. Offer to ask the transport "
@@ -873,6 +891,7 @@ TOOLS: dict[str, tuple[type[_Args], Callable[[ToolContext, Any], dict[str, Any]]
     "rank_options": (NoArgs, rank_options),
     "select_options": (CalculateArgs, calculate),
     "propose_rep_question": (RepQuestionArgs, propose_rep_question),
+    "show_cars": (NoArgs, show_cars),
 }
 
 

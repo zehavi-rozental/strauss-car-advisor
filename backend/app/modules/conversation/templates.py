@@ -142,6 +142,21 @@ def _options_block(state: ConversationState, snapshot: RulesSnapshot, with_list:
     return [*_option_lines(state, snapshot), _choose_hint()] if with_list else []
 
 
+def today_cars_text(snapshot: RulesSnapshot, unsure: bool, ask: bool = True) -> str:
+    """The catalog's cars, to find today's car in (1/11): names from the catalog only, nothing assumed. `ask`: the
+    template's question line (with the model, its reply asks)."""
+    labels = sorted({c.label for c in snapshot.catalog})
+    intro = "אין בעיה, נזהה אותו יחד. אלה הרכבים בקטלוג של שטראוס:" if unsure else "אלה הרכבים בקטלוג של שטראוס:"
+    question = ["איזה מהם הרכב הצמוד שלכם היום? אם הוא לא ברשימה, כתבו את הדגם והשנה."] if ask else []
+    return "\n".join([intro, *(f"- {label}" for label in labels), *question])
+
+
+def options_list_text(state: ConversationState, snapshot: RulesSnapshot, ask: bool = True) -> str:
+    """The alternatives, numbered (1/11): the same eligible list and numbers as the selection card."""
+    question = [f"איזה מהם להשוות? אפשר לבחור עד {MAX_OPTIONS}."] if ask else []
+    return "\n".join(["אלה הרכבים שאתם זכאים להם:", *_option_lines(state, snapshot), *question])
+
+
 def options_text(state: ConversationState, snapshot: RulesSnapshot, with_list: bool = False) -> str:
     return "\n".join([OPTIONS_ASK, *_options_block(state, snapshot, with_list)])
 

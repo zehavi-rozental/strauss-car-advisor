@@ -188,6 +188,9 @@ social_replies:
 proceed_terms: [המשך, להמשיך, נמשיך, תמשיך, הלאה, להתקדם, נתקדם, קדימה]
 # "אני רוצה להעלות תלוש", "אי אפשר להעלות תלוש?" (1/11): the word תלוש with one of these opens the uploader at once,
 # whatever was asked before; "מה רשום בתלוש?" (no verb) stays a question for the FAQ
+# a request to see the cars (1/11): a verb and an object in one clause ("תציג לי אפשרויות", "תראה לי רשימה")
+show_list_verbs: [תציג, תציגי, תציגו, הצג, הציגי, להציג, תראה, תראי, תראו, הראה, להראות, לראות, תן, תני, תנו, תביא, תביאי, תשלח, תפרט, לפרט, אפשר לראות]
+show_list_objects: [אפשרויות, אופציות, רכבים, הרכבים, רכבי, דגמים, הדגמים, מכוניות, רשימה, הרשימה, רשימת, קטלוג, הקטלוג]
 payslip_upload_terms: [להעלות, העלאת, העלאה, אעלה, לעלות, תעלה, לצרף, אצרף, לטעון, לסרוק, אסרוק, לשלוח, אשלח, לצלם, אצלם]
 # a request to correct data the employee gave (1/11): a change / mistake word next to a data word or a field
 # ("אני רוצה להחליף נתון שלא כתבתי נכון", "טעיתי בנתון", "השכר שהכנסתי לא נכון", "אפשר לעדכן פרטים?")
