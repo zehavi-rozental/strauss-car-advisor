@@ -664,7 +664,13 @@
 .rep-answer-action .reply-row { margin: 0; }
 .rep-answer-done { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--surface-up, #e9f6ef); color: var(--ink); font-size: var(--fs-small); }
 /* an answer brought into view from the email link, or waiting for the employee */
-.message-group.is-focused .bubble-bot { box-shadow: 0 0 0 2px var(--brand); transition: box-shadow .4s ease; }
+/* the answer an email link points at: a soft highlight that fades once, never a permanent frame (1/11) */
+.message-group.is-focused .bubble-main { animation: answer-focus 2.4s ease-out 1; }
+@keyframes answer-focus {
+  0%, 35% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 16%, transparent), 0 12px 28px -22px rgb(6 48 77 / 45%); }
+  100% { box-shadow: 0 0 0 0 transparent, 0 12px 28px -22px rgb(6 48 77 / 45%); }
+}
+@media (prefers-reduced-motion: reduce) { .message-group.is-focused .bubble-main { animation: none; } }
 
 /* today's car above the comparison (1/11): the amount in use and its source, said once for every card below */
 .today-copay-card {
@@ -698,15 +704,26 @@
 .today-copay-amount bdi { font-weight: 700; }
 
 /* the representative's answer about today's copay: one titled unit with its action */
-.rep-copay-answer { display: grid; gap: var(--s2); }
-.rep-copay-answer-title { display: flex; align-items: center; gap: 6px; margin: 0; font-weight: 600; color: var(--ink); }
-.rep-copay-answer-facts { display: grid; gap: 4px; margin: 0; }
-.rep-copay-answer-facts div { display: grid; grid-template-columns: minmax(120px, auto) 1fr; gap: var(--s3); }
-.rep-copay-answer-facts dt { color: var(--ink-3); font-size: var(--fs-small); }
-.rep-copay-answer-facts dd { margin: 0; }
-.rep-copay-answer .rep-note-text { white-space: pre-line; }
+.rep-copay-answer { display: grid; gap: 12px; padding-block: 2px 8px; }
+.rep-copay-answer-title { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 700; color: var(--ink); }
+.rep-copay-answer-title svg { color: var(--brand); }
+.rep-copay-answer-car { margin: -6px 0 0; color: var(--ink-3); font-size: var(--fs-small); }
+.rep-copay-answer-amounts { display: flex; flex-wrap: wrap; gap: 10px; margin: 0; }
+.rep-copay-answer-amounts div {
+  flex: 1 1 110px;
+  display: grid; gap: 2px; align-content: space-between;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--surface-today);
+}
+.rep-copay-answer-amounts div.is-given { background: var(--brand-tint); }
+.rep-copay-answer-amounts dt { color: var(--ink-3); font-size: var(--fs-micro); }
+.rep-copay-answer-amounts dd { margin: 0; font-size: 1.125rem; font-weight: 700; color: var(--ink); }
+.rep-copay-answer-amounts div.is-given dd { color: var(--brand); }
+.rep-copay-answer-note { display: grid; gap: 2px; padding-inline-start: 12px; border-inline-start: 3px solid var(--line); }
+.rep-copay-answer-note span { color: var(--ink-3); font-size: var(--fs-micro); }
+.rep-copay-answer-note p { margin: 0; color: var(--ink-2); white-space: pre-line; }
+.rep-copay-answer .rep-answer-action { margin: 0; padding: 0; border: 0; }
+.rep-copay-answer .rep-answer-done { margin: 0; }
 .rep-inquiry-field-error { margin: 0; color: var(--down); font-size: var(--fs-small); }
 .rep-inquiry-email[aria-invalid], .rep-inquiry-text[aria-invalid] { border-color: var(--down); }
-@media (max-width: 480px) {
-  .rep-copay-answer-facts div { grid-template-columns: 1fr; gap: 0; }
-}

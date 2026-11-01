@@ -120,12 +120,17 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
     return (
       <div className="rep-copay-answer" aria-label="תשובת נציג התחבורה">
         <p className="rep-copay-answer-title"><Icon name="rep" size={16} />התקבלה תשובת נציג התחבורה</p>
-        <dl className="rep-copay-answer-facts">
-          {question.car_label && <div><dt>הרכב</dt><dd><bdi>{question.car_label}</bdi></dd></div>}
+        {question.car_label && <p className="rep-copay-answer-car"><bdi>{question.car_label}</bdi></p>}
+        <dl className="rep-copay-answer-amounts">
           {inUse && <div><dt>הסכום בחישוב הנוכחי</dt><dd><Money value={inUse} /></dd></div>}
-          <div><dt>הסכום שהנציג מסר</dt><dd><Money value={question.answer_value as string} /></dd></div>
-          {question.answer_note && <div><dt>הערת הנציג</dt><dd className="rep-note-text">{question.answer_note}</dd></div>}
+          <div className="is-given"><dt>הסכום שהנציג מסר</dt><dd><Money value={question.answer_value as string} /></dd></div>
         </dl>
+        {question.answer_note && (
+          <div className="rep-copay-answer-note">
+            <span>הערת הנציג</span>
+            <p className="rep-note-text">{question.answer_note}</p>
+          </div>
+        )}
         {action}
       </div>
     )
