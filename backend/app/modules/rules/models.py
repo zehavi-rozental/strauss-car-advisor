@@ -187,6 +187,9 @@ class Extensions(_Strict):
     # to confirm; and phrases that say nothing is deducted at all ("לא יורד לי כלום")
     contribution_terms: list[str] = Field(default_factory=list)
     nothing_deducted_phrases: list[str] = Field(default_factory=list)
+    # a short "no" answer to the one field asked ("גם לא", "לא מופרש"): its negatives and the words allowed around them
+    bare_zero_negatives: list[str] = Field(default_factory=list)
+    bare_zero_words: list[str] = Field(default_factory=list)
 
 
 # ---------- strauss-data.xlsx ----------

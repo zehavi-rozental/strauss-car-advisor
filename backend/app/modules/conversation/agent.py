@@ -29,7 +29,7 @@ from .free_text import looks_like_title
 from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
 from .grounding import (grounded_number, group_named, occupation_named, option_named, said_numbers,
-                        without_alternatives, zero_grounded)
+                        without_alternatives, zero_grounded, bare_zero_answer)
 from .parsing import (YEAR_RE, has_all_scope, mask_ages, match_drive, match_group, match_occupation, no_car_span,
                       occupation_match, parse_copay, read_profile, redact_id_numbers)
 from .guards import (FIELD_WORDS, SINGULAR_RE, TAG_RE, Check, Violation, ask_lines, check, content_sentences, drop,
@@ -236,7 +236,7 @@ def _clarification_answer(text: str) -> Optional[str]:
     return None
 
 
-_YES = {"כן", "נכון", "בדיוק", "אכן", "yes", "לאשר", "אשר", "בטח", "ברור", "כמובן"}
+_YES = {"כן", "נכון", "בדיוק", "אכן", "yes", "לאשר", "אשר", "מאשר", "מאשרת", "מאשרים", "מאושר", "בטח", "ברור", "כמובן"}
 _NO = {"לא", "no", "לתקן", "תקן"}
 
 
@@ -1519,7 +1519,8 @@ class Agent:
             value = kept.get(key)
             if value is None:
                 continue
-            ok = (zero_grounded(key, text, ext.zero_cues, ext.contribution_terms, ext.nothing_deducted_phrases)
+            ok = (zero_grounded(key, text, ext.zero_cues, ext.contribution_terms, ext.nothing_deducted_phrases,
+                                asked=ctx.state.asked_field, bare=(ext.bare_zero_negatives, ext.bare_zero_words))
                   if _is_zero(value)
                   else grounded_number(value, numbers_text))
             if not ok:
@@ -1616,9 +1617,11 @@ class Agent:
             args = Agent._grounded(ctx, args, text)
             if args is None:
                 return None
-            # a bare value ("34") answers only the field on screen: any other field is refused, never remapped
+            # a bare value ("34") or a bare "no" ("גם לא") answers only the field on screen: any other field is
+            # refused, never remapped
             bound = state.asked_field
-            if bound and bare_value(text):
+            ext = ctx.snapshot.extensions
+            if bound and (bare_value(text) or bare_zero_answer(text, ext.bare_zero_negatives, ext.bare_zero_words)):
                 wrong = [k for k, v in args.items() if k in _NUMERIC_ARGS and v is not None and k != bound]
                 if wrong:
                     log.info("bare value for %s refused (asked %s)", ",".join(wrong), bound)

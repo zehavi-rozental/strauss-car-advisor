@@ -21,7 +21,7 @@ from typing import Iterable, Optional
 from app.modules.rules.public import FAMILY_GROUP, CatalogCar, Faq, FaqEntry, RulesSnapshot, matched_name, related_cars, words
 
 from .fallback import _RANK_RE, named_cars
-from .grounding import CONTRIBUTION_FIELDS, contributions_zero_said
+from .grounding import CONTRIBUTION_FIELDS, bare_zero_answer, contributions_zero_said
 from .parsing import _NO_COPAY_RE, COMPANY_CAR, match_occupation, no_car_span
 from .stage import NO_CAR_OR_ZERO, ConversationState, Stage, results_stale  # noqa: F401  (NO_CAR_OR_ZERO: re-exported)
 
@@ -716,7 +716,10 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
         return u
     ext = snapshot.extensions
     if (len(words(text)) <= 6 and not any(ch.isdigit() for ch in text) and not named_cars(text, snapshot.catalog)
-            and contributions_zero_said(text, ext.zero_cues, ext.contribution_terms, ext.nothing_deducted_phrases)):
+            and (contributions_zero_said(text, ext.zero_cues, ext.contribution_terms, ext.nothing_deducted_phrases)
+                 # a bare "no" ("לא מופרש", "אין") to the question that asks both contributions and nothing else
+                 or (state.asked_field is None and set(state.last_asked) == set(CONTRIBUTION_FIELDS)
+                     and bare_zero_answer(text, ext.bare_zero_negatives, ext.bare_zero_words)))):
         # "אין הפרשות" (1/11): a zero for both contributions, confirmed once in code (both modes): never "not
         # understood", never read as an answer to another question, never saved without "לאשר"
         p = state.profile

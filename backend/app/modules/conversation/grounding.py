@@ -212,12 +212,29 @@ def contributions_zero_said(text: str, cues: Sequence[str], terms: Sequence[str]
     return bool(stems) and has_zero_cue(text, cues) and _zero_next_to_stems(stems, words(text.lower()), cues)
 
 
+def bare_zero_answer(text: str, negatives: Sequence[str], allowed: Sequence[str]) -> bool:
+    """A short answer that only says "no / none" ("לא", "גם לא", "אין", "אפס", "לא יורד", "לא מופרש"): a negative
+    word and nothing but the allowed words around it. Like a bare number, it answers only the one field the last
+    question asked (never a grouped question). A question, an uncertainty ("לא יודע") or another field's word is
+    not one."""
+    if "?" in text:
+        return False
+    toks = [t[1:] if len(t) > 2 and t[0] == _PREFIX else t for t in words(text)]
+    neg = {t for n in negatives for t in words(n)}
+    ok = neg | {t for a in allowed for t in words(a)}
+    return 0 < len(toks) <= 5 and any(t in neg for t in toks) and all(t in ok for t in toks)
+
+
 def zero_grounded(field: str, text: str, cues: Sequence[str], terms: Sequence[str] = (),
-                  nothing: Sequence[str] = ()) -> bool:
+                  nothing: Sequence[str] = (), asked: Optional[str] = None,
+                  bare: tuple[Sequence[str], Sequence[str]] = ((), ())) -> bool:
     """A zero for this field is said: a zero cue ("אין", "בלי", "ללא", "אפס", "0") together with the field's word
     ("אין עמלות", "ילדים: 0"), or a bare "אין" for a field that may be answered so. A cue for another field is
-    not a zero for this one. For pension and study fund, also a zero said for both together ("אין הפרשות")."""
+    not a zero for this one. For pension and study fund, also a zero said for both together ("אין הפרשות"). A short
+    "no" ("גם לא", "לא מופרש") grounds a zero only for the field the last question asked (`asked`)."""
     if field in CONTRIBUTION_FIELDS and contributions_zero_said(text, cues, terms, nothing):
+        return True
+    if asked == field and bare_zero_answer(text, *bare):
         return True
     if not has_zero_cue(text, cues):
         return False

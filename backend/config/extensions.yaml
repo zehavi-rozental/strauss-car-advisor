@@ -127,6 +127,13 @@ zero_cues: [אין, בלי, ללא, אפס, אינני, איני, לא משלם,
 # that says nothing is deducted, is a zero for both, held and confirmed once ("לרשום פנסיה 0% וקרן השתלמות 0%?")
 contribution_terms: [הפרשות, הפרשה, הפקדות, הפקדה, הפרשות סוציאליות]
 nothing_deducted_phrases: [לא יורד לי כלום, לא יורד כלום, לא מורידים לי כלום, לא מורידים כלום, לא מפרישים לי, לא מפרישים, לא מפרישה, לא מפריש, לא מופרש לי כלום, אין לי הפרשות]
+# A short answer that only says "no / none / not deducted" ("לא", "גם לא", "אין", "אפס", "לא יורד", "לא מופרש"):
+# it answers the ONE field the last question asked (like a bare number), never another field and never a grouped
+# question. Needs a negative word (bare_zero_negatives or a zero cue); every other word must be one of these.
+# Pension 0% and credit points 0 are then confirmed once, as always (unusual_values). Missing is never zero.
+bare_zero_negatives: [לא, אין, אפס, בלי, ללא, "0"]
+bare_zero_words: [גם, ממש, בכלל, כלום, שום, דבר, לי, אצלי, מכם, ממני, יורד, יורדת, יורדים, מופרש, מופרשת, מופרשים,
+                  מפרישים, מפרישה, מפריש, מורידים, מוריד, מורידה, מקבל, מקבלת, משלם, משלמת, כזה, כזאת, עליו]
 all_at_once_cues: [כל השאלות בפעם אחת, כל השאלות ביחד, כל השאלות יחד, את כל השאלות, כל השאלות במכה, אמלא הכל ביחד,
                    אמלא הכול ביחד, אמלא הכל בבת אחת, אמלא הכול בבת אחת, בבת אחת, רשימת השאלות]
 pace_reset_cues: [הכול ביחד, הכל ביחד, כמה שאלות ביחד]
