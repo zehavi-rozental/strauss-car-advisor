@@ -75,7 +75,8 @@ export function useConversation() {
   const [results, setResults] = useState<OptionResult[]>([])
   const [resultsStale, setResultsStale] = useState(false)
   const [todayCopayProvisional, setTodayCopayProvisional] = useState<string | null>(null)
-  const [todayCopay, setTodayCopay] = useState<string | null>(null)   // the employee's own amount, not the catalog's
+  const [todayCopay, setTodayCopay] = useState<string | null>(null)
+  const [todayCopaySource, setTodayCopaySource] = useState<string | null>(null)   // the employee's own amount, not the catalog's
   const [mapReady, setMapReady] = useState(false)          // the server can build the option map now
   const [optionMapState, setOptionMapState] = useState<OptionMap | null>(null)
   const setOptionMap = useCallback((next: OptionMap | null | undefined) => {
@@ -121,6 +122,7 @@ export function useConversation() {
     setLastAssistant(lastAssistantRef.current)
     setResultsStale(Boolean(view.results_stale))
     setTodayCopay(view.today_copay ?? null)
+    setTodayCopaySource(view.today_copay_source ?? null)
     setTodayCopayProvisional(view.today_copay_provisional ?? null)
     setMapReady(view.map_ready === true)
     setOptionMap(view.option_map)
@@ -149,6 +151,7 @@ export function useConversation() {
       setLastAssistant(lastAssistantRef.current)
       setResultsStale(Boolean(u.results_stale))
       if (u.today_copay !== undefined) setTodayCopay(u.today_copay)
+      if (u.today_copay_source !== undefined) setTodayCopaySource(u.today_copay_source)
       if (u.today_copay_provisional !== undefined) setTodayCopayProvisional(u.today_copay_provisional)
       setMapReady(u.map_ready === true)
       setOptionMap(u.option_map)
@@ -432,7 +435,7 @@ export function useConversation() {
   const questionKey = `${lastAssistant ?? ''}|${JSON.stringify(expects)}`
 
   return {
-    engine, todayCopay, todayCopayProvisional,
+    engine, todayCopay, todayCopaySource, todayCopayProvisional,
     conversationId, repEmail, emailEnabled, emailSimulated, emailPending,
     messages, stage, expects, questionKey, results, resultsStale, mapReady, optionMap: optionMapState, resultsAnchor,
     pendingQuestions,

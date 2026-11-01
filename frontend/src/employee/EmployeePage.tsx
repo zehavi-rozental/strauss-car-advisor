@@ -230,7 +230,7 @@ export function EmployeePage() {
           <span>
             {c.todayCopayProvisional != null ? PROVISIONAL_NOTE : (
               <>
-                {copayBannerText(c.todayCopay)}{' '}
+                {copayBannerText(c.todayCopay, c.todayCopaySource)}{' '}
                 <button type="button" className="link-inline" disabled={busy} onClick={() => openCopayInquiry()}>
                   אפשר לברר מול נציג הרכב
                 </button>.

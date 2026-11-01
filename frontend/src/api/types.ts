@@ -216,6 +216,7 @@ export interface ConversationView {
   current_car: Record<string, unknown>
   today_copay?: string | null   // today's copay as the employee gave or confirmed it
   today_copay_provisional?: string | null   // pending with the rep: the catalog amount used meanwhile
+  today_copay_source?: string | null   // rep_confirmed / catalog_confirmed / null (typed by the employee)
   selected: string[]
   results: OptionResult[]
   pending_rep: RepReason | null
@@ -253,6 +254,7 @@ export interface UpdatesResponse {
   results: OptionResult[]
   today_copay?: string | null   // today's copay as the employee gave or confirmed it
   today_copay_provisional?: string | null   // pending with the rep: the catalog amount used meanwhile
+  today_copay_source?: string | null   // rep_confirmed / catalog_confirmed / null (typed by the employee)
   results_stale?: boolean     // the results predate the last change: history, not a recommendation
   option_map?: OptionMap | null      // 360°: null until the employee asks for it
   map_ready?: boolean         // the option map can be built now (an older server does not say: not offered)

@@ -36,9 +36,14 @@ export function messageAuthor(source: string): string | null {
 
 /** The note under the comparison (31/10): the NEW cars use the catalog amounts; today's car uses the amount the
  * employee gave or confirmed — said apart, so a typed amount never reads as still to be checked. */
-export function copayBannerText(todayCopay: string | null): string {
+const TODAY_SOURCE: Record<string, string> = {
+  rep_confirmed: 'לפי תשובת הנציג שאישרתם', catalog_confirmed: 'לפי סכום הקטלוג שאישרתם',
+}
+
+export function copayBannerText(todayCopay: string | null, source: string | null = null): string {
+  const words = (source && TODAY_SOURCE[source]) || 'שמסרתם'
   const today = todayCopay && Number(todayCopay) > 0
-    ? `. לרכב שלכם היום החישוב לפי ההשתתפות שמסרתם: ${Number(todayCopay).toLocaleString('he-IL')} ₪`
+    ? `. לרכב שלכם היום החישוב לפי ההשתתפות ${words}: ${Number(todayCopay).toLocaleString('he-IL')} ₪`
     : ''
   return `ברכבים החדשים החישוב לפי סכומי ההשתתפות שבקטלוג של שטראוס${today}. אם לרכב חדש סוכם אתכם סכום אחר,`
 }

@@ -26,6 +26,9 @@ describe('copay note under the comparison', () => {
     expect(copayBannerText('200')).toContain('ברכבים החדשים החישוב לפי סכומי ההשתתפות שבקטלוג')
     expect(copayBannerText(null)).not.toContain('לרכב שלכם היום')
     expect(copayBannerText('0')).not.toContain('לרכב שלכם היום')
+    expect(copayBannerText('300', 'rep_confirmed')).toContain('לפי תשובת הנציג שאישרתם: 300 ₪')
+    expect(copayBannerText('250', 'catalog_confirmed')).toContain('לפי סכום הקטלוג שאישרתם: 250 ₪')
+    expect(copayBannerText('300', 'rep_confirmed')).not.toContain('שמסרתם')
   })
 })
 

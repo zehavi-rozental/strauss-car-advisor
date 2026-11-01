@@ -877,6 +877,8 @@ class Agent:
             plan = none_plan([field_])                 # "אין" על שדה בפרופיל — עם שורת "רשמתי"
         else:
             state.pending_confirmation = None
+            if field_ == "copay" and ids[0].startswith("catalog:"):
+                ctx.copay_source = "catalog_confirmed"   # "זה הסכום שלי": the catalog amount, confirmed (1/11)
             plan = ParserPlan(choice_calls(field_, ids, snapshot), True, direct=True)
             if field_ == "copay" and ids == ["rep"]:
                 # the inquiry about today's copay was sent (1/11): the calculation goes on with the catalog amount,
@@ -986,6 +988,7 @@ class Agent:
               and words(text)[:1] in (["כן"], ["נכון"], ["בדיוק"], ["כן,"])
               and (hint := catalog_copay_hint(state, snapshot)) is not None):
             # "כן" to "בקטלוג רשום 300 ₪… זה הסכום שאתם משלמים?": the employee confirmed the catalog amount (31/10)
+            ctx.copay_source = "catalog_confirmed"     # the catalog amount, confirmed by the employee (1/11)
             plan = ParserPlan([ToolCall("save_profile", {"current_copay": str(hint)}, "catalog_confirmed")], True,
                               direct=True)
         elif (state.current.source in ("catalog", "tax", "stated") and (amount := parse_copay(text)) is not None

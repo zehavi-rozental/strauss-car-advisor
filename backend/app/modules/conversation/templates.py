@@ -307,6 +307,10 @@ def pending_copay_text(label: str, amount: Any) -> str:
 COPAY_UPDATE = "אם לרכב החדש סוכם אתכם סכום אחר, אפשר לעדכן אותי ואפנה לנציג התחבורה לבירור."
 
 
+# where today's copay came from, in the words the employee reads (1/11)
+TODAY_COPAY_SOURCE = {"rep_confirmed": "לפי תשובת הנציג שאישרתם", "catalog_confirmed": "לפי סכום הקטלוג שאישרתם"}
+
+
 def catalog_copays_text(items: Sequence[tuple[str, Any]], today_copay: Any = None,
                         today_source: Optional[str] = None) -> str:
     """The new cars' catalog amounts used as is (the challenge owner, 22/10), and — kept apart — the amount used for
@@ -320,7 +324,7 @@ def catalog_copays_text(items: Sequence[tuple[str, Any]], today_copay: Any = Non
         line += (f"\nהחישוב כרגע מבוסס על השתתפות של {money(today_copay)} לפי הקטלוג ברכב שלכם היום, "
                  "עד לאימות מול נציג.")
     elif today_copay is not None and Decimal(str(today_copay)) > 0:
-        source = "לפי תשובת נציג התחבורה שאישרתם" if today_source == "rep_confirmed" else "שמסרתם"
+        source = TODAY_COPAY_SOURCE.get(today_source or "", "שמסרתם")
         line += f"\nלרכב שלכם היום חישבתי עם ההשתתפות {source}: {money(today_copay)}."
     return line
 

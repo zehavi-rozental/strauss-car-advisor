@@ -82,5 +82,5 @@ def test_a_later_typed_amount_is_the_employee_s_own_again(engine):
 def test_the_results_say_the_amount_came_from_the_representative():
     from app.modules.conversation.templates import catalog_copays_text
     line = catalog_copays_text([("NIRO (2025)", 250)], 230, "rep_confirmed")
-    assert "לפי תשובת נציג התחבורה שאישרתם: 230 ₪" in line and "שמסרתם" not in line
+    assert "לפי תשובת הנציג שאישרתם: 230 ₪" in line and "שמסרתם" not in line
     assert "שמסרתם: 230 ₪" in catalog_copays_text([("NIRO (2025)", 250)], 230)

@@ -122,4 +122,25 @@ def test_after_confirming_the_results_say_the_amount_is_the_representative_s(eng
     offer = next(f for f in client.get(f"/api/conversations/{cid}").json()["expects"]["fields"]
                  if f["field"] == "rep_copay")
     reply = send({"choice": offer["choices"][0]["id"], "field": "rep_copay"})["reply"]
-    assert "לפי תשובת נציג התחבורה שאישרתם: 300 ₪" in reply and "שמסרתם" not in reply
+    assert "לפי תשובת הנציג שאישרתם: 300 ₪" in reply and "שמסרתם" not in reply
+
+
+def test_the_three_copay_states_name_their_source_and_offer_no_second_check(engine):
+    """(1) a confirmed catalog amount, (2) a provisional catalog amount while the rep is asked, (3) the rep's answer
+    confirmed — each said with its own source; once confirmed, no provisional mark and no offer to check it again."""
+    from app.modules.conversation.templates import catalog_copays_text
+    items = [("NIRO (2025)", 250)]
+    assert "לפי סכום הקטלוג שאישרתם: 250 ₪" in catalog_copays_text(items, 250, "catalog_confirmed")
+    assert "עד לאימות מול נציג" in catalog_copays_text(items, 250, "provisional")
+    assert "לפי תשובת הנציג שאישרתם: 300 ₪" in catalog_copays_text(items, 300, "rep_confirmed")
+    assert "שמסרתם: 280 ₪" in catalog_copays_text(items, 280)
+    # (1) through the API: "זה הסכום שלי" — confirmed, marked so, nothing provisional, no copay question left
+    client = make_client(engine)
+    cid, send, _ = at_copay(client)
+    send({"choice": "catalog:CAR-07", "field": "copay"})
+    v = client.get(f"/api/conversations/{cid}").json()
+    assert v["today_copay"] == "250" and v["today_copay_source"] == "catalog_confirmed"
+    assert v["today_copay_provisional"] is None
+    assert all(f["field"] not in ("copay", "rep_copay") for f in v["expects"]["fields"])
+    results = send({"text": "הכי משתלם"})["results"]
+    assert results and all("today_copay_provisional" not in r for r in results)
