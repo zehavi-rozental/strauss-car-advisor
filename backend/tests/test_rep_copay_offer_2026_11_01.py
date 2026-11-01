@@ -42,9 +42,10 @@ def test_the_answer_is_offered_not_applied(engine):
     view = ask_and_answer(client, cid, send)
     offer = offer_of(view)
     assert offer is not None and offer["context"]["amount"] == "230" and offer["context"]["car"] == "COROLLA (2026)"
-    assert [c["label"] for c in offer["choices"]] == ["עדכון החישוב לפי תשובת הנציג"]
+    assert [c["label"] for c in offer["choices"]] == ["עדכון הסכום וחישוב מחדש"]
     assert view["current_car"]["copay"] is None                           # nothing applied by itself
-    assert any("230 ₪" in m["content"] and "אפשר לעדכן את החישוב" in m["content"] for m in view["messages"])
+    # the catalog amount the calculation used, and the representative's amount, both said (1/11)
+    assert any("230 ₪" in m["content"] and "250 ₪ לפי הקטלוג" in m["content"] for m in view["messages"])
 
 
 def test_confirming_applies_once_marks_the_source_and_recalculates(engine):

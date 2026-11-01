@@ -354,6 +354,7 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
     elif args.current_copay is not None:
         c.copay, c.copay_unknown = args.current_copay, False
         c.copay_source = None            # any later amount is the employee's own, no longer the rep's (1/11)
+        c.copay_provisional = None       # a real amount replaces the provisional catalog one
         saved.append("current_copay")
     elif args.current_copay_unknown and c.copay is None:
         c.copay_unknown = True
@@ -448,6 +449,20 @@ def _longest_named(cars: list[CatalogCar], text: str) -> list[CatalogCar]:
 
 
 def match_current_car(ctx: ToolContext, args: MatchCarArgs) -> dict[str, Any]:
+    old = ctx.state.current
+    out = _match_current_car(ctx, args)
+    new = ctx.state.current
+    if new is not old and new.catalog_code and new.catalog_code == old.catalog_code:
+        # the same car matched again (1/11: the model re-matched it on an unrelated message and the provisional
+        # amount of the open inquiry was lost, blocking the comparison): what belongs to that car stays
+        if new.copay is None:
+            new.copay_provisional = old.copay_provisional
+        if new.copay == old.copay:
+            new.copay_source = old.copay_source
+    return out
+
+
+def _match_current_car(ctx: ToolContext, args: MatchCarArgs) -> dict[str, Any]:
     old = ctx.state.current
     keep = dict(copay=old.copay, copay_unknown=old.copay_unknown, rejected=list(old.rejected), has_car=old.has_car)
 
@@ -719,7 +734,11 @@ def engine_inputs(snapshot: RulesSnapshot, state: ConversationState
         current: State = OptOutState(label="ללא רכב", maintenance=c.maintenance)
     elif c.source == "catalog":
         car = next(x for x in snapshot.catalog if x.catalog_code == c.catalog_code)
-        current = car_state(car, copay=c.copay, copay_status=CopayStatus.EMPLOYEE_STATED)
+        if c.copay is None and c.copay_provisional is not None:
+            # pending with the representative: the catalog amount, provisional, marked on every result (1/11)
+            current = car_state(car, copay=c.copay_provisional, copay_status=CopayStatus.CATALOG_DEFAULT_PENDING)
+        else:
+            current = car_state(car, copay=c.copay, copay_status=CopayStatus.EMPLOYEE_STATED)
     else:
         if c.drive is None:   # המכונה לא מתקדמת בלי הנעה; אין ברירת מחדל
             raise ToolError("חסר סוג ההנעה של הרכב הנוכחי")

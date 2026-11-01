@@ -654,6 +654,9 @@ class ConversationService:
                 # today's copay as the employee gave or confirmed it (31/10): the screen tells it apart from the new
                 # cars' catalog amounts
                 "today_copay": str(state.current.copay) if state.current.copay is not None else None,
+                "today_copay_provisional": (str(state.current.copay_provisional)
+                                            if state.current.copay is None and state.current.copay_provisional
+                                            is not None else None),
                 "rep_questions": [_rep_question_json(q) for q in questions], **map_readiness(state)}
 
     def view(self, conversation_id: str, token: str) -> ConversationView:

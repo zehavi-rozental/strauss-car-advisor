@@ -149,10 +149,13 @@ def build_expects(state: ConversationState, snapshot: RulesSnapshot) -> dict[str
     if offer is not None:
         # the representative's amount for today's copay (1/11): one button; the client asks to confirm, showing the
         # amount, the car and the amount it replaces
-        previous = str(state.current.copay) if state.current.copay is not None else None
+        c = state.current
+        previous = str(c.copay) if c.copay is not None else None
+        provisional = str(c.copay_provisional) if c.copay is None and c.copay_provisional is not None else None
         fields.append({"field": "rep_copay", "type": "choice", "quick_replies": [], "max": None, "closed": True,
-                       "choices": [{"id": f"apply:{offer.question_id}", "label": "עדכון החישוב לפי תשובת הנציג"}],
-                       "context": {"car": offer.car_label, "amount": str(offer.amount), "previous": previous}})
+                       "choices": [{"id": f"apply:{offer.question_id}", "label": "עדכון הסכום וחישוב מחדש"}],
+                       "context": {"car": offer.car_label, "amount": str(offer.amount), "previous": previous,
+                                   "provisional": provisional}})
         expects["fields"] = fields
     expects["closed"] = bool(fields) and fields[0].get("closed", False)
     cta, link = call_to_action(state, snapshot) if next_stage(state) != Stage.WAITING_FOR_REP else ("", None)

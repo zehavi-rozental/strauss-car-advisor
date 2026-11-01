@@ -59,7 +59,11 @@ def copay_fields(state: ConversationState, option_id: str, alternative: State) -
 
 
 def dump_option(state: ConversationState, option_id: str, alternative: State, result: Any) -> dict[str, Any]:
-    return dump_result(result, copay_fields(state, option_id, alternative))
+    out = dump_result(result, copay_fields(state, option_id, alternative))
+    c = state.current
+    if c.copay is None and c.copay_provisional is not None:
+        out["today_copay_provisional"] = str(c.copay_provisional)   # today's net on a provisional catalog amount
+    return out
 
 
 def with_assumptions(result: Any, state: ConversationState, option_id: str, label: str) -> Any:

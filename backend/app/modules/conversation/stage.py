@@ -106,6 +106,9 @@ class CurrentCar(BaseModel):
     copay_unknown: bool = False
     # where today's copay came from (1/11): "rep_confirmed" = the representative's answer, applied by the employee
     copay_source: Optional[str] = None
+    # today's copay pending with the representative (1/11): the catalog amount, used for the calculation only until
+    # the answer — never the employee's confirmation, never shown as verified; cleared by any real amount
+    copay_provisional: Optional[Decimal] = None
     # When there is no company car today: does the employee receive a car-maintenance allowance?
     # maintenance=Decimal: the confirmed amount (0 = the employee said they do NOT receive one).
     # maintenance=None + maintenance_unknown=True: "אבדוק בהמשך" — unknown, never assumed, blocks the net.
@@ -334,7 +337,7 @@ def current_unknown(c: CurrentCar) -> list[str]:
     out = []
     if c.use_value_unknown and c.use_value is None:
         out.append("use_value")
-    if c.copay_unknown and c.copay is None:
+    if c.copay_unknown and c.copay is None and c.copay_provisional is None:
         out.append("copay")
     return out
 

@@ -6,7 +6,7 @@ import { Icon } from '../ui/Icon'
 import { AnswerWidgets } from './AnswerWidgets'
 import { ComparisonPanel } from './ComparisonPanel'
 import { EmailReturnCard } from './EmailReturnCard'
-import { copayBannerText, engineBadge } from './engineStatus'
+import { PROVISIONAL_NOTE, copayBannerText, engineBadge } from './engineStatus'
 import { OptionMapPanel, OptionMapSummary } from './OptionMapPanel'
 import { MAP_REQUEST } from './optionMap'
 import { Composer } from './Composer'
@@ -177,7 +177,7 @@ export function EmployeePage() {
   const offerMap = !c.optionMap && c.mapReady
   // the explanation of catalog copay, shown before results appear (while choosing options / calculating), with a
   // gentle link to raise a copay inquiry with the rep. Derived from the stage, so it never repeats on a poll.
-  const showCopayBanner = c.stage === 'CHOOSE_OPTIONS' || c.stage === 'CALCULATING'
+  const showCopayBanner = c.stage === 'CHOOSE_OPTIONS' || c.stage === 'CALCULATING' || c.todayCopayProvisional != null
   // a car's card asks about that car (its option_id is the inquiry's car); without a card, a general question
   const openCopayInquiry = (car?: OptionResult) => {
     const catalogSource = car?.result.copay_source === 'catalog' || car?.result.copay_source === 'catalog_final'
@@ -224,10 +224,14 @@ export function EmployeePage() {
         <div className="copay-banner" role="note">
           <Icon name="info" size={16} />
           <span>
-            {copayBannerText(c.todayCopay)}{' '}
-            <button type="button" className="link-inline" disabled={busy} onClick={() => openCopayInquiry()}>
-              אפשר לברר מול נציג הרכב
-            </button>.
+            {c.todayCopayProvisional != null ? PROVISIONAL_NOTE : (
+              <>
+                {copayBannerText(c.todayCopay)}{' '}
+                <button type="button" className="link-inline" disabled={busy} onClick={() => openCopayInquiry()}>
+                  אפשר לברר מול נציג הרכב
+                </button>.
+              </>
+            )}
           </span>
         </div>
       )}

@@ -71,6 +71,7 @@ from .templates import (
     UNANSWERED,
     CHOOSE_TO_COMPARE,
     COPAY_WITH_REP,
+    copay_with_rep_text,
     catalog_copay_hint,
     ENGINE_OFFLINE,
     compare_needs_text,
@@ -880,8 +881,10 @@ class Agent:
             state.pending_confirmation = None
             plan = ParserPlan(choice_calls(field_, ids, snapshot), True, direct=True)
             if field_ == "copay" and ids == ["rep"]:
-                # the inquiry about today's copay was sent: said as such, never as "not known, on the payslip" (31/10)
-                plan = replace(plan, notice=COPAY_WITH_REP, acked=True)
+                # the inquiry about today's copay was sent (1/11): the calculation goes on with the catalog amount,
+                # provisionally (never the employee's confirmation), and says so; no catalog amount: nothing assumed
+                state.current.copay_provisional = catalog_copay_hint(state, snapshot)
+                plan = replace(plan, notice=copay_with_rep_text(state.current.copay_provisional), acked=True)
         return self._finish(ctx, (), label, plan, before, record_run, choice=True)
 
     def run_fields(self, snapshot: RulesSnapshot, find_vehicle: VehicleLookup, get_vehicle: VehicleGetter,
@@ -1155,7 +1158,7 @@ class Agent:
             notice = None
         said = (notice or "").startswith("רשמתי") or plan.acked
         confirmations = before_turn.confirmations(state, snapshot, just_calculated, said)
-        if plan.notice == COPAY_WITH_REP:
+        if plan.notice is not None and plan.notice.startswith(COPAY_WITH_REP[:40]):
             # the copay is pending with the rep, not "unknown, look at the payslip": that line says it instead
             confirmations = [line for line in confirmations if line != CURRENT_UNKNOWN_ACK]
 
@@ -1863,7 +1866,7 @@ class Agent:
             # the employee's own inquiry about today's copay (1/11): the amount is offered, never applied by itself
             c = state.current
             state.rep_copay_offer = RepCopayOffer(question_id=qid, amount=amount, car_label=c.label or "")
-            lines.append(rep_copay_offer_text(c.label or "", amount, c.copay))
+            lines.append(rep_copay_offer_text(c.label or "", amount, c.copay, c.copay_provisional))
         elif field in (MissingField.CURRENT_COPAY, MissingField.CURRENT_USE_VALUE):
             c = state.current
             if field == MissingField.CURRENT_COPAY:

@@ -122,6 +122,7 @@ function RepCopayUpdate({ field, disabled, onSend }: { field: ExpectsField; disa
   if (!choice) return null
   const shekel = (v?: string | null) => (v ? `${Number(v).toLocaleString('he-IL')} ₪` : '')
   const replaces = ctx.previous && ctx.previous !== ctx.amount ? ctx.previous : null
+  const provisional = !replaces && ctx.provisional ? ctx.provisional : null
   return (
     <div className="reply-row rep-copay-update">
       {!asking ? (
@@ -133,6 +134,7 @@ function RepCopayUpdate({ field, disabled, onSend }: { field: ExpectsField; disa
           <p>
             לעדכן את ההשתתפות החודשית{ctx.car ? <> ב-<bdi>{ctx.car}</bdi></> : null} ל-<strong>{shekel(ctx.amount)}</strong>,
             לפי תשובת הנציג?{replaces && <> הסכום יחליף את {shekel(replaces)} שמסרתם.</>}
+            {provisional && <> החישוב הנוכחי מבוסס על {shekel(provisional)} לפי הקטלוג, והוא יחושב מחדש.</>}
           </p>
           <div className="reply-row">
             <button type="button" className="chip chip-primary" disabled={disabled}

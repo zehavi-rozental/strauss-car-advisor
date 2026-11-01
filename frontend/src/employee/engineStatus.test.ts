@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { copayBannerText, engineBadge, messageAuthor } from './engineStatus'
+import { PROVISIONAL_NOTE, copayBannerText, engineBadge, messageAuthor } from './engineStatus'
 
 describe('engine badge', () => {
   it('names each real state, never "available" by default', () => {
@@ -35,5 +35,12 @@ describe('inquiry number', () => {
   it('is the same short reference on both sides, from the id', () => {
     expect(inquiryNumber('fcf708bc-c694-42b9-8138-e18b51f1b8e4')).toBe('FCF708BC')
     expect(inquiryNumber('fcf708bcc69442b98138e18b51f1b8e4')).toBe('FCF708BC')
+  })
+})
+
+describe("today's copay pending with the representative (1/11)", () => {
+  it("says the comparison runs on the catalog amounts and offers no second inquiry", () => {
+    expect(PROVISIONAL_NOTE).toBe("ההשוואה מחושבת לפי סכומי הקטלוג. סכום ההשתתפות ברכב הנוכחי ממתין לאימות הנציג, ולאחר קבלת התשובה אפשר לעדכן את החישוב.")
+    expect(PROVISIONAL_NOTE).not.toContain("לברר")
   })
 })

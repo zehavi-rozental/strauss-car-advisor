@@ -47,7 +47,7 @@ export interface ExpectsField {
   closed?: boolean           // a closed question: the client shows buttons; open questions are typed
   question?: string | null   // ask_rep: the employee's question the inquiry card opens with ("" — still to be said)
   // copay: today's car and its (unverified) catalog amount; rep_copay: the rep's amount and the one it replaces
-  context?: { car?: string; catalog_amount?: string; amount?: string; previous?: string | null }
+  context?: { car?: string; catalog_amount?: string; amount?: string; previous?: string | null; provisional?: string | null }
 }
 
 export interface ExpectsLink {
@@ -144,6 +144,8 @@ export interface ScenarioResult {
   copay_source?: CopaySource | null
   copay_effective_date?: string | null       // ISO date the representative's amount applies from
   employee_stated_copay?: Decimal            // what the employee said they expect: shown, never used
+  /** today's copay is pending with the representative: today's net used this catalog amount, provisionally (1/11) */
+  today_copay_provisional?: Decimal
   assumptions: string[]
   /** one plain sentence about the main cause (built by the server from the drivers) */
   why?: string
@@ -213,6 +215,7 @@ export interface ConversationView {
   profile: Record<string, unknown>
   current_car: Record<string, unknown>
   today_copay?: string | null   // today's copay as the employee gave or confirmed it
+  today_copay_provisional?: string | null   // pending with the rep: the catalog amount used meanwhile
   selected: string[]
   results: OptionResult[]
   pending_rep: RepReason | null
@@ -249,6 +252,7 @@ export interface UpdatesResponse {
   expects: Expects
   results: OptionResult[]
   today_copay?: string | null   // today's copay as the employee gave or confirmed it
+  today_copay_provisional?: string | null   // pending with the rep: the catalog amount used meanwhile
   results_stale?: boolean     // the results predate the last change: history, not a recommendation
   option_map?: OptionMap | null      // 360°: null until the employee asks for it
   map_ready?: boolean         // the option map can be built now (an older server does not say: not offered)

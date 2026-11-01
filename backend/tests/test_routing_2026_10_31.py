@@ -165,11 +165,13 @@ def test_the_card_s_copay_inquiry_is_accepted_and_only_then_the_copay_waits(engi
 
 
 def test_the_rep_choice_says_the_copay_is_with_the_rep_not_on_the_payslip(engine):
-    from app.modules.conversation.templates import COPAY_WITH_REP
+    from decimal import Decimal
+    from app.modules.conversation.templates import copay_with_rep_text
     client = make_client(engine)
     _, send, _ = at_copay(client)
     reply = send({"choice": "rep", "field": "copay"})["reply"]
-    assert reply.startswith(COPAY_WITH_REP) and "בתלוש" not in reply
+    # a catalog car: the calculation goes on with the catalog amount, provisionally, and says so (1/11)
+    assert reply.startswith(copay_with_rep_text(Decimal(250))) and "בתלוש" not in reply
 
 
 def test_controlled_today_copay_200_then_300_changes_only_today(engine, tmp_path):

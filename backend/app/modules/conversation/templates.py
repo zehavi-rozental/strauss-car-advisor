@@ -316,7 +316,10 @@ def catalog_copays_text(items: Sequence[tuple[str, Any]], today_copay: Any = Non
     else:
         each = ", ".join(f"{in_label(label)} {money(amount)}" for label, amount in items)
         line = f"ההשתתפות ברכבים החדשים לפי הקטלוג: {each}.\n{COPAY_UPDATE}"
-    if today_copay is not None and Decimal(str(today_copay)) > 0:
+    if today_source == "provisional" and today_copay is not None:
+        line += (f"\nהחישוב כרגע מבוסס על השתתפות של {money(today_copay)} לפי הקטלוג ברכב שלכם היום, "
+                 "עד לאימות מול נציג.")
+    elif today_copay is not None and Decimal(str(today_copay)) > 0:
         source = "לפי תשובת נציג התחבורה שאישרתם" if today_source == "rep_confirmed" else "שמסרתם"
         line += f"\nלרכב שלכם היום חישבתי עם ההשתתפות {source}: {money(today_copay)}."
     return line
@@ -472,8 +475,14 @@ def results_text(state: ConversationState) -> str:
                if i.result.get("copay_pending") and i.result.get("copay_source", "catalog") == "catalog"]
     final = [(i.label, (i.result.get("alternative") or {}).get("copay")) for i in ok
              if i.result.get("copay_source") == "catalog_final"]
+    c = state.current
+    provisional = c.copay is None and c.copay_provisional is not None   # today's copay pending with the rep (1/11)
     if final and all(a is not None for _, a in final):
-        lines.append(catalog_copays_text(final, state.current.copay, state.current.copay_source))
+        lines.append(catalog_copays_text(final, c.copay_provisional if provisional else c.copay,
+                                         "provisional" if provisional else c.copay_source))
+    elif provisional and ok:
+        lines.append(f"החישוב כרגע מבוסס על השתתפות של {money(c.copay_provisional)} לפי הקטלוג ברכב שלכם היום, "
+                     "עד לאימות מול נציג.")
     if pending and all(a is not None for _, a in pending):
         lines.append(pending_copays_text(pending))
     elif pending:
@@ -696,9 +705,13 @@ def rep_current_text(field: str, label: str, amount: Decimal) -> str:
     return f"נציג התחבורה השיב: {what} ב-{label} היא {money(amount)}."
 
 
-def rep_copay_offer_text(label: str, amount: Decimal, previous: Optional[Decimal]) -> str:
+def rep_copay_offer_text(label: str, amount: Decimal, previous: Optional[Decimal],
+                         provisional: Optional[Decimal] = None) -> str:
     """The representative's amount for today's copay, offered (1/11): applied only on the employee's confirmation."""
     head = f"נציג התחבורה השיב: ההשתתפות החודשית שלכם ב-{label} היא {money(amount)}."
+    if previous is None and provisional is not None:
+        return (f"{head} החישוב הנוכחי מבוסס על {money(provisional)} לפי הקטלוג. "
+                "אפשר לעדכן את הסכום ולחשב מחדש לפי תשובת הנציג.")
     if previous is not None and Decimal(str(previous)) != amount:
         return (f"{head} כרגע החישוב לפי {money(previous)} שמסרתם. "
                 "אפשר לעדכן את החישוב לפי תשובת הנציג; העדכון יחליף את הסכום הקודם.")
@@ -968,6 +981,15 @@ def compare_needs_text(state: ConversationState) -> str:
 # today's copay sent to the representative (31/10): no amount is assumed until the answer
 COPAY_WITH_REP = ("רשמתי: את ההשתתפות ברכב שלכם היום נברר מול נציג התחבורה, והתשובה תגיע לכאן. "
                   "עד אז לא אחשב את השינוי בנטו לעומת היום, ולא אשתמש בסכום משוער.")
+
+
+def copay_with_rep_text(provisional: Optional[Decimal]) -> str:
+    """Today's copay sent to the representative (1/11): with a catalog amount the calculation goes on with it,
+    provisionally and said so; without one, nothing is assumed (COPAY_WITH_REP)."""
+    if provisional is None:
+        return COPAY_WITH_REP
+    return ("רשמתי: את ההשתתפות ברכב שלכם היום נברר מול נציג התחבורה, והתשובה תגיע לכאן. "
+            f"החישוב כרגע מבוסס על השתתפות של {money(provisional)} לפי הקטלוג, עד לאימות מול נציג.")
 ENGINE_OFFLINE = "התשובה הזו לא נכתבה על ידי Gemini: כרגע מנוע השפה לא זמין, והיא מגיעה מתבנית קבועה."
 
 ADVICE_FIRST = ("זה תלוי ברכב שלכם היום, ברכבים שאתם זכאים להם ובנטו שיישאר לכם אחרי ההחלפה. "

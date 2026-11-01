@@ -65,7 +65,14 @@ export function CopayLine({ result, compact = false, onAskCopay }: {
   onAskCopay?: () => void
 }) {
   const c = copayInfo(result)
-  if (!c) return null
+  // today's net used the catalog amount while the representative is asked (1/11): said on every card
+  const provisional = result.today_copay_provisional != null && (
+    <span className="today-provisional">
+      <span className="tag tag-pending">מחושב לפי סכום קטלוגי זמני</span>
+      {!compact && <> ההשתתפות ברכב הנוכחי: <Money value={result.today_copay_provisional} /> לפי הקטלוג, עד לאימות מול נציג.</>}
+    </span>
+  )
+  if (!c) return provisional || null
   const tag = <span className={`tag tag-${c.tone === 'approved' ? 'up' : c.tone === 'final' ? 'plain' : 'pending'}`}>{c.status}</span>
   if (compact) {
     return (
@@ -77,6 +84,7 @@ export function CopayLine({ result, compact = false, onAskCopay }: {
         {onAskCopay && (c.tone === 'pending' || c.tone === 'final') && (
           <button type="button" className="link-inline" onClick={onAskCopay}>בירור אישי מול הנציג</button>
         )}
+        {provisional}
       </span>
     )
   }
@@ -106,6 +114,7 @@ export function CopayLine({ result, compact = false, onAskCopay }: {
       {onAskCopay && (c.tone === 'pending' || c.tone === 'final') && (
         <button type="button" className="link-inline" onClick={onAskCopay}>לבקש בירור אישי מול הנציג</button>
       )}
+      {provisional && <p className="copay-meta">{provisional}</p>}
     </div>
   )
 }

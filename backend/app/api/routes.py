@@ -308,6 +308,8 @@ def get_conversation(conversation_id: str, request: Request) -> dict[str, Any]:
     return {"conversation_id": view.conversation_id, "stage": view.stage.value, "profile": state["profile"],
             "current_car": {k: v for k, v in state["current"].items() if k != "choices"},
             "today_copay": state["current"]["copay"],          # the same field /updates carries (31/10)
+            "today_copay_provisional": (state["current"].get("copay_provisional")
+                                        if state["current"]["copay"] is None else None),
             "selected": state["selected"], "results": state["results"],
             "results_stale": results_stale(view.state), "option_map": map_json(view.state),
             **map_readiness(view.state),
