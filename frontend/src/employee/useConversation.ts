@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, api } from '../api/client'
 import { normalizeResults } from '../api/normalize'
+import { mapKey, readMapAnchor, storeMapAnchor } from './optionMap'
 import type { ConversationView, EngineState, Expects, Message, MessageIn, OptionMap, OptionResult, PendingQuestion, ProfileFields, RepInquiry, Stage } from '../api/types'
 
 const STORAGE_KEY = 'sca.conversationId'
@@ -86,6 +87,23 @@ export function useConversation() {
   }, [])
   const [lastAssistant, setLastAssistant] = useState<number | null>(null)
   const [resultsAnchor, setResultsAnchor] = useState<number | null>(null)
+  // the message the option map was presented in (1/11): its card stays there, never re-drawn after every message
+  const [mapAnchor, setMapAnchor] = useState<number | null>(null)
+  const mapAnchorRef = useRef<{ key: string; seq: number } | null>(null)
+  const placeMap = useCallback((map: OptionMap | null | undefined, seq: number | null, id: string | null) => {
+    const key = mapKey(map)
+    if (key === null || seq === null || !id) {
+      mapAnchorRef.current = null
+      setMapAnchor(null)
+      return
+    }
+    if (mapAnchorRef.current?.key === key) return               // the same map: it stays where it is
+    const stored = readMapAnchor(id)
+    const anchor = stored?.key === key ? stored : { key, seq }  // a reload: back to its message; new: this one
+    mapAnchorRef.current = anchor
+    storeMapAnchor(id, anchor)
+    setMapAnchor(anchor.seq)
+  }, [])
   const [pendingQuestions, setPendingQuestions] = useState<PendingQuestion[]>([])
   const [repQuestions, setRepQuestions] = useState<RepInquiry[]>([])
   const [returnTokenPending, setReturnTokenPending] = useState(false)
@@ -135,10 +153,11 @@ export function useConversation() {
     setMapReady(view.map_ready === true)
     setMapMissing(view.map_missing ?? [])
     setOptionMap(view.option_map)
+    placeMap(view.option_map, lastAssistantRef.current, view.conversation_id)
     setResults(res)
     runKeyRef.current = runKey(res)
     setResultsAnchor(res.length ? lastAssistantRef.current : null)
-  }, [setExpects, setOptionMap])
+  }, [setExpects, setOptionMap, placeMap])
 
   /** New messages after the last seq, plus the current stage, expects, results and open questions.
    *  Calls are chained so polling and sending never apply updates out of order. */
@@ -166,6 +185,7 @@ export function useConversation() {
       setMapReady(u.map_ready === true)
       if (u.map_missing !== undefined) setMapMissing(u.map_missing)
       setOptionMap(u.option_map)
+      placeMap(u.option_map, lastAssistantRef.current, id)
       setPendingQuestions(u.pending_questions)
       setRepQuestions(u.rep_questions ?? [])
       const res = normalizeResults(u.results)
@@ -181,7 +201,7 @@ export function useConversation() {
     const next = syncChain.current.then(run, run)
     syncChain.current = next.then(() => undefined, () => undefined)
     return next
-  }, [setExpects, setOptionMap])
+  }, [setExpects, setOptionMap, placeMap])
 
   const reload = useCallback(async () => {
     const id = idRef.current
@@ -391,6 +411,8 @@ export function useConversation() {
       setLastAssistant(null)
       setResultsStale(false)
       setOptionMap(null)
+      mapAnchorRef.current = null
+      setMapAnchor(null)
       setResults([])
       setResultsAnchor(null)
       setPendingQuestions([])
@@ -446,7 +468,7 @@ export function useConversation() {
   return {
     engine, focusQuestionId, todayCopay, todayCar, todayCopaySource, todayCopayProvisional,
     conversationId, repEmail, emailEnabled, emailSimulated, emailPending,
-    messages, stage, expects, questionKey, results, resultsStale, mapReady, mapMissing, optionMap: optionMapState, resultsAnchor,
+    messages, stage, expects, questionKey, results, resultsStale, mapReady, mapMissing, optionMap: optionMapState, mapAnchor, resultsAnchor,
     pendingQuestions,
     repQuestions, returnTokenPending, returnTokenError, returnLinkInvalid, returnStored, resumeEmailLink,
     waitingForRep, sending, loading, error, send, sendFields, retry, reload, loadProfile, newConversation,

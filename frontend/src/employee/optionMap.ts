@@ -3,6 +3,29 @@
 import type { MapEntry, MapStatus, OptionMap, OptionResult } from '../api/types'
 
 export const MAP_REQUEST = 'השווה את כל האפשרויות שלי'
+
+/** What makes the map a new one (1/11): its options and their numbers. Being marked out of date is not: the card
+ *  stays where it was, with its "לא מעודכן" note, until the rebuild moves it to the message that says so. */
+export const mapKey = (map: OptionMap | null | undefined): string | null =>
+  map ? JSON.stringify(map.entries.map((e) => [e.option_id, e.status, e.result.delta_display ?? null])) : null
+
+/** The message the map belongs to, by conversation, kept on this device so a reload puts the card back there. */
+const ANCHOR_KEY = 'sca.mapAnchor'
+export function readMapAnchor(conversationId: string): { key: string; seq: number } | null {
+  try {
+    const all = JSON.parse(localStorage.getItem(ANCHOR_KEY) ?? '{}') as Record<string, { key: string; seq: number }>
+    return all[conversationId] ?? null
+  } catch {
+    return null
+  }
+}
+export function storeMapAnchor(conversationId: string, anchor: { key: string; seq: number }): void {
+  try {
+    localStorage.setItem(ANCHOR_KEY, JSON.stringify({ [conversationId]: anchor }))    // the current conversation only
+  } catch {
+    // private mode: after a reload the card sits under the latest message
+  }
+}
 export const NET_ONLY_NOTE = 'הדירוג מבוסס על הנטו החודשי המשוער בלבד. התאמת הרכב לצרכים שלכם עשויה להיות שונה.'
 export const MAX_COMPARE = 3          // a display limit for the side-by-side table, never a limit on the list
 

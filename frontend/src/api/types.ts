@@ -51,7 +51,7 @@ export interface ExpectsField {
 }
 
 export interface ExpectsLink {
-  kind: 'profile_form' | 'selection' | 'payslip_upload'
+  kind: 'profile_form' | 'selection' | 'payslip_upload' | 'correction_form'
   label: string
   url?: string               // payslip_upload only: a pilot's external URL; empty uses the built-in upload
 }

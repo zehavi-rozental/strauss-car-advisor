@@ -41,6 +41,8 @@ interface Props {
   todayCopaySource?: string | null
   /** an answer to keep in view (the email link, or an update waiting for the employee) */
   focusQuestionId?: string | null
+  /** the message the option map was presented in: its card stays there (1/11) */
+  mapAnchor?: number | null
   /** today's car and its copay, once above the comparison (1/11) */
   todayCard?: ReactNode
 }
@@ -51,7 +53,7 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
                               onOpenTable, onResendVerification, mapCard, tail,
                               onRetry, onCorrect, busy, repCopayOffer = null, onSend,
                               todayCopay = null, todayCopaySource = null, focusQuestionId = null,
-                              todayCard = null }: Props) {
+                              todayCard = null, mapAnchor = null }: Props) {
   const end = useRef<HTMLDivElement>(null)
   const [copied, setCopied] = useState<number | null>(null)
   useEffect(() => {
@@ -80,6 +82,8 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
   // and recalculates (the text of a sent message never changes)
   const lastUserSeq = findLastUserSeq(messages)
   const anchored = resultsAnchor != null && messages.some((m) => m.seq === resultsAnchor)
+  // the map's card under the message that presented it; only an older client state with no anchor puts it last
+  const mapAnchored = mapAnchor != null && messages.some((m) => m.seq === mapAnchor)
   const inquiries = new Map(repQuestions.map((question) => [question.id, question]))
   // each inquiry is drawn once: at its record message; an older conversation's question with no record, under
   // the first message that carries its id (the representative's answer)
@@ -189,6 +193,7 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
                                onResend={m.seq === resendOn ? onResendVerification : undefined} />
               )}
               {anchored && m.seq === resultsAnchor && cards}
+              {mapAnchored && m.seq === mapAnchor && mapCard}
             </div>
           )
         }
@@ -246,11 +251,12 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
               <InquiryRecord question={inquiries.get(m.rep_question_id)} />
             )}
             {anchored && m.seq === resultsAnchor && cards}
+            {mapAnchored && m.seq === mapAnchor && mapCard}
           </div>
         )
       })}
       {!anchored && cards}
-      {mapCard}
+      {!mapAnchored && mapCard}
       {typing && (
         <div className="typing" aria-label="מקליד">
           <BrandMark size={24} thinking />

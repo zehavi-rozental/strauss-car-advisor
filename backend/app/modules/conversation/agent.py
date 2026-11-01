@@ -24,7 +24,7 @@ from app.modules.rules.public import catalog_names as catalog_names_of
 
 from .expects import build_expects, choice_calls
 from .fallback import (ZERO_ALLOWED, ParserPlan, _profile_value_correction_plan, asks_base, car_roles, correction_plan,
-                       fallback_plan, named_cars, none_plan, recorded_text)
+                       fallback_plan, named_cars, none_plan, read_value, recorded_text)
 from .free_text import looks_like_title
 from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
@@ -72,6 +72,9 @@ from .templates import (
     CHOOSE_TO_COMPARE,
     COPAY_WITH_REP,
     PAYSLIP_OFFER,
+    CORRECTION_ASK,
+    CORRECTION_CARS,
+    correction_field_ask,
     PAYSLIP_UNAVAILABLE,
     copay_with_rep_text,
     catalog_copay_hint,
@@ -658,6 +661,28 @@ def _values(state: ConversationState) -> dict[str, Any]:
     return out
 
 
+_GROUP_ANSWER_RE = re.compile(r"\s*(?:קבוצה\s*)?([א-ד])['׳\"]?\s*\.?\s*")
+
+
+def _correction_values(state: ConversationState, snapshot: RulesSnapshot, arg: str, text: str) -> Optional[dict[str, Any]]:
+    """The new value for the field a correction asked about (1/11): a bare value ("20000", "6%", "קבוצה ב"); None for
+    anything else, which is then read as usual (a question, another value, a change of mind)."""
+    if arg == "group":
+        m = _GROUP_ANSWER_RE.fullmatch(text)
+        return {"eligibility_group": m.group(1)} if m and m.group(1) in snapshot.calc.group_order else None
+    if len(words(text)) > 4 or "?" in text:
+        return None
+    read = read_value(text, snapshot.extensions.answer_fillers)
+    if read is None:
+        return None
+    value = read[0]
+    if arg == "children_under_23":
+        if Decimal(value) != int(Decimal(value)):
+            return None
+        value = int(Decimal(value))
+    return {arg: value}
+
+
 def _form_values(state: ConversationState) -> dict[str, Any]:
     """The profile values a form can change, by save_profile argument name."""
     return profile_args(state.profile)
@@ -919,6 +944,8 @@ class Agent:
         before = next_stage(state)
 
         und = understand(state, snapshot, text)
+        # a correction asked for in the last reply (1/11): this message may be its new value; asked once only
+        correcting, state.correcting_field = state.correcting_field, None
         if und.unanswered:
             state.last_rep_question = und.unanswered[0]     # kept for "היית צריך לשאול את הנציג" in a later turn
         ctx.question_message = und.question_only or text.strip().endswith("?")
@@ -975,6 +1002,15 @@ class Agent:
             notice = PAYSLIP_OFFER if enabled else PAYSLIP_UNAVAILABLE
             return self._finish(ctx, history, text, ParserPlan(complete=True, notice=notice, direct=True, acked=True),
                                 before, record_run, choice=True, und=replace(und, remainder=""))
+        elif correcting and (values := _correction_values(state, snapshot, correcting, text)) is not None:
+            # the new value of the field the employee asked to correct: saved like the correction form (the same gate:
+            # ranges, unusual values), at any stage; the results and the option map are recalculated
+            if correcting in PROFILE_ARGS:
+                return self._save_while_waiting(ctx, text, values, before, record_run)
+            plan = ParserPlan([ToolCall("save_profile", values, "combined")], True, direct=True)
+        elif und.correction is not None:
+            # "אני רוצה לתקן נתון" (1/11): code asks what, or the new value of the field named; never the representative
+            return self._correction_requested(ctx, history, text, und, before, record_run)
         elif und.question_only and und.anything and und.ambiguity is None:
             # only questions / "מה?" / off topic: nothing to save, and a pending question stays open.
             # With an LLM it answers (from the FAQ / STATE); without one, the FAQ template.
@@ -1023,6 +1059,25 @@ class Agent:
                 plan = fallback_plan(state, snapshot, und.remainder)
         return self._finish(ctx, history, text, plan, before, record_run, und=und, extra=[pace] if pace else ())
 
+    def _correction_requested(self, ctx: ToolContext, history: Sequence[ChatMessage], text: str, und: Understanding,
+                              before: Stage, record_run: RecordRun) -> TurnOutcome:
+        """A correction of the employee's own data with no value yet (1/11). No field named: what to correct, with the
+        form. One field: its new value, with what is recorded now (the next bare value is saved to it). Today's car:
+        the car correction ("זה לא הרכב שלי": the model asked again, the copay kept, the results out of date)."""
+        state = ctx.state
+        fields = und.correction or []
+        if fields == ["car"]:
+            plan = ParserPlan([ToolCall("match_current_car", {"reset": True}, "combined")], True, direct=True)
+            return self._finish(ctx, history, text, plan, before, record_run, choice=True,
+                                und=replace(und, correction=None, remainder=""))
+        if len(fields) == 1:
+            state.correcting_field = fields[0]
+            notice = correction_field_ask(state, fields[0])
+        else:
+            notice = CORRECTION_ASK + (f"\n{CORRECTION_CARS}" if state.results else "")
+        return self._finish(ctx, history, text, ParserPlan(complete=True, notice=notice, direct=True, acked=True),
+                            before, record_run, choice=True, und=replace(und, remainder=""))
+
     def _save_while_waiting(self, ctx: ToolContext, text: str, values: dict[str, Any], before: Stage,
                             record_run: RecordRun) -> TurnOutcome:
         """A labelled correction typed while waiting for the representative ("טעיתי, השכר שלי 20,000"): saved like
@@ -1059,6 +1114,8 @@ class Agent:
         state.link_now = None               # a link is offered on one reply only (templates._once)
         if und.payslip_request and (snapshot.extensions.payslip_upload_enabled or snapshot.extensions.payslip_upload_url):
             state.link_now = "payslip_upload"   # the uploader, on this reply, whatever the flow asks (1/11)
+        if und.correction is not None:
+            state.link_now = "correction_form"   # the correction form, on this reply (1/11)
         if und.all_at_once:
             state.pace = "normal"           # "all at once" is an explicit change of pace
             state.link_now = "profile_form"  # the form is the way to answer everything together
@@ -1261,6 +1318,8 @@ class Agent:
                 built.ack.append(map_line)  # after what was saved and identified this turn
             if und.payslip_request:
                 built.ask = []      # "אני רוצה להעלות תלוש": the upload first; the flow question waits (1/11)
+            if und.correction is not None:
+                built.ask = []      # the correction's own question is the reply's question (1/11)
             if map_shown and state.stage in (Stage.CHOOSE_OPTIONS, Stage.PRESENTED):
                 built.ask = []      # the map answered the request; the call to action still offers a comparison
             return built

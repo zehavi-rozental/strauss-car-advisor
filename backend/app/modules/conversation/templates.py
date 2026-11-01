@@ -898,7 +898,27 @@ CTA_STARTS = ("כתבו", "בחרו", "אפשר לכתוב")
 NEXT_AFTER_RESULTS = "רוצים לראות אילו רכבים משאירים לכם את הנטו הגבוה ביותר?"
 NEXT_AFTER_RANK = "רוצים להשוות רכבים אחרים? כתבו את השמות שלהם."
 LINK_LABELS = {"profile_form": "למלא בטופס", "selection": "לבחור רכבים להשוואה",
-               "payslip_upload": "להעלות תלוש"}
+               "payslip_upload": "להעלות תלוש", "correction_form": "לפתוח את טופס תיקון הנתונים"}
+
+# a correction of the employee's own data (1/11): code asks what, or the new value; saved like the form, then every
+# result and the option map are recalculated. Never a question for the representative.
+CORRECTION_ASK = ("אפשר לתקן כל נתון שמסרתם, והחישוב יתעדכן.\n"
+                  "מה תרצו לתקן? כתבו את הנתון והערך הנכון, למשל: \"השכר שלי 20,000\" או \"פנסיה 6%\".")
+CORRECTION_CARS = "כדי לשנות את הרכבים בהשוואה, לחצו על \"לשנות בחירה\"."
+CORRECTION_CTA = "אפשר גם לפתוח את טופס תיקון הנתונים."
+CORRECTION_VALUE_CTA = "כתבו רק את הערך הנכון, והחישוב יתעדכן."
+
+
+def correction_field_ask(state: ConversationState, arg: str) -> str:
+    """The new value of one field, with what is recorded now (the employee's own data, said back to them)."""
+    if arg == "group":
+        now = state.profile.group
+        return "מה קבוצת הזכאות הנכונה (א–ד)?" + (f" רשום אצלי עכשיו: קבוצה {now}." if now else "")
+    name = _VALUE_LABELS[arg][0]
+    value = (state.current.copay if arg == "current_copay"
+             else getattr(state.profile, PROFILE_ARGS[arg], None))
+    now = f" רשום אצלי עכשיו: {_show(arg, value)}." if value is not None else ""
+    return f"מה הערך הנכון של {name}?{now}"
 
 
 def _names(fields: Sequence[str]) -> str:
@@ -1052,6 +1072,9 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
     if state.link_now == "payslip_upload":
         # the employee asked to upload a payslip (1/11): the uploader, whatever the flow would ask next
         return "לחצו על \"להעלות תלוש\" ובחרו את הקובץ.", "payslip_upload"
+    if state.link_now == "correction_form":
+        # a correction asked for (1/11): the form is the other way to give it
+        return (CORRECTION_VALUE_CTA if state.correcting_field else CORRECTION_CTA), "correction_form"
     if state.pending_rep_question is not None:
         return "בחרו \"לשלוח\" או \"לבטל\".", None
     if state.unanswered_question is not None:

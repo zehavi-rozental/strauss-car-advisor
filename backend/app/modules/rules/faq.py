@@ -85,6 +85,10 @@ class Faq(BaseModel):
     proceed_terms: tuple[str, ...] = ()
     # a request to upload a payslip (1/11): "תלוש" next to one of these verbs, at any stage, before the flow question
     payslip_upload_terms: tuple[str, ...] = ()
+    # a request to correct the employee's own data (1/11): one of these words (a change or a mistake) next to one of
+    # `correction_objects` or a salary / car field. Answered in code at any stage, never sent to the representative
+    correction_terms: tuple[str, ...] = ()
+    correction_objects: tuple[str, ...] = ()
     # feedback about the bot's previous reply ("מה הקשר", "זה לא תשובה", "לא קשור"): acknowledged, and the open
     # question is explained in other, simpler words — never the same template again (30/10)
     feedback_cues: tuple[str, ...] = ()

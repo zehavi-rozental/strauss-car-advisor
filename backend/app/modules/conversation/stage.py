@@ -278,6 +278,9 @@ class ConversationState(BaseModel):
     feedback_told: int = 0   # acknowledgements of feedback about a previous reply (the wording turns)
     links_shown: list[str] = Field(default_factory=list)  # links already offered (each one once)
     link_now: Optional[str] = None                        # the link of the reply on screen (kept on reload)
+    # a correction the employee asked for (1/11): the save_profile argument whose new value the reply asked for; the
+    # next message's bare value is saved to it like the correction form, at any stage, then it is cleared
+    correcting_field: Optional[str] = None
     # Fields the employee asked to answer later ("את השכר אבדוק אחר כך"). They are skipped as the next
     # question while any other field can still be asked, and come back when nothing else is askable or a
     # calculation needs them. Never a default, never dropped — just postponed. A value given later clears it.

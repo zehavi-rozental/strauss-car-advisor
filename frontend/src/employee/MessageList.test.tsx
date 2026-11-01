@@ -116,3 +116,15 @@ describe('no source label on a reply (1/11)', () => {
     expect(out).not.toMatch(/>\s*מערכת\s*</)
   })
 })
+
+describe('the option map stays under the message that presented it (1/11)', () => {
+  it('a later message is drawn after the card, never the card after every message', () => {
+    const messages = [msg(1, 'template', 'מיפיתי את כל 9 החלופות.'), msg(2, 'user', 'אני רוצה לתקן נתון'),
+                      msg(3, 'template', 'מה תרצו לתקן?')]
+    const out = render({ messages, mapAnchor: 1, mapCard: <p className="map-card-slot">map</p> })
+    expect(count(out, 'map-card-slot')).toBe(1)
+    expect(out.indexOf('map-card-slot')).toBeGreaterThan(out.indexOf('מיפיתי את כל 9 החלופות'))
+    expect(out.indexOf('map-card-slot')).toBeLessThan(out.indexOf('אני רוצה לתקן נתון'))
+    expect(out.indexOf('map-card-slot')).toBeLessThan(out.indexOf('מה תרצו לתקן?'))
+  })
+})

@@ -140,3 +140,48 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 375, height: 740 
     await page.context().close()
   })
 }
+
+// Live QA 1/11: after the map, "אני רוצה להחליף נתון…" was offered to the representative and the map's card was drawn
+// again under the new reply. A correction is asked in code and saved like the form; the card stays at its message
+// (out of date while the data changes) and moves only to the message that rebuilt it, at both widths and on reload.
+for (const viewport of [{ width: 1280, height: 800 }, { width: 375, height: 740 }]) {
+  test(`a correction after the map: asked, saved, recalculated; the map card stays in its place (${viewport.width}px)`,
+       async ({ browser }) => {
+    const page = await (await browser.newContext({ viewport })).newPage()
+    await open(page)
+    for (const m of [NOA, CAR, 'השווה את כל האפשרויות שלי']) await send(page, m)
+    const card = page.locator('.map-card')
+    await expect(card).toHaveCount(1)
+    const mapMessage = await card.evaluate((el) => el.closest('.message-group')?.id)
+    expect(mapMessage).toBeTruthy()
+    const before = (await state(page)).option_map
+
+    await send(page, 'אני רוצה להחליף נתון אחד שלא כתבתי נכון מה לעשות?')
+    const reply = page.locator(BOT).last()
+    await expect(reply).toContainText('מה תרצו לתקן?')
+    await expect(reply).not.toContainText('נציג')
+    await expect(page.getByRole('button', { name: 'לשאול את נציג הרכב' })).toHaveCount(0)
+    await expect(card).toHaveCount(1)
+    expect(await card.evaluate((el) => el.closest('.message-group')?.id)).toBe(mapMessage)   // not re-drawn below
+
+    await page.getByRole('button', { name: 'לפתוח את טופס תיקון הנתונים' }).click()
+    await expect(page.getByRole('form', { name: 'תיקון נתונים' })).toBeVisible()
+    await page.getByRole('button', { name: 'ביטול' }).click()
+
+    await send(page, 'השכר שהכנסתי לא נכון')
+    await expect(page.locator(BOT).last()).toContainText('מה הערך הנכון של שכר בסיס?')
+    await page.reload()                                                   // mid-correction: the question stays
+    await expect(page.locator(BOT).last()).toContainText('מה הערך הנכון של שכר בסיס?', { timeout: 30_000 })
+    await expect(card).toHaveCount(1)
+    expect(await card.evaluate((el) => el.closest('.message-group')?.id)).toBe(mapMessage)   // back in its place
+    await send(page, '25000')
+    await expect(page.locator(BOT).last()).toContainText('עדכנתי: שכר בסיס 25,000 ₪ במקום 18,500 ₪')
+    const after = (await state(page)).option_map
+    expect(after.stale).toBe(false)
+    expect(after.entries[0].result.today.net_display).not.toBe(before.entries[0].result.today.net_display)
+    await expect(card).toHaveCount(1)
+    expect(await card.evaluate((el) => el.closest('.message-group')?.id)).not.toBe(mapMessage)   // the rebuild's message
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0)
+    await page.context().close()
+  })
+}

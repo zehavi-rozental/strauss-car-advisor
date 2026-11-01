@@ -189,6 +189,10 @@ proceed_terms: [המשך, להמשיך, נמשיך, תמשיך, הלאה, להת
 # "אני רוצה להעלות תלוש", "אי אפשר להעלות תלוש?" (1/11): the word תלוש with one of these opens the uploader at once,
 # whatever was asked before; "מה רשום בתלוש?" (no verb) stays a question for the FAQ
 payslip_upload_terms: [להעלות, העלאת, העלאה, אעלה, לעלות, תעלה, לצרף, אצרף, לטעון, לסרוק, אסרוק, לשלוח, אשלח, לצלם, אצלם]
+# a request to correct data the employee gave (1/11): a change / mistake word next to a data word or a field
+# ("אני רוצה להחליף נתון שלא כתבתי נכון", "טעיתי בנתון", "השכר שהכנסתי לא נכון", "אפשר לעדכן פרטים?")
+correction_terms: [לתקן, תיקון, לשנות, שינוי, להחליף, לעדכן, עדכון, טעיתי, טעות, שגוי, שגויה, התבלבלתי, לא נכון, לא נכונה, לא נכונים, לא מדויק, לא כתבתי נכון, כתבתי לא נכון]
+correction_objects: [נתון, נתונים, פרט, פרטים, ערך, ערכים, מידע, משהו, מה שכתבתי, מה שמסרתי, מה שהכנסתי, כתבתי, הכנסתי, מסרתי, הזנתי]
 # A question that refers to the advisor itself ("איך אתה יודע…", "המערכת שלך…"): question_scope "bot", answered by the
 # how_it_works entry, before the "follow-up" scope (whose "איך" made it an explanation of the open question).
 bot_reference_terms: [אתה, שלך, ממך, איתך, בוט, הבוט, המערכת, היועץ]

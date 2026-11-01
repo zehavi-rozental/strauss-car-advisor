@@ -87,6 +87,9 @@ class Understanding:
     # nothing was answered, but nothing was missed either (small talk, "שאלה אחת כל פעם", "יותר קצר"): the open
     # question comes back as it was, picked up where it stopped, never as "still missing" (30/10)
     resume: bool = False
+    # "אני רוצה לתקן נתון", "השכר שהכנסתי לא נכון" (1/11): a correction of the employee's own data, with no value yet.
+    # None: not one; [] no field named; else the save_profile arguments it names ("car" for today's car)
+    correction: Optional[list[str]] = None
 
     @property
     def question_only(self) -> bool:
@@ -97,7 +100,7 @@ class Understanding:
     def anything(self) -> bool:
         return bool(self.audit or self.all_at_once or self.faq_ids or self.catalog or self.unanswered or self.presence or self.help or self.redirect
                     or self.ambiguity or self.compare or self.complaint or self.clarify or self.about_results
-                    or self.rep_request or self.social)
+                    or self.rep_request or self.social or self.correction is not None)
 
 
 # words that may stand next to small talk without making it more ("מה נשמע אצלכם היום?")
@@ -571,6 +574,49 @@ def catalog_answer(snapshot: RulesSnapshot, clause: str, on_screen: Iterable[str
     return None
 
 
+# the field a correction request names (1/11), by the save_profile argument it changes ("car": today's car)
+_CORRECTION_FIELDS = (("base_salary", ("שכר", "משכורת")), ("commissions", ("עמל",)), ("bonus", ("בונוס",)),
+                      ("pension_percent", ("פנסי",)), ("study_fund_percent", ("השתלמות",)), ("credit_points", ("זיכוי",)),
+                      ("children_under_23", ("ילד",)), ("group", ("קבוצ",)), ("current_copay", ("השתתפות",)),
+                      ("car", ("רכב", "דגם")))
+# a wish to change ("להחליף רכב") is not a mistake: with only the car named, it is the service (another car), never
+# a correction of today's car
+_CHANGE_ONLY = {"לשנות", "להחליף", "לעדכן", "שינוי", "עדכון"}
+_GROUP_SAID_RE = re.compile(r"קבוצ[הת]\s*['\"]?[א-ד](?![א-ת])")
+
+
+def _names_stem(ws: list[str], stems: Iterable[str]) -> bool:
+    """A word starts with one of the stems, after at most two prefix letters ("והשכר", "בפנסיה")."""
+    return any(w[i:].startswith(s) for w in ws for s in stems for i in range(3)
+               if i == 0 or all(c in _PREFIX for c in w[:i]))
+
+
+def correction_request(snapshot: RulesSnapshot, text: str) -> Optional[list[str]]:
+    """The employee wants to correct data they gave, and gave no new value yet (1/11): a change or mistake word
+    (faq.correction_terms) next to a data word (faq.correction_objects) or a salary / car field. With a value in the
+    message ("טעיתי, השכר שלי 20,000", "אין לי עמלות", "קבוצה ב", a car named) it is the correction itself, read as
+    usual. Returns the fields it names ([] for none), or None."""
+    faq = snapshot.faq
+    if not faq.correction_terms or any(ch.isdigit() for ch in text):
+        return None
+    ws = [_spelling(w) for w in words(text)]
+    if not _names_any(faq.correction_terms, ws, starts=False):
+        return None
+    if ws[0] in ("למה", "מדוע", "איך", "כיצד"):
+        return None                       # "למה ההשתתפות לא נכונה?": a question about the result, answered from it
+    if (any(w in _NEGATIONS - {"לא"} for w in ws) or _GROUP_SAID_RE.search(text) or named_cars(text, snapshot.catalog)
+            or any(_contains_any(text, names) for names in snapshot.extensions.manufacturer_brands.values())):
+        return None
+    fields = [arg for arg, stems in _CORRECTION_FIELDS if _names_stem(ws, stems)]
+    objects = bool(faq.correction_objects) and _names_any(faq.correction_objects, ws, starts=False)
+    mistake = any(_names_any((t,), ws, starts=False) for t in faq.correction_terms if t not in _CHANGE_ONLY)
+    if fields == ["car"] and not (mistake or objects):
+        return None                       # "אני רוצה להחליף את הרכב": another car, the service itself
+    if not fields and not objects:
+        return None
+    return fields
+
+
 def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Understanding:
     faq = snapshot.faq
     # "טעית"/"טעיתם" (you got it wrong) is an audit cue; "טעיתי" (I made a mistake) is a first-person
@@ -595,6 +641,12 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
                               # its off-topic question is redirected by in_scope, its values are read)
     if _is_help(text):
         u.help = True
+        return u
+    fix = correction_request(snapshot, text)
+    if fix is not None:
+        # a correction of the employee's own data: code asks what (or the new value) and saves it like the form; it
+        # is never a question for the representative, at any stage (1/11)
+        u.correction, u.remainder = fix, ""
         return u
     kept: list[str] = []
     faq_clauses: list[tuple[str, str]] = []      # (entry, the clause it answered)

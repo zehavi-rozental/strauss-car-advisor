@@ -24,9 +24,10 @@ import { useConversation } from './useConversation'
 import { fieldsOf, linkFor, optionsField, placeholderFor } from './widgets'
 import type { Expects, Message, RepQuestionIntent, RepQuestionResult } from '../api/types'
 
-const LINK_ICON: Record<string, string> = { profile_form: 'form', selection: 'grid', payslip_upload: 'upload' }
+const LINK_ICON: Record<string, string> = { profile_form: 'form', selection: 'grid', payslip_upload: 'upload',
+                                            correction_form: 'edit' }
 
-type OpenKind = 'selection' | 'profile_form' | 'payslip_upload'
+type OpenKind = 'selection' | 'profile_form' | 'payslip_upload' | 'correction_form'
 
 /** The advisor offered to ask the representative (a question it could not answer): the server put an ask_rep
  *  field in expects. We open the inquiry card for it instead of the old two-step choice. */
@@ -85,7 +86,9 @@ export function EmployeePage() {
   const setOpened = (kind: OpenKind | null) => setOpenedFor(kind ? { kind, question: c.questionKey } : null)
   const link = linkFor(c.expects)
   const options = optionsField(c.expects)
-  const formOpen = correcting || opened === 'profile_form'
+  // "אני רוצה לתקן נתון" (1/11): the reply's link opens the same correction form as "תיקון נתונים"
+  const fixing = correcting || opened === 'correction_form'
+  const formOpen = fixing || opened === 'profile_form'
   // a form, the payslip review or the cards open under the latest message: bring them into view
   const tailRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -117,7 +120,7 @@ export function EmployeePage() {
   }
   const correct = () => { setTableOpen(false); setOpened(null); setCorrecting(true) }
   const profileForm = (
-    <ProfileForm mode={correcting ? 'correction' : 'q2'} loadProfile={c.loadProfile} disabled={busy}
+    <ProfileForm mode={fixing ? 'correction' : 'q2'} loadProfile={c.loadProfile} disabled={busy}
                  onCancel={() => { setCorrecting(false); setOpened(null) }}
                  onSubmit={async (fields) => {
                    const sent = await c.sendFields(fields, profileFormText(fields))
@@ -303,7 +306,7 @@ export function EmployeePage() {
                        onRetry={(seq) => void c.retry(seq)} onCorrect={firstVisit ? undefined : correct} busy={busy}
                        repCopayOffer={repCopayOffer} onSend={c.send} todayCopay={c.todayCopay}
                        todayCopaySource={c.todayCopaySource} focusQuestionId={c.focusQuestionId}
-                       todayCard={todayCard} />
+                       todayCard={todayCard} mapAnchor={c.mapAnchor} />
         </div>
       </main>
 
