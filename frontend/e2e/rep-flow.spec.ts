@@ -41,7 +41,7 @@ test.describe('representative flow', () => {
     const page = await employee(browser)
     for (const m of [PROFILE, 'יש לי קורולה קרוס, משלמת 300', 'MAZDA 3']) await send(page, m)
     // the rule since 22/10: the catalog amount is used and said; the employee asks the representative to confirm it
-    await expect(page.locator(BOT).last()).toContainText('לפי הקטלוג, ההשתתפות ברכב הזה היא 350 ₪')
+    await expect(page.locator(BOT).last()).toContainText('לפי הקטלוג היא 350 ₪')
     await send(page, 'אני רוצה שנציג התחבורה יאשר את ההשתתפות')
     const card = page.locator('.result-card').last()
     await expect(card).toContainText('השתתפות לפי ברירת המחדל בקטלוג — ממתינה לאישור הנציג')

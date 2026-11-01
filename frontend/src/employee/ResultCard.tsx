@@ -143,7 +143,7 @@ export function ResultCard({ item, onOpenTable, onAskCopay }: {
       <footer className="result-foot">
         <span className="disclaimer">הערכה, לא תלוש</span>
         <button type="button" className="table-button" disabled={!onOpenTable} onClick={onOpenTable}>
-          <Icon name="table" size={18} />פירוט מלא
+          <Icon name="table" size={18} />פירוט החישוב
         </button>
       </footer>
     </article>

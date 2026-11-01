@@ -34,7 +34,7 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 375, height: 740 
     await send(page, NOA)
     await send(page, CAR)
     const bots = await page.locator(BOT).count()
-    await page.getByRole('button', { name: 'גלו לי את כל האפשרויות' }).click()
+    await page.getByRole('button', { name: 'כל הרכבים לפי נטו' }).click()
     await expect.poll(async () => page.locator(BOT).count(), { timeout: 45_000 }).toBeGreaterThan(bots)
     await expect(page.locator(BOT).last()).toContainText('מיפיתי את כל 13 החלופות')
     await expect(page.locator(BOT).last()).toContainText('הדירוג מבוסס על הנטו החודשי המשוער בלבד')
@@ -56,11 +56,25 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 375, height: 740 
 
     await panel.locator('.map-entry').nth(1).getByRole('button', { name: 'להשוואה' }).click()
     await panel.locator('.map-entry').nth(2).getByRole('button', { name: 'להשוואה' }).click()
-    await panel.getByRole('button', { name: 'השוואה מפורטת (2)' }).click()
+    await panel.getByRole('button', { name: 'השוואה לעיון (2)' }).click()
     const table = page.getByRole('dialog', { name: 'טבלת השוואה' })
     await expect(table.locator('th.alt-col')).toHaveCount(2)
+    await expect(table).toContainText("השוואה לעיון בלבד. ההשוואה בצ'אט לא משתנה.")
+    await expect(table.getByRole('button', { name: 'לשנות בחירה' })).toHaveCount(0)   // nothing here changes the chat
     await table.getByRole('button', { name: 'סגירה' }).click()
     expect((await state(page)).selected).toEqual([])                   // comparing is not choosing
+
+    // only the explicit button moves the browsed cars into the chat's comparison (the same selection path)
+    const picked = [s.option_map.entries[1].option_id, s.option_map.entries[2].option_id].sort()
+    await panel.locator('.map-entry').nth(1).getByRole('button', { name: 'להשוואה' }).click()
+    await panel.locator('.map-entry').nth(2).getByRole('button', { name: 'להשוואה' }).click()
+    await panel.getByRole('button', { name: 'השוואה לעיון (2)' }).click()
+    const moveBots = await page.locator(BOT).count()
+    await table.getByRole('button', { name: "להעביר להשוואה בצ'אט" }).click()
+    await expect.poll(async () => page.locator(BOT).count(), { timeout: 45_000 }).toBeGreaterThan(moveBots)
+    await expect(page.getByRole('dialog')).toHaveCount(0)              // both panels closed, back in the chat
+    expect([...(await state(page)).selected].sort()).toEqual(picked)
+    await expect(page.locator('.car-actions-current')).toContainText("בהשוואה בצ'אט")
 
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
     expect(overflow).toBeLessThanOrEqual(0)
@@ -104,7 +118,7 @@ test('a car correction marks the map out of date until the new model is known', 
 for (const viewport of [{ width: 1280, height: 800 }, { width: 375, height: 740 }]) {
   test(`the map button appears only when the map can really be shown (${viewport.width}px)`, async ({ browser }) => {
     const page = await (await browser.newContext({ viewport })).newPage()
-    const button = page.getByRole('button', { name: 'גלו לי את כל האפשרויות' })
+    const button = page.getByRole('button', { name: 'כל הרכבים לפי נטו' })
     await open(page)
     await expect(button).toHaveCount(0)                                       // the greeting
     for (const m of ['מנהלת מוצר, שכר בסיס 18,500', 'אין עמלות, בונוס 2,000, פנסיה 6%']) {
@@ -121,7 +135,8 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 375, height: 740 
     await expect.poll(async () => page.locator(BOT).count(), { timeout: 45_000 }).toBeGreaterThan(bots)
     await expect(page.locator(BOT).last()).toContainText('מיפיתי את כל')        // the promise is kept
     await expect(page.locator(BOT).last()).not.toContainText('חסרים לי עוד')
-    await expect(button).toHaveCount(0)                                       // the map is there
+    await button.click()                                                      // the same entry opens the map now
+    await expect(page.getByRole('dialog', { name: 'מפת האפשרויות שלכם' })).toBeVisible()
     await page.context().close()
   })
 }

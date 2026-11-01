@@ -79,6 +79,7 @@ export function useConversation() {
   const [todayCar, setTodayCar] = useState<string | null>(null)
   const [todayCopaySource, setTodayCopaySource] = useState<string | null>(null)   // the employee's own amount, not the catalog's
   const [mapReady, setMapReady] = useState(false)          // the server can build the option map now
+  const [mapMissing, setMapMissing] = useState<string[]>([])   // what the map still needs, in Hebrew
   const [optionMapState, setOptionMapState] = useState<OptionMap | null>(null)
   const setOptionMap = useCallback((next: OptionMap | null | undefined) => {
     setOptionMapState((prev) => (JSON.stringify(prev) === JSON.stringify(next ?? null) ? prev : next ?? null))
@@ -132,6 +133,7 @@ export function useConversation() {
     setTodayCopaySource(view.today_copay_source ?? null)
     setTodayCopayProvisional(view.today_copay_provisional ?? null)
     setMapReady(view.map_ready === true)
+    setMapMissing(view.map_missing ?? [])
     setOptionMap(view.option_map)
     setResults(res)
     runKeyRef.current = runKey(res)
@@ -162,6 +164,7 @@ export function useConversation() {
       if (u.today_copay_source !== undefined) setTodayCopaySource(u.today_copay_source)
       if (u.today_copay_provisional !== undefined) setTodayCopayProvisional(u.today_copay_provisional)
       setMapReady(u.map_ready === true)
+      if (u.map_missing !== undefined) setMapMissing(u.map_missing)
       setOptionMap(u.option_map)
       setPendingQuestions(u.pending_questions)
       setRepQuestions(u.rep_questions ?? [])
@@ -443,7 +446,7 @@ export function useConversation() {
   return {
     engine, focusQuestionId, todayCopay, todayCar, todayCopaySource, todayCopayProvisional,
     conversationId, repEmail, emailEnabled, emailSimulated, emailPending,
-    messages, stage, expects, questionKey, results, resultsStale, mapReady, optionMap: optionMapState, resultsAnchor,
+    messages, stage, expects, questionKey, results, resultsStale, mapReady, mapMissing, optionMap: optionMapState, resultsAnchor,
     pendingQuestions,
     repQuestions, returnTokenPending, returnTokenError, returnLinkInvalid, returnStored, resumeEmailLink,
     waitingForRep, sending, loading, error, send, sendFields, retry, reload, loadProfile, newConversation,

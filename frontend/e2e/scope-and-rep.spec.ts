@@ -47,7 +47,7 @@ test('a question about the service goes to the representative once; asked again,
     await page.getByRole('button', { name: 'לשאול את נציג הרכב' }).click()
     const card = page.locator('.rep-inquiry-card')
     await expect(card.getByLabel('מה תרצו לשאול?')).toHaveValue(question)
-    const email = card.getByLabel('כתובת אימייל לעדכונים')
+    const email = card.getByLabel('כתובת אימייל לעדכון כשהנציג יענה')
     if (await email.count()) await email.fill('scope.employee@example.test')     // mail on: an address is asked
     await card.getByRole('button', { name: 'המשך' }).click()
     await card.getByRole('button', { name: 'שליחת הפנייה לנציג' }).click()

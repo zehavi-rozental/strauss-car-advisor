@@ -138,7 +138,7 @@ test('a new car is calculated with the catalog copay, marked pending, and one qu
   let result = s.results[0].result
   // the rule since 22/10: the catalog copay is used as is, with no question, until the employee asks
   expect([s.results[0].option_id, result.copay_pending, Number(result.alternative.copay)]).toEqual(['CAR-07', false, 250])
-  await expect(page.locator(BOT).last()).toContainText('לפי הקטלוג, ההשתתפות ברכב הזה היא 250 ₪')
+  await expect(page.locator(BOT).last()).toContainText('לפי הקטלוג היא 250 ₪')
   await send(page, 'אני רוצה שנציג התחבורה יאשר את ההשתתפות')
   s = await state(page)
   result = s.results[0].result

@@ -81,7 +81,7 @@ test.describe('rep inquiry card in the conversation', () => {
     const card = page.locator('.rep-inquiry-card')
     await expect(card).toBeVisible()
     await expect(card.getByLabel('מה תרצו לשאול?')).toHaveValue(/גג נפתח/)
-    await expect(card.getByLabel('כתובת אימייל לעדכונים')).toHaveAttribute('required', '')
+    await expect(card.getByLabel('כתובת אימייל לעדכון כשהנציג יענה')).toHaveAttribute('required', '')
     // cancel: nothing is created
     await card.getByRole('button', { name: 'ביטול' }).click()
     await expect(page.locator('.rep-inquiry-card')).toHaveCount(0)
@@ -114,7 +114,7 @@ test.describe('rep inquiry card in the conversation', () => {
     const edited = 'האם הרכב קיים עם גג נפתח, ובאיזו עלות?'
     const emailsBeforeVerification = new Set(await fakeMailFiles())
     await card.getByLabel('מה תרצו לשאול?').fill(edited)
-    await card.getByLabel('כתובת אימייל לעדכונים').fill('e2e.employee@example.test')
+    await card.getByLabel('כתובת אימייל לעדכון כשהנציג יענה').fill('e2e.employee@example.test')
     await card.getByRole('button', { name: 'המשך' }).click()
     await expect(card).toContainText('סיכום לפני שליחה')
     await card.getByRole('button', { name: 'שליחת הפנייה לנציג' }).click()

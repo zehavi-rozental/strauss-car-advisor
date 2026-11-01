@@ -21,9 +21,8 @@ const GENERAL_ANSWER = 'כן, יש גרסה עם גג נפתח.\nהתוספת מ
 
 test.describe.configure({ mode: 'serial' })
 test.skip(!BASE || !OFF || !REP_TOKEN || !MAIL || !SHOTS, 'E2E_BASE_URL, OFF_BASE_URL, REP_TOKEN, EMAIL_FAKE_DIR, SHOTS_DIR')
-// 1/11: the car cards carry no inquiry link; the one place is today's car card above the comparison. The steps
-// built on per-car inquiries (4, 6-9) are skipped (test.skip) for that reason; 1-2 cover the inquiry from today's
-// copay question and the comparison that goes on while it waits
+// 1/11: the car cards carry no inquiry link; the one place is today's car card above the comparison. The
+// story asks today's copay from its question (1-2) and the new cars' copays in the chat (4)
 
 let employee: Page
 const shot = (page: Page, name: string) => page.screenshot({ path: join(SHOTS, `${name}.png`), fullPage: true })
@@ -170,15 +169,15 @@ test('3. resend before verification says the link is still valid; the fake verif
   await expect(employee.getByRole('button', { name: 'שליחת קישור אימות מחדש' })).toHaveCount(0)   // verified now
 })
 
-test.skip('4. NIRO from its card, then the same request typed in the chat: still one record per inquiry', async () => {
-  await row(employee, 'NIRO').getByRole('button', { name: 'בירור אישי מול הנציג' }).click()
-  const card = employee.locator('.rep-inquiry-card')
-  await expect(card.getByLabel('כתובת אימייל לעדכונים')).toHaveCount(0)        // verified: not asked again
-  await card.getByRole('button', { name: 'המשך' }).click()
-  await card.getByRole('button', { name: 'שליחת הפנייה לנציג' }).click()
-  await expect(employee.locator(RECORD)).toHaveCount(2)
+test("4. a new car's copay asked in the chat: one record per car, asked again it is not sent twice", async () => {
   await send(employee, 'אני רוצה שנציג התחבורה יאשר את ההשתתפות ב-NIRO')
-  await expect(employee.locator(RECORD)).toHaveCount(2)                         // the open question is reused
+  await expect(employee.locator(RECORD)).toHaveCount(2)
+  await expect(employee.locator(RECORD).last()).toContainText('NIRO')
+  await send(employee, 'אני רוצה שנציג התחבורה יאשר את ההשתתפות ב-BYD DOLPHIN')
+  await expect(employee.locator(RECORD)).toHaveCount(3)
+  await expect(employee.locator(RECORD).last()).toContainText('DOLPHIN')
+  await send(employee, 'אני רוצה שנציג התחבורה יאשר את ההשתתפות ב-NIRO')
+  await expect(employee.locator(RECORD)).toHaveCount(3)                         // the open question is reused
 })
 
 test('5. a question in the chat: offered with its own words, one record', async () => {
@@ -188,12 +187,12 @@ test('5. a question in the chat: offered with its own words, one record', async 
   await expect(card.getByLabel('מה תרצו לשאול?')).toHaveValue('יש גג נפתח ב-NIRO?')
   await card.getByRole('button', { name: 'המשך' }).click()
   await card.getByRole('button', { name: 'שליחת הפנייה לנציג' }).click()
-  await expect(employee.locator(RECORD)).toHaveCount(2)
+  await expect(employee.locator(RECORD)).toHaveCount(4)
   await expect(employee.getByRole('button', { name: /לשאול את נציג הרכב/ })).toHaveCount(0)   // not offered again
-  await shot(employee, '05-three-records')
+  await shot(employee, '05-four-records')
 })
 
-test.skip('6. the representative: a multi-line general answer, one-click approval, and another amount', async ({ browser }) => {
+test('6. the representative: a multi-line general answer, one-click approval, and another amount', async ({ browser }) => {
   const rep = await repScreen(browser, BASE)
   // a shared server (CI runs every spec on one) may hold other employees' open questions: this conversation's are
   // the newest of each kind, and each one answered leaves the open list (one card fewer of its kind)
@@ -211,11 +210,10 @@ test.skip('6. the representative: a multi-line general answer, one-click approva
   await expect(niro.getByLabel('הערה לעובד (לא חובה)')).toBeVisible()
   await expect(general.getByLabel('הערה לעובד (לא חובה)')).toHaveCount(0)
   await expect(rep.getByText('ההשתתפות חלה מתאריך')).toHaveCount(0)
-  // the employee's own question starts on its own line under the structured text (7B)
+  // the question keeps its lines on the rep screen (7B). The "שאלת העובד:" line under a structured text came from a
+  // new car's inquiry sent from its card; since 1/11 those are asked in the chat (no words of the employee's own)
+  await expect(general.locator('.rep-question')).toHaveCSS('white-space', 'pre-line')
   await expect(niro.locator('.rep-question')).toHaveCSS('white-space', 'pre-line')
-  const lines = await niro.locator('.rep-question').evaluate((e) => e.getClientRects().length > 0
-    && (e.textContent ?? '').includes('\nשאלת העובד:'))
-  expect(lines).toBe(true)
   await shot(rep, '06-rep-open-questions')
   await general.getByLabel('תשובה').fill(GENERAL_ANSWER)
   await general.getByRole('button', { name: 'שליחת תשובה לעובד' }).click()
@@ -239,7 +237,7 @@ test.skip('6. the representative: a multi-line general answer, one-click approva
   await shot(rep, '07-rep-answered-375')
 })
 
-test.skip('7. the employee: the answer once with its lines, only the right car changed, kept after a refresh', async () => {
+test('7. the employee: the answer once with its lines, only the right car changed, kept after a refresh', async () => {
   const answer = employee.locator(BOT, { hasText: 'התוספת מטופלת מול היבואן' })
   await expect(answer).toHaveCount(1, { timeout: 30_000 })
   await expect(answer).toContainText('כן, יש גרסה עם גג נפתח.')
@@ -249,7 +247,7 @@ test.skip('7. the employee: the answer once with its lines, only the right car c
     await expect(row(employee, 'DOLPHIN')).toContainText('אושר על ידי הנציג')
     await expect(row(employee, 'NIRO')).toContainText('אושר על ידי הנציג')
     await expect(row(employee, 'NIRO')).toContainText('250')
-    await expect(employee.locator(RECORD)).toHaveCount(3)
+    await expect(employee.locator(RECORD)).toHaveCount(4)                 // today's copay question stays open
     await expect(employee.locator(RECORD, { hasText: 'נענתה' })).toHaveCount(3)
     if (pass === 0) await employee.reload()
   }
@@ -260,7 +258,7 @@ test.skip('7. the employee: the answer once with its lines, only the right car c
   await shot(employee, '09-answered-375')
 })
 
-test.skip('8. the answer notice: one per answer, its link opens the conversation on another device', async ({ browser }) => {
+test('8. the answer notice: one per answer, its link opens the conversation on another device', async ({ browser }) => {
   const notices = (await mails()).filter((m) => m.to === EMAIL && !m.subject.includes('אימות'))
   expect(notices).toHaveLength(3)
   const other = await newPage(browser, { baseURL: BASE })            // another device, closed when the test ends
@@ -270,22 +268,25 @@ test.skip('8. the answer notice: one per answer, its link opens the conversation
   expect(notices.every((m) => !m.body.includes('גג נפתח')), 'no answer content in the email').toBe(true)
 })
 
-test.skip('9. mail off: the inquiry and the answer work, and nothing mentions email', async ({ browser }) => {
+test('9. mail off: the inquiry and the answer work, and nothing mentions email', async ({ browser }) => {
   const page = await open(browser, OFF, 375)
-  for (const m of [PROFILE, CAR, 'NIRO']) await send(page, m)
-  await expect(page.locator('.result-card')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: /בירור אישי מול הנציג/ }).first().click()
+  for (const m of [PROFILE, CAR]) await send(page, m)
+  await page.getByRole('button', { name: 'לברר מול נציג' }).click()        // today's copay, from its question
   const card = page.locator('.rep-inquiry-card')
-  await expect(card.getByLabel('כתובת אימייל לעדכונים')).toHaveCount(0)
+  await expect(card.locator('input[type="email"]')).toHaveCount(0)
   await expect(card).not.toContainText('אימייל')
   await card.getByRole('button', { name: 'המשך' }).click()
   await card.getByRole('button', { name: 'שליחת הפנייה לנציג' }).click()
   await expect(page.locator(RECORD)).toHaveCount(1)
   await expect(page.locator(RECORD)).not.toContainText('אימייל')
+  await send(page, 'NIRO')
+  await expect(page.locator('.result-card')).toBeVisible({ timeout: 30_000 })
+  await send(page, 'אני רוצה שנציג התחבורה יאשר את ההשתתפות ב-NIRO')
+  await expect(page.locator(RECORD)).toHaveCount(2)
   await shot(page, '10-mail-off-record-375')
   const rep = await repScreen(browser, OFF)
-  await rep.locator('.rep-card').first().getByRole('button', { name: /אישור סכום ברירת המחדל/ }).click()
-  await expect(page.locator(BOT, { hasText: 'נציג התחבורה' })).toBeVisible({ timeout: 30_000 })
+  await rep.locator('.rep-card', { hasText: 'NIRO' }).last().getByRole('button', { name: /אישור סכום ברירת המחדל/ }).click()
+  await expect(page.locator(BOT, { hasText: 'נציג התחבורה אישר את ההשתתפות ב-NIRO' })).toBeVisible({ timeout: 30_000 })
   await expect(page.locator('.result-card')).toContainText('אושר על ידי הנציג')
   await noOverflow(page)
   await shot(page, '11-mail-off-answered-375')

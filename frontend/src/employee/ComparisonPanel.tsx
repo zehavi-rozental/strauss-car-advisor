@@ -26,7 +26,20 @@ interface Props {
   /** calculated before the last change: shown as history, never as the current result */
   stale?: boolean
   details?: Record<string, CatalogItem>
+  /** opened from the option map (1/11): a comparison to look at. It never changes the chat's comparison; only
+   *  "להעביר להשוואה בצ'אט" does, through the same selection the chat uses */
+  browse?: boolean
+  /** after the browsed cars were sent to the chat's comparison */
+  onMoved?: () => void
 }
+
+/** The browsed cars may move into the chat's comparison only as the chat offers them (its options question). */
+export function canMoveToChat(ids: string[], optionsField: { choices: { id: string }[] } | null, stale: boolean): boolean {
+  return optionsField != null && !stale && ids.length > 0 && ids.every((id) => optionsField.choices.some((c) => c.id === id))
+}
+
+export const BROWSE_NOTE = "השוואה לעיון בלבד. ההשוואה בצ'אט לא משתנה."
+export const MOVE_TO_CHAT = "להעביר להשוואה בצ'אט"
 
 function CellView({ cell }: { cell: Cell }) {
   if (cell.kind === 'money') {
@@ -38,7 +51,8 @@ function CellView({ cell }: { cell: Cell }) {
   return <span className="muted" aria-label="אין">—</span>
 }
 
-export function ComparisonPanel({ results, stale = false, expects, disabled, onClose, onSend, onCorrect, details }: Props) {
+export function ComparisonPanel({ results, stale = false, expects, disabled, onClose, onSend, onCorrect, details,
+                                  browse = false, onMoved }: Props) {
   const shown = results.slice(0, 3)
   const rows = breakdownRows(shown)
   const ranked = stale ? shown : rankResults(shown)       // never rank an out-of-date result
@@ -48,6 +62,13 @@ export function ComparisonPanel({ results, stale = false, expects, disabled, onC
   const optionsField = expects?.fields.find((f) => f.field === 'options') ?? (expects?.field === 'options' ? expects : null)
   const why = shown.filter((i) => i.result.status === 'OK')
   const closeRef = useDialog(onClose)
+  // the browsed cars can move into the chat's comparison when the chat offers these cars (its options question)
+  const movable = browse && canMoveToChat(shown.map((i) => i.option_id), optionsField, stale)
+  const moveToChat = async () => {
+    if (await onSend({ choices: shown.map((i) => i.option_id), field: 'options' }, shown.map((i) => i.label).join(', '))) {
+      onMoved?.()
+    }
+  }
 
   // rendered at the end of <body>: above the top bar, outside the chat's own stacking context
   return createPortal(
@@ -56,7 +77,7 @@ export function ComparisonPanel({ results, stale = false, expects, disabled, onC
              onClick={(e) => e.stopPropagation()}>
         <header className="panel-header">
           <div>
-            <p className="panel-kicker">פירוט מלא</p>
+            <p className="panel-kicker">{browse ? 'לעיון' : 'פירוט החישוב'}</p>
             <h2>טבלת השוואה</h2>
           </div>
           <button ref={closeRef} type="button" className="panel-close" onClick={onClose} aria-label="סגירה">
@@ -66,6 +87,7 @@ export function ComparisonPanel({ results, stale = false, expects, disabled, onC
 
         <div className={stale ? 'panel-body result-stale' : 'panel-body'}>
           {stale && <p className="stale-note" role="status">{STALE_NOTE}</p>}
+          {browse && <p className="browse-note" role="note"><Icon name="eye" size={16} />{BROWSE_NOTE}</p>}
           {/* side by side: today and each option, ranked */}
           <section className="compare-stage" aria-label="השוואה" style={{ '--cols': ranked.length + 1 } as CSSProperties}>
             <div className="compare-col is-today">
@@ -186,7 +208,7 @@ export function ComparisonPanel({ results, stale = false, expects, disabled, onC
             </div>
           </details>
 
-          {optionsField && optionsField.choices.length > 0 && (
+          {!browse && optionsField && optionsField.choices.length > 0 && (
             <section className="swap-box" aria-labelledby="swap-title">
               <h3 id="swap-title"><Icon name="swap" size={18} />לשנות בחירה</h3>
               <SelectionCard f={optionsField} fieldParam="options" disabled={disabled} onSend={onSend}
@@ -196,6 +218,11 @@ export function ComparisonPanel({ results, stale = false, expects, disabled, onC
         </div>
 
         <footer className="panel-actions">
+          {movable && (
+            <button type="button" className="chip chip-primary" disabled={disabled} onClick={() => void moveToChat()}>
+              <Icon name="swap" size={16} />{MOVE_TO_CHAT}
+            </button>
+          )}
           <button type="button" className="chip chip-quiet" disabled={disabled} onClick={onCorrect}>
             <Icon name="edit" size={16} />תיקון נתונים
           </button>

@@ -897,7 +897,7 @@ class ReplyPlan:
 CTA_STARTS = ("כתבו", "בחרו", "אפשר לכתוב")
 NEXT_AFTER_RESULTS = "רוצים לראות אילו רכבים משאירים לכם את הנטו הגבוה ביותר?"
 NEXT_AFTER_RANK = "רוצים להשוות רכבים אחרים? כתבו את השמות שלהם."
-LINK_LABELS = {"profile_form": "למלא בטופס", "selection": "להציג את הרכבים בקבוצה שלכם",
+LINK_LABELS = {"profile_form": "למלא בטופס", "selection": "לבחור רכבים להשוואה",
                "payslip_upload": "להעלות תלוש"}
 
 

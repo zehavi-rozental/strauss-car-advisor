@@ -17,7 +17,7 @@ import { ProfileForm } from './ProfileForm'
 import { Progress } from './Progress'
 import { SelectionCard } from './SelectionCard'
 import { payslipFormText, profileFormText } from './formFields'
-import { SelectedBar } from './SummaryCard'
+import { CarActions } from './CarActions'
 import { RepInquiryCard } from './RepInquiryCard'
 import { useCatalog } from './useCatalog'
 import { useConversation } from './useConversation'
@@ -159,13 +159,11 @@ export function EmployeePage() {
         </div>
       </div>
     )
-  } else if (c.results.length > 0 && options) {
-    area = <SelectedBar items={c.results} disabled={busy} onChange={() => setOpened('selection')} />
   } else {
     area = (
       <>
         <AnswerWidgets expects={c.expects} disabled={busy} onSend={c.send} onCopayRep={openTodayCopayInquiry} />
-        {link && (
+        {link && link.kind !== 'selection' && (
           <button type="button" className={`link-button link-${link.kind}`} disabled={busy} onClick={openLink}>
             <Icon name={LINK_ICON[link.kind] ?? 'chevron'} size={18} />{link.label}
           </button>
@@ -173,9 +171,23 @@ export function EmployeePage() {
       </>
     )
   }
-  // 360°: offered only when the server can build the map now (map_ready: every value and today's car known), so
-  // the button never leads to "חסרים לי עוד" (QA 22/10). A map typed for earlier is still built when ready.
-  const offerMap = !c.optionMap && c.mapReady
+  // the cars, one compact place (1/11): choose for the chat's comparison, the 3 with the highest net, or every car
+  // by net (the map, to look at). Shown with the alternatives question and after results, while no closed question
+  // or open form/card needs the answer area; the map's entry says what is missing instead of hiding.
+  const rank = options?.quick_replies.find((q) => q.id === 'rank') ?? null
+  const closedAsked = fieldsOf(c.expects).some((f) => f.closed && f.field !== 'rep_copay')
+  // the alternatives field rides along with the car question; the cars' place opens once the alternatives are asked
+  const choosing = options != null && (c.stage === 'CHOOSE_OPTIONS' || c.results.length > 0)
+  const showCarActions = !formOpen && !opened && !inquiry && !offersAskRep(c.expects) && !closedAsked
+    && (choosing || c.results.length > 0 || c.optionMap != null)
+  const carActions = showCarActions && (
+    <CarActions selected={c.resultsStale ? [] : c.results.map((r) => r.label)} canChoose={choosing}
+                canRank={rank != null} mapReady={c.mapReady} mapExists={c.optionMap != null} mapMissing={c.mapMissing}
+                disabled={busy} onChoose={() => setOpened('selection')}
+                onRank={() => { if (rank) void c.send({ choice: rank.id, field: 'options' }, rank.label) }}
+                onMap={() => (c.optionMap ? setMapOpen(true) : void c.send({ text: MAP_REQUEST }, MAP_REQUEST))}
+                onCompleteData={correct} />
+  )
   // the explanation of catalog copay, shown before results appear (while choosing options / calculating), with a
   // gentle link to raise a copay inquiry with the rep. Derived from the stage, so it never repeats on a poll.
   // the representative's amount for today's copay, waiting for the employee: its button is under the answer (1/11)
@@ -221,10 +233,7 @@ export function EmployeePage() {
   const tail = (
     <div className="answer-tail" ref={tailRef}>
       {area}
-      {offerMap && (
-        <button type="button" className="chip map-request" disabled={busy}
-                onClick={() => void c.send({ text: MAP_REQUEST }, MAP_REQUEST)}>גלו לי את כל האפשרויות</button>
-      )}
+      {carActions}
       {inquiry && (
         <RepInquiryCard
           key={`${inquiry.opened}:${inquiry.intent}:${inquiry.optionId ?? ''}`}
@@ -320,8 +329,9 @@ export function EmployeePage() {
         <OptionMapPanel map={c.optionMap} onClose={() => setMapOpen(false)} onCompare={setMapCompare} />
       )}
       {mapCompare && c.optionMap && (
-        <ComparisonPanel results={mapCompare} stale={c.optionMap.stale} expects={c.expects} disabled={busy}
+        <ComparisonPanel results={mapCompare} stale={c.optionMap.stale} expects={c.expects} disabled={busy} browse
                          onClose={() => setMapCompare(null)} onSend={c.send} details={catalog}
+                         onMoved={() => { setMapCompare(null); setMapOpen(false) }}
                          onCorrect={() => { setMapCompare(null); setMapOpen(false); correct() }} />
       )}
     </div>

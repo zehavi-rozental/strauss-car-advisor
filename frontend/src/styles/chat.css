@@ -727,3 +727,27 @@
 .rep-copay-answer .rep-answer-done { margin: 0; }
 .rep-inquiry-field-error { margin: 0; color: var(--down); font-size: var(--fs-small); }
 .rep-inquiry-email[aria-invalid], .rep-inquiry-text[aria-invalid] { border-color: var(--down); }
+
+/* the cars, one compact place (1/11): the chat's comparison, then three short ways in */
+.car-actions {
+  display: grid; gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--card);
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+}
+.car-actions-current { display: flex; align-items: center; gap: 6px; margin: 0; }
+.car-actions-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.car-actions-row .chip { display: inline-flex; align-items: center; gap: 6px; }
+.car-actions-missing { margin: 0; color: var(--ink-2); }
+.browse-note {
+  display: flex; align-items: center; gap: 6px;
+  margin: 0 0 var(--s3);
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  background: var(--surface-today);
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+}
