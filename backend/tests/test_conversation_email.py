@@ -170,7 +170,8 @@ def test_answer_email_failure_does_not_undo_answer_and_retry_sends_once(engine, 
     notice = service.fake_messages[1]
     assert notice["to"] == EMAIL
     assert answer_text not in notice["body"] and "18500" not in notice["body"]
-    assert question["question_text"] not in notice["body"]
+    # the employee's own question is named since 1/11 (the product owner's request); the answer and pay data never are
+    assert "השאלה שלכם:" in notice["body"] and "לצפייה בתשובת הנציג" in notice["body"]
     assert employee.post(f"/api/rep/questions/{question['id']}/answer", headers=AUTH,
                          json={"value": answer_text}).status_code == 409
     assert len(service.fake_messages) == 2

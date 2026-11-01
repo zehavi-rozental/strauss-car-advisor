@@ -6,7 +6,7 @@ import { Money } from '../format/Amount'
 import { formatTime } from '../format/time'
 import { BrandMark } from '../ui/BrandMark'
 import { Icon } from '../ui/Icon'
-import { InquiryRecord } from './InquiryRecord'
+import { InquiryRecord, parseRecord } from './InquiryRecord'
 import { ResultCard } from './ResultCard'
 import { bubbleText, copyText, copyableText, lastUserSeq as findLastUserSeq } from './messages'
 import { RichText } from './richText'
@@ -154,6 +154,30 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
     }
     return null
   }
+  // the representative's answer to any other inquiry (1/11): the question and the answer together, in one card. The
+  // question is the employee's own words (or the record's summary); the answer is the message without its header line
+  const recorded = new Map(messages.filter((x) => x.source === 'rep_inquiry' && x.rep_question_id)
+    .map((x) => [x.rep_question_id as string, parseRecord(x.content).question]))
+  const answerCard = (m: ChatMessage, text: string) => {
+    if (m.source !== 'rep' || !m.rep_question_id || copayUnit(m)) return null
+    const asked = inquiries.get(m.rep_question_id)?.employee_text || recorded.get(m.rep_question_id) || ''
+    const answer = text.replace(/^נציג התחבורה[^\n]*:\n/, '')
+    return (
+      <div className="rep-answer-card" aria-label="תשובת נציג התחבורה">
+        <p className="rep-answer-card-title"><Icon name="rep" size={16} />הנציג השיב</p>
+        {asked && (
+          <div className="rep-answer-card-part">
+            <span>השאלה שלכם:</span>
+            <p className="rep-answer-card-question"><bdi>{asked}</bdi></p>
+          </div>
+        )}
+        <div className="rep-answer-card-part">
+          <span>תשובת נציג התחבורה:</span>
+          <div className="bubble-text"><RichText text={answer} /></div>
+        </div>
+      </div>
+    )
+  }
   // a structured answer replaces the bubble's own text (the same facts, never said twice)
   const copayUnit = (m: ChatMessage) => {
     const q = m.source === 'rep' && m.rep_question_id ? inquiries.get(m.rep_question_id) : undefined
@@ -206,7 +230,7 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
               <div className="bubble bubble-bot">
                 <span className="bubble-avatar" aria-hidden="true"><BrandMark size={22} /></span>
                 <div className="bubble-main">
-                  {!copayUnit(m) && <div className="bubble-text"><RichText text={text} /></div>}
+                  {answerCard(m, text) ?? (!copayUnit(m) && <div className="bubble-text"><RichText text={text} /></div>)}
                   <div className="bubble-meta">
                     <span className="bubble-time">{formatTime(m.created_at)}</span>
                     {/* no "Gemini" / "מערכת" label (1/11): who wrote a reply stays in the message's source, for

@@ -748,3 +748,23 @@
   color: var(--ink-2);
   font-size: var(--fs-small);
 }
+
+/* an inquiry and its answer (1/11): the record says it was sent; the answer is one card with the question */
+.rep-inquiry-label-quiet { display: block; color: var(--ink-3); font-size: var(--fs-micro); }
+.rep-inquiry-history-question p { margin: 2px 0 0; }
+.rep-inquiry-history.is-focused { animation: record-focus 2.4s ease-out 1; }
+@keyframes record-focus {
+  0%, 35% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 16%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .rep-inquiry-history.is-focused { animation: none; } }
+.rep-answer-card { display: grid; gap: 12px; padding-block: 2px 8px; }
+.rep-answer-card-title { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 700; color: var(--ink); }
+.rep-answer-card-title svg { color: var(--brand); }
+.rep-answer-card-part { display: grid; gap: 4px; }
+.rep-answer-card-part > span { color: var(--ink-3); font-size: var(--fs-micro); }
+.rep-answer-card-question {
+  margin: 0; padding: 8px 12px; border-radius: 12px; background: var(--surface-today);
+  color: var(--ink-2); white-space: pre-line; overflow-wrap: break-word;
+}
+.rep-answer-card .bubble-text { overflow-wrap: break-word; }

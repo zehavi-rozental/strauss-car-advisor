@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, api } from '../api/client'
 import { normalizeResults } from '../api/normalize'
-import { mapKey, readMapAnchor, storeMapAnchor } from './optionMap'
+import { mapKey } from './optionMap'
+import { placeAnchor, type CardAnchor } from './anchors'
 import type { ConversationView, EngineState, Expects, Message, MessageIn, OptionMap, OptionResult, PendingQuestion, ProfileFields, RepInquiry, Stage } from '../api/types'
 
 const STORAGE_KEY = 'sca.conversationId'
@@ -89,7 +90,7 @@ export function useConversation() {
   const [resultsAnchor, setResultsAnchor] = useState<number | null>(null)
   // the message the option map was presented in (1/11): its card stays there, never re-drawn after every message
   const [mapAnchor, setMapAnchor] = useState<number | null>(null)
-  const mapAnchorRef = useRef<{ key: string; seq: number } | null>(null)
+  const mapAnchorRef = useRef<CardAnchor | null>(null)
   const placeMap = useCallback((map: OptionMap | null | undefined, seq: number | null, id: string | null) => {
     const key = mapKey(map)
     if (key === null || seq === null || !id) {
@@ -97,12 +98,21 @@ export function useConversation() {
       setMapAnchor(null)
       return
     }
-    if (mapAnchorRef.current?.key === key) return               // the same map: it stays where it is
-    const stored = readMapAnchor(id)
-    const anchor = stored?.key === key ? stored : { key, seq }  // a reload: back to its message; new: this one
-    mapAnchorRef.current = anchor
-    storeMapAnchor(id, anchor)
-    setMapAnchor(anchor.seq)
+    // the same map stays where it is; after a reload it goes back to its message; a new one goes to this one
+    mapAnchorRef.current = placeAnchor('map', id, key, seq, mapAnchorRef.current)
+    setMapAnchor(mapAnchorRef.current.seq)
+  }, [])
+  // the results the same way (1/11): a reload used to put them under the last message — after an inquiry was sent,
+  // under the inquiry itself, and the page followed them down ("back to the comparisons")
+  const resultsAnchorRef = useRef<CardAnchor | null>(null)
+  const placeResults = useCallback((res: OptionResult[], seq: number | null, id: string | null) => {
+    if (!res.length || seq === null || !id) {
+      resultsAnchorRef.current = null
+      setResultsAnchor(null)
+      return
+    }
+    resultsAnchorRef.current = placeAnchor('results', id, runKey(res), seq, resultsAnchorRef.current)
+    setResultsAnchor(resultsAnchorRef.current.seq)
   }, [])
   const [pendingQuestions, setPendingQuestions] = useState<PendingQuestion[]>([])
   const [repQuestions, setRepQuestions] = useState<RepInquiry[]>([])
@@ -156,8 +166,8 @@ export function useConversation() {
     placeMap(view.option_map, lastAssistantRef.current, view.conversation_id)
     setResults(res)
     runKeyRef.current = runKey(res)
-    setResultsAnchor(res.length ? lastAssistantRef.current : null)
-  }, [setExpects, setOptionMap, placeMap])
+    placeResults(res, lastAssistantRef.current, view.conversation_id)
+  }, [setExpects, setOptionMap, placeMap, placeResults])
 
   /** New messages after the last seq, plus the current stage, expects, results and open questions.
    *  Calls are chained so polling and sending never apply updates out of order. */
@@ -194,14 +204,14 @@ export function useConversation() {
         runKeyRef.current = key
         setResults(res)
         // the card moves to the message in which the results changed (e.g. the rep's answer)
-        setResultsAnchor(res.length ? lastAssistantRef.current : null)
+        placeResults(res, lastAssistantRef.current, id)
       }
       return fresh
     }
     const next = syncChain.current.then(run, run)
     syncChain.current = next.then(() => undefined, () => undefined)
     return next
-  }, [setExpects, setOptionMap, placeMap])
+  }, [setExpects, setOptionMap, placeMap, placeResults])
 
   const reload = useCallback(async () => {
     const id = idRef.current
@@ -413,6 +423,7 @@ export function useConversation() {
       setOptionMap(null)
       mapAnchorRef.current = null
       setMapAnchor(null)
+      resultsAnchorRef.current = null
       setResults([])
       setResultsAnchor(null)
       setPendingQuestions([])
@@ -466,7 +477,7 @@ export function useConversation() {
   const questionKey = `${lastAssistant ?? ''}|${JSON.stringify(expects)}`
 
   return {
-    engine, focusQuestionId, todayCopay, todayCar, todayCopaySource, todayCopayProvisional,
+    engine, focusQuestionId, focusQuestion: setFocusQuestionId, todayCopay, todayCar, todayCopaySource, todayCopayProvisional,
     conversationId, repEmail, emailEnabled, emailSimulated, emailPending,
     messages, stage, expects, questionKey, results, resultsStale, mapReady, mapMissing, optionMap: optionMapState, mapAnchor, resultsAnchor,
     pendingQuestions,

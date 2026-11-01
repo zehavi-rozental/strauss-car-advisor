@@ -60,14 +60,13 @@ test('a question about the service goes to the representative once; asked again,
   await ask()
   const records = page.getByTestId('rep-inquiry-history')
   await expect(records).toHaveCount(1)
-  await expect(records.first()).toContainText('ממתינה לתשובת הנציג')
+  await expect(records.first()).toContainText('ממתינים לתשובת הנציג')
   const sent = await asked()
   expect(sent).toBe(base + 1)                      // sent once
   await send(page, question)                                                 // the same question again
-  await ask()
-  // the open inquiry is pointed to, nothing is sent again
-  await expect(page.locator('.rep-inquiry-card.is-exists')).toContainText('כבר קיימת פנייה פתוחה')
-  await expect(page.locator('.rep-inquiry-card.is-exists')).toContainText('לא שלחנו פנייה נוספת')
+  // its status at once (1/11), and nothing is offered or sent again
+  await expect(page.locator('.bubble-bot .bubble-text').last()).toContainText('כבר שאלתי את נציג התחבורה את השאלה הזו')
+  await expect(page.getByRole('button', { name: 'לשאול את נציג הרכב' })).toHaveCount(0)
   await expect(records).toHaveCount(1)
   expect(await asked()).toBe(sent)                 // not sent again
 })

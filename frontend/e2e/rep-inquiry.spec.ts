@@ -120,7 +120,7 @@ test.describe('rep inquiry card in the conversation', () => {
     await card.getByRole('button', { name: 'שליחת הפנייה לנציג' }).click()
     const history = page.getByTestId('rep-inquiry-history')
     await expect(history).toBeVisible({ timeout: 20_000 })
-    await expect(history).toContainText('ממתינה לתשובת הנציג')
+    await expect(history).toContainText('ממתינים לתשובת הנציג')
     await expect(history).toContainText('נפתחה')
     const verificationMail = await fakeEmailAfter(emailsBeforeVerification)
     expect(verificationMail.to).toBe('e2e.employee@example.test')
@@ -169,7 +169,7 @@ test.describe('rep inquiry card in the conversation', () => {
     const answerMail = await answerMailPromise
     expect(answerMail.body).not.toContain('כן, הרכב זמין עם גג נפתח בתוספת תשלום.')
     expect(answerMail.to).toBe('e2e.employee@example.test')
-    expect(answerMail.html).toContain('פתיחת השיחה המאובטחת')
+    expect(answerMail.html).toContain('לצפייה בתשובת הנציג')               // the answer notice's own button (1/11)
     const answerToken = answerMail.body.match(/return_token=([A-Za-z0-9_-]+)/)?.[1]
     expect(answerToken).toBeTruthy()
 

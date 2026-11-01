@@ -944,6 +944,11 @@ class Agent:
         before = next_stage(state)
 
         und = understand(state, snapshot, text)
+        known = known_question_line(state, und.unanswered[0]) if und.unanswered else None
+        if known is not None:
+            # a question already sent (1/11): its status, or the answer already given, is the reply; never offered to
+            # the representative again (the offer was shown though clicking it would send nothing new)
+            und = replace(und, unanswered=und.unanswered[1:], catalog=[*und.catalog, known])
         # a correction asked for in the last reply (1/11): this message may be its new value; asked once only
         correcting, state.correcting_field = state.correcting_field, None
         if und.unanswered:

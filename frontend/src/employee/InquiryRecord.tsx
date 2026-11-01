@@ -7,7 +7,7 @@ import { inquiryNumber } from '../format/inquiry'
 import { Icon } from '../ui/Icon'
 
 const STATUS: Record<RepInquiry['status'], string> = {
-  OPEN: 'ממתינה לתשובת הנציג', ANSWERED: 'נענתה', CANCELLED: 'בוטלה',
+  OPEN: 'ממתינים לתשובת הנציג', ANSWERED: 'נענתה', CANCELLED: 'בוטלה',
 }
 
 const RESEND_TEXT: Record<string, string> = {
@@ -63,11 +63,17 @@ export function InquiryRecord({ question, content, answerSeq, onResend }: Props)
              data-testid="rep-inquiry-history" aria-label={`פנייה לנציג הרכב: ${status}`}>
       <header>
         <Icon name="rep" size={16} />
-        <strong>פנייה לנציג הרכב</strong>
+        {/* once the server saved it (this record is the server's message): said plainly that it was sent (1/11) */}
+        <strong>{open ? 'השאלה נשלחה לנציג התחבורה' : 'פנייה לנציג התחבורה'}</strong>
         <span className="rep-inquiry-status" role="status">{status}</span>
       </header>
       {question?.car_label && <p className="rep-inquiry-car">הרכב: <bdi>{question.car_label}</bdi></p>}
-      {asked && <p className="rep-inquiry-history-question"><bdi>{asked}</bdi></p>}
+      {asked && (
+        <div className="rep-inquiry-history-question">
+          <span className="rep-inquiry-label-quiet">{open ? 'השאלה שנשלחה:' : 'השאלה שלכם:'}</span>
+          <p><bdi>{asked}</bdi></p>
+        </div>
+      )}
       {open && parsed.next && <p className="rep-inquiry-next">{parsed.next}</p>}
       {createdAt && (
         <dl>

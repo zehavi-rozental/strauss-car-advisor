@@ -50,7 +50,7 @@ describe('inquiry record in the chat', () => {
   it('an open inquiry says it waits, and offers a new verification link only when asked to', () => {
     const base = { messages: [msg(2, 'rep_inquiry', RECORD, 'q1')], repQuestions: [inquiry('OPEN')] }
     const plain = render(base)
-    expect(plain).toContain('ממתינה לתשובת הנציג')
+    expect(plain).toContain('ממתינים לתשובת הנציג')
     expect(plain).toContain('התשובה תופיע כאן בשיחה.')
     expect(plain).not.toContain('שליחת קישור אימות מחדש')
     expect(render({ ...base, onResendVerification: async () => 'queued' })).toContain('שליחת קישור אימות מחדש')
@@ -126,5 +126,39 @@ describe('the option map stays under the message that presented it (1/11)', () =
     expect(out.indexOf('map-card-slot')).toBeGreaterThan(out.indexOf('מיפיתי את כל 9 החלופות'))
     expect(out.indexOf('map-card-slot')).toBeLessThan(out.indexOf('אני רוצה לתקן נתון'))
     expect(out.indexOf('map-card-slot')).toBeLessThan(out.indexOf('מה תרצו לתקן?'))
+  })
+})
+
+describe('an inquiry and its answer, as the employee reads them (1/11)', () => {
+  it('sent: said plainly, with the question as sent and the waiting status', () => {
+    const out = render({ messages: [msg(5, 'rep_inquiry', RECORD, 'q1')], repQuestions: [inquiry('OPEN')] })
+    expect(out).toContain('השאלה נשלחה לנציג התחבורה')
+    expect(out).toContain('השאלה שנשלחה:')
+    expect(out).toContain('באיזה צבעים יש את NIRO?')
+    expect(out).toContain('ממתינים לתשובת הנציג')
+  })
+
+  it('answered: one card with the question and the full answer, its lines kept', () => {
+    const answer = 'נציג התחבורה ענה על השאלה שלכם:\nכן, יש גרסה עם גג נפתח.\nהתוספת מטופלת מול היבואן.'
+    const out = render({ messages: [msg(5, 'rep_inquiry', RECORD, 'q1'), msg(9, 'rep', answer, 'q1')],
+                         repQuestions: [inquiry('ANSWERED')] })
+    const card = out.slice(out.indexOf('rep-answer-card'))
+    expect(card).toContain('הנציג השיב')
+    expect(card).toContain('השאלה שלכם:')
+    expect(card).toContain('באיזה צבעים יש את NIRO?')
+    expect(card).toContain('תשובת נציג התחבורה:')
+    expect(card).toContain('כן, יש גרסה עם גג נפתח.')
+    expect(card).toContain('<br/>התוספת מטופלת מול היבואן.')               // its lines kept
+    expect(card).not.toContain('נציג התחבורה ענה על השאלה שלכם:')           // the header is the card's title now
+  })
+
+  it("the results stay under their own message, not under an inquiry sent after them", () => {
+    const messages = [msg(3, 'template', 'בדקתי את 2 הרכבים.'), msg(5, 'rep_inquiry', RECORD, 'q1')]
+    const result = { option_id: 'CAR-05', label: 'NIRO (2025)', run_id: 'r', result: {
+      status: 'OK', eligible: true, reason: '', missing_fields: [], today: null, alternative: { copay: '250' },
+      delta_display: '539', lines: [], cost: null, drivers: [], electric_refund: null, copay_pending: false,
+      assumptions: [], why: '', rules_version: '', extensions_version: '', engine_version: '' } } as unknown as OptionResult
+    const out = render({ messages, repQuestions: [inquiry('OPEN')], results: [result], resultsAnchor: 3 })
+    expect(out.indexOf('result-card')).toBeLessThan(out.indexOf('השאלה נשלחה לנציג התחבורה'))
   })
 })

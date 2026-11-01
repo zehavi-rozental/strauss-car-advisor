@@ -144,7 +144,7 @@ test('1. today copay asked through "לברר מול נציג": the address first
 test('2. the comparison on the provisional catalog amount: one record, its status, no per-car link', async () => {
   await expect(employee.getByRole('button', { name: /בירור אישי/ })).toHaveCount(0)         // no per-car link
   await expect(employee.locator(RECORD).first()).toContainText('COROLLA CROSS')
-  await expect(employee.locator(RECORD).first()).toContainText('ממתינה לתשובת הנציג')
+  await expect(employee.locator(RECORD).first()).toContainText('ממתינים לתשובת הנציג')
   const today = employee.locator('.today-copay-card')
   await expect(today).toContainText('COROLLA CROSS')
   await expect(today).toContainText('נשלחה פנייה לנציג התחבורה')
@@ -265,7 +265,8 @@ test('8. the answer notice: one per answer, its link opens the conversation on a
   await other.goto(`/employee#return_token=${token(notices[0].body)}`)
   await other.getByRole('button', { name: 'פתיחת השיחה המאובטחת' }).click()
   await expect(other.locator(BOT, { hasText: 'התוספת מטופלת מול היבואן' })).toHaveCount(1, { timeout: 30_000 })
-  expect(notices.every((m) => !m.body.includes('גג נפתח')), 'no answer content in the email').toBe(true)
+  // the employee's own question is named (1/11); the answer itself is read only in the conversation
+  expect(notices.every((m) => !m.body.includes('התוספת מטופלת')), 'no answer content in the email').toBe(true)
 })
 
 test('9. mail off: the inquiry and the answer work, and nothing mentions email', async ({ browser }) => {

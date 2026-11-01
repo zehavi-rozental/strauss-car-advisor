@@ -219,6 +219,9 @@ export function EmployeePage() {
     // created: the inquiry's record now stands in the chat, so the card closes. exists: the card stays and says
     // so, with a link to the record already in the chat (nothing new was sent)
     if (res.status === 'created') setInquiry(null)
+    // the employee stays at the inquiry (1/11): its record is brought into view and kept there through the polls,
+    // never the comparison; shown only once the server saved it (this runs after its answer)
+    if (res.status === 'created' && res.question_id) c.focusQuestion(res.question_id)
     void c.reload()
   }
   // a new verification link, offered on the latest open inquiry only while mail is on and the address waits

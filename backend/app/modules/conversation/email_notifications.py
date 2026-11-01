@@ -5,6 +5,8 @@ import hashlib
 import html
 import json
 import logging
+import os
+import re
 import secrets
 import smtplib
 import ssl
@@ -13,7 +15,7 @@ from datetime import timedelta
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import select, update
@@ -21,7 +23,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.shared.db import utcnow
 
-from .models import ConversationRow, EmailLinkRow, EmailOutboxRow
+from .models import ConversationRow, EmailLinkRow, EmailOutboxRow, MessageRow
 from .repository import token_hash
 
 log = logging.getLogger(__name__)
@@ -37,6 +39,26 @@ AWAITING = "AWAITING"
 
 class EmailNotConfigured(Exception):
     pass
+
+
+def local_url(url: str) -> bool:
+    """A link only this computer can open (localhost / 127.x / no host)."""
+    host = (urlparse(url).hostname or "").lower()
+    return host in ("", "localhost", "0.0.0.0", "::1") or host.startswith("127.")
+
+
+# a long number in the employee's question may be pay data: such a question is not copied into an email (1/11)
+_LONG_NUMBER_RE = re.compile(r"\d[\d,.]{2,}")
+_YEAR_RE = re.compile(r"(?<!\d)20\d\d(?!\d)")
+
+
+def question_for_email(text: str) -> str:
+    """The employee's own question, safe to put in an email: at most 300 characters, and nothing at all when it
+    carries a figure that is not a model year (it may be a salary; the email then points to the conversation)."""
+    text = " ".join(text.split())
+    if _LONG_NUMBER_RE.search(_YEAR_RE.sub("", text)):
+        return ""
+    return text[:300] + ("…" if len(text) > 300 else "")
 
 
 class InvalidEmailLink(Exception):
@@ -65,7 +87,14 @@ class EmailNotificationService:
     @property
     def enabled(self) -> bool:
         """Mail can be sent: a fake or SMTP backend with a usable key. Otherwise the conversation and the
-        representative work as usual, and nothing is said about email."""
+        representative work as usual, and nothing is said about email. On Render (production) a link only a local
+        computer can open is never mailed: mail stays off and the reason is logged once (1/11)."""
+        if (self.settings.email_backend == "smtp" and os.environ.get("RENDER")
+                and local_url(self.settings.email_public_app_url)):
+            if not getattr(self, "_local_url_logged", False):
+                log.error("EMAIL_PUBLIC_APP_URL is a local address on Render: email notices are off")
+                self._local_url_logged = True
+            return False
         return self.settings.email_backend in ("fake", "smtp") and self.fernet is not None
 
     @property
@@ -266,21 +295,28 @@ class EmailNotificationService:
                 return False
         message_id, purpose, question_id, recipient, raw_token, attempt = values
         url = f"{self.settings.email_public_app_url.rstrip('/')}/employee#return_token={quote(raw_token)}"
+        asked = ""
         if purpose == "VERIFY":
             subject = "אימות כתובת האימייל — יועץ הרכב של שטראוס"
             introduction = "כדי לאמת את כתובת האימייל ולחזור לשיחה, פתחו את הקישור המאובטח."
+            button = "פתיחת השיחה המאובטחת"
         else:
             subject = "תשובה מנציג התחבורה — יועץ הרכב של שטראוס"
-            introduction = "נציג התחבורה ענה לפנייה שלכם. פתחו את הקישור המאובטח כדי לראות את התשובה ולהמשיך בשיחה."
-        body = f"{introduction}\n\n{url}\n\nהקישור תקף ל-24 שעות ופועל פעם אחת."
+            introduction = "התקבלה תשובה מנציג התחבורה לפנייה שלכם. הקישור יפתח את השיחה ישירות בתשובה."
+            button = "לצפייה בתשובת הנציג"
+            asked = self._asked(row_id, question_id)      # the employee's own question (1/11), never the answer
+        body = (f"{introduction}\n\n" + (f"השאלה שלכם: {asked}\n\n" if asked else "")
+                + f"{button}: {url}\n\nהקישור תקף ל-24 שעות ופועל פעם אחת.")
         html_body = (
             '<div dir="rtl" style="font-family:Arial,sans-serif;max-width:560px;margin:auto;'
             'padding:24px;color:#18332c">'
             '<h1 style="font-size:22px">יועץ הרכב של שטראוס</h1>'
             f'<p style="line-height:1.7">{html.escape(introduction)}</p>'
-            f'<p style="margin:28px 0"><a href="{html.escape(url, quote=True)}" '
+            + (f'<p style="line-height:1.7;background:#f3f6f5;padding:12px 16px;border-radius:6px">'
+               f'<strong>השאלה שלכם:</strong><br>{html.escape(asked)}</p>' if asked else "")
+            + f'<p style="margin:28px 0"><a href="{html.escape(url, quote=True)}" '
             'style="background:#126b50;color:#fff;padding:12px 20px;border-radius:6px;'
-            'text-decoration:none;display:inline-block">פתיחת השיחה המאובטחת</a></p>'
+            f'text-decoration:none;display:inline-block">{html.escape(button)}</a></p>'
             '<p style="font-size:13px;color:#52615c">הקישור תקף ל-24 שעות ופועל פעם אחת. '
             'אם לא ביקשתם זאת, אפשר להתעלם מההודעה.</p></div>'
         )
@@ -305,6 +341,25 @@ class EmailNotificationService:
                 row.recipient_ciphertext = ""
                 row.token_ciphertext = ""
         return True
+
+    def _asked(self, row_id: uuid.UUID, question_id: str | None) -> str:
+        """The question as the employee's screen shows it: the inquiry record's own lines in the conversation (never
+        the representative's structured text), made safe for an email."""
+        if not question_id:
+            return ""
+        with self.sessions() as session:
+            row = session.get(EmailOutboxRow, row_id)
+            if row is None:
+                return ""
+            content = session.scalar(
+                select(MessageRow.content).where(MessageRow.conversation_id == row.conversation_id,
+                                                 MessageRow.rep_question_id == question_id,
+                                                 MessageRow.source == "rep_inquiry")
+                .order_by(MessageRow.seq).limit(1))
+        if not content:
+            return ""
+        head = content.split("\n\n")[0]
+        return question_for_email("\n".join(head.split("\n")[1:]))
 
     def _send(self, message_id: str, recipient: str, subject: str, body: str, html_body: str) -> None:
         backend = self.settings.email_backend
