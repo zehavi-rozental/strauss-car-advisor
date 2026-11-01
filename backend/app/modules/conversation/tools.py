@@ -353,6 +353,7 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
         ignored.append({"field": "current_copay", "reason": "no car today: there is no copay of today's car"})
     elif args.current_copay is not None:
         c.copay, c.copay_unknown = args.current_copay, False
+        c.copay_source = None            # any later amount is the employee's own, no longer the rep's (1/11)
         saved.append("current_copay")
     elif args.current_copay_unknown and c.copay is None:
         c.copay_unknown = True

@@ -46,7 +46,8 @@ export interface ExpectsField {
   max: number | null
   closed?: boolean           // a closed question: the client shows buttons; open questions are typed
   question?: string | null   // ask_rep: the employee's question the inquiry card opens with ("" — still to be said)
-  context?: { car?: string; catalog_amount?: string }   // copay: today's car and its (unverified) catalog amount
+  // copay: today's car and its (unverified) catalog amount; rep_copay: the rep's amount and the one it replaces
+  context?: { car?: string; catalog_amount?: string; amount?: string; previous?: string | null }
 }
 
 export interface ExpectsLink {
@@ -299,7 +300,7 @@ export type MessageIn =
 
 /** intent decides the kind, not the car: 'general' is informational (never changes the calculation);
  *  'copay_verification' is a structured copay check the server re-validates against the car on screen. */
-export type RepQuestionIntent = 'general' | 'copay_verification'
+export type RepQuestionIntent = 'general' | 'copay_verification' | 'current_copay'
 
 export interface RepQuestionIn {
   question: string

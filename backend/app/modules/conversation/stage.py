@@ -104,6 +104,8 @@ class CurrentCar(BaseModel):
     choices: list[CarChoice] = Field(default_factory=list)
     copay: Optional[Decimal] = None
     copay_unknown: bool = False
+    # where today's copay came from (1/11): "rep_confirmed" = the representative's answer, applied by the employee
+    copay_source: Optional[str] = None
     # When there is no company car today: does the employee receive a car-maintenance allowance?
     # maintenance=Decimal: the confirmed amount (0 = the employee said they do NOT receive one).
     # maintenance=None + maintenance_unknown=True: "אבדוק בהמשך" — unknown, never assumed, blocks the net.
@@ -211,6 +213,15 @@ class GeneralQuestion(BaseModel):
     answer: Optional[str] = None    # the representative's answer, once it arrived
 
 
+class RepCopayOffer(BaseModel):
+    """The representative answered today's copay with an amount (1/11): offered, applied only when the employee
+    confirms it. Removed once applied, so a second click, a reload or a reopened conversation never applies it again."""
+
+    question_id: str
+    amount: Decimal
+    car_label: str = ""
+
+
 class ConversationState(BaseModel):
     stage: Stage = Stage.COLLECT_PROFILE
     profile: Profile = Field(default_factory=Profile)
@@ -228,6 +239,7 @@ class ConversationState(BaseModel):
     group_conflict: Optional[GroupConflict] = None
     confirmed_unusual: list[str] = Field(default_factory=list)   # fields whose rare value the employee confirmed
     applied_answers: list[str] = Field(default_factory=list)    # תשובות נציג שכבר יושמו (פעם אחת בלבד)
+    rep_copay_offer: Optional[RepCopayOffer] = None             # today's copay from the rep, awaiting the employee
     pending_clarification: Optional[CarClarification] = None
     pending_confirmation: Optional[PendingConfirmation] = None
     pending_occupation: Optional[PendingOccupation] = None

@@ -183,7 +183,7 @@ class RepQuestionIn(BaseModel):
     'copay_verification' נשלח רק מפעולת בירור השתתפות מובנית לרכב ידוע — אחרת 'general' (אינפורמטיבי)."""
     model_config = ConfigDict(extra="forbid")
     question: str
-    intent: Literal["general", "copay_verification"] = "general"
+    intent: Literal["general", "copay_verification", "current_copay"] = "general"
     option_id: Optional[str] = None
     email: Optional[str] = None
 

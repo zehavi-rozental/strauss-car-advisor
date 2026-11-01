@@ -22,7 +22,9 @@ export function AnswerWidgets({ expects, disabled, onSend, onCopayRep }: Props) 
   return (
     <div className="reply-buttons">
       {widgets.map((w) => (
-        w.field.field === 'copay'
+        w.field.field === 'rep_copay'
+          ? <RepCopayUpdate key="rep_copay" field={w.field} disabled={disabled} onSend={onSend} />
+          : w.field.field === 'copay'
           ? <CopayChoices key="copay" field={w.field} disabled={disabled} onSend={onSend} onRep={onCopayRep}
                           fieldParam={grouped ? 'copay' : undefined} />
           : <WidgetBody key={w.field.field ?? w.kind} w={w} disabled={disabled} onSend={onSend}
@@ -106,6 +108,42 @@ function CopayChoices({ field, fieldParam, disabled, onSend, onRep }:
                  onChange={(e) => setAmount(e.target.value)} placeholder="300" />
           <button type="submit" className="btn btn-primary btn-sm" disabled={disabled || !valid}>אישור</button>
         </form>
+      )}
+    </div>
+  )
+}
+
+/** The representative's amount for today's copay (1/11): one button, then a short confirmation with the amount, the
+ * car and the amount it replaces. Only "אישור העדכון" sends it; the server then removes the offer (applied once). */
+function RepCopayUpdate({ field, disabled, onSend }: { field: ExpectsField; disabled: boolean; onSend: Send }) {
+  const [asking, setAsking] = useState(false)
+  const choice = field.choices[0]
+  const ctx = field.context ?? {}
+  if (!choice) return null
+  const shekel = (v?: string | null) => (v ? `${Number(v).toLocaleString('he-IL')} ₪` : '')
+  const replaces = ctx.previous && ctx.previous !== ctx.amount ? ctx.previous : null
+  return (
+    <div className="reply-row rep-copay-update">
+      {!asking ? (
+        <button type="button" className="chip chip-primary" disabled={disabled} onClick={() => setAsking(true)}>
+          {choice.label}
+        </button>
+      ) : (
+        <div className="rep-copay-confirm" role="group" aria-label="אישור העדכון">
+          <p>
+            לעדכן את ההשתתפות החודשית{ctx.car ? <> ב-<bdi>{ctx.car}</bdi></> : null} ל-<strong>{shekel(ctx.amount)}</strong>,
+            לפי תשובת הנציג?{replaces && <> הסכום יחליף את {shekel(replaces)} שמסרתם.</>}
+          </p>
+          <div className="reply-row">
+            <button type="button" className="chip chip-primary" disabled={disabled}
+                    onClick={() => void onSend({ choice: choice.id, field: 'rep_copay' }, `עדכון החישוב לפי תשובת הנציג: ${shekel(ctx.amount)}`)}>
+              אישור העדכון
+            </button>
+            <button type="button" className="chip chip-quiet" disabled={disabled} onClick={() => setAsking(false)}>
+              ביטול
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )

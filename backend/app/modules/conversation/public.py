@@ -37,7 +37,7 @@ from app.modules.cases.public import CasesService, MissingField, Mode, QuestionA
 
 from .expects import ChoiceInvalid, FieldsInvalid, build_expects, tax_label, validate_choice, validate_fields, vehicle_id
 from .email_notifications import EmailNotificationService, EmailNotConfigured, InvalidEmailLink
-from .agent import Agent, RepQuestionResult, employee_wording, general_question_id
+from .agent import Agent, RepQuestionResult, employee_wording, general_question_id, today_copay_question_id
 from .models import ConversationRow
 from .understanding import rep_scope_ok_in_context
 from .llm.factory import build_llm_chain
@@ -407,6 +407,9 @@ class ConversationService:
             # המסך (רכב נוכחי או חלופות מושוות), שאלה טבעית קצרה בהקשר הרכב מתקבלת ("אפשר עם וו גרירה?"),
             # ורק שאלה מניפולטיבית, מחוץ לנושא או על השכר האישי נדחית. NEW_CAR_COPAY הוא בירור מובנה לרכב ידוע.
             field = MissingField.NEW_CAR_COPAY if intent == "copay_verification" else MissingField.GENERAL_QUESTION
+            if intent == "current_copay" and state.current.source in ("catalog", "tax", "stated"):
+                # today's copay asked from the representative (1/11): an amount answer the employee may apply
+                field = MissingField.CURRENT_COPAY
             if field == MissingField.GENERAL_QUESTION:
                 has_car_context = state.current.source is not None or bool(state.results)
                 if not rep_scope_ok_in_context(snapshot, question, has_car_context=has_car_context):
@@ -417,6 +420,8 @@ class ConversationService:
             # (ב) מפתח ה-dedup לפי הסוג, ובדיקת פנייה פתוחה קיימת (בלי replace)
             if field == MissingField.NEW_CAR_COPAY:
                 dedup_option = option_id or ""
+            elif field == MissingField.CURRENT_COPAY:
+                dedup_option = today_copay_question_id(state)
             else:
                 dedup_option = general_question_id(question)
             existing_id, existing = self._open_question(str(conv_id), field, dedup_option)

@@ -50,6 +50,7 @@ from .stage import (
     GeneralQuestion,
     OptionResult,
     PendingRep,
+    RepCopayOffer,
     RepReason,
     Stage,
     blocking_rep_reason,
@@ -92,6 +93,8 @@ from .templates import (
     render,
     rep_changed_text,
     rep_confirmed_text,
+    rep_copay_applied_text,
+    rep_copay_offer_text,
     rep_current_text,
     rep_maintenance_text,
     rep_note_text,
@@ -543,6 +546,15 @@ def asked_field(state: ConversationState, reply: str) -> Optional[str]:
     return _ASKED_ARG[next(iter(named))] if len(named) == 1 else None
 
 
+TODAY_COPAY_PREFIX = "today:"
+
+
+def today_copay_question_id(state: ConversationState) -> str:
+    """The option_id of an employee's inquiry about today's copay (1/11): one open inquiry per car today; the prefix
+    tells apply_answer to offer the amount instead of applying it (the old CURRENT_COPAY questions applied it)."""
+    return TODAY_COPAY_PREFIX + (state.current.catalog_code or state.current.label or "car")
+
+
 def bare_value(text: str) -> bool:
     """A message that is only a number ("34", "6%", "בערך 300 ₪"): it answers the question on screen."""
     return bool(_BARE_RE.match(text)) and any(ch.isdigit() for ch in text)
@@ -829,6 +841,20 @@ class Agent:
             return self._prepare_rep_question(ctx)
         if field_ == "rep_question":
             return self._rep_question_decision(ctx, ids[0] == "send", record_run)
+        if field_ == "rep_copay":
+            # the employee confirmed the representative's amount for today's copay (1/11). The offer is removed in the
+            # same turn, so a second click, a reload or a reopened conversation can never apply it again
+            offer = state.rep_copay_offer
+            if offer is None or ids[0] != f"apply:{offer.question_id}":
+                return TurnOutcome(reply="העדכון הזה כבר בוצע או שאינו זמין יותר.", source="template", path="choice")
+            previous = state.current.copay
+            state.rep_copay_offer = None
+            plan = ParserPlan([ToolCall("save_profile", {"current_copay": str(offer.amount)}, "combined")], True,
+                              notice=rep_copay_applied_text(offer.amount, previous), direct=True, acked=True)
+            outcome = self._finish(ctx, (), label, plan, before, record_run, choice=True)
+            if state.current.copay == offer.amount:
+                state.current.copay_source = "rep_confirmed"     # the representative's answer, applied by the employee
+            return outcome
         if field_ == "ambiguity":
             ctx.allow_zero_copay = ids[0] == "zero_copay"     # the employee's own answer, not a guess
             plan = _ambiguity_plan(state, ids[0])
@@ -1683,6 +1709,25 @@ class Agent:
                                rep_question_result=RepQuestionResult(
                                    status="created", missing_field=missing_field.value, option_id=option_id,
                                    car_label=option.label, catalog_amount=catalog_amount, question_text=question))
+        if missing_field == MissingField.CURRENT_COPAY:
+            # today's copay (1/11): the representative answers with an amount; it is offered to the employee and
+            # applied only on their confirmation (apply_answer), never by itself
+            car = rep_car_label(state.current, snapshot)
+            if existing_text is not None:
+                return TurnOutcome(reply="", source="rep", path="choice",
+                                   rep_question_result=RepQuestionResult(
+                                       status="exists", missing_field=missing_field.value, car_label=car,
+                                       question_text=existing_text))
+            hint = catalog_copay_hint(state, snapshot)
+            qid = today_copay_question_id(state)
+            self._request(ctx, MissingField.CURRENT_COPAY, Mode.CONFIRM, AnswerType.MONEY, question,
+                          {"group": state.profile.group, "car_label": car}, suggested=str(hint) if hint else None,
+                          option_id=qid)
+            state.unanswered_question = state.last_rep_question = None
+            return TurnOutcome(reply="", source="rep", path="choice", question_requests=ctx.question_requests,
+                               rep_question_result=RepQuestionResult(
+                                   status="created", missing_field=missing_field.value, option_id=qid, car_label=car,
+                                   catalog_amount=str(hint) if hint else None, question_text=question))
         # GENERAL_QUESTION: informational, never changes the calculation. option_id is the content hash, so the
         # same question is recognised (never sent twice) while different questions open their own case.
         if existing_text is not None:
@@ -1814,6 +1859,11 @@ class Agent:
             if line:
                 lines.append(line)
             show_results = was_waiting_on_copay and state.pending_rep is None   # REP_REQUIRED: עכשיו מציגים
+        elif field == MissingField.CURRENT_COPAY and event.option_id.startswith(TODAY_COPAY_PREFIX):
+            # the employee's own inquiry about today's copay (1/11): the amount is offered, never applied by itself
+            c = state.current
+            state.rep_copay_offer = RepCopayOffer(question_id=qid, amount=amount, car_label=c.label or "")
+            lines.append(rep_copay_offer_text(c.label or "", amount, c.copay))
         elif field in (MissingField.CURRENT_COPAY, MissingField.CURRENT_USE_VALUE):
             c = state.current
             if field == MissingField.CURRENT_COPAY:

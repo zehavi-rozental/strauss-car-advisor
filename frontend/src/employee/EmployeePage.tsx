@@ -69,7 +69,7 @@ export function EmployeePage() {
   // "לברר מול נציג" on today's copay (31/10): a draft only; the copay is marked as pending with the rep once the
   // inquiry was really sent (created / already open), never by opening the card
   const openTodayCopayInquiry = (car?: string, amount?: string) => setInquiry({
-    intent: 'general', copayToday: true, carLabel: car, catalogAmount: amount,
+    intent: 'current_copay', copayToday: true, carLabel: car, catalogAmount: amount,
     subject: 'בירור סכום ההשתתפות ברכב הנוכחי',
     question: `אני מבקש/ת לברר מה סכום ההשתתפות החודשי שלי ברכב הנוכחי${car ? ` (${car})` : ''}. ` +
       'האם הסכום שבקטלוג הוא הסכום שחל עליי?',

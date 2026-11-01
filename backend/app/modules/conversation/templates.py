@@ -307,16 +307,18 @@ def pending_copay_text(label: str, amount: Any) -> str:
 COPAY_UPDATE = "אם לרכב החדש סוכם אתכם סכום אחר, אפשר לעדכן אותי ואפנה לנציג התחבורה לבירור."
 
 
-def catalog_copays_text(items: Sequence[tuple[str, Any]], today_copay: Any = None) -> str:
+def catalog_copays_text(items: Sequence[tuple[str, Any]], today_copay: Any = None,
+                        today_source: Optional[str] = None) -> str:
     """The new cars' catalog amounts used as is (the challenge owner, 22/10), and — kept apart — the amount used for
-    today's car, which the employee gave or confirmed."""
+    today's car: the one the employee gave or confirmed, or the representative's answer the employee applied."""
     if len(items) == 1:
         line = f"ההשתתפות ב-{items[0][0]} לפי הקטלוג היא {money(items[0][1])}. {COPAY_UPDATE}"
     else:
         each = ", ".join(f"{in_label(label)} {money(amount)}" for label, amount in items)
         line = f"ההשתתפות ברכבים החדשים לפי הקטלוג: {each}.\n{COPAY_UPDATE}"
     if today_copay is not None and Decimal(str(today_copay)) > 0:
-        line += f"\nלרכב שלכם היום חישבתי עם ההשתתפות שמסרתם: {money(today_copay)}."
+        source = "לפי תשובת נציג התחבורה שאישרתם" if today_source == "rep_confirmed" else "שמסרתם"
+        line += f"\nלרכב שלכם היום חישבתי עם ההשתתפות {source}: {money(today_copay)}."
     return line
 
 
@@ -471,7 +473,7 @@ def results_text(state: ConversationState) -> str:
     final = [(i.label, (i.result.get("alternative") or {}).get("copay")) for i in ok
              if i.result.get("copay_source") == "catalog_final"]
     if final and all(a is not None for _, a in final):
-        lines.append(catalog_copays_text(final, state.current.copay))
+        lines.append(catalog_copays_text(final, state.current.copay, state.current.copay_source))
     if pending and all(a is not None for _, a in pending):
         lines.append(pending_copays_text(pending))
     elif pending:
@@ -692,6 +694,22 @@ def rep_copay_text(label: str, amount: Decimal, effective: Optional[date]) -> st
 def rep_current_text(field: str, label: str, amount: Decimal) -> str:
     what = "ההשתתפות הנוכחית שלכם" if field == "CURRENT_COPAY" else "שווי השימוש"
     return f"נציג התחבורה השיב: {what} ב-{label} היא {money(amount)}."
+
+
+def rep_copay_offer_text(label: str, amount: Decimal, previous: Optional[Decimal]) -> str:
+    """The representative's amount for today's copay, offered (1/11): applied only on the employee's confirmation."""
+    head = f"נציג התחבורה השיב: ההשתתפות החודשית שלכם ב-{label} היא {money(amount)}."
+    if previous is not None and Decimal(str(previous)) != amount:
+        return (f"{head} כרגע החישוב לפי {money(previous)} שמסרתם. "
+                "אפשר לעדכן את החישוב לפי תשובת הנציג; העדכון יחליף את הסכום הקודם.")
+    return f"{head} אפשר לעדכן את החישוב לפי תשובת הנציג."
+
+
+def rep_copay_applied_text(amount: Decimal, previous: Optional[Decimal]) -> str:
+    """After the employee confirmed the representative's amount (1/11)."""
+    if previous is not None and Decimal(str(previous)) != amount:
+        return f"עדכנתי לפי תשובת הנציג: השתתפות {money(amount)} במקום {money(previous)}."
+    return f"עדכנתי לפי תשובת הנציג: השתתפות {money(amount)}."
 
 
 def rep_opt_out_text(allowed: bool) -> str:

@@ -27,3 +27,20 @@ describe("today's copay (31/10)", () => {
     for (const bad of ['', 'd', 'abc', '280₪', '-5', '123456']) expect(copayAmountValid(bad)).toBe(false)
   })
 })
+
+describe("the representative's copay (1/11)", () => {
+  const offer = {
+    field: 'rep_copay', type: 'choice', quick_replies: [], max: null, closed: true,
+    choices: [{ id: 'apply:q1', label: 'עדכון החישוב לפי תשובת הנציג' }],
+    fields: [{ field: 'rep_copay', type: 'choice', quick_replies: [], max: null, closed: true,
+               choices: [{ id: 'apply:q1', label: 'עדכון החישוב לפי תשובת הנציג' }],
+               context: { car: 'COROLLA (2026)', amount: '230', previous: '200' } }],
+  } as unknown as Expects
+
+  it('shows one update button, and no confirmation until it is pressed', () => {
+    const out = renderToStaticMarkup(<AnswerWidgets expects={offer} disabled={false} onSend={async () => true} />)
+    expect(out.match(/<button/g)).toHaveLength(1)
+    expect(out).toContain('עדכון החישוב לפי תשובת הנציג')
+    expect(out).not.toContain('אישור העדכון')
+  })
+})
