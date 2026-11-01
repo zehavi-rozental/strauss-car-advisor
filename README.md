@@ -2,7 +2,7 @@
 
 # STRAUSS DRIVE | AI-Powered Corporate Car Advisor
 
-**Open Code AI Hackathon 2026 · Strauss Challenge — Winning Team**
+**Open Code AI Hackathon 2026 | Strauss Challenge — One of the Winning Projects**
 
 A Hebrew conversational advisor that shows an employee, in shekels, how changing their company car changes their monthly net pay.
 
@@ -294,7 +294,7 @@ strauss-car-advisor/
 
 ## Hackathon Recognition
 
-STRAUSS DRIVE was built for the **Strauss challenge of the Open Code AI Hackathon 2026** (submission 21 October, presentation 28 October 2026), by the team that won the challenge. The brief: help Strauss employees understand the real financial impact of their company-car choices.
+STRAUSS DRIVE was built for the **Strauss challenge of the Open Code AI Hackathon 2026** (submission 21 October, presentation 28 October 2026), and was one of the winning projects. The brief: help Strauss employees understand the real financial impact of their company-car choices.
 
 ---
 
