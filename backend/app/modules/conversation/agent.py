@@ -661,6 +661,13 @@ def _values(state: ConversationState) -> dict[str, Any]:
     return out
 
 
+def _offers_rep(reply: str) -> bool:
+    """The reply's asking line offers to ask the representative ("רוצים שאשאל את נציג התחבורה?")."""
+    lines = [ln for ln in reply.splitlines() if ln.strip()]
+    last = next((ln for ln in reversed(lines) if "?" in ln), "")
+    return "נציג" in last and any(w in last for w in ("אשאל", "לשאול", "אפנה", "לפנות", "אעביר", "להעביר"))
+
+
 _GROUP_ANSWER_RE = re.compile(r"\s*(?:קבוצה\s*)?([א-ד])['׳\"]?\s*\.?\s*")
 
 
@@ -1371,6 +1378,11 @@ class Agent:
             offered = build_plan()
             reply = offered.text()
             state.last_ask = offered.ask[-1] if offered.ask else ""
+        if (source == "llm" and und.unanswered and state.unanswered_question is None and not rep_skipped
+                and _offers_rep(reply)):
+            # the model offered the representative in its own words (live QA 1/11): code holds the offer, so its
+            # buttons show and "כן" is understood; otherwise the offer on screen led nowhere
+            state.unanswered_question = und.unanswered[0]
         if gap_ack and source == "llm":
             reply = f"{gap_ack}\n{reply}"
         if source == "llm" and und.catalog and not _answers_catalog(reply, und.catalog, snapshot):

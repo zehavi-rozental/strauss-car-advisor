@@ -125,3 +125,17 @@ def test_a_question_already_sent_is_never_offered_again(engine, snapshot):
     assert "כבר ענה על השאלה הזו" in after["reply"] and "כן, ב-NIRO." in after["reply"]
     assert all(f["field"] != "ask_rep" for f in after["expects"]["fields"])
     assert len(c.get("/api/rep/questions?status=OPEN", headers=AUTH).json()) == 0
+
+
+def test_an_offer_the_model_writes_in_its_own_words_gets_its_buttons(engine, snapshot):
+    # live QA 1/11 (phone run): the model wrote "רוצים שאשאל את נציג התחבורה?" without the tool; the offer led nowhere
+    from app.modules.conversation.llm.fake import FakeLLM
+    from app.modules.conversation.public import LLMChain
+    plain = _server(engine)
+    cid = _compare(plain, [_code(snapshot, "NIRO")])
+    fake = FakeLLM()
+    fake.turn(reply="אין לי מידע על אפשרות לגג נפתח בקטלוג הרכבים. רוצים שאשאל את נציג התחבורה?")
+    model = make_client(engine, llm=LLMChain([fake]), rep_access_token="rep-record", email_encryption_key=KEY)
+    model.cookies = plain.cookies
+    turn = model.post(f"/api/conversations/{cid}/messages", json={"text": "האם יש רכב עם גג נפתח?"}).json()
+    assert any(f["field"] == "ask_rep" for f in turn["expects"]["fields"]), turn["reply"]
