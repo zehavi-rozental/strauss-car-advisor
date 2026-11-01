@@ -94,7 +94,7 @@ describe('inquiry record in the chat', () => {
       const out = render({ results, todayCard: <button type="button">בירור השתתפות מול נציג</button> })
       expect(out).not.toContain('בירור אישי')
       expect(count(out, 'בירור השתתפות מול נציג')).toBe(1)
-      expect(out).toContain('השתתפות')
+      expect(count(out, 'השתתפות ברכב החדש')).toBeGreaterThanOrEqual(results.length)   // the amount stays on each car
     }
   })
 })

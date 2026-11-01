@@ -59,9 +59,11 @@ export function SummaryCard({ items, onOpenTable, current = true, onAskCopay, ca
                   </span>
                   <span className="summary-status"><StateBadge state={resultState(r)} /></span>
                   {r.why && <span className="summary-why">{r.why}</span>}
-                  {onAskCopay && (
+                  {/* the new car's copay stays on every current row; its inquiry link only where a page passes one
+                      (the conversation does not since 1/11: one place, today's car card above the comparison) */}
+                  {current && (
                     <span className="summary-copay">
-                      <CopayLine result={r} compact onAskCopay={canAskCopay(i) ? () => onAskCopay(i) : undefined} />
+                      <CopayLine result={r} compact onAskCopay={onAskCopay && canAskCopay(i) ? () => onAskCopay(i) : undefined} />
                     </span>
                   )}
                 </>
