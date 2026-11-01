@@ -33,24 +33,3 @@ export function messageAuthor(source: string): string | null {
   if (source === 'rep') return null
   return 'מערכת'
 }
-
-/** The note under the comparison (31/10): the NEW cars use the catalog amounts; today's car uses the amount the
- * employee gave or confirmed — said apart, so a typed amount never reads as still to be checked. */
-const TODAY_SOURCE: Record<string, string> = {
-  rep_confirmed: 'לפי תשובת הנציג שאישרתם', catalog_confirmed: 'לפי סכום הקטלוג שאישרתם',
-}
-
-export function copayBannerText(todayCopay: string | null, source: string | null = null): string {
-  const words = (source && TODAY_SOURCE[source]) || 'שמסרתם'
-  const today = todayCopay && Number(todayCopay) > 0
-    ? `. לרכב שלכם היום החישוב לפי ההשתתפות ${words}: ${Number(todayCopay).toLocaleString('he-IL')} ₪`
-    : ''
-  return `ברכבים החדשים החישוב לפי סכומי ההשתתפות שבקטלוג של שטראוס${today}. אם לרכב חדש סוכם אתכם סכום אחר,`
-}
-
-/** Today's copay pending with the representative (1/11): the comparison runs on the catalog amounts meanwhile; no
- * second inquiry is offered while this one is open. */
-export const PROVISIONAL_NOTE = 'ההשוואה מחושבת לפי סכומי הקטלוג. סכום ההשתתפות ברכב הנוכחי ממתין לאימות הנציג, ולאחר קבלת התשובה אפשר לעדכן את החישוב.'
-
-/** The representative answered today's copay and the update waits for the employee (1/11): never "still waiting". */
-export const ANSWER_AWAITS_NOTE = 'התקבלה תשובת נציג להשתתפות ברכב הנוכחי, והיא ממתינה לאישור העדכון שלכם (הכפתור מתחת לתשובה). עד אז ההשוואה מחושבת לפי סכום הקטלוג הזמני.'

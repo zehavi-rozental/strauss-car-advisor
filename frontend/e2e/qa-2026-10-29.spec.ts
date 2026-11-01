@@ -22,8 +22,8 @@ const GENERAL_ANSWER = 'כן, יש גרסה עם גג נפתח.\nהתוספת מ
 test.describe.configure({ mode: 'serial' })
 test.skip(!BASE || !OFF || !REP_TOKEN || !MAIL || !SHOTS, 'E2E_BASE_URL, OFF_BASE_URL, REP_TOKEN, EMAIL_FAKE_DIR, SHOTS_DIR')
 // 1/11: the car cards carry no inquiry link; the one place is today's car card above the comparison. The steps
-// built on per-car inquiries (4, 6-9) are skipped with that reason; 2 covers the central button
-// (test.skip below marks those steps: per-car inquiry link removed on 1/11)
+// built on per-car inquiries (4, 6-9) are skipped (test.skip) for that reason; 1-2 cover the inquiry from today's
+// copay question and the comparison that goes on while it waits
 
 let employee: Page
 const shot = (page: Page, name: string) => page.screenshot({ path: join(SHOTS, `${name}.png`), fullPage: true })
@@ -96,15 +96,24 @@ async function repScreen(browser: Browser, base: string) {
   return page
 }
 
-test('1. results: summary and cards on desktop and at 375px, English names whole, no horizontal scroll', async ({ browser }) => {
+test('1. today copay asked through "לברר מול נציג": the address first, sent, and the comparison goes on', async ({ browser }) => {
   mailBefore = new Set((await readdir(MAIL)).filter((f) => f.endsWith('.json')))
   employee = await open(browser, BASE, 1280, 'file')     // the one employee story the tests share
   await send(employee, PROFILE)
   await send(employee, CAR)
-  // today's copay from the catalog, taken as the employee's own: the card above the comparison offers the inquiry
-  const n = await employee.locator(BOT).count()
-  await employee.getByRole('button', { name: 'זה הסכום שלי' }).click()
-  await expect.poll(async () => employee.locator(BOT).count(), { timeout: 45_000 }).toBeGreaterThan(n)
+  // today's copay is not known: the catalog amount is offered with three choices; the inquiry is one of them
+  await employee.getByRole('button', { name: 'לברר מול נציג' }).click()
+  const card = employee.locator('.rep-inquiry-card')
+  await expect(card).toBeInViewport()
+  const email = card.getByLabel('כתובת אימייל לעדכון כשהנציג יענה')
+  await expect(email).toBeVisible()                                                       // before "המשך"
+  await expect(card.getByLabel('מה תרצו לשאול?')).toHaveValue(/COROLLA CROSS/)
+  await card.getByRole('button', { name: 'המשך' }).click()
+  await expect(card.locator('.rep-inquiry-field-error')).toBeVisible()                    // next to the address
+  await email.fill(EMAIL)
+  await card.getByRole('button', { name: 'המשך' }).click()
+  await card.getByRole('button', { name: 'שליחת הפנייה לנציג' }).click()
+  await expect(employee.locator(RECORD)).toHaveCount(1)
   await send(employee, 'NIRO ו-DOLPHIN')
   await expect(employee.locator('.summary-card')).toBeVisible({ timeout: 30_000 })
   await expect(row(employee, 'NIRO')).toBeVisible()
@@ -133,26 +142,15 @@ test('1. results: summary and cards on desktop and at 375px, English names whole
   await employee.setViewportSize({ width: 1280, height: 900 })
 })
 
-test('2. inquiry from the card above the comparison: the address first, sent, one record, its status', async () => {
+test('2. the comparison on the provisional catalog amount: one record, its status, no per-car link', async () => {
   await expect(employee.getByRole('button', { name: /בירור אישי/ })).toHaveCount(0)         // no per-car link
-  const today = employee.locator('.today-copay-card')
-  await expect(today).toContainText('COROLLA CROSS')
-  await today.getByRole('button', { name: 'בירור השתתפות מול נציג' }).click()
-  const card = employee.locator('.rep-inquiry-card')
-  await expect(card).toBeInViewport()
-  const email = card.getByLabel('כתובת אימייל לעדכון כשהנציג יענה')
-  await expect(email).toBeVisible()                                                       // before "המשך"
-  await expect(card.getByLabel('מה תרצו לשאול?')).toHaveValue(/COROLLA CROSS/)
-  await card.getByRole('button', { name: 'המשך' }).click()
-  await expect(card.locator('.rep-inquiry-field-error')).toBeVisible()                    // next to the address
-  await email.fill(EMAIL)
-  await card.getByRole('button', { name: 'המשך' }).click()
-  await card.getByRole('button', { name: 'שליחת הפנייה לנציג' }).click()
-  await expect(employee.locator(RECORD)).toHaveCount(1)
   await expect(employee.locator(RECORD).first()).toContainText('COROLLA CROSS')
   await expect(employee.locator(RECORD).first()).toContainText('ממתינה לתשובת הנציג')
+  const today = employee.locator('.today-copay-card')
+  await expect(today).toContainText('COROLLA CROSS')
   await expect(today).toContainText('נשלחה פנייה לנציג התחבורה')
-  await expect(today.getByRole('button', { name: 'בירור השתתפות מול נציג' })).toHaveCount(0)
+  await expect(today.getByRole('button', { name: 'בירור השתתפות מול נציג' })).toHaveCount(0)   // not offered again
+  await expect(employee.locator('.copay-banner')).toHaveCount(0)                         // no note under the comparison
   await expect(employee.locator('.summary-row')).toHaveCount(2)                          // the comparison stays
   await shot(employee, '04-record-today')
 })

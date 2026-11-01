@@ -314,12 +314,13 @@ TODAY_COPAY_SOURCE = {"rep_confirmed": "לפי תשובת הנציג שאישר�
 def catalog_copays_text(items: Sequence[tuple[str, Any]], today_copay: Any = None,
                         today_source: Optional[str] = None) -> str:
     """The new cars' catalog amounts used as is (the challenge owner, 22/10), and — kept apart — the amount used for
-    today's car: the one the employee gave or confirmed, or the representative's answer the employee applied."""
+    today's car: the one the employee gave or confirmed, or the representative's answer the employee applied. No offer
+    to ask the representative here (1/11): a result on settled amounts is no reason to ask again."""
     if len(items) == 1:
-        line = f"ההשתתפות ב-{items[0][0]} לפי הקטלוג היא {money(items[0][1])}. {COPAY_UPDATE}"
+        line = f"ההשתתפות ב-{items[0][0]} לפי הקטלוג היא {money(items[0][1])}."
     else:
         each = ", ".join(f"{in_label(label)} {money(amount)}" for label, amount in items)
-        line = f"ההשתתפות ברכבים החדשים לפי הקטלוג: {each}.\n{COPAY_UPDATE}"
+        line = f"ההשתתפות ברכבים החדשים לפי הקטלוג: {each}."
     if today_source == "provisional" and today_copay is not None:
         line += (f"\nהחישוב כרגע מבוסס על השתתפות של {money(today_copay)} לפי הקטלוג ברכב שלכם היום, "
                  "עד לאימות מול נציג.")

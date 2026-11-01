@@ -34,11 +34,11 @@ export function TodayCopayCard({ state, disabled = false, onAsk }: {
   const amount = s.copay ?? s.provisional
   if (amount == null) return null
   const provisional = s.copay == null && s.provisional != null
-  const catalogBased = provisional || s.source === 'catalog_confirmed'
-  const explain = s.answerAmount ? null : provisional || s.inquiryOpen ? PROVISIONAL_EXPLAIN
-    : s.source === 'catalog_confirmed' ? CATALOG_EXPLAIN : null
+  // an amount the employee typed, confirmed or took from the representative is settled: said quietly, no notice and
+  // no offer to ask again (1/11). Only an unconfirmed (provisional) amount carries an explanation and an action.
+  const explain = s.answerAmount || !provisional ? null : s.inquiryOpen ? PROVISIONAL_EXPLAIN : CATALOG_EXPLAIN
   return (
-    <section className={`today-copay-card${catalogBased && !s.answerAmount ? ' is-provisional' : ''}`}
+    <section className={`today-copay-card${provisional && !s.answerAmount ? ' is-provisional' : ''}`}
              aria-label="ההשתתפות ברכב הנוכחי">
       <p className="today-copay-head">
         <span className="today-copay-title">הרכב שלכם היום{s.car ? <>: <bdi>{s.car}</bdi></> : null}</span>
@@ -60,7 +60,7 @@ export function TodayCopayCard({ state, disabled = false, onAsk }: {
           <Icon name="clock" size={16} />נשלחה פנייה לנציג התחבורה. ההשוואה ממשיכה בינתיים.
           {s.inquiryHref && <> <a className="link-inline" href={s.inquiryHref}>לפנייה</a></>}
         </p>
-      ) : catalogBased && onAsk ? (
+      ) : provisional && onAsk ? (
         <button type="button" className="btn btn-sm btn-ghost today-copay-ask" disabled={disabled}
                 onClick={() => onAsk(s.car ?? undefined, amount)}>
           <Icon name="rep" size={16} />בירור השתתפות מול נציג

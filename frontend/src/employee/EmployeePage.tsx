@@ -6,7 +6,7 @@ import { Icon } from '../ui/Icon'
 import { AnswerWidgets } from './AnswerWidgets'
 import { ComparisonPanel } from './ComparisonPanel'
 import { EmailReturnCard } from './EmailReturnCard'
-import { ANSWER_AWAITS_NOTE, PROVISIONAL_NOTE, copayBannerText, engineBadge } from './engineStatus'
+import { engineBadge } from './engineStatus'
 import { OptionMapPanel, OptionMapSummary } from './OptionMapPanel'
 import { MAP_REQUEST } from './optionMap'
 import { Composer } from './Composer'
@@ -180,9 +180,6 @@ export function EmployeePage() {
   // gentle link to raise a copay inquiry with the rep. Derived from the stage, so it never repeats on a poll.
   // the representative's amount for today's copay, waiting for the employee: its button is under the answer (1/11)
   const repCopayOffer = fieldsOf(c.expects).find((f) => f.field === 'rep_copay') ?? null
-  // with results on screen, today's car card above them says it all (1/11); the note is only for before results
-  const showCopayBanner = c.results.length === 0
-    && (c.stage === 'CHOOSE_OPTIONS' || c.stage === 'CALCULATING' || c.todayCopayProvisional != null)
   // today's copay inquiry and its answer, by the exact question (the option id "today:<code>")
   const todayQuestions = c.repQuestions.filter((q) => q.missing_field === 'CURRENT_COPAY' && q.option_id?.startsWith('today:'))
   const openToday = todayQuestions.find((q) => q.status === 'OPEN')
@@ -197,20 +194,6 @@ export function EmployeePage() {
       answerHref: answerMessage ? `#message-${answerMessage.seq}` : null,
     }} />
   )
-  // a car's card asks about that car (its option_id is the inquiry's car); without a card, a general question
-  const openCopayInquiry = (car?: OptionResult) => {
-    const catalogSource = car?.result.copay_source === 'catalog' || car?.result.copay_source === 'catalog_final'
-    setInquiry({
-      intent: car ? 'copay_verification' : 'general',
-      question: car
-        ? `אני מבקש/ת לברר את סכום ההשתתפות החודשי האישי שלי עבור ${car.label}. האם הסכום שבקטלוג הוא הסכום שיחול עליי?`
-        : 'אני מבקש/ת לברר את סכום ההשתתפות החודשי האישי שלי. האם הסכום שבקטלוג הוא הסכום שיחול עליי?',
-      optionId: car?.option_id,
-      carLabel: car?.label,
-      // the amount on the card is the catalog's only while its source is the catalog
-      catalogAmount: catalogSource ? car?.result.alternative?.copay ?? undefined : undefined,
-    })
-  }
   const onInquirySaved = (res: RepQuestionResult) => {
     // the copay question on screen is answered "with the representative"; after results the amount in use stays
     // as it is (the card shows the open inquiry) and the answer is offered as an update
@@ -241,21 +224,6 @@ export function EmployeePage() {
       {offerMap && (
         <button type="button" className="chip map-request" disabled={busy}
                 onClick={() => void c.send({ text: MAP_REQUEST }, MAP_REQUEST)}>גלו לי את כל האפשרויות</button>
-      )}
-      {showCopayBanner && !inquiry && (
-        <div className="copay-banner" role="note">
-          <Icon name="info" size={16} />
-          <span>
-            {repCopayOffer ? ANSWER_AWAITS_NOTE : c.todayCopayProvisional != null ? PROVISIONAL_NOTE : (
-              <>
-                {copayBannerText(c.todayCopay, c.todayCopaySource)}{' '}
-                <button type="button" className="link-inline" disabled={busy} onClick={() => openCopayInquiry()}>
-                  אפשר לברר מול נציג הרכב
-                </button>.
-              </>
-            )}
-          </span>
-        </div>
       )}
       {inquiry && (
         <RepInquiryCard

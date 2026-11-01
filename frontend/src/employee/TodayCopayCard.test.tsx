@@ -12,13 +12,23 @@ const card = (s: Partial<TodayCopayState>) =>
 const count = (html: string, text: string) => html.split(text).length - 1
 
 describe("today's car above the comparison (1/11)", () => {
-  it('the catalog amount the employee took: car, amount, source, the explanation once and the ask button', () => {
-    const out = card({ copay: '250', source: 'catalog_confirmed' })
+  it('an unconfirmed catalog amount (provisional, nothing sent): the explanation once and the ask button', () => {
+    const out = card({ provisional: '250' })
     expect(out).toContain('COROLLA (2026)')
     expect(out).toContain('250')
-    expect(out).toContain('סכום הקטלוג, שאישרתם שהוא הסכום שלכם')
     expect(count(out, CATALOG_EXPLAIN)).toBe(1)
     expect(out).toContain('בירור השתתפות מול נציג')
+  })
+
+  it("a settled amount (catalog taken, typed, or the representative's): said quietly, no notice, no offer to ask", () => {
+    for (const s of [{ copay: '250', source: 'catalog_confirmed' }, { copay: '220' }, { copay: '300', source: 'rep_confirmed' }]) {
+      const out = card(s)
+      expect(out).not.toContain('is-provisional')
+      expect(out).not.toContain('today-copay-explain')
+      expect(out).not.toContain('בירור השתתפות מול נציג')
+      expect(out).not.toContain('זמני')
+    }
+    expect(card({ copay: '250', source: 'catalog_confirmed' })).toContain('סכום הקטלוג, שאישרתם שהוא הסכום שלכם')
   })
 
   it('a provisional amount with an open inquiry: one provisional mark, the status, no second ask button', () => {
