@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { messageAuthor } from './engineStatus'
 import type { ReactNode } from 'react'
 import type { ExpectsField, MessageIn, OptionResult, RepInquiry } from '../api/types'
 import { RepCopayUpdate } from './AnswerWidgets'
@@ -34,8 +33,6 @@ interface Props {
   /** "תיקון נתונים" from a message of the employee: the form that saves through {fields} and recalculates */
   onCorrect?: () => void
   busy?: boolean
-  /** a model is configured: each bot message says who wrote it (Gemini / the system) */
-  showAuthor?: boolean
   /** the representative's amount for today's copay, waiting for the employee (expects field rep_copay) */
   repCopayOffer?: ExpectsField | null
   onSend?: (body: MessageIn, display: string) => Promise<boolean>
@@ -52,7 +49,7 @@ export const STALE_NOTE = 'לא מעודכן: החישוב הזה נעשה לפ�
 
 export function MessageList({ messages, repQuestions = [], results, resultsStale = false, resultsAnchor, typing,
                               onOpenTable, onResendVerification, mapCard, tail,
-                              onRetry, onCorrect, busy, showAuthor = false, repCopayOffer = null, onSend,
+                              onRetry, onCorrect, busy, repCopayOffer = null, onSend,
                               todayCopay = null, todayCopaySource = null, focusQuestionId = null,
                               todayCard = null }: Props) {
   const end = useRef<HTMLDivElement>(null)
@@ -207,11 +204,8 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
                   {!copayUnit(m) && <div className="bubble-text"><RichText text={text} /></div>}
                   <div className="bubble-meta">
                     <span className="bubble-time">{formatTime(m.created_at)}</span>
-                    {showAuthor && messageAuthor(m.source) && (
-                      <span className={`bubble-author author-${m.source === 'llm' ? 'model' : 'system'}`}>
-                        {messageAuthor(m.source)}
-                      </span>
-                    )}
+                    {/* no "Gemini" / "מערכת" label (1/11): who wrote a reply stays in the message's source, for
+                        diagnosis, never on the employee's screen */}
                     <span className="msg-actions">{copyButton}</span>
                   </div>
                   {m.source === 'rep' && m.rep_question_id && repAnswerAction(m.rep_question_id)}

@@ -301,7 +301,6 @@ export function EmployeePage() {
                        mapCard={c.optionMap && <OptionMapSummary map={c.optionMap} onOpen={() => setMapOpen(true)} />}
                        tail={c.loading ? null : tail}
                        onRetry={(seq) => void c.retry(seq)} onCorrect={firstVisit ? undefined : correct} busy={busy}
-                       showAuthor={c.engine !== null && c.engine !== 'none'}
                        repCopayOffer={repCopayOffer} onSend={c.send} todayCopay={c.todayCopay}
                        todayCopaySource={c.todayCopaySource} focusQuestionId={c.focusQuestionId}
                        todayCard={todayCard} />

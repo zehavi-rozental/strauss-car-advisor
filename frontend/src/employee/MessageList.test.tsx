@@ -98,3 +98,21 @@ describe('inquiry record in the chat', () => {
     }
   })
 })
+
+describe('no source label on a reply (1/11)', () => {
+  it('replies from the model, a template, code and the representative show their text, never who wrote them', () => {
+    const messages = [
+      msg(1, 'llm', 'רשמתי: שכר בסיס 18,500 ₪.'),
+      msg(2, 'template', 'איזה רכבים להשוות? בקבוצה ג ומטה יש 12 רכבים.'),
+      msg(3, 'fallback', 'חסר לי עוד: פנסיה.'),
+      msg(4, 'rep', 'נציג התחבורה ענה על השאלה שלכם:\nלבן, שחור ואפור.', 'q1'),
+    ]
+    const out = render({ messages, repQuestions: [inquiry('ANSWERED')] })
+    for (const text of ['רשמתי: שכר בסיס', '18,500 ₪', 'איזה רכבים להשוות?', 'חסר לי עוד: פנסיה.', 'לבן, שחור ואפור.']) {
+      expect(out).toContain(text)
+    }
+    expect(out).not.toContain('bubble-author')
+    expect(out).not.toMatch(/>\s*Gemini\s*</)
+    expect(out).not.toMatch(/>\s*מערכת\s*</)
+  })
+})
