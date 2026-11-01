@@ -49,6 +49,7 @@ from .stage import (
     ConversationState,
     GeneralQuestion,
     OptionResult,
+    PendingConfirmation,
     PendingRep,
     RepCopayOffer,
     RepReason,
@@ -114,7 +115,7 @@ from .templates import (
     form_saved_text,
     rep_opt_out_text,
     results_text,
-    unusual_fix_text,
+    held_fix_text,
 )
 from .tools import (
     OPT_OUT_ID,
@@ -264,9 +265,11 @@ def _confirmation_plan(state: ConversationState, text: str,
 
     def save(amount: Decimal, how: str) -> ParserPlan:
         state.pending_confirmation = None
-        if (pending.unusual or pending.scale) and pending.field not in state.confirmed_unusual:
-            state.confirmed_unusual.append(pending.field)   # the chosen amount is saved, not asked again
-        args = {pending.field: str(amount), "approximate_fields": [pending.field] if pending.approximate else []}
+        for f in (pending.field, *pending.also):
+            if (pending.unusual or pending.scale) and f not in state.confirmed_unusual:
+                state.confirmed_unusual.append(f)   # the chosen amount is saved, not asked again
+        args = {pending.field: str(amount), **{f: str(v) for f, v in pending.also.items()},   # held together (1/11)
+                "approximate_fields": [pending.field] if pending.approximate else []}
         return ParserPlan([ToolCall("save_profile", args, how)], True, direct=True)
 
     if pending.scale:
@@ -286,8 +289,8 @@ def _confirmation_plan(state: ConversationState, text: str,
             return None                              # "לא, 50 אלף": a new value, read as usual
         if pending.unusual:
             # "לתקן": the same field is asked again, and it is the only question of the reply
-            return ParserPlan(complete=True, notice=unusual_fix_text(pending.field), direct=True,
-                              asks=pending.field), rest
+            return ParserPlan(complete=True, notice=held_fix_text(pending), direct=True,
+                              asks=None if pending.also else pending.field), rest
         return ParserPlan(complete=True, direct=True), rest
     if not others and "?" not in text and grounded_number(pending.value, stated) and not pending.unusual:
         return save(pending.value, "confirmed"), ""  # the amount itself: "45 אלף", "ארבעים וחמש אלף" ("זה 45 אלף?" asks)
@@ -1020,6 +1023,15 @@ class Agent:
             if correcting in PROFILE_ARGS:
                 return self._save_while_waiting(ctx, text, values, before, record_run)
             plan = ParserPlan([ToolCall("save_profile", values, "combined")], True, direct=True)
+        elif und.zero_contributions:
+            # "אין הפרשות" (1/11): pension and study fund held at 0 together, asked once ("לאשר" saves both, "לתקן"
+            # asks them again); the same gate as any held value. Code decides, in both modes
+            zero = Decimal(0)
+            fields = und.zero_contributions
+            state.pending_confirmation = PendingConfirmation(field=fields[0], value=zero, unusual=True,
+                                                             also={f: zero for f in fields[1:]})
+            return self._finish(ctx, history, text, ParserPlan(complete=True, direct=True), before, record_run,
+                                choice=True, und=replace(und, remainder=""))
         elif und.correction is not None:
             # "אני רוצה לתקן נתון" (1/11): code asks what, or the new value of the field named; never the representative
             return self._correction_requested(ctx, history, text, und, before, record_run)
@@ -1498,7 +1510,8 @@ class Agent:
             value = kept.get(key)
             if value is None:
                 continue
-            ok = (zero_grounded(key, text, ext.zero_cues) if _is_zero(value)
+            ok = (zero_grounded(key, text, ext.zero_cues, ext.contribution_terms, ext.nothing_deducted_phrases)
+                  if _is_zero(value)
                   else grounded_number(value, numbers_text))
             if not ok:
                 refused.append(key)

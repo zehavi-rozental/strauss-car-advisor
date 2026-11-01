@@ -197,6 +197,9 @@ class PendingConfirmation(BaseModel):
     approximate: bool = False
     unusual: bool = False   # a legal but rare value: asked "לאשר / לתקן" once
     scale: bool = False     # a tiny amount ("3" for commissions): asked "3 ₪ או 3,000 ₪?"; value is the amount said
+    # more fields held with the same answer (1/11): "אין הפרשות" holds pension 0% and study fund 0% together, asked
+    # once ("לרשום פנסיה 0% וקרן השתלמות 0%?") and saved together on "לאשר"
+    also: dict[str, Decimal] = Field(default_factory=dict)
 
 
 class CarClarification(BaseModel):

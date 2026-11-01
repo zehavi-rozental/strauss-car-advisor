@@ -603,6 +603,22 @@ def unusual_fix_text(field: str) -> str:
     return f"בסדר. {_RANGE_TEXT[field][1]}"
 
 
+def held_text(pending: Any) -> str:
+    """The question for a value held for confirmation; several fields held together are asked once (1/11)."""
+    if pending.also:
+        parts = [f"{_VALUE_LABELS[f][0]} {_show(f, v)}" for f, v in [(pending.field, pending.value), *pending.also.items()]]
+        return f"כדי לוודא שהבנתי: לרשום {' ו'.join(parts)}?"
+    return confirm_value_text(pending.field, pending.value, pending.unusual, pending.scale)
+
+
+def held_fix_text(pending: Any) -> str:
+    """"לתקן" on values held together: each field is asked again, in one question (1/11)."""
+    if pending.also:
+        names = [_VALUE_LABELS[f][0] for f in (pending.field, *pending.also)]
+        return f"בסדר. כמה אחוז יורד לכם ל{' ול'.join(names)}? אם אחד מהם 0, כתבו 0."
+    return unusual_fix_text(pending.field)
+
+
 def confirm_value_text(field: str, value: Decimal, unusual: bool = False, scale: bool = False) -> str:
     if scale:
         return f"התכוונתם ל-{_show(field, value)} או ל-{_show(field, value * 1000)}?"
@@ -1246,7 +1262,7 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
         # results came with a value still held (a correction next to another change): the held value is the one
         # question of the reply, never hidden behind the results' next step (QA 22/10)
         pending = state.pending_confirmation
-        plan.ask.append(confirm_value_text(pending.field, pending.value, pending.unusual, pending.scale))
+        plan.ask.append(held_text(pending))
         plan.cta = call_to_action(state, snapshot)[0]
         return plan
     if plan.fixed and state.stage == Stage.PRESENTED:
@@ -1286,7 +1302,7 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
         return plan
     if state.pending_confirmation is not None:
         pending = state.pending_confirmation
-        plan.ask.append(confirm_value_text(pending.field, pending.value, pending.unusual, pending.scale))
+        plan.ask.append(held_text(pending))
         return plan
     if state.pending_occupation is not None:
         plan.ask.append(confirm_occupation_text(state.pending_occupation.text,

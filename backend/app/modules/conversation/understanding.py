@@ -20,6 +20,7 @@ from typing import Iterable, Optional
 from app.modules.rules.public import FAMILY_GROUP, CatalogCar, Faq, FaqEntry, RulesSnapshot, matched_name, related_cars, words
 
 from .fallback import _RANK_RE, named_cars
+from .grounding import CONTRIBUTION_FIELDS, contributions_zero_said
 from .parsing import _NO_COPAY_RE, COMPANY_CAR, match_occupation, no_car_span
 from .stage import NO_CAR_OR_ZERO, ConversationState, Stage  # noqa: F401  (NO_CAR_OR_ZERO: re-exported)
 
@@ -90,6 +91,9 @@ class Understanding:
     # "אני רוצה לתקן נתון", "השכר שהכנסתי לא נכון" (1/11): a correction of the employee's own data, with no value yet.
     # None: not one; [] no field named; else the save_profile arguments it names ("car" for today's car)
     correction: Optional[list[str]] = None
+    # "אין הפרשות", "לא יורד לי כלום" (1/11): nothing deducted, said for both contributions at once; the fields it
+    # holds at 0 for one confirmation (the missing ones, else both: a correction)
+    zero_contributions: list[str] = field(default_factory=list)
 
     @property
     def question_only(self) -> bool:
@@ -100,7 +104,8 @@ class Understanding:
     def anything(self) -> bool:
         return bool(self.audit or self.all_at_once or self.faq_ids or self.catalog or self.unanswered or self.presence or self.help or self.redirect
                     or self.ambiguity or self.compare or self.complaint or self.clarify or self.about_results
-                    or self.rep_request or self.social or self.correction is not None)
+                    or self.rep_request or self.social or self.correction is not None
+                    or bool(self.zero_contributions))
 
 
 # words that may stand next to small talk without making it more ("מה נשמע אצלכם היום?")
@@ -641,6 +646,15 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
                               # its off-topic question is redirected by in_scope, its values are read)
     if _is_help(text):
         u.help = True
+        return u
+    ext = snapshot.extensions
+    if (len(words(text)) <= 6 and not any(ch.isdigit() for ch in text) and not named_cars(text, snapshot.catalog)
+            and contributions_zero_said(text, ext.zero_cues, ext.contribution_terms, ext.nothing_deducted_phrases)):
+        # "אין הפרשות" (1/11): a zero for both contributions, confirmed once in code (both modes): never "not
+        # understood", never read as an answer to another question, never saved without "לאשר"
+        p = state.profile
+        missing = [f for f in CONTRIBUTION_FIELDS if getattr(p, f) is None]
+        u.zero_contributions, u.remainder = missing or list(CONTRIBUTION_FIELDS), ""
         return u
     fix = correction_request(snapshot, text)
     if fix is not None:
