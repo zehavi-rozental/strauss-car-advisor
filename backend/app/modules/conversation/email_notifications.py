@@ -13,6 +13,7 @@ import ssl
 import uuid
 from datetime import timedelta
 from email.message import EmailMessage
+from email.utils import formataddr, formatdate, parseaddr
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlparse
@@ -42,6 +43,16 @@ AWAITING = "AWAITING"
 
 class EmailNotConfigured(Exception):
     pass
+
+
+SENDER_NAME = "STRAUSS DRIVE"
+
+
+def sender_header(email_from: str) -> str:
+    """The From header with a display name (1/11): a bare address reads as an anonymous sender to the receiving
+    side; a name given in EMAIL_FROM ("Name <address>") is kept as it is."""
+    name, address = parseaddr(email_from)
+    return email_from if name or not address else formataddr((SENDER_NAME, address))
 
 
 def local_url(url: str) -> bool:
@@ -386,10 +397,12 @@ class EmailNotificationService:
                 encoding="utf-8")
             return
         message = EmailMessage()
-        message["From"] = self.settings.email_from
+        message["From"] = sender_header(self.settings.email_from)
         message["To"] = recipient
         message["Subject"] = subject
-        message["Message-ID"] = f"<{message_id}@strauss-car-advisor>"
+        message["Date"] = formatdate(usegmt=True)
+        # a Message-ID on the sender's own domain (1/11): "@strauss-car-advisor" was not a domain at all
+        message["Message-ID"] = f"<{message_id}@{parseaddr(self.settings.email_from)[1].rpartition('@')[2] or 'localhost'}>"
         message.set_content(body)
         message.add_alternative(html_body, subtype="html")
         with smtplib.SMTP(self.settings.email_smtp_host, self.settings.email_smtp_port, timeout=15) as smtp:

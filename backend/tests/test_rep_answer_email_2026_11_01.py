@@ -139,3 +139,31 @@ def test_an_offer_the_model_writes_in_its_own_words_gets_its_buttons(engine, sna
     model.cookies = plain.cookies
     turn = model.post(f"/api/conversations/{cid}/messages", json={"text": "האם יש רכב עם גג נפתח?"}).json()
     assert any(f["field"] == "ask_rep" for f in turn["expects"]["fields"]), turn["reply"]
+
+
+def test_the_smtp_message_has_a_named_sender_a_date_and_a_message_id_on_the_sender_s_domain(monkeypatch):
+    # deliverability (1/11): standard headers only; the content and the link are unchanged
+    import smtplib
+    sent = []
+
+    class FakeSMTP:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def starttls(self, **k): pass
+        def login(self, *a): pass
+        def send_message(self, message): sent.append(message)
+
+    monkeypatch.setattr(smtplib, "SMTP", FakeSMTP)
+    settings = SimpleNamespace(email_backend="smtp", email_from="noreply@mail.example.test", email_smtp_host="smtp",
+                               email_smtp_port=587, email_smtp_starttls=True, email_smtp_username="",
+                               email_smtp_password="")
+    service = object.__new__(EmailNotificationService)
+    service.settings = settings
+    service._send("abc123", "employee@example.test", "נושא", "גוף", "<p>גוף</p>")
+    m = sent[0]
+    assert m["From"] == "STRAUSS DRIVE <noreply@mail.example.test>"
+    assert m["Message-ID"] == "<abc123@mail.example.test>" and m["Date"]
+    settings.email_from = "Strauss Car Advisor <noreply@mail.example.test>"
+    service._send("abc124", "employee@example.test", "נושא", "גוף", "<p>גוף</p>")
+    assert sent[1]["From"] == "Strauss Car Advisor <noreply@mail.example.test>"           # a name given is kept
