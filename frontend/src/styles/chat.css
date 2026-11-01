@@ -61,6 +61,14 @@
   border: 1px solid var(--on-hero-live); opacity: 0;
   animation: ping 2.4s var(--ease-out) infinite;
 }
+/* the engine badge (31/10): its colour says what really answers; only a live model pulses */
+.status-pending { color: var(--on-hero-2); }
+.status-pending .status-dot { background: var(--on-hero-3); }
+.status-limited { color: var(--on-hero-down); }
+.status-limited .status-dot { background: var(--on-hero-down); }
+.status-off { color: var(--on-hero-3); }
+.status-off .status-dot { background: transparent; border: 1px solid var(--on-hero-3); }
+.status-pending .status-dot::after, .status-limited .status-dot::after, .status-off .status-dot::after { animation: none; opacity: 0; }
 @keyframes ping { 0% { transform: scale(0.6); opacity: 0.7; } 80%, 100% { transform: scale(1.8); opacity: 0; } }
 .chat-actions { display: flex; align-items: center; gap: var(--s3); margin-inline-start: auto; }
 .new-chat {
@@ -171,7 +179,11 @@
 .message-group { display: flex; flex-direction: column; gap: 14px; }
 .message-group.from-bot { animation: rise var(--t-slow) var(--ease-out) both; }
 
-.bubble { overflow-wrap: anywhere; }
+/* break a word only when it cannot fit on its own line ("anywhere" split model names mid-word: D2, 29/10) */
+.bubble { overflow-wrap: break-word; }
+/* a car name with its prefix and year ("ב-BYD DOLPHIN (2025)"): moves to the next line whole; never wider than the
+   line (a name longer than the line still wraps inside), so it never adds a horizontal scroll */
+.latin-run { display: inline-block; max-inline-size: 100%; text-indent: 0; }
 .bubble-text { white-space: pre-wrap; }
 .bubble-bot { display: flex; align-items: flex-start; gap: 14px; max-inline-size: 100%; }
 .bubble-avatar {
@@ -276,6 +288,10 @@
 .reply-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .reply-row .chip { --bg: var(--card); }
 .reply-row .chip:hover:not(:disabled) { --fg: #fff; --bd: var(--brand); background: var(--brand); }
+/* the primary choice keeps its filled brand look here: the row's card background above left its white label
+   invisible until hover ("לשאול את נציג הרכב") */
+.reply-row .chip-primary { --bg: var(--brand); --fg: #fff; --bd: var(--brand); }
+.reply-row .chip-primary:hover:not(:disabled) { --bd: var(--brand-deep); background: var(--brand-deep); }
 .reply-select { max-inline-size: 420px; appearance: none; background-image: none; }
 .answer-tail .link-button {
   align-self: flex-start;
@@ -480,3 +496,278 @@
   .messages { padding-block: 22px 12px; gap: 18px; }
   .panel-card { padding: 16px; }
 }
+
+/* ---------- rep inquiry: a question to the transport representative, inside the conversation ---------- */
+
+/* the catalog-copay explanation, shown before results appear (while choosing options / calculating) */
+.copay-banner {
+  display: flex;
+  gap: var(--s2);
+  align-items: flex-start;
+  padding: var(--s3) var(--s4);
+  margin-top: var(--s3);
+  background: var(--pending-tint);
+  border: 1px solid color-mix(in srgb, var(--pending) 24%, transparent);
+  border-radius: var(--r-md);
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+  line-height: 1.5;
+}
+.copay-banner svg { flex: none; margin-top: 2px; color: var(--pending); }
+.link-inline {
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--brand);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.link-inline:hover { color: var(--brand-deep); }
+.link-inline:disabled { color: var(--ink-3); cursor: default; text-decoration: none; }
+
+/* the "שאלה לנציג הרכב" entry chip and the inquiry card */
+.chip.rep-inquiry-open { margin-top: var(--s2); }
+
+.rep-inquiry-card {
+  margin-top: var(--s3);
+  padding: var(--s4);
+  background: var(--card);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-2);
+  animation: rep-inquiry-in var(--t-med) var(--ease-out);
+}
+@keyframes rep-inquiry-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.rep-inquiry-card.is-sent { border-color: var(--surface-up-line); }
+.rep-inquiry-card.is-exists { border-color: color-mix(in srgb, var(--pending) 30%, transparent); }
+
+.rep-inquiry-head { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s3); }
+.rep-inquiry-head h3 { margin: 0; font-size: var(--fs-lead); color: var(--ink); }
+.rep-inquiry-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  color: var(--brand);
+  background: var(--brand-tint);
+  border-radius: var(--r-pill);
+}
+.is-sent .rep-inquiry-icon { color: var(--up); background: var(--up-tint); }
+.is-exists .rep-inquiry-icon { color: var(--pending); background: var(--pending-tint); }
+
+.rep-inquiry-body { display: flex; flex-direction: column; gap: var(--s2); }
+.rep-inquiry-context { margin: 0; font-size: var(--fs-small); color: var(--ink-3); }
+.rep-inquiry-label { font-size: var(--fs-small); font-weight: 600; color: var(--ink-2); margin-top: var(--s1); }
+.rep-inquiry-text,
+.rep-inquiry-email {
+  width: 100%;
+  padding: var(--s2) var(--s3);
+  font: inherit;
+  color: var(--ink);
+  background: var(--card-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  resize: vertical;
+}
+.rep-inquiry-text:focus,
+.rep-inquiry-email:focus { outline: 2px solid var(--brand); outline-offset: 1px; border-color: var(--brand); }
+.rep-inquiry-hint { margin: 0; font-size: var(--fs-micro); color: var(--ink-3); }
+.rep-inquiry-error {
+  display: flex;
+  gap: var(--s1);
+  align-items: center;
+  margin: 0;
+  color: var(--down);
+  font-size: var(--fs-small);
+}
+.rep-inquiry-actions { display: flex; justify-content: flex-start; gap: var(--s2); margin-top: var(--s2); }
+
+.rep-inquiry-summary-title { margin: 0 0 var(--s1); font-weight: 600; color: var(--ink); }
+.rep-inquiry-summary { margin: 0; display: grid; gap: var(--s2); }
+.rep-inquiry-summary div { display: grid; grid-template-columns: minmax(120px, auto) 1fr; gap: var(--s3); }
+.rep-inquiry-summary dt { color: var(--ink-3); font-size: var(--fs-small); }
+.rep-inquiry-summary dd { margin: 0; color: var(--ink); }
+.rep-inquiry-note {
+  margin: 0;
+  padding: var(--s2) var(--s3);
+  background: var(--pending-tint);
+  border-radius: var(--r-sm);
+  color: var(--pending);
+  font-size: var(--fs-small);
+}
+.rep-inquiry-saved {
+  margin: 0;
+  padding: var(--s2) var(--s3);
+  background: var(--card-2);
+  border-right: 3px solid var(--brand);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+}
+
+.rep-inquiry-history {
+  margin: var(--s2) 0 var(--s3);
+  padding: var(--s3);
+  border: 1px solid var(--line-2);
+  border-right: 3px solid var(--pending);
+  border-radius: var(--r-sm);
+  background: var(--card-2);
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+}
+.rep-inquiry-history > header { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s1) var(--s2); color: var(--ink); }
+.rep-inquiry-history-question { margin: var(--s2) 0; color: var(--ink); white-space: pre-line; overflow-wrap: break-word; }
+/* one inquiry record: the status is the only coloured part; answered and cancelled read calmly */
+.rep-inquiry-status {
+  margin-inline-start: auto;
+  padding: 2px 10px;
+  border-radius: var(--r-pill);
+  background: var(--pending-tint);
+  color: var(--pending);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.rep-inquiry-history.is-answered { border-right-color: var(--up); }
+.rep-inquiry-history.is-answered .rep-inquiry-status { background: var(--up-tint); color: var(--up); }
+.rep-inquiry-history.is-cancelled { border-right-color: var(--line-2); }
+.rep-inquiry-history.is-cancelled .rep-inquiry-status { background: var(--card); color: var(--ink-3); }
+.rep-inquiry-car { margin: var(--s2) 0 0; color: var(--ink-2); }
+.rep-inquiry-next { margin: 0 0 var(--s2); color: var(--ink-3); }
+.rep-inquiry-resend { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s1) var(--s2); margin-top: var(--s2); }
+.rep-inquiry-resend .rep-inquiry-hint { flex-basis: 100%; }
+.inquiry-group { max-width: min(640px, 100%); }
+.rep-inquiry-history dl { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s4); margin: 0; }
+.rep-inquiry-history dl div { display: flex; gap: var(--s1); }
+.rep-inquiry-history dt { color: var(--ink-3); }
+.rep-inquiry-history dd { margin: 0; }
+.rep-inquiry-history a { display: inline-block; margin-top: var(--s2); color: var(--brand-deep); }
+
+@media (max-width: 560px) {
+  .rep-inquiry-summary div { grid-template-columns: 1fr; gap: 2px; }
+  .rep-inquiry-actions { flex-direction: column-reverse; }
+  .rep-inquiry-actions .btn { width: 100%; }
+}
+
+/* who wrote a bot message (31/10): the model or the system; quiet, next to the time */
+
+/* today's copay: the amount field under the three choices (31/10) */
+.copay-amount { display: flex; align-items: center; gap: 8px; flex-basis: 100%; flex-wrap: wrap; }
+.copay-amount input { inline-size: 120px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; }
+
+/* the representative's answer about today's copay and its action, as one unit (1/11) */
+.rep-answer-action { margin-block-start: 10px; padding-block-start: 10px; border-block-start: 1px dashed var(--line); }
+.rep-answer-action .reply-row { margin: 0; }
+.rep-answer-done { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--surface-up, #e9f6ef); color: var(--ink); font-size: var(--fs-small); }
+/* an answer brought into view from the email link, or waiting for the employee */
+/* the answer an email link points at: a soft highlight that fades once, never a permanent frame (1/11) */
+.message-group.is-focused .bubble-main { animation: answer-focus 2.4s ease-out 1; }
+@keyframes answer-focus {
+  0%, 35% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 16%, transparent), 0 12px 28px -22px rgb(6 48 77 / 45%); }
+  100% { box-shadow: 0 0 0 0 transparent, 0 12px 28px -22px rgb(6 48 77 / 45%); }
+}
+@media (prefers-reduced-motion: reduce) { .message-group.is-focused .bubble-main { animation: none; } }
+
+/* today's car above the comparison (1/11): the amount in use and its source, said once for every card below */
+.today-copay-card {
+  display: grid;
+  gap: var(--s1);
+  padding: var(--s3) var(--s4);
+  margin-block-end: var(--s3);
+  background: var(--surface-today);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  font-size: var(--fs-small);
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.today-copay-card.is-provisional { border-color: color-mix(in srgb, var(--pending) 30%, transparent); }
+.today-copay-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); margin: 0; }
+.today-copay-title { font-weight: 600; color: var(--ink); }
+.today-copay-amount { margin: 0; color: var(--ink); }
+.today-copay-source { color: var(--ink-3); }
+.today-copay-explain, .today-copay-new { margin: 0; }
+.today-copay-new { color: var(--ink-3); font-size: var(--fs-micro); }
+.today-copay-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: var(--s1) 0 0; color: var(--ink); }
+.today-copay-ask {
+  justify-self: start;
+  margin-top: var(--s1);
+  border: 1px solid var(--brand);
+  background: var(--surface, #fff);
+  color: var(--brand);
+  font-weight: 600;
+}
+.today-copay-amount bdi { font-weight: 700; }
+
+/* the representative's answer about today's copay: one titled unit with its action */
+.rep-copay-answer { display: grid; gap: 12px; padding-block: 2px 8px; }
+.rep-copay-answer-title { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 700; color: var(--ink); }
+.rep-copay-answer-title svg { color: var(--brand); }
+.rep-copay-answer-car { margin: -6px 0 0; color: var(--ink-3); font-size: var(--fs-small); }
+.rep-copay-answer-amounts { display: flex; flex-wrap: wrap; gap: 10px; margin: 0; }
+.rep-copay-answer-amounts div {
+  flex: 1 1 110px;
+  display: grid; gap: 2px; align-content: space-between;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--surface-today);
+}
+.rep-copay-answer-amounts div.is-given { background: var(--brand-tint); }
+.rep-copay-answer-amounts dt { color: var(--ink-3); font-size: var(--fs-micro); }
+.rep-copay-answer-amounts dd { margin: 0; font-size: 1.125rem; font-weight: 700; color: var(--ink); }
+.rep-copay-answer-amounts div.is-given dd { color: var(--brand); }
+.rep-copay-answer-note { display: grid; gap: 2px; padding-inline-start: 12px; border-inline-start: 3px solid var(--line); }
+.rep-copay-answer-note span { color: var(--ink-3); font-size: var(--fs-micro); }
+.rep-copay-answer-note p { margin: 0; color: var(--ink-2); white-space: pre-line; }
+.rep-copay-answer .rep-answer-action { margin: 0; padding: 0; border: 0; }
+.rep-copay-answer .rep-answer-done { margin: 0; }
+.rep-inquiry-field-error { margin: 0; color: var(--down); font-size: var(--fs-small); }
+.rep-inquiry-email[aria-invalid], .rep-inquiry-text[aria-invalid] { border-color: var(--down); }
+
+/* the cars, one compact place (1/11): the chat's comparison, then three short ways in */
+.car-actions {
+  display: grid; gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--card);
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+}
+.car-actions-current { display: flex; align-items: center; gap: 6px; margin: 0; }
+.car-actions-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.car-actions-row .chip { display: inline-flex; align-items: center; gap: 6px; }
+.car-actions-missing { margin: 0; color: var(--ink-2); }
+.browse-note {
+  display: flex; align-items: center; gap: 6px;
+  margin: 0 0 var(--s3);
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  background: var(--surface-today);
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+}
+
+/* an inquiry and its answer (1/11): the record says it was sent; the answer is one card with the question */
+.rep-inquiry-label-quiet { display: block; color: var(--ink-3); font-size: var(--fs-micro); }
+.rep-inquiry-history-question p { margin: 2px 0 0; }
+.rep-inquiry-history.is-focused { animation: record-focus 2.4s ease-out 1; }
+@keyframes record-focus {
+  0%, 35% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 16%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .rep-inquiry-history.is-focused { animation: none; } }
+.rep-answer-card { display: grid; gap: 12px; padding-block: 2px 8px; }
+.rep-answer-card-title { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 700; color: var(--ink); }
+.rep-answer-card-title svg { color: var(--brand); }
+.rep-answer-card-part { display: grid; gap: 4px; }
+.rep-answer-card-part > span { color: var(--ink-3); font-size: var(--fs-micro); }
+.rep-answer-card-question {
+  margin: 0; padding: 8px 12px; border-radius: 12px; background: var(--surface-today);
+  color: var(--ink-2); white-space: pre-line; overflow-wrap: break-word;
+}
+.rep-answer-card .bubble-text { overflow-wrap: break-word; }
+.rep-inquiry-add-email { display: grid; gap: 6px; }
+.rep-inquiry-add-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.rep-inquiry-add-row .rep-inquiry-email { flex: 1 1 200px; min-width: 0; }

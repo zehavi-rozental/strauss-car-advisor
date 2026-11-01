@@ -54,3 +54,16 @@ describe('360° option map', () => {
     expect(leadText({ ...m, stale: true })).toContain('לפני השינוי האחרון')
   })
 })
+
+import { mapKey } from './optionMap'
+describe('the map card moves only when the map is rebuilt (1/11)', () => {
+  const entry = (delta: string) => ({ option_id: 'CAR-03', label: 'BYD DOLPHIN (2025)', group: 'א', drive: 'ELECTRIC',
+                                      status: 'full', result: { delta_display: delta } })
+  const map = (delta: string, stale: boolean) =>
+    ({ entries: [entry(delta)], excluded: [], counts: {}, leaders: [], stale, group: 'א' }) as unknown as OptionMap
+  it('marked out of date: the same key (it stays); rebuilt with new numbers: a new key (it moves)', () => {
+    expect(mapKey(map('994', true))).toBe(mapKey(map('994', false)))
+    expect(mapKey(map('1022', false))).not.toBe(mapKey(map('994', false)))
+    expect(mapKey(null)).toBeNull()
+  })
+})

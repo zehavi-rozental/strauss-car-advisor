@@ -3,6 +3,12 @@
 import type { MapEntry, MapStatus, OptionMap, OptionResult } from '../api/types'
 
 export const MAP_REQUEST = 'השווה את כל האפשרויות שלי'
+
+/** What makes the map a new one (1/11): its options and their numbers. Being marked out of date is not: the card
+ *  stays where it was, with its "לא מעודכן" note, until the rebuild moves it to the message that says so. */
+export const mapKey = (map: OptionMap | null | undefined): string | null =>
+  map ? JSON.stringify(map.entries.map((e) => [e.option_id, e.status, e.result.delta_display ?? null])) : null
+
 export const NET_ONLY_NOTE = 'הדירוג מבוסס על הנטו החודשי המשוער בלבד. התאמת הרכב לצרכים שלכם עשויה להיות שונה.'
 export const MAX_COMPARE = 3          // a display limit for the side-by-side table, never a limit on the list
 

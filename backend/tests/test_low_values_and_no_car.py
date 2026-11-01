@@ -193,7 +193,6 @@ def test_the_model_cannot_go_back_to_a_field_the_employee_already_answered(sessi
     fake.turn(call("save_profile", occupation="מנהלת מוצר", base_salary=18500, commissions=0, bonus=0,
                    pension_percent=6, study_fund_percent=2.5, credit_points=2.75, children_under_23=2), reply=None)
     svc.send(turn.conversation_id, token, NOA_WORDS)
-    fake.turn(call("match_current_car", no_car=True), reply=None)
     turn = svc.send(turn.conversation_id, token, "אין רכב")
     stale = "כמה עמלות יש לכם בחודש?"                           # commissions were answered ("בלי עמלות")
     fake.turn(reply=stale, retry=stale)
@@ -209,6 +208,7 @@ def test_no_car_said_early_by_the_model_is_acknowledged(sessions):
     turn, token = svc.start()
     fake.turn(call("save_profile", occupation="מנהלת מוצר", base_salary=18500, pension_percent=5), reply=None)
     svc.send(turn.conversation_id, token, "מנהלת מוצר, שכר שמונה עשר וחצי אלף, פנסיה חמישה אחוז")
+    # the parser does not read "אין רכב" while the salary question is on screen: the model does (not a simple answer)
     fake.turn(call("match_current_car", no_car=True), reply=None)
     turn = svc.send(turn.conversation_id, token, "אין רכב")
     s = svc.view(turn.conversation_id, token).state

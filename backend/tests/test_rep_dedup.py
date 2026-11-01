@@ -30,7 +30,8 @@ def say(client, cid, **body):
 def ask_and_send(client, cid, question):
     """The question → "לשאול את הנציג" → (preview) "לשלוח". Returns the last reply."""
     turn = say(client, cid, text=question)
-    assert any(f["field"] == "ask_rep" for f in turn["expects"]["fields"])
+    if not any(f["field"] == "ask_rep" for f in turn["expects"]["fields"]):
+        return turn       # already sent (1/11): its status or its answer is the reply, and nothing is offered again
     turn = say(client, cid, choice="ask_rep", field="ask_rep")
     if any(f["field"] == "rep_question" for f in turn["expects"]["fields"]):
         turn = say(client, cid, choice="send", field="rep_question")

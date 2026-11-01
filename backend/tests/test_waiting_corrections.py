@@ -44,7 +44,7 @@ def test_cues_in_the_first_words_are_corrections(sessions, text):
     turn = svc.send(cid, token, text)
     assert svc.cases.get(old.id).status == Status.CANCELLED
     assert state(svc, cid, token).current.catalog_code == "CAR-09"
-    assert turn.stage == Stage.COLLECT_CURRENT_CAR and "מה ההשתתפות החודשית שלכם היום" in turn.reply
+    assert turn.stage == Stage.COLLECT_CURRENT_CAR and "ההשתתפות החודשית ב-" in turn.reply
 
 
 def test_negation_is_still_not_a_correction(sessions):
@@ -71,7 +71,7 @@ def test_this_is_my_car_rematches_and_cancels(sessions):
     s = state(svc, cid, token)
     assert s.current.catalog_code == "CAR-10" and s.pending_clarification is None and s.pending_rep is None
     assert svc.cases.get(old.id).status == Status.CANCELLED
-    assert turn.reply.startswith("זיהיתי: ATTO 3 (2025)") and "מה ההשתתפות החודשית שלכם היום" in turn.reply
+    assert turn.reply.startswith("זיהיתי: ATTO 3 (2025)") and "ההשתתפות החודשית ב-" in turn.reply
 
 
 def test_an_alternative_is_calculated_after_the_rep_answers(engine):

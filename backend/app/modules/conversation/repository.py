@@ -66,11 +66,11 @@ class ConversationRepository:
     # ---------- הודעות ----------
 
     def add_message(self, conversation_id: uuid.UUID, role: str, content: str, source: str,
-                    guard_blocked: bool = False) -> MessageRow:
+                    guard_blocked: bool = False, rep_question_id: Optional[str] = None) -> MessageRow:
         seq = self.session.scalar(select(func.coalesce(func.max(MessageRow.seq), 0))
                                   .where(MessageRow.conversation_id == conversation_id)) + 1
         row = MessageRow(conversation_id=conversation_id, seq=seq, role=role, content=content, source=source,
-                         guard_blocked=guard_blocked)
+                         guard_blocked=guard_blocked, rep_question_id=rep_question_id)
         self.session.add(row)
         self.session.flush()
         return row
@@ -78,6 +78,12 @@ class ConversationRepository:
     def messages(self, conversation_id: uuid.UUID) -> list[MessageRow]:
         return list(self.session.scalars(select(MessageRow).where(MessageRow.conversation_id == conversation_id)
                                          .order_by(MessageRow.seq)))
+
+    def recorded_inquiries(self, conversation_id: uuid.UUID) -> set[str]:
+        """The questions to the representative that already have their inquiry record in this conversation."""
+        return set(self.session.scalars(select(MessageRow.rep_question_id).where(
+            MessageRow.conversation_id == conversation_id, MessageRow.source == "rep_inquiry",
+            MessageRow.rep_question_id.is_not(None))))
 
     # ---------- גרסאות הגדרות והרצות ----------
 

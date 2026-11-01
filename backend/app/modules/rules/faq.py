@@ -65,8 +65,43 @@ class Faq(BaseModel):
     # a reason to ask the representative about a new car's copay, said by the employee with the copay on screen
     # ("שהנציג יאשר", "סוכם אחרת", "לברר"): with no amount given, a question is opened for that car
     copay_rep_terms: tuple[str, ...] = ()
+    # a property of a car the catalog does not hold (colour, a sunroof, equipment, stock, delivery time): a question
+    # naming one is never read as a model name and never answered "yes, it is in the catalog" (29/10); it is a
+    # concrete question for the representative when it is about a car
+    attribute_terms: tuple[str, ...] = ()
+    # the employee asks for the representative ("אני רוצה לדבר עם נציג", "היית צריך לשאול את הנציג"): offered at
+    # once, with the question still open, never "not understood" and never back to the pay questions (29/10)
+    rep_request_cues: tuple[str, ...] = ()
+    # two catalog cars compared ("מה ההבדל בין NIRO ל-DOLPHIN?"): the catalog facts of both, never a copay
+    comparison_terms: tuple[str, ...] = ()
     # a question whose intent is truly unclear: one short line, no buttons, never the representative
     clarify: str = "לא בטוח שהבנתי את השאלה. כתבו אותה במילים אחרות, למשל על הרכב, הזכאות או הנטו."
+    # small talk that says nothing else (30/10): kind -> phrases ("מה נשמע", "בוקר טוב", "תודה"); a message made only
+    # of these is answered in a few words, then the conversation goes on. Never "not understood", never a miss.
+    social_cues: dict[str, tuple[str, ...]] = {}
+    # kind -> short replies, used in turn so the same line does not come twice in a row
+    social_replies: dict[str, tuple[str, ...]] = {}
+    # "let's move on" with nothing else to read ("אוקי אז מה ההמשך"): the open question picked up, never "not sure"
+    proceed_terms: tuple[str, ...] = ()
+    # a request to upload a payslip (1/11): "תלוש" next to one of these verbs, at any stage, before the flow question
+    payslip_upload_terms: tuple[str, ...] = ()
+    # a request to see the cars (1/11): one of the verbs next to one of the objects ("תציג לי אפשרויות", "תראה לי
+    # רשימה"). At the question about today's car (also "לא זוכרת איזה רכב") or the alternatives, code shows the real
+    # catalog list; never "not understood", never "no car" or copay 0
+    show_list_verbs: tuple[str, ...] = ()
+    show_list_objects: tuple[str, ...] = ()
+    # a request to correct the employee's own data (1/11): one of these words (a change or a mistake) next to one of
+    # `correction_objects` or a salary / car field. Answered in code at any stage, never sent to the representative
+    correction_terms: tuple[str, ...] = ()
+    correction_objects: tuple[str, ...] = ()
+    # feedback about the bot's previous reply ("מה הקשר", "זה לא תשובה", "לא קשור"): acknowledged, and the open
+    # question is explained in other, simpler words — never the same template again (30/10)
+    feedback_cues: tuple[str, ...] = ()
+    feedback_replies: tuple[str, ...] = ()
+    # a question that refers to the advisor itself ("איך אתה יודע…"): scope "bot", answered by how_it_works (30/10)
+    bot_reference_terms: tuple[str, ...] = ()
+    # ... and what makes it a question about the basis of the advice, which a ranking word never overrides
+    bot_basis_terms: tuple[str, ...] = ()
 
     def get(self, entry_id: str) -> Optional[FaqEntry]:
         return next((e for e in self.entries if e.id == entry_id), None)

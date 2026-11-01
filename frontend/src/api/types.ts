@@ -45,10 +45,13 @@ export interface ExpectsField {
   quick_replies: QuickReply[]
   max: number | null
   closed?: boolean           // a closed question: the client shows buttons; open questions are typed
+  question?: string | null   // ask_rep: the employee's question the inquiry card opens with ("" — still to be said)
+  // copay: today's car and its (unverified) catalog amount; rep_copay: the rep's amount and the one it replaces
+  context?: { car?: string; catalog_amount?: string; amount?: string; previous?: string | null; provisional?: string | null }
 }
 
 export interface ExpectsLink {
-  kind: 'profile_form' | 'selection' | 'payslip_upload'
+  kind: 'profile_form' | 'selection' | 'payslip_upload' | 'correction_form'
   label: string
   url?: string               // payslip_upload only: a pilot's external URL; empty uses the built-in upload
 }
@@ -141,6 +144,8 @@ export interface ScenarioResult {
   copay_source?: CopaySource | null
   copay_effective_date?: string | null       // ISO date the representative's amount applies from
   employee_stated_copay?: Decimal            // what the employee said they expect: shown, never used
+  /** today's copay is pending with the representative: today's net used this catalog amount, provisionally (1/11) */
+  today_copay_provisional?: Decimal
   assumptions: string[]
   /** one plain sentence about the main cause (built by the server from the drivers) */
   why?: string
@@ -172,13 +177,32 @@ export interface Message {
   source: string             // user / template / llm / fallback / rep ...
   content: string
   created_at: string         // ISO, UTC
+  rep_question_id?: string | null
 }
+
+export interface RepInquiry {
+  id: string
+  missing_field: string
+  question_text: string          // the representative's full text (never shown to the employee)
+  employee_text?: string | null  // what the employee wrote; null for a question the system opened itself
+  option_id?: string | null      // the car of a copay inquiry
+  car_label: string | null
+  status: 'OPEN' | 'ANSWERED' | 'CANCELLED'
+  created_at: string
+  answered_at: string | null
+  answer_value: string | null
+  answer_note: string | null
+}
+
+/** What really answers the conversation (server-side, from the provider chain and each turn): never from a key alone. */
+export type EngineState = 'ai' | 'untried' | 'limited' | 'none'
 
 export interface TurnResponse {
   conversation_id: string
   stage: Stage
   reply: string
   source: string
+  engine?: EngineState | null   // what answered this turn; null: code alone (buttons, a form)
   results: FlatOptionResult[]  // only when this turn calculated
   pending_rep: RepReason | null
   expects: Expects
@@ -190,16 +214,29 @@ export interface ConversationView {
   stage: Stage
   profile: Record<string, unknown>
   current_car: Record<string, unknown>
+  today_copay?: string | null   // today's copay as the employee gave or confirmed it
+  today_car?: string | null     // today's car (the card above the comparison, 1/11)
+  today_copay_provisional?: string | null   // pending with the rep: the catalog amount used meanwhile
+  today_copay_source?: string | null   // rep_confirmed / catalog_confirmed / null (typed by the employee)
   selected: string[]
   results: OptionResult[]
   pending_rep: RepReason | null
   expects: Expects
   messages: Message[]
+  rep_questions?: RepInquiry[]
   results_stale?: boolean     // the results predate the last change: history, not a recommendation
   option_map?: OptionMap | null      // 360°: null until the employee asks for it
   map_ready?: boolean         // the option map can be built now (an older server does not say: not offered)
   map_missing?: string[]      // what the map still needs, in Hebrew
+  rep_email?: string | null
+  rep_email_verified?: boolean
+  rep_email_delivery?: EmailDelivery
+  rep_email_pending?: boolean   // an address waits for its verification (a new link may be offered)
+  rep_email_simulated?: boolean // the fake mail backend (a local test server): no real email is sent
 }
+
+/** 'disabled': mail is not configured — the inquiry and the answer stay in the chat and nothing mentions email */
+export type EmailDelivery = 'enabled' | 'disabled'
 
 export interface PendingQuestion {
   missing_field: RepReason
@@ -213,12 +250,22 @@ export interface UpdatesResponse {
   stage: Stage
   messages: Message[]
   pending_questions: PendingQuestion[]
+  rep_questions?: RepInquiry[]
   expects: Expects
   results: OptionResult[]
+  today_copay?: string | null   // today's copay as the employee gave or confirmed it
+  today_car?: string | null     // today's car (the card above the comparison, 1/11)
+  today_copay_provisional?: string | null   // pending with the rep: the catalog amount used meanwhile
+  today_copay_source?: string | null   // rep_confirmed / catalog_confirmed / null (typed by the employee)
   results_stale?: boolean     // the results predate the last change: history, not a recommendation
   option_map?: OptionMap | null      // 360°: null until the employee asks for it
   map_ready?: boolean         // the option map can be built now (an older server does not say: not offered)
   map_missing?: string[]      // what the map still needs, in Hebrew
+  rep_email?: string | null
+  rep_email_verified?: boolean
+  rep_email_delivery?: EmailDelivery
+  rep_email_pending?: boolean
+  rep_email_simulated?: boolean
 }
 
 export interface CarSearchItem {
@@ -256,6 +303,36 @@ export type MessageIn =
   | { choice: string; field?: string }
   | { choices: string[]; field?: string }
   | { fields: ProfileFields; source?: 'payslip' }     // source: values approved from a reviewed payslip
+
+// ---------- employee-initiated rep question (POST /conversations/{id}/rep-question) ----------
+
+/** intent decides the kind, not the car: 'general' is informational (never changes the calculation);
+ *  'copay_verification' is a structured copay check the server re-validates against the car on screen. */
+export type RepQuestionIntent = 'general' | 'copay_verification' | 'current_copay'
+
+export interface RepQuestionIn {
+  question: string
+  intent: RepQuestionIntent
+  option_id?: string
+  email?: string             // only while mail delivery is on and the address is not verified yet
+}
+
+/** The server's honest outcome: 'created' (a new question was saved), 'exists' (an open one already held — the
+ *  saved text is returned, the new wording was NOT sent), 'invalid' (not an authorised car). missing_field is
+ *  internal (GENERAL_QUESTION / NEW_CAR_COPAY) and never shown to the employee. */
+export interface RepQuestionResult {
+  status: 'created' | 'exists' | 'invalid'
+  missing_field: string
+  question_id: string | null
+  option_id: string | null
+  car_label: string | null
+  catalog_amount: string | null
+  question_text: string | null
+  results: FlatOptionResult[]      // the current results, so the client can reflect copay_pending honestly
+  email_verified?: boolean
+  email_status?: 'verified' | 'sent' | 'pending' | 'failed' | 'disabled'
+  email_delivery?: EmailDelivery
+}
 
 // ---------- payslip upload (backend/app/modules/payslip) ----------
 

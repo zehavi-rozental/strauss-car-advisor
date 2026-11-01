@@ -59,17 +59,25 @@ export function StateBadge({ state }: { state: ReturnType<typeof resultState> })
 
 /** The new car's copay for one option: amount, source, approval status, its effect on the net, and the date the
  *  representative's amount applies from. "compact" is the one-line form for the comparison panel. */
-export function CopayLine({ result, compact = false }: { result: ScenarioResult; compact?: boolean }) {
+export function CopayLine({ result, compact = false, onAskCopay }: {
+  result: ScenarioResult
+  compact?: boolean
+  onAskCopay?: () => void
+}) {
   const c = copayInfo(result)
+  // today's copay (provisional or not) is said once, in the card above the comparison (1/11), never per car
   if (!c) return null
   const tag = <span className={`tag tag-${c.tone === 'approved' ? 'up' : c.tone === 'final' ? 'plain' : 'pending'}`}>{c.status}</span>
   if (compact) {
     return (
       <span className="compare-line copay-line">
-        <span>השתתפות</span>
+        <span>השתתפות ברכב החדש</span>
         {c.amount != null ? <Money value={c.amount} /> : <span>חסר סכום</span>}
         {tag}
         {c.effective && <span className="copay-date">{c.effective}</span>}
+        {onAskCopay && (c.tone === 'pending' || c.tone === 'final') && (
+          <button type="button" className="link-inline" onClick={onAskCopay}>בירור אישי מול הנציג</button>
+        )}
       </span>
     )
   }
@@ -91,22 +99,29 @@ export function CopayLine({ result, compact = false }: { result: ScenarioResult;
         </p>
       )}
       {c.tone === 'final' && (
-        <p className="copay-meta">אם אצלכם סוכם אחרת, אפשר לעדכן אותי ואפנה לנציג התחבורה לבירור.</p>
+        <p className="copay-meta">זה הסכום בקטלוג לרכב הזה.</p>
       )}
       {c.tone === 'pending' && (
         <p className="copay-meta">הנטו כאן הוא הערכה לפי הסכום שבקטלוג. אם הנציג יקבע סכום אחר, הנטו ישתנה בהתאם.</p>
+      )}
+      {onAskCopay && (c.tone === 'pending' || c.tone === 'final') && (
+        <button type="button" className="link-inline" onClick={onAskCopay}>לבקש בירור אישי מול הנציג</button>
       )}
     </div>
   )
 }
 
-export function ResultCard({ item, onOpenTable }: { item: OptionResult; onOpenTable?: () => void }) {
+export function ResultCard({ item, onOpenTable, onAskCopay }: {
+  item: OptionResult
+  onOpenTable?: () => void
+  onAskCopay?: (item: OptionResult) => void
+}) {
   const r = item.result
   const state = resultState(r)
   return (
     <article className={`result-card is-${state}`} aria-label={`תוצאה: ${item.label}`}>
       {r.status === 'OK' && r.delta_display != null ? (
-        <OkBody item={item} />
+        <OkBody item={item} onAskCopay={onAskCopay} />
       ) : (
         <div className="result-empty">
           <header className="result-head">
@@ -122,20 +137,20 @@ export function ResultCard({ item, onOpenTable }: { item: OptionResult; onOpenTa
               {r.missing_fields.map((f) => <li key={f}>{missingLabel(f)}</li>)}
             </ul>
           )}
-          {r.copay_source === 'missing' && <CopayLine result={r} />}
+          {r.copay_source === 'missing' &&           <CopayLine result={r} onAskCopay={onAskCopay ? () => onAskCopay(item) : undefined} />}
         </div>
       )}
       <footer className="result-foot">
         <span className="disclaimer">הערכה, לא תלוש</span>
         <button type="button" className="table-button" disabled={!onOpenTable} onClick={onOpenTable}>
-          <Icon name="table" size={18} />פירוט מלא
+          <Icon name="table" size={18} />פירוט החישוב
         </button>
       </footer>
     </article>
   )
 }
 
-function OkBody({ item }: { item: OptionResult }) {
+function OkBody({ item, onAskCopay }: { item: OptionResult; onAskCopay?: (item: OptionResult) => void }) {
   const r = item.result
   const delta = Number(r.delta_display)
   const tone = toneOf(r.delta_display)
@@ -172,7 +187,7 @@ function OkBody({ item }: { item: OptionResult }) {
           </p>
         )}
       </div>
-      <CopayLine result={r} />
+      <CopayLine result={r} onAskCopay={onAskCopay ? () => onAskCopay(item) : undefined} />
 
       {/* layer 2: what moved it */}
       {bars.length > 0 && (

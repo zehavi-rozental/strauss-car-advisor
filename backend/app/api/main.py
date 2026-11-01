@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import threading
+from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI
@@ -10,6 +12,7 @@ from sqlalchemy.engine import Engine, make_url
 from app.modules.cases.public import CasesService
 from app.modules.conversation.public import (
     ConversationService,
+    EmailNotificationService,
     LLMChain,
     build_llm_chain,
 )
@@ -50,12 +53,44 @@ def create_app(settings: Optional[Settings] = None, *, engine: Optional[Engine] 
     log.info(startup_summary(settings, llm))
 
     cases = CasesService(sessions)
+    email_notifications = EmailNotificationService(sessions, settings)
     payslip = PayslipService(rules, settings)
-    app = FastAPI(title="Strauss Car Advisor")
+    stop_email_worker = threading.Event()
+    email_worker: Optional[threading.Thread] = None
+
+    def start_email_worker() -> None:
+        nonlocal email_worker
+        if settings.email_backend != "smtp" or email_worker is not None:
+            return
+
+        def run() -> None:
+            while not stop_email_worker.wait(30):
+                try:
+                    email_notifications.process_pending()
+                except Exception as exc:
+                    log.error("email outbox worker failed (%s)", type(exc).__name__)
+
+        email_worker = threading.Thread(target=run, name="email-outbox", daemon=True)
+        email_worker.start()
+
+    def stop_worker() -> None:
+        stop_email_worker.set()
+        if email_worker is not None:
+            email_worker.join(timeout=2)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        start_email_worker()
+        try:
+            yield
+        finally:
+            stop_worker()
+
+    app = FastAPI(title="Strauss Car Advisor", lifespan=lifespan)
     app.state.ctx = AppContext(
         settings=settings, sessions=sessions, rules=rules,
         service=ConversationService(sessions, rules, llm, cases, settings.max_messages_per_conversation,
-                                    settings.llm_mode),
+                                    settings.llm_mode, email_notifications),
         cases=cases,
         payslip=payslip,
         message_limiter=RateLimiter(settings.rate_limit_per_minute),

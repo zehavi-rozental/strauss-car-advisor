@@ -17,13 +17,14 @@ from app.modules.rules.public import FAMILY_GROUP, RulesSnapshot
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
 from .stage import (ConversationState, Stage, current_group, missing_current_car, next_stage, open_profile,
                     results_stale, unknown_missing)
-from .templates import DRIVE_HE, FIELD_NAMES, group_question, money, paced
+from .templates import DRIVE_HE, FIELD_NAMES, catalog_copay_hint, group_question, money, paced
 from .tools import TOOL_SPECS, available_options
 
 HISTORY = 12
 MAX_ROUNDS = 3
 # tools the LLM may call; "calculate" is the old name of select_options (kept for scripted tests)
-LLM_TOOLS = ("save_profile", "match_current_car", "select_options", "rank_options", "propose_rep_question")
+LLM_TOOLS = ("save_profile", "match_current_car", "select_options", "rank_options", "propose_rep_question",
+             "show_cars")
 
 SYSTEM_PROMPT = """You are the company-car advisor of Strauss, chatting in Hebrew with an employee. You help them see how
 changing their company car changes their monthly net pay. Speak like a warm, highly professional human advisor:
@@ -36,6 +37,8 @@ HOW A TURN WORKS
   "אחד" = 1). A message that mixes data and a question: save the data AND answer. A range ("בין 15 ל-16
   אלף") or a vague amount ("קצת עמלות") is not a value: save nothing for it and ask for one number ("בערך
   כמה?"; an estimate is fine, per the FAQ).
+  A request to see the cars, or not knowing today's model ("לא זוכרת איזה רכב, תראה לי") → show_cars (the
+  system shows the real list); never no_car and never a copay for it.
   "לא יודע" about a field → save_profile unknown_fields. Never save something STATE already has unless the
   employee corrects it.
 - The employee may ask to answer a field LATER ("את השכר אבדוק אחר כך", "אח\"כ", "בינתיים תשאל דברים אחרים",
@@ -122,6 +125,10 @@ def state_block(state: ConversationState, snapshot: RulesSnapshot, parser_hint: 
         drive = DRIVE_HE.get(c.drive.value, "") if c.drive else ""
         lines.append(f"current car: {c.label} group {c.group or '-'} {drive}; use value {_v(c.use_value)}; "
                      f"copay {_v(c.copay) if c.copay is not None else ('unknown' if c.copay_unknown else 'missing')}")
+        if (hint := catalog_copay_hint(state, snapshot)) is not None:
+            lines.append(f"today's copay: the catalog lists {_v(hint)} for this car as a general default; it is NOT "
+                         "verified for this employee's agreement. You may mention it as unverified and ask whether "
+                         "it is what they pay; never save or use it unless they confirm it")
     elif c.has_car and not c.choices:
         lines.append("current car: the employee HAS a company car; only its model is missing (never ask whether "
                      "they have a car, never offer \"no car\")"
@@ -177,6 +184,14 @@ def state_block(state: ConversationState, snapshot: RulesSnapshot, parser_hint: 
                 lines.append("  waiting for a value (not ranked): " + ", ".join(waiting))
     if state.pace == "one_at_a_time":
         lines.append("pace: the employee asked for ONE question at a time; ask exactly one field, never two")
+    if state.brief:
+        lines.append("style: the employee asked for short, plain replies; at most 2 short lines before the question, "
+                     "no explanations unless asked")
+    if snapshot.extensions.payslip_upload_enabled or snapshot.extensions.payslip_upload_url:
+        # 1/11: the model answered "אי אפשר להעלות תלוש?" with the flow question; the capability is now in STATE
+        lines.append("payslip: the employee may upload a payslip at ANY time with the 'להעלות תלוש' button; if they ask "
+                     "about it, say yes and point to that button — never ask for other data first. The file is not "
+                     "stored; its values are shown for review and used only after the employee confirms them")
     fields = paced(state, fields)
     if fields and stage not in (Stage.WAITING_FOR_REP,):
         names = ", ".join(FIELD_NAMES.get(f, f) for f in fields)

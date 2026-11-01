@@ -5,7 +5,7 @@
 import type { OptionResult } from '../api/types'
 import { Money } from '../format/Amount'
 import { Icon } from '../ui/Icon'
-import { CarName, NetChange, StateBadge } from './ResultCard'
+import { CarName, CopayLine, NetChange, StateBadge } from './ResultCard'
 import { resultState, toneOf } from './resultView'
 
 export function rankResults(items: OptionResult[]): OptionResult[] {
@@ -14,8 +14,11 @@ export function rankResults(items: OptionResult[]): OptionResult[] {
   return [...items.filter(ok).sort((a, b) => delta(b) - delta(a)), ...items.filter((i) => !ok(i))]
 }
 
-export function SummaryCard({ items, onOpenTable, current = true }:
-  { items: OptionResult[]; onOpenTable?: () => void; current?: boolean }) {
+export function SummaryCard({ items, onOpenTable, current = true, onAskCopay, canAskCopay = () => true }:
+  { items: OptionResult[]; onOpenTable?: () => void; current?: boolean;
+    onAskCopay?: (item: OptionResult) => void
+    /** false for a car whose copay inquiry is already open: the row keeps its status tag, no second "ask" */
+    canAskCopay?: (item: OptionResult) => boolean }) {
   // an out-of-date result (current=false) is never ranked and has no leader: shown in the order chosen, as history
   const ranked = current ? rankResults(items) : items
   const today = ranked.find((i) => i.result.today)?.result.today ?? null
@@ -56,6 +59,13 @@ export function SummaryCard({ items, onOpenTable, current = true }:
                   </span>
                   <span className="summary-status"><StateBadge state={resultState(r)} /></span>
                   {r.why && <span className="summary-why">{r.why}</span>}
+                  {/* the new car's copay stays on every current row; its inquiry link only where a page passes one
+                      (the conversation does not since 1/11: one place, today's car card above the comparison) */}
+                  {current && (
+                    <span className="summary-copay">
+                      <CopayLine result={r} compact onAskCopay={onAskCopay && canAskCopay(i) ? () => onAskCopay(i) : undefined} />
+                    </span>
+                  )}
                 </>
               ) : (
                 <span className="summary-why">
@@ -69,7 +79,7 @@ export function SummaryCard({ items, onOpenTable, current = true }:
       <footer className="result-foot">
         <span className="disclaimer">הערכה, לא תלוש</span>
         <button type="button" className="table-button" disabled={!onOpenTable} onClick={onOpenTable}>
-          <Icon name="table" size={18} />פירוט מלא
+          <Icon name="table" size={18} />פירוט החישוב
         </button>
       </footer>
     </article>

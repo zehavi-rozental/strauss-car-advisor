@@ -54,7 +54,9 @@ def test_empty_forced_call_is_not_understood(sessions):
     svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([fake]))
     turn, token = svc.start()
     turn = svc.send(turn.conversation_id, token, "בלה בלה בלה")
-    assert turn.stage == Stage.COLLECT_PROFILE and "לא הצלחתי להבין" in turn.reply
+    # nothing in "בלה בלה בלה" could answer the question: the neutral not-understood line (browser QA 30/10)
+    assert turn.stage == Stage.COLLECT_PROFILE and "לא בטוח שהבנתי" in turn.reply
+    assert "לא הצלחתי להבין את התשובה" not in turn.reply
 
 
 def test_noa_one_message_profile_in_fallback_mode(engine):

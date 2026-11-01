@@ -4,11 +4,14 @@ import type {
   CarSearchItem,
   CatalogItem,
   ConversationView,
+  EngineState,
   ExtractionResult,
   MessageIn,
   QuestionStatus,
   RepAnswerIn,
   RepQuestion,
+  RepQuestionIn,
+  RepQuestionResult,
   TurnResponse,
   UpdatesResponse,
 } from './types'
@@ -69,11 +72,26 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 const conv = (id: string) => `/api/conversations/${encodeURIComponent(id)}`
 
 export const api = {
+  /** The engine's real state (this request makes no model call). */
+  health: () => request<{ engine?: EngineState }>('/api/health'),
   createConversation: () => request<TurnResponse>('/api/conversations', { method: 'POST' }),
   getConversation: (id: string) => request<ConversationView>(conv(id)),
   sendMessage: (id: string, body: MessageIn) =>
     request<TurnResponse>(`${conv(id)}/messages`, { method: 'POST', body: JSON.stringify(body) }),
   getUpdates: (id: string, after: number) => request<UpdatesResponse>(`${conv(id)}/updates?after=${after}`),
+  /** Send an employee-initiated question to the transport representative. Uses the existing cases mechanism;
+   *  the server classifies by intent (re-validated against the conversation) and returns an honest status. */
+  repQuestion: (id: string, body: RepQuestionIn) =>
+    request<RepQuestionResult>(`${conv(id)}/rep-question`, { method: 'POST', body: JSON.stringify(body) }),
+  /** A new verification link for the address this conversation waits to verify: "queued" | "valid" | "limit" |
+   *  "verified" (what happened, for the status line). */
+  resendVerification: (id: string, email?: string) =>
+    request<{ resend: string }>(`${conv(id)}/email/verify`, { method: 'POST',
+                                                             body: JSON.stringify(email ? { email } : {}) }),
+  redeemEmailLink: (token: string) =>
+    request<{ conversation_id: string; question_id: string | null }>('/api/conversations/return', {
+      method: 'POST', body: JSON.stringify({ token }),
+    }),
   searchCars: (q: string) => request<CarSearchItem[]>(`/api/catalog/search?q=${encodeURIComponent(q)}`),
   /** The company catalog (GET /api/catalog), for display details on the selection cards only. */
   catalog: () => request<CatalogItem[]>('/api/catalog'),

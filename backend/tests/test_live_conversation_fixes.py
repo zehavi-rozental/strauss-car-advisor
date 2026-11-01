@@ -112,7 +112,7 @@ def test_an_unknown_copay_is_recorded_and_asked_from_the_employee_never_the_rep(
     cid, token = start_q2(svc)
     svc.send(cid, token, "אין")
     svc.send_choice(cid, token, ["CAR-09"], "car")
-    turn = svc.send_choice(cid, token, ["unknown"], "copay")
+    turn = svc.send(cid, token, "לא ידוע")   # a catalog car: three choices on screen; "לא ידוע" is typed
     assert turn.stage != Stage.WAITING_FOR_REP and not open_questions(svc, cid)
     assert "רשמתי שזה לא ידוע" in turn.reply and "איזה רכבים להשוות" in turn.reply   # נרשם; ממשיכים בשאלות
     turn = svc.send_choice(cid, token, ["CAR-10"], "options")
@@ -137,7 +137,7 @@ def test_the_live_conversation_reaches_a_result(sessions):
         svc.send(cid, token, "אין").reply,
         svc.send_choice(cid, token, ["rank"], "options").reply,
         svc.send_choice(cid, token, ["CAR-09"], "car").reply,
-        svc.send_choice(cid, token, ["unknown"], "copay").reply,
+        svc.send(cid, token, "לא ידוע").reply,           # a catalog car: three choices on screen; typed
         svc.send(cid, token, PROFILE_REST).reply,
         svc.send(cid, token, "300").reply,                 # today's copay, from the employee (rule A)
     ]

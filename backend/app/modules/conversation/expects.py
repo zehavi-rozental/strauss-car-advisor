@@ -14,7 +14,8 @@ from app.modules.vehicles.public import VehicleInfo, VehicleKey
 from .free_text import looks_like_title
 from .llm.port import ToolCall
 from .stage import MAX_OPTIONS, ConversationState, Stage, next_stage, question_fields
-from .templates import DRIVE_HE, LINK_LABELS, call_to_action, money, placeholder_text
+from .templates import (DRIVE_HE, LINK_LABELS, call_to_action, catalog_copay_hint, copay_choices_offered, money,
+                        placeholder_text)
 from .tools import available_options
 
 VehicleGetter = Callable[[VehicleKey], Optional[VehicleInfo]]
@@ -125,6 +126,15 @@ REP_SEND = [{"id": "send", "label": "לשלוח"}, {"id": "cancel", "label": "ל
 AMBIGUITY = [{"id": "no_car", "label": "אין לי רכב צמוד היום"}, {"id": "zero_copay", "label": "יש רכב, ההשתתפות 0"}]
 # questions with a closed set of answers: the client shows buttons for these only. Every other
 # question is answered by typing (free text first); the server still accepts a structured choice.
+def COPAY_CHOICES(code: Optional[str]) -> list[dict[str, str]]:
+    return [{"id": f"catalog:{code}", "label": "זה הסכום שלי"}, {"id": "other", "label": "הסכום שונה"},
+            {"id": "rep", "label": "לברר מול נציג"}]
+
+
+# no catalog amount for today's car (1/11): nothing is suggested; a known amount, or the representative
+COPAY_CHOICES_NO_CATALOG = [{"id": "other", "label": "להזין סכום"}, {"id": "rep", "label": "לברר מול נציג"}]
+
+
 CLOSED = {"confirmation", "occupation_confirmation", "clarification", "car_choice", "drive", "rep_question",
           "ambiguity", "ask_rep"}
 
@@ -134,10 +144,23 @@ def build_expects(state: ConversationState, snapshot: RulesSnapshot) -> dict[str
     fields = expects.get("fields") or []
     only_group = [f["field"] for f in fields] == ["group"]
     for f in fields:
-        f["closed"] = f["field"] in CLOSED or only_group
+        f["closed"] = f["field"] in CLOSED or only_group or (f["field"] == "copay" and f["type"] == "choice")
     if state.unanswered_question is not None and state.pending_rep_question is None:
+        # question: what the inquiry card opens with (the employee's own words; "" when they are still to be said)
         fields.append({"field": "ask_rep", "type": "choice", "choices": ASK_REP, "quick_replies": [],
-                       "max": None, "closed": True})
+                       "max": None, "closed": True, "question": state.unanswered_question})
+        expects["fields"] = fields
+    offer = state.rep_copay_offer
+    if offer is not None:
+        # the representative's amount for today's copay (1/11): one button; the client asks to confirm, showing the
+        # amount, the car and the amount it replaces
+        c = state.current
+        previous = str(c.copay) if c.copay is not None else None
+        provisional = str(c.copay_provisional) if c.copay is None and c.copay_provisional is not None else None
+        fields.append({"field": "rep_copay", "type": "choice", "quick_replies": [], "max": None, "closed": True,
+                       "choices": [{"id": f"apply:{offer.question_id}", "label": "עדכון הסכום וחישוב מחדש"}],
+                       "context": {"car": offer.car_label, "amount": str(offer.amount), "previous": previous,
+                                   "provisional": provisional}})
         expects["fields"] = fields
     expects["closed"] = bool(fields) and fields[0].get("closed", False)
     cta, link = call_to_action(state, snapshot) if next_stage(state) != Stage.WAITING_FOR_REP else ("", None)
@@ -202,6 +225,17 @@ def _field_expects(question: str, state: ConversationState, snapshot: RulesSnaps
             for o in available_options(snapshot, state)], _quick("rank"), MAX_OPTIONS)
     if question in NUMBER_ARGS:
         quick = [q for q, allowed in (("none", _NONE_ALLOWED), ("unknown", _UNKNOWN_ALLOWED)) if question in allowed]
+        if question == "copay" and (hint := catalog_copay_hint(state, snapshot)) is not None:
+            # today's car has a catalog amount (31/10): three choices only. The amount is the employee's once they
+            # choose it; "הסכום שונה" opens an amount field in the client; "לברר מול נציג" opens an inquiry draft
+            out = _expects("copay", "choice", COPAY_CHOICES(state.current.catalog_code))
+            context = {"car": state.current.label, "catalog_amount": str(hint)}
+            out["context"] = out["fields"][0]["context"] = context     # grouped questions read the top level
+            return out
+        if question == "copay" and copay_choices_offered(state, snapshot):
+            out = _expects("copay", "choice", COPAY_CHOICES_NO_CATALOG)
+            out["context"] = out["fields"][0]["context"] = {"car": state.current.label}
+            return out
         return _expects(question, "number", quick=_quick(*quick))
     return _expects(None, "none")
 
@@ -266,6 +300,17 @@ def choice_calls(field: str, ids: list[str], snapshot: RulesSnapshot) -> list[To
     if field == "options":
         return call("rank_options") if first == "rank" else call("calculate", options=ids)
     if field in NUMBER_ARGS:
+        if field == "copay" and first == "rep":
+            # an inquiry about today's copay was sent: the amount is unknown until it is answered — no default,
+            # and nothing that depends on it is calculated (31/10)
+            return call("save_profile", current_copay_unknown=True)
+        if field == "copay" and first == "other":
+            return []                                    # the client opens an amount field; the amount is the answer
+        if field == "copay" and first.startswith("catalog:"):
+            car = next((c for c in snapshot.catalog if c.catalog_code == first.split(":", 1)[1]), None)
+            if car is None or car.default_copay is None:
+                return []
+            return call("save_profile", current_copay=str(car.default_copay))   # the employee confirmed it
         if first == "unknown":
             return call("save_profile", **{_UNKNOWN_FLAGS[field]: True})
         return call("save_profile", **{NUMBER_ARGS[field]: "0"})       # "none"

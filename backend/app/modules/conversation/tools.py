@@ -92,6 +92,11 @@ class ToolContext:
     # the employee chose "יש רכב, ההשתתפות 0" (the answer to the ambiguity question): copay 0 with the model still
     # unknown is what they said — only code sets this, never the model
     allow_zero_copay: bool = False
+    # the model called show_cars (1/11): code puts the real list of cars above the model's reply
+    cars_shown: bool = False
+    # where a today's copay saved in this turn comes from ("rep_confirmed": the representative's answer the employee
+    # applied); None: the employee's own. Set before the save, so the reply built in the same turn says it (1/11)
+    copay_source: Optional[str] = None
     # the employee's message is phrased as a question ("האם 45 או 45 אלף?", "זה 45 אלף?"): set by the agent, so a
     # value held for confirmation is never resolved by it, whoever asks to save (the model or the reader)
     question_message: bool = False
@@ -353,6 +358,8 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
         ignored.append({"field": "current_copay", "reason": "no car today: there is no copay of today's car"})
     elif args.current_copay is not None:
         c.copay, c.copay_unknown = args.current_copay, False
+        c.copay_source = ctx.copay_source  # the rep's answer applied by the employee, or (None) the employee's own
+        c.copay_provisional = None       # a real amount replaces the provisional catalog one
         saved.append("current_copay")
     elif args.current_copay_unknown and c.copay is None:
         c.copay_unknown = True
@@ -447,6 +454,20 @@ def _longest_named(cars: list[CatalogCar], text: str) -> list[CatalogCar]:
 
 
 def match_current_car(ctx: ToolContext, args: MatchCarArgs) -> dict[str, Any]:
+    old = ctx.state.current
+    out = _match_current_car(ctx, args)
+    new = ctx.state.current
+    if new is not old and new.catalog_code and new.catalog_code == old.catalog_code:
+        # the same car matched again (1/11: the model re-matched it on an unrelated message and the provisional
+        # amount of the open inquiry was lost, blocking the comparison): what belongs to that car stays
+        if new.copay is None:
+            new.copay_provisional = old.copay_provisional
+        if new.copay == old.copay:
+            new.copay_source = old.copay_source
+    return out
+
+
+def _match_current_car(ctx: ToolContext, args: MatchCarArgs) -> dict[str, Any]:
     old = ctx.state.current
     keep = dict(copay=old.copay, copay_unknown=old.copay_unknown, rejected=list(old.rejected), has_car=old.has_car)
 
@@ -718,7 +739,11 @@ def engine_inputs(snapshot: RulesSnapshot, state: ConversationState
         current: State = OptOutState(label="ללא רכב", maintenance=c.maintenance)
     elif c.source == "catalog":
         car = next(x for x in snapshot.catalog if x.catalog_code == c.catalog_code)
-        current = car_state(car, copay=c.copay, copay_status=CopayStatus.EMPLOYEE_STATED)
+        if c.copay is None and c.copay_provisional is not None:
+            # pending with the representative: the catalog amount, provisional, marked on every result (1/11)
+            current = car_state(car, copay=c.copay_provisional, copay_status=CopayStatus.CATALOG_DEFAULT_PENDING)
+        else:
+            current = car_state(car, copay=c.copay, copay_status=CopayStatus.EMPLOYEE_STATED)
     else:
         if c.drive is None:   # המכונה לא מתקדמת בלי הנעה; אין ברירת מחדל
             raise ToolError("חסר סוג ההנעה של הרכב הנוכחי")
@@ -769,6 +794,17 @@ def propose_rep_question(ctx: ToolContext, args: RepQuestionArgs) -> dict[str, A
         raise ToolError("חסרה שאלה")
     ctx.state.unanswered_question = question
     return {"offered": True, "note": "end your reply by offering to ask the representative; buttons are shown"}
+
+
+
+def show_cars(ctx: ToolContext, args: "NoArgs") -> dict[str, Any]:
+    """The employee wants to see the cars (to find today's car, or to choose alternatives): the model understood it,
+    code shows the real list (1/11). Nothing is saved or chosen."""
+    ctx.cars_shown = True
+    return {"shown": True, "note": "the system shows the employee the real list of cars right above your reply. "
+                                   "Do not list or name cars yourself and do not describe the screen. Write one "
+                                   "short question only, e.g. \"איזה מהם הרכב הצמוד שלכם היום? אם הוא לא ברשימה, "
+                                   "כתבו את הדגם והשנה.\" (for the alternatives: which of them to compare)."}
 
 
 NUM = {"type": "number"}
@@ -834,6 +870,11 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         "Select up to 3 alternatives to compare (option ids or model names from STATE). The system calculates "
         "as soon as the profile and the current car are known; you never calculate.",
         _obj({"options": {"type": "array", "items": {"type": "string"}}}, ["options"])),
+    "show_cars": ToolSpec(
+        "show_cars",
+        "The employee asks to see the cars or the options, or cannot name today's car and wants help finding it "
+        "(any wording). The system shows the real list from the catalog (today's car: the whole catalog; the "
+        "alternatives: the eligible ones, numbered). Nothing is saved.", _obj({})),
     "propose_rep_question": ToolSpec(
         "propose_rep_question",
         "The employee asked something the FAQ and STATE do not answer. Offer to ask the transport "
@@ -850,6 +891,7 @@ TOOLS: dict[str, tuple[type[_Args], Callable[[ToolContext, Any], dict[str, Any]]
     "rank_options": (NoArgs, rank_options),
     "select_options": (CalculateArgs, calculate),
     "propose_rep_question": (RepQuestionArgs, propose_rep_question),
+    "show_cars": (NoArgs, show_cars),
 }
 
 

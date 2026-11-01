@@ -145,7 +145,7 @@ test('cloud conversation 2: no car, a payslip that differs, a salary correction,
   await expect(card).toBeVisible({ timeout: 20_000 })
   await expect(card).not.toContainText('נתוני השכר')                 // the notice line is gone; the data still is
   await expect(card).not.toContainText('16,000')
-  await card.getByLabel('הערה לעובד').fill('האישור בתוקף מהחודש הבא')
+  await card.getByLabel('הערה לעובד (לא חובה)').fill('האישור בתוקף מהחודש הבא')
   await card.getByRole('button', { name: /אישור/ }).first().click()
   await expect(page.locator('.event-pill').first()).toBeVisible({ timeout: 30_000 })
   await expect(page.locator(BOT, { hasText: 'הערת הנציג: האישור בתוקף מהחודש הבא' })).toBeVisible()
@@ -172,7 +172,7 @@ test('keeping the chat value against the payslip keeps it, and the other approve
 test('a rejected correction form keeps everything typed and names each refused field', async ({ page }) => {
   await open(page)
   for (const m of [NOA, 'יש לי קורולה קרוס', '300', 'אטו 3']) await send(page, m)
-  await page.getByRole('button', { name: 'פירוט מלא' }).first().click()
+  await page.getByRole('button', { name: 'פירוט החישוב' }).first().click()
   await page.getByRole('dialog', { name: 'טבלת השוואה' }).getByRole('button', { name: 'תיקון נתונים' }).click()
   await expect(page.locator('#pf-bonus')).toHaveValue('0')                 // prefilled from the server
   await page.locator('#pf-bonus').fill('1000')
@@ -196,7 +196,7 @@ test('a result calculated before a change is marked out of date until it is reca
   await send(page, 'זה לא הרכב שלי')
   await expect(page.locator('.stale-note')).toContainText('לא מעודכן')
   expect((await state(page)).results_stale).toBe(true)
-  await page.getByRole('button', { name: 'פירוט מלא' }).first().click()       // the full detail says so too
+  await page.getByRole('button', { name: 'פירוט החישוב' }).first().click()       // the full detail says so too
   await expect(page.getByRole('dialog').locator('.stale-note')).toContainText('לא מעודכן')
   await page.getByRole('button', { name: 'סגירה' }).click()
   await send(page, 'הכי משתלם')                                     // no ranking from an out-of-date result
@@ -250,7 +250,7 @@ test('when the form cannot read the saved values it says so, and an edit is stil
   const id = await page.evaluate(() => localStorage.getItem('sca.conversationId'))
   await page.route(`**/api/conversations/${id}`, (route) =>
     route.request().method() === 'GET' ? route.fulfill({ status: 500, body: '{}' }) : route.continue())
-  await page.getByRole('button', { name: 'פירוט מלא' }).first().click()
+  await page.getByRole('button', { name: 'פירוט החישוב' }).first().click()
   await page.getByRole('dialog', { name: 'טבלת השוואה' }).getByRole('button', { name: 'תיקון נתונים' }).click()
   const form = page.locator('form[aria-label="תיקון נתונים"]')
   await expect(form.getByRole('alert')).toContainText('לא הצלחתי לטעון את הערכים שכבר רשומים')

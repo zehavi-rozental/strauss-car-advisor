@@ -28,14 +28,10 @@ export function SelectionCard({ f, fieldParam, disabled, onSend, initial, onDone
   const [picked, setPicked] = useState<string[]>(() => (initial ?? []).filter((id) => f.choices.some((c) => c.id === id)))
   const full = picked.length >= max
   const field = fieldParam ?? f.field ?? undefined
-  const rank = f.quick_replies.find((q) => q.id === 'rank')
 
   const submit = async () => {
     const labels = f.choices.filter((c) => picked.includes(c.id)).map((c) => c.label).join(', ')
     if (await onSend({ choices: picked, field }, labels)) onDone?.()
-  }
-  const askRank = async () => {
-    if (rank && (await onSend({ choice: rank.id, field }, rank.label))) onDone?.()
   }
 
   return (
@@ -87,11 +83,6 @@ export function SelectionCard({ f, fieldParam, disabled, onSend, initial, onDone
           </span>
           {counterLabel(picked.length, max)}{full ? `. ${limitHint(max)}` : ''}
         </span>
-        {rank && (
-          <button type="button" className="chip chip-quiet" disabled={disabled} onClick={askRank}>
-            מה הכי משתלם לי?
-          </button>
-        )}
         <button type="button" className="chip chip-primary" disabled={disabled || picked.length === 0} onClick={submit}>
           השוואה
           <Icon name="chevron" size={16} />

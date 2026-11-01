@@ -3,7 +3,8 @@ import { configDefaults, defineConfig } from 'vitest/config'
 
 // The client calls relative /api/... only. In development Vite forwards them to the backend;
 // in deployment the client is served from the same origin as the API.
-const api = { '/api': { target: 'http://localhost:8000', changeOrigin: true } }
+const apiTarget = process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:8000'
+const api = { '/api': { target: apiTarget, changeOrigin: true } }
 
 export default defineConfig({
   plugins: [react()],

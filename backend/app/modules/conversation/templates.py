@@ -11,7 +11,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Optional, Sequence
 
-from app.modules.rules.public import RulesSnapshot
+from app.modules.rules.public import FAMILY_GROUP, RulesSnapshot
 from app.shared.money import to_shekel
 
 from .stage import (MAX_OPTIONS, PROFILE_ARGS, Q2_FIELDS, profile_args, ConversationState, RepReason, Stage, current_group,
@@ -61,6 +61,25 @@ GREETING = ("שלום! אני יועץ הרכב של שטראוס.\n"
             "אפשר לענות על הכול יחד או בהדרגה, ואת פרטי השכר נשלים בהמשך.")
 
 
+def catalog_copay_hint(state: ConversationState, snapshot: RulesSnapshot) -> Optional[Any]:
+    """The catalog's default copay for today's car (31/10), when today's car is a catalog car and its copay is not
+    known. Only a suggestion: the catalog amount is a general default ("דמה" in the data file), not the employee's
+    agreement — it is shown as unverified and saved only when the employee confirms it."""
+    c = state.current
+    if c.source != "catalog" or not c.catalog_code or c.copay is not None:
+        return None
+    car = next((x for x in snapshot.catalog if x.catalog_code == c.catalog_code), None)
+    return car.default_copay if car is not None else None
+
+
+def copay_choices_offered(state: ConversationState, snapshot: RulesSnapshot) -> bool:
+    """Today's car is known and its copay is asked (1/11): the copay is a closed question — three choices with a
+    catalog amount, else "להזין סכום" / "לברר מול נציג" (nothing is invented when the catalog has no amount)."""
+    c = state.current
+    return (c.source in ("catalog", "tax", "stated") and c.copay is None and not c.copay_unknown
+            and c.copay_provisional is None)
+
+
 def question(field: str, state: ConversationState, snapshot: RulesSnapshot) -> str:
     c = state.current
     age = snapshot.strauss.family_track.child_max_age
@@ -96,6 +115,9 @@ def question(field: str, state: ConversationState, snapshot: RulesSnapshot) -> s
                 "קוד הדגם מופיע ברישיון הרכב.\n" + "\n".join(lines))
     if field == "options":
         return options_ask(state, snapshot)
+    if field == "copay" and (hint := catalog_copay_hint(state, snapshot)) is not None:
+        return (f"לפי הקטלוג, ההשתתפות החודשית ב-{c.label} היא {money(hint)}. זה סכום כללי, ובהסכם האישי שלכם "
+                "הוא עשוי להיות שונה. מה נכון אצלכם?")
     return texts[field]
 
 
@@ -118,6 +140,21 @@ def _options_block(state: ConversationState, snapshot: RulesSnapshot, with_list:
     """The options travel in `expects.choices` and the client draws them, so the text is the question
     only. The numbered list is the fallback for a client that cannot show choices."""
     return [*_option_lines(state, snapshot), _choose_hint()] if with_list else []
+
+
+def today_cars_text(snapshot: RulesSnapshot, unsure: bool, ask: bool = True) -> str:
+    """The catalog's cars, to find today's car in (1/11): names from the catalog only, nothing assumed. `ask`: the
+    template's question line (with the model, its reply asks)."""
+    labels = sorted({c.label for c in snapshot.catalog})
+    intro = "אין בעיה, נזהה אותו יחד. אלה הרכבים בקטלוג של שטראוס:" if unsure else "אלה הרכבים בקטלוג של שטראוס:"
+    question = ["איזה מהם הרכב הצמוד שלכם היום? אם הוא לא ברשימה, כתבו את הדגם והשנה."] if ask else []
+    return "\n".join([intro, *(f"- {label}" for label in labels), *question])
+
+
+def options_list_text(state: ConversationState, snapshot: RulesSnapshot, ask: bool = True) -> str:
+    """The alternatives, numbered (1/11): the same eligible list and numbers as the selection card."""
+    question = [f"איזה מהם להשוות? אפשר לבחור עד {MAX_OPTIONS}."] if ask else []
+    return "\n".join(["אלה הרכבים שאתם זכאים להם:", *_option_lines(state, snapshot), *question])
 
 
 def options_text(state: ConversationState, snapshot: RulesSnapshot, with_list: bool = False) -> str:
@@ -288,15 +325,32 @@ def pending_copay_text(label: str, amount: Any) -> str:
     return WAITING_COPAY_ONLY
 
 
-COPAY_UPDATE = "אם אצלכם סוכם אחרת, אפשר לעדכן אותי ואפנה לנציג התחבורה לבירור."
+# about the NEW car's catalog amount only — never today's car, whose copay is the employee's own (31/10: after the
+# employee typed today's amount, the general line read as if that amount still had to be checked with the rep)
+COPAY_UPDATE = "אם לרכב החדש סוכם אתכם סכום אחר, אפשר לעדכן אותי ואפנה לנציג התחבורה לבירור."
 
 
-def catalog_copays_text(items: Sequence[tuple[str, Any]]) -> str:
-    """The catalog amount used as is (the challenge owner, 22/10): its source, and how to say it differs."""
+# where today's copay came from, in the words the employee reads (1/11)
+TODAY_COPAY_SOURCE = {"rep_confirmed": "לפי תשובת הנציג שאישרתם", "catalog_confirmed": "לפי סכום הקטלוג שאישרתם"}
+
+
+def catalog_copays_text(items: Sequence[tuple[str, Any]], today_copay: Any = None,
+                        today_source: Optional[str] = None) -> str:
+    """The new cars' catalog amounts used as is (the challenge owner, 22/10), and — kept apart — the amount used for
+    today's car: the one the employee gave or confirmed, or the representative's answer the employee applied. No offer
+    to ask the representative here (1/11): a result on settled amounts is no reason to ask again."""
     if len(items) == 1:
-        return f"לפי הקטלוג, ההשתתפות ברכב הזה היא {money(items[0][1])}. {COPAY_UPDATE}"
-    each = ", ".join(f"{in_label(label)} {money(amount)}" for label, amount in items)
-    return f"לפי הקטלוג, ההשתתפות היא: {each}.\n{COPAY_UPDATE}"
+        line = f"ההשתתפות ב-{items[0][0]} לפי הקטלוג היא {money(items[0][1])}."
+    else:
+        each = ", ".join(f"{in_label(label)} {money(amount)}" for label, amount in items)
+        line = f"ההשתתפות ברכבים החדשים לפי הקטלוג: {each}."
+    if today_source == "provisional" and today_copay is not None:
+        line += (f"\nהחישוב כרגע מבוסס על השתתפות של {money(today_copay)} לפי הקטלוג ברכב שלכם היום, "
+                 "עד לאימות מול נציג.")
+    elif today_copay is not None and Decimal(str(today_copay)) > 0:
+        source = TODAY_COPAY_SOURCE.get(today_source or "", "שמסרתם")
+        line += f"\nלרכב שלכם היום חישבתי עם ההשתתפות {source}: {money(today_copay)}."
+    return line
 
 
 def copay_rep_request_text(labels: Sequence[str], amounts: Sequence[Any]) -> str:
@@ -449,8 +503,14 @@ def results_text(state: ConversationState) -> str:
                if i.result.get("copay_pending") and i.result.get("copay_source", "catalog") == "catalog"]
     final = [(i.label, (i.result.get("alternative") or {}).get("copay")) for i in ok
              if i.result.get("copay_source") == "catalog_final"]
+    c = state.current
+    provisional = c.copay is None and c.copay_provisional is not None   # today's copay pending with the rep (1/11)
     if final and all(a is not None for _, a in final):
-        lines.append(catalog_copays_text(final))
+        lines.append(catalog_copays_text(final, c.copay_provisional if provisional else c.copay,
+                                         "provisional" if provisional else c.copay_source))
+    elif provisional and ok:
+        lines.append(f"החישוב כרגע מבוסס על השתתפות של {money(c.copay_provisional)} לפי הקטלוג ברכב שלכם היום, "
+                     "עד לאימות מול נציג.")
     if pending and all(a is not None for _, a in pending):
         lines.append(pending_copays_text(pending))
     elif pending:
@@ -496,6 +556,9 @@ def _show(field: str, value: Any) -> str:
     kind = _VALUE_LABELS[field][1]
     number = Decimal(str(value))
     if kind == "money":
+        if number != number.to_integral_value():
+            # the value as typed, never rounded (31/10: "2.75" was asked back as "3 ₪")
+            return f"{format(number.normalize(), ',f')} ₪"
         return money(number)
     text = format(number.normalize(), "f")
     return f"{text}%" if kind == "percent" else text
@@ -561,6 +624,22 @@ _UNUSUAL_ASK = {
 def unusual_fix_text(field: str) -> str:
     """"לתקן" on a rare value: the field stays open and is asked again."""
     return f"בסדר. {_RANGE_TEXT[field][1]}"
+
+
+def held_text(pending: Any) -> str:
+    """The question for a value held for confirmation; several fields held together are asked once (1/11)."""
+    if pending.also:
+        parts = [f"{_VALUE_LABELS[f][0]} {_show(f, v)}" for f, v in [(pending.field, pending.value), *pending.also.items()]]
+        return f"כדי לוודא שהבנתי: לרשום {' ו'.join(parts)}?"
+    return confirm_value_text(pending.field, pending.value, pending.unusual, pending.scale)
+
+
+def held_fix_text(pending: Any) -> str:
+    """"לתקן" on values held together: each field is asked again, in one question (1/11)."""
+    if pending.also:
+        names = [_VALUE_LABELS[f][0] for f in (pending.field, *pending.also)]
+        return f"בסדר. כמה אחוז יורד לכם ל{' ול'.join(names)}? אם אחד מהם 0, כתבו 0."
+    return unusual_fix_text(pending.field)
 
 
 def confirm_value_text(field: str, value: Decimal, unusual: bool = False, scale: bool = False) -> str:
@@ -670,6 +749,26 @@ def rep_current_text(field: str, label: str, amount: Decimal) -> str:
     return f"נציג התחבורה השיב: {what} ב-{label} היא {money(amount)}."
 
 
+def rep_copay_offer_text(label: str, amount: Decimal, previous: Optional[Decimal],
+                         provisional: Optional[Decimal] = None) -> str:
+    """The representative's amount for today's copay, offered (1/11): applied only on the employee's confirmation."""
+    head = f"נציג התחבורה השיב: ההשתתפות החודשית שלכם ב-{label} היא {money(amount)}."
+    if previous is None and provisional is not None:
+        return (f"{head} החישוב הנוכחי מבוסס על {money(provisional)} לפי הקטלוג. "
+                "אפשר לעדכן את הסכום ולחשב מחדש לפי תשובת הנציג.")
+    if previous is not None and Decimal(str(previous)) != amount:
+        return (f"{head} כרגע החישוב לפי {money(previous)} שמסרתם. "
+                "אפשר לעדכן את החישוב לפי תשובת הנציג; העדכון יחליף את הסכום הקודם.")
+    return f"{head} אפשר לעדכן את החישוב לפי תשובת הנציג."
+
+
+def rep_copay_applied_text(amount: Decimal, previous: Optional[Decimal]) -> str:
+    """After the employee confirmed the representative's amount (1/11)."""
+    if previous is not None and Decimal(str(previous)) != amount:
+        return f"עדכנתי לפי תשובת הנציג: השתתפות {money(amount)} במקום {money(previous)}."
+    return f"עדכנתי לפי תשובת הנציג: השתתפות {money(amount)}."
+
+
 def rep_opt_out_text(allowed: bool) -> str:
     if allowed:
         return ("נציג התחבורה השיב שבעיסוק שלכם מותר לוותר על הרכב. "
@@ -683,13 +782,17 @@ NOTE_MAX = 500
 
 
 def rep_note_text(note: Optional[str]) -> str:
-    """The representative's note to the employee, one plain line: no control characters, no markup the chat
-    renders (bold, bullets, links, HTML), at most NOTE_MAX characters. No note → "" (no placeholder line)."""
+    """The representative's note to the employee, as written: its line breaks and punctuation are kept; control
+    characters, bold, links and HTML are removed, empty lines collapse to one, at most NOTE_MAX characters. No note
+    → "" (no placeholder line)."""
     if not note:
         return ""
-    clean = "".join(" " if unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp") else ch for ch in note)
-    clean = _MARKUP_RE.sub("", _LINK_RE.sub(lambda m: m.group(1), clean))
-    clean = " ".join(w for w in clean.split() if w not in ("-", "*", "•"))[:NOTE_MAX].strip()
+    text = note.replace("\r\n", "\n").replace("\r", "\n")
+    text = "".join(ch if ch == "\n" else " " if unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp") else ch
+                   for ch in text)
+    text = _MARKUP_RE.sub("", _LINK_RE.sub(lambda m: m.group(1), text))
+    lines = [" ".join(line.split()) for line in text.split("\n")]
+    clean = re.sub(r"\n{2,}", "\n", "\n".join(lines))[:NOTE_MAX].strip()
     return f"הערת הנציג: {clean}" if clean else ""
 
 
@@ -779,7 +882,12 @@ def confirm_car_text(state: ConversationState) -> str:
         details.append(f"קבוצה {c.group}")
     if c.drive:
         details.append(DRIVE_HE[c.drive.value])
-    return f"זיהיתי: {', '.join(details)}. אם זה לא הרכב שלכם, אפשר לתקן."
+    # the car's catalog group is not the employee's eligibility (31/10: group א with a COROLLA of group ב read as a
+    # contradiction): said once, so it is clear which group the alternatives come from
+    own = state.profile.group
+    whose = (f" זו הקבוצה של הרכב בקטלוג; את החלופות אבדוק לפי קבוצת הזכאות שלכם, {own}."
+             if c.group and own and c.group != own and c.group != FAMILY_GROUP else "")
+    return f"זיהיתי: {', '.join(details)}.{whose} אם זה לא הרכב שלכם, אפשר לתקן."
 
 
 
@@ -828,8 +936,28 @@ class ReplyPlan:
 CTA_STARTS = ("כתבו", "בחרו", "אפשר לכתוב")
 NEXT_AFTER_RESULTS = "רוצים לראות אילו רכבים משאירים לכם את הנטו הגבוה ביותר?"
 NEXT_AFTER_RANK = "רוצים להשוות רכבים אחרים? כתבו את השמות שלהם."
-LINK_LABELS = {"profile_form": "למלא בטופס", "selection": "להציג את הרכבים בקבוצה שלכם",
-               "payslip_upload": "להעלות תלוש"}
+LINK_LABELS = {"profile_form": "למלא בטופס", "selection": "לבחור רכבים להשוואה",
+               "payslip_upload": "להעלות תלוש", "correction_form": "לפתוח את טופס תיקון הנתונים"}
+
+# a correction of the employee's own data (1/11): code asks what, or the new value; saved like the form, then every
+# result and the option map are recalculated. Never a question for the representative.
+CORRECTION_ASK = ("אפשר לתקן כל נתון שמסרתם, והחישוב יתעדכן.\n"
+                  "מה תרצו לתקן? כתבו את הנתון והערך הנכון, למשל: \"השכר שלי 20,000\" או \"פנסיה 6%\".")
+CORRECTION_CARS = "כדי לשנות את הרכבים בהשוואה, לחצו על \"לשנות בחירה\"."
+CORRECTION_CTA = "אפשר גם לפתוח את טופס תיקון הנתונים."
+CORRECTION_VALUE_CTA = "כתבו רק את הערך הנכון, והחישוב יתעדכן."
+
+
+def correction_field_ask(state: ConversationState, arg: str) -> str:
+    """The new value of one field, with what is recorded now (the employee's own data, said back to them)."""
+    if arg == "group":
+        now = state.profile.group
+        return "מה קבוצת הזכאות הנכונה (א–ד)?" + (f" רשום אצלי עכשיו: קבוצה {now}." if now else "")
+    name = _VALUE_LABELS[arg][0]
+    value = (state.current.copay if arg == "current_copay"
+             else getattr(state.profile, PROFILE_ARGS[arg], None))
+    now = f" רשום אצלי עכשיו: {_show(arg, value)}." if value is not None else ""
+    return f"מה הערך הנכון של {name}?{now}"
 
 
 def _names(fields: Sequence[str]) -> str:
@@ -899,8 +1027,47 @@ def missing_names(state: ConversationState) -> list[str]:
 def compare_needs_text(state: ConversationState) -> str:
     """A request the bot cannot do yet ("תשווה ביניהם" before the profile is complete): what is needed."""
     names = missing_names(state)
+    if not names:
+        return ""
+    if not state.map_requested and any(f in ("occupation", "group", "base") for f in open_profile(state.profile)):
+        # advice asked before the basics are known ("כדאי לי להחליף רכב?"): what the answer depends on, never the
+        # whole list of missing fields; one question follows (30/10)
+        return ADVICE_FIRST
+    if names == [FIELD_NAMES["options"]]:
+        # "כדאי לי להחליף את הרכב?" with everything known but the cars: what the answer depends on, never the
+        # missing choice twice (live QA 31/10: "חסרים לי עוד: הרכבים להשוואה" + "עדיין חסר לי: הרכבים להשוואה")
+        return CHOOSE_TO_COMPARE
     what = "למפות את כל האפשרויות" if state.map_requested else "להשוות"
-    return f"כדי {what}, חסרים לי עוד: {_list(names)}." if names else ""
+    return f"כדי {what}, חסרים לי עוד: {_list(names)}."
+
+
+# the question about the language engine answered without the model (an outage, a cap, none configured): said (31/10)
+# "אני רוצה להעלות תלוש" (1/11): the uploader opens at once; what happens to the file, said before it is chosen
+PAYSLIP_OFFER = ("בשמחה, אפשר להתחיל מהתלוש. לחצו על \"להעלות תלוש\" ובחרו קובץ PDF או תמונה. "
+                 "אקרא ממנו את פרטי השכר ואציג לכם אותם לבדיקה ולתיקון, ורק אחרי שתאשרו אשתמש בהם בחישוב. "
+                 "התלוש עצמו לא נשמר.")
+PAYSLIP_UNAVAILABLE = ("העלאת תלוש לא זמינה כרגע. אפשר לכתוב כאן את פרטי השכר מהתלוש, "
+                       "למשל: \"שכר בסיס 18,000, פנסיה 6%\".")
+
+
+# today's copay sent to the representative (31/10): no amount is assumed until the answer
+COPAY_WITH_REP = ("רשמתי: את ההשתתפות ברכב שלכם היום נברר מול נציג התחבורה, והתשובה תגיע לכאן. "
+                  "עד אז לא אחשב את השינוי בנטו לעומת היום, ולא אשתמש בסכום משוער.")
+
+
+def copay_with_rep_text(provisional: Optional[Decimal]) -> str:
+    """Today's copay sent to the representative (1/11): with a catalog amount the calculation goes on with it,
+    provisionally and said so; without one, nothing is assumed (COPAY_WITH_REP)."""
+    if provisional is None:
+        return COPAY_WITH_REP
+    return ("רשמתי: את ההשתתפות ברכב שלכם היום נברר מול נציג התחבורה, והתשובה תגיע לכאן. "
+            f"החישוב כרגע מבוסס על השתתפות של {money(provisional)} לפי הקטלוג, עד לאימות מול נציג.")
+ENGINE_OFFLINE = "התשובה הזו לא נכתבה על ידי Gemini: כרגע מנוע השפה לא זמין, והיא מגיעה מתבנית קבועה."
+
+ADVICE_FIRST = ("זה תלוי ברכב שלכם היום, ברכבים שאתם זכאים להם ובנטו שיישאר לכם אחרי ההחלפה. "
+                "כדי לבדוק, אצטרך כמה פרטים, ונתחיל באחד.")
+CHOOSE_TO_COMPARE = ("זה תלוי בנטו שיישאר לכם בכל רכב לעומת המצב שלכם היום. "
+                     "אחשב את זה לכל רכב שתבחרו, או לכל הרכבים שאתם זכאים להם.")
 
 
 ALL_AT_ONCE = "אני שואל בשלבים כדי שלא יחסר דבר, אבל אפשר לענות על הכול בהודעה אחת."
@@ -926,6 +1093,7 @@ _PRESENT_NAMES = {"commissions": "עמלות", "bonus": "בונוס", "pension_p
                   "study_fund_percent": "קרן השתלמות", "children": "ילדים"}
 _Q2_SIMPLE = ("במילים פשוטות: אני צריך לדעת כמה כסף נוסף על הבסיס מקבלים בחודש, כמה אחוזים יורדים "
               "לפנסיה ולקרן השתלמות, וכמה נקודות זיכוי יש לכם.")
+_GROUP_SIMPLE = "במילים פשוטות: לאיזו קבוצת רכב אתם זכאים, א, ב, ג או ד? אם אתם לא יודעים, כתבו את התפקיד שלכם."
 
 
 def _faq_example(snapshot: RulesSnapshot, key: str) -> str:
@@ -940,6 +1108,12 @@ def _is_q2(fields: Sequence[str]) -> bool:
 def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
                    fields: Optional[Sequence[str]] = None) -> tuple[str, Optional[str]]:
     """The one call to action that ends a reply, and the one link it names (or None)."""
+    if state.link_now == "payslip_upload":
+        # the employee asked to upload a payslip (1/11): the uploader, whatever the flow would ask next
+        return "לחצו על \"להעלות תלוש\" ובחרו את הקובץ.", "payslip_upload"
+    if state.link_now == "correction_form":
+        # a correction asked for (1/11): the form is the other way to give it
+        return (CORRECTION_VALUE_CTA if state.correcting_field else CORRECTION_CTA), "correction_form"
     if state.pending_rep_question is not None:
         return "בחרו \"לשלוח\" או \"לבטל\".", None
     if state.unanswered_question is not None:
@@ -968,6 +1142,10 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
                 link)
     # the field the question text asks (group_question's order), not just the first open one
     first = next((f for f in ("car", "copay", "opt_out_occupation", "options") if f in fields), fields[0])
+    if first == "copay" and catalog_copay_hint(state, snapshot) is not None:
+        return "בחרו אחת משלוש האפשרויות.", None          # the three copay choices (31/10)
+    if first == "copay" and copay_choices_offered(state, snapshot):
+        return "בחרו אחת מהאפשרויות, או כתבו את הסכום.", None   # no catalog amount: a known amount or the rep (1/11)
     if _is_q2(fields):
         example = q2_example(fields) if len(fields) > 1 else _faq_example(snapshot, first)
         ext = snapshot.extensions
@@ -1037,13 +1215,17 @@ def placeholder_text(state: ConversationState, snapshot: RulesSnapshot) -> str:
 
 def explain_text(state: ConversationState, snapshot: RulesSnapshot, fields: Sequence[str]) -> str:
     """"מה?" / the same question again: the question in simpler words (never a verbatim repeat)."""
+    fields = paced(state, fields)          # "one question at a time": the explanation names that one field too
     if not fields:
         return ""
     group = current_group(state)[0]
     first = next((f for f in ("car", "copay", "opt_out_occupation", "options") if f in fields), fields[0])
     if _is_q2(fields) and len(fields) > 1:
         return _Q2_SIMPLE
-    key = "occupation" if group == "Q1" else "car" if first in ("car", "copay") and "car" in fields else first
+    if fields in (["occupation"], ["group"]):
+        return _GROUP_SIMPLE
+    key = ("occupation" if group == "Q1" and len(fields) > 1
+           else "car" if first in ("car", "copay") and "car" in fields else first)
     entry = snapshot.faq.get(key)
     if entry is not None and entry.simple:
         return f"במילים פשוטות: {entry.simple}"
@@ -1079,9 +1261,12 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
                rep_opened: bool = False, notice_asks: bool = False, cta_field: Optional[str] = None,
                confirmations: Sequence[str] = (),
                answers: Sequence[tuple[str, str]] = (), follow_up: Sequence[str] = (),
-               explain: bool = False, extra: Sequence[str] = (), about_results: bool = False) -> ReplyPlan:
+               explain: bool = False, extra: Sequence[str] = (), about_results: bool = False,
+               resume: bool = False, light: bool = False, attempted: bool = True,
+               open_help: bool = False) -> ReplyPlan:
     """The next reply, from the state only. answers: (FAQ answer, term) pairs; extra: lines that come
-    from code (an unanswered question, a redirect) and go right after the answers."""
+    from code (an unanswered question, a redirect) and go right after the answers. resume: the employee only
+    made small talk, so the open question is asked again as it was, picked up where it stopped."""
     plan = ReplyPlan(answers=[a for a, _ in answers] + list(extra), terms=[t for _, t in answers],
                      ack=[*confirmations])
     if matched_car:
@@ -1102,7 +1287,7 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
         # results came with a value still held (a correction next to another change): the held value is the one
         # question of the reply, never hidden behind the results' next step (QA 22/10)
         pending = state.pending_confirmation
-        plan.ask.append(confirm_value_text(pending.field, pending.value, pending.unusual, pending.scale))
+        plan.ask.append(held_text(pending))
         plan.cta = call_to_action(state, snapshot)[0]
         return plan
     if plan.fixed and state.stage == Stage.PRESENTED:
@@ -1120,7 +1305,7 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
         plan.cta = NEXT_AFTER_RANK if state.ranked_count else NEXT_AFTER_RESULTS
         return plan
     cta, _ = call_to_action(state, snapshot)
-    plan.cta = cta
+    plan.cta = brief_cta(cta) if state.brief else cta
     if state.pending_rep_question is not None:
         plan.ask.append(f"אשלח לנציג התחבורה: \"{state.pending_rep_question}\". לשלוח?")
         return plan
@@ -1142,7 +1327,7 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
         return plan
     if state.pending_confirmation is not None:
         pending = state.pending_confirmation
-        plan.ask.append(confirm_value_text(pending.field, pending.value, pending.unusual, pending.scale))
+        plan.ask.append(held_text(pending))
         return plan
     if state.pending_occupation is not None:
         plan.ask.append(confirm_occupation_text(state.pending_occupation.text,
@@ -1151,15 +1336,26 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
     asked_something = bool(answers or extra or follow_up)
     repeat = not understood and not asked_something and fields == state.last_asked
     if not understood and not asked_something and not explain:
-        plan.ask.append(CAR_AGAIN if fields[:1] == ["car"] else NOT_UNDERSTOOD)
+        if attempted:
+            plan.ask.append(CAR_AGAIN if fields[:1] == ["car"] else NOT_UNDERSTOOD)
+        else:
+            # nothing in it could answer the question (a remark, or gibberish: without a model the two look the
+            # same): never "לא הצלחתי להבין את התשובה"; the rest of the not-understood flow stays
+            plan.ask.append(UNSURE)
     present = [f for f in follow_up if f in fields]
     if present:
         plan.follow_up.append(follow_up_text(present, snapshot))
     rest = [f for f in fields if f not in present]
-    if explain or repeat:
+    # a turn that gave no data: answered first, then a light question. A compound question is narrowed to its first
+    # field; a question about one field keeps its own wording (it may carry context: an unknown value, the payslip)
+    focus = _first_field(paced(state, rest)) if light and len(paced(state, rest)) > 1 else None
+    if open_help:
+        plan.ask.append(OPEN_HELP)                     # small talk at the very start: an open question, not a form
+        plan.cta = OPEN_HELP_CTA
+    elif explain or repeat:
         compound = len(paced(state, fields)) > 1 and _is_q2(fields)
         line = (progress_text(state, fields) if repeat and not explain and compound
-                else explain_text(state, snapshot, fields))
+                else explain_text(state, snapshot, [focus] if focus else fields))
         # root cause of the duplicate bubble: the parser's notice (already in plan.ack) can be the same
         # progress line; do not add it a second time to plan.ask
         if line and line not in plan.ack:
@@ -1168,18 +1364,48 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
             one = placeholder_text(state, snapshot).removeprefix("למשל: ").split(", ")[0]
             plan.ask.append(f"אפשר גם לענות על דבר אחד בכל פעם, למשל: {one}.")
     elif rest:
-        plan.ask.append(group_question(state, snapshot, skip=present))
+        plan.ask.append(question(focus, state, snapshot) if focus else group_question(state, snapshot, skip=present))
+    if light and not explain and not open_help and plan.cta:
+        # no example on a light turn; an explanation ("מה?", feedback) keeps it: it shows how to answer
+        plan.cta = brief_cta(call_to_action(state, snapshot, [focus] if focus else None)[0])
     plan.ask = [a for a in plan.ask if a]
-    _vary_repeat(plan, state, snapshot, fields)
+    _vary_repeat(plan, state, snapshot, [focus] if focus else fields, resume=resume)
     return plan
 
 
-def _vary_repeat(plan: ReplyPlan, state: ConversationState, snapshot: RulesSnapshot, fields: Sequence[str]) -> None:
+UNSURE = "לא בטוח שהבנתי למה התכוונתם."
+OPEN_HELP = "איך אפשר לעזור לכם היום עם רכב החברה?"
+OPEN_HELP_CTA = "אפשר לכתוב כאן כל שאלה, או להתחיל מקבוצת הזכאות שלכם."
+
+
+def _first_field(fields: Sequence[str]) -> Optional[str]:
+    """The one field a light turn asks: the same order the call to action uses."""
+    if not fields:
+        return None
+    return next((f for f in ("car", "copay", "opt_out_occupation", "options") if f in fields), fields[0])
+
+
+RESUME = "נמשיך מאיפה שעצרנו: "
+_EXAMPLE_RE = re.compile(r",\s*למשל:\s*(?:\"[^\"]*\"|[^.\"]*)")
+
+
+def brief_cta(cta: str) -> str:
+    """"יותר קצר" (state.brief): the call to action without its example; the composer's placeholder keeps it.
+    "כתבו כאן, למשל: "קבוצה ג…"." -> "כתבו כאן."; the link and any other sentence stay."""
+    return _EXAMPLE_RE.sub("", cta)
+
+
+def _vary_repeat(plan: ReplyPlan, state: ConversationState, snapshot: RulesSnapshot, fields: Sequence[str],
+                 resume: bool = False) -> None:
     """The same question is never asked verbatim twice in a row: narrowed to what is still missing, or
-    in simpler words."""
+    in simpler words. After small talk it is the same question, picked up where it stopped (30/10): "עדיין
+    חסרים לי…" there read as if the employee had failed to answer."""
     if not plan.ask or plan.ask[-1] != state.last_ask:
         return
-    first = progress_text(state, fields) if len(paced(state, fields)) > 1 else still_missing_text(fields)
+    if resume and not plan.ask[-1].startswith(RESUME):
+        plan.ask[-1] = RESUME + plan.ask[-1]
+        return
+    first = progress_text(state, fields) if len(paced(state, fields)) > 1 else still_missing_text(paced(state, fields))
     for other in (first, explain_text(state, snapshot, fields)):
         if other and other != state.last_ask:
             plan.ask[-1] = other
@@ -1206,3 +1432,39 @@ def to_plural(text: str) -> str:
     for pattern, plural in _SINGULAR_TO_PLURAL:
         text = pattern.sub(plural, text)
     return text
+
+
+def inquiry_next_text(mail: bool, verified: bool, address_given: bool, simulated: bool = False) -> str:
+    """After an inquiry is sent: where the answer will appear, and — only when mail is really configured — what the
+    email will do. Never claims an email was sent (it is queued; delivery happens after this reply)."""
+    if mail and simulated:
+        # a local test server with the fake mail backend: no real email is ever sent (31/10)
+        return "התשובה תופיע כאן בשיחה. בסביבת הבדיקות הזו לא נשלח מייל אמיתי."
+    if mail and verified:
+        return "התשובה תופיע כאן בשיחה, ונעדכן אתכם גם באימייל כשהנציג יענה."
+    if mail and address_given:
+        return ("התשובה תופיע כאן בשיחה. ביקשנו לשלוח לכתובת שלכם קישור לאימות. "
+                "אחרי האימות נעדכן אתכם גם באימייל כשהנציג יענה.")
+    return "התשובה תופיע כאן בשיחה."
+
+
+# what an inquiry the system opened by itself is about (no words of the employee's to show): the employee's screen
+INQUIRY_PURPOSE = {
+    "NEW_CAR_COPAY": "בקשה לאשר את סכום ההשתתפות החודשי.",
+    "ELIGIBILITY_GROUP": "בירור קבוצת הזכאות שלכם.",
+    "CURRENT_COPAY": "בירור ההשתתפות ברכב שלכם היום.",
+    "CURRENT_USE_VALUE": "בירור שווי השימוש ברכב שלכם היום.",
+    "MAINTENANCE_AMOUNT": "בירור סכום האחזקה.",
+    "OCCUPATION_OPT_OUT": "בירור אפשרות הוויתור על רכב.",
+}
+INQUIRY_PURPOSE_DEFAULT = "בירור מול נציג התחבורה."
+
+
+def rep_request_text(question: Optional[str]) -> str:
+    """"אני רוצה לדבר עם נציג": the offer, at once, with the question still open (29/10). Nothing the employee
+    already gave is asked again here; the conversation goes on from where it was after this."""
+    if question:
+        return (f"אפשר להעביר לנציג התחבורה את השאלה: \"{question}\". התשובה תגיע לכאן, "
+                "והפרטים שכבר מסרתם נשמרים. רוצים שאשאל אותו?")
+    return ("אפשר לפנות לנציג התחבורה. כתבו מה תרצו לשאול, והתשובה תגיע לכאן. "
+            "הפרטים שכבר מסרתם נשמרים.")

@@ -69,6 +69,12 @@ entries:
     answer: "אני צריך את דגם הרכב הצמוד שלכם היום, ואם אפשר גם את שנת הרישום. ממנו נלקח שווי השימוש."
     simple: "איזה רכב צמוד יש לכם עכשיו, וכמה משלמים עליו בחודש."
     example: "קורולה קרוס 2025, משלמת 300"
+  - id: company_car
+    term: רכב צמוד
+    aliases: [מה זה רכב צמוד, מה זה רכב חברה, מהו רכב צמוד, מהו רכב חברה, מה הכוונה רכב צמוד]
+    answer: "רכב צמוד הוא רכב שהחברה נותנת לכם לשימוש. שווי השימוש בו נוסף לשכר לצורך המס, ולכן הוא משפיע על הנטו שלכם."
+    simple: "הרכב שהחברה נותנת לכם לשימוש, אם יש לכם כזה היום."
+    example: "קורולה קרוס 2025, משלמת 300"
   - id: copay
     term: השתתפות
     aliases: [השתתפות, השתתפות עצמית, משתתף, משלם על הרכב]
@@ -137,6 +143,18 @@ entries:
     term: לעזור
     aliases: [מה אתה יודע, מה אפשר, מה אתה עושה, במה אתה עוזר, מי אתה]
     answer: "אני יכול לעזור לחשב איך החלפת הרכב הצמוד תשפיע על הנטו שלכם. אני לא מאשר רכבים ולא משנה שכר. לזה יש את נציג התחבורה."
+  # a question about the advisor itself ("איך אתה יודע?", "על מה אתה מבסס?"): reached by question_scope "bot"
+  # (a reference to the advisor + a question), not only by these aliases. Says only what is really there.
+  - id: how_it_works
+    term: על מה אני מבסס את התשובות
+    aliases: [על מה אתה מבסס, מאיפה המידע, מאיפה אתה יודע, על סמך מה, איך אתה מחשב]
+    answer: "אני עובד לפי כללי רכב החברה של שטראוס, קטלוג הרכבים ונתוני שווי השימוש של רשות המסים, יחד עם הפרטים שאתם כותבים לי. את הנטו מחשב מנוע חישוב קבוע, לא ניחוש. אין לי מידע עליכם מעבר למה שכתבתם, ועל מה שאין לי מידע אני שואל את נציג התחבורה."
+  # "אתה באמת משתמש בג'מיני?" (31/10): what runs the conversation, honestly; the header badge shows the live state.
+  # Answered by a template (no model this turn), agent adds that this reply did not come from the model.
+  - id: ai_engine
+    term: Gemini
+    aliases: [ג'מיני, גמיני, ג׳מיני, Gemini, בינה מלאכותית, מודל שפה, מודל השפה, צ'אט בוט, AI]
+    answer: "את השיחה מנהל מודל השפה Gemini של Google: הוא מבין את מה שאתם כותבים ומנסח את התשובות. החישובים, כללי הזכאות ונתוני הקטלוג מגיעים מקוד קבוע, לא מהמודל. בראש המסך כתוב אם Gemini פעיל כרגע."
   - id: rep
     term: נציג התחבורה
     aliases: [נציג, נציג תחבורה, לדבר עם נציג, בן אדם, אדם אמיתי]
@@ -159,6 +177,44 @@ injection_patterns: [התעלם, תתעלם, שכח את ההוראות, הור�
 off_topic_patterns: [מזג אוויר, בדיחה, מתכון, כדורגל, פוליטיקה, שיר, מניות, ביטקוין, ראש הממשלה, קורות חיים]
 # a question whose intent is truly unclear: one line, no buttons; the employee says it again
 clarify: "לא בטוח שהבנתי את השאלה. כתבו אותה במילים אחרות, למשל על הרכב, הזכאות או הנטו."
+# Small talk that says nothing else (30/10): answered in a few words, then the open question. Never "not understood".
+# A message is small talk only when nothing but these phrases (and a few filler words) is in it.
+social_cues:
+  # not "הכל בסדר" / "מצוין": they may answer a confirmation question
+  how_are_you: [מה נשמע, מה שלומך, מה שלומכם, מה העניינים, מה המצב, מה קורה, מה איתך, איך אתה, איך את, איך הולך]
+  greeting: [שלום, היי, הי, הלו, אהלן, בוקר טוב, צהריים טובים, ערב טוב, לילה טוב, שלום לך, היי לך, שלום רב]
+  thanks: [תודה, תודה רבה, תודה לך, תודה רבה לך, תנקס]
+social_replies:
+  how_are_you: ["מצוין.", "מצוין, תודה.", "הכול מצוין."]
+  greeting: ["שלום.", "שלום שוב."]
+  thanks: ["בשמחה.", "אין בעד מה."]
+  proceed: ["בסדר, ממשיכים.", "בשמחה, נמשיך."]
+# "let's move on" with no value and no question in it ("אוקי אז מה ההמשך אני כבר רוצה", 31/10): the open
+# question is picked up (social kind "proceed"); without a model it got "לא בטוח שהבנתי" and the question explained
+proceed_terms: [המשך, להמשיך, נמשיך, תמשיך, הלאה, להתקדם, נתקדם, קדימה]
+# "אני רוצה להעלות תלוש", "אי אפשר להעלות תלוש?" (1/11): the word תלוש with one of these opens the uploader at once,
+# whatever was asked before; "מה רשום בתלוש?" (no verb) stays a question for the FAQ
+# a request to see the cars (1/11): a verb and an object in one clause ("תציג לי אפשרויות", "תראה לי רשימה")
+show_list_verbs: [תציג, תציגי, תציגו, הצג, הציגי, להציג, תראה, תראי, תראו, הראה, להראות, לראות, תן, תני, תנו, תביא, תביאי, תשלח, תפרט, לפרט, אפשר לראות]
+show_list_objects: [אפשרויות, אופציות, רכבים, הרכבים, רכבי, דגמים, הדגמים, מכוניות, רשימה, הרשימה, רשימת, קטלוג, הקטלוג]
+payslip_upload_terms: [להעלות, העלאת, העלאה, אעלה, לעלות, תעלה, לצרף, אצרף, לטעון, לסרוק, אסרוק, לשלוח, אשלח, לצלם, אצלם]
+# a request to correct data the employee gave (1/11): a change / mistake word next to a data word or a field
+# ("אני רוצה להחליף נתון שלא כתבתי נכון", "טעיתי בנתון", "השכר שהכנסתי לא נכון", "אפשר לעדכן פרטים?")
+correction_terms: [לתקן, תיקון, לשנות, שינוי, להחליף, לעדכן, עדכון, טעיתי, טעות, שגוי, שגויה, התבלבלתי, לא נכון, לא נכונה, לא נכונים, לא מדויק, לא כתבתי נכון, כתבתי לא נכון]
+correction_objects: [נתון, נתונים, פרט, פרטים, ערך, ערכים, מידע, משהו, מה שכתבתי, מה שמסרתי, מה שהכנסתי, כתבתי, הכנסתי, מסרתי, הזנתי]
+# A question that refers to the advisor itself ("איך אתה יודע…", "המערכת שלך…"): question_scope "bot", answered by the
+# how_it_works entry, before the "follow-up" scope (whose "איך" made it an explanation of the open question).
+bot_reference_terms: [אתה, שלך, ממך, איתך, בוט, הבוט, המערכת, היועץ]
+# what a question about the advisor's basis asks ("על מה מבוססות ההמלצות שלך?"): with a reference above, it is a question
+# about how the advice works, never a request to rank ("מה אתה ממליץ לי?" has none of these: a ranking request)
+bot_basis_terms: [על מה, על סמך, מאיפה, איך, מבוסס, מבוססת, מבוססות, מבוססים, מבסס, אמין, אמינה, אמינות, יודע, יודעת]
+# Feedback about the bot's previous reply (30/10): acknowledged, then the open question in other, simpler words.
+# Whole words in order; "לא הבנתי" (the employee did not understand) is a request for help, not feedback.
+feedback_cues: [מה הקשר, לא קשור, זה לא קשור, זה לא תשובה, לא תשובה, לא ענית, לא ענית לי, לא עניתם, לא לעניין,
+                לא רלוונטי, על מה אתה מדבר, על מה את מדברת, לא מה ששאלתי, לא התכוונתי לזה, אתה חוזר על עצמך,
+                את חוזרת על עצמך, שוב אותה תשובה, אותה תשובה, לא הבנת אותי, לא הבנת, זה לא עוזר, לא עזרת]
+# the first one is the persona's own acknowledgement (SYSTEM_PROMPT, test_guard); the others when it comes again
+feedback_replies: ["צודקים, סליחה.", "הבנתי, אנסה להסביר אחרת.", "סליחה, אנסה שוב בצורה ברורה יותר."]
 # Scope of a question nothing else answers (22/10, layered; understanding.question_scope). In order:
 #  1. off_topic_terms / off_topic_patterns (whole words) and nothing of the service → the redirect line;
 #  2. net_intent_terms (the employee's own pay / net) → the calculation answers it, never the representative;
@@ -201,13 +257,27 @@ employee_data_terms: [שכר, משכורת, ברוטו, בסיס, עמלות, ע
 # what a result on screen is made of: with results shown, a question naming one is about them (answered from them)
 result_terms: [הערכה, זמני, זמנית, סופי, סופית, מאושר, מאושרת, אושר, אושרה, אישור, ממתין, ממתינה, השתתפות, קטלוג,
                מדויק, מדויקת, חישוב, החישוב, מחושב, הפרש, הנטו]
+# a property the catalog does not hold (29/10): never a model name, never "כן, בקטלוג יש"; with a car named (or
+# "רכב", "הרכב") it is a question for the representative. Whole words, a prefix letter allowed.
+attribute_terms: [צבע, צבעים, בצבע, אדום, אדומה, לבן, לבנה, שחור, שחורה, כחול, כחולה, אפור, אפורה, כסוף, כסופה,
+                  ירוק, ירוקה, צהוב, בורדו, מטאלי, גג נפתח, גג פנורמי, חלון גג, אבזור, אבזורים,
+                  וו גרירה, מושבי עור, ריפוד, מערכת שמע, מולטימדיה, מצלמה, מצלמת, חיישני, ג'אנטים, חישוקים, מלאי,
+                  זמינות, אספקה, זמן אספקה, מועד אספקה, מסירה, מתי מגיע, מתי יגיע, נפח תא, תא מטען, טווח,
+                  מצלמות, מצלמת רוורס, נוחות, בטיחות, מערכות בטיחות, מזגן, מיזוג, מושבים, בגאז']
+# the employee asks for the representative (29/10): the offer to ask, at once, with the open question
+rep_request_cues: [לדבר עם נציג, לדבר עם הנציג, לשאול את הנציג, לשאול נציג, לשאול את נציג התחבורה, תשאל את הנציג,
+                   תשאלי את הנציג, תשאלו את הנציג, שאל את הנציג, תשאל נציג, תעביר לנציג, תעבירי לנציג, להעביר לנציג,
+                   להעביר את זה לנציג, רוצה נציג, נציג אנושי, בן אדם אמיתי, לדבר עם בן אדם, פנייה לנציג, לפנות לנציג]
+# two catalog cars compared: their catalog facts (group, drive), never a copay
+comparison_terms: [ההבדל, הבדל, ההבדלים, הבדלים, לעומת, השוואה, להשוות]
 # with a new car's copay on screen, these ask for the representative (no amount said): a question is opened
 copay_rep_terms: [נציג, הנציג, לנציג, יאשר, לאשר, אישור, תאשר, לברר, בירור, תברר, סוכם, הסדר, אחרת, שונה, לבדוק]
 # the employee's own pay / net: the calculation answers it ("כדי להשוות, חסרים לי עוד…" until it can)
-net_intent_terms: [מרוויח, להרוויח, ארוויח, מפסיד, להפסיד, אפסיד, כסף, כיס, ביד, נשאר לי, יישאר לי, ישאר לי,
+# "נטו" itself (31/10): "אני רוצה לדעת את הנטו" was offered to the representative; "מה זה נטו?" is the FAQ's, first
+net_intent_terms: [נטו, מרוויח, להרוויח, ארוויח, מפסיד, להפסיד, אפסיד, כסף, כיס, ביד, נשאר לי, יישאר לי, ישאר לי,
                    יוצא לי, ברווח, נפסד, יעלה לי, עולה לי, יורד לי, יוריד לי, מוריד לי, משנה לי, ישנה לי, משתלם לי,
                    עדיף לי, כדאי לי, ההשפעה, השפעה, אשלם, הנטו שלי, יקרה לי, הכי זול, הכי שווה,
-                   ממליץ, תמליץ]
+                   ממליץ, תמליץ, שווה לי, ישתלם לי]
 # plainly not about the service (whole words, a prefix letter allowed; no word starts)
 off_topic_terms: [מזג, אויר, גשם, מעלות, טמפרטורה, משחק, ניצח, זכה, נבחרת, מונדיאל, כדורגל, כדורסל, סרט, שיר,
                   זמר, מתכון, לבשל, מטגנים, מכינים, פיצה, אורז, שקשוקה, עוגה, קפה, מסעדה, בחירות, ממשלה, כנסת,

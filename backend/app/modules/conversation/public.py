@@ -36,7 +36,10 @@ from app.shared.db import new_id
 from app.modules.cases.public import CasesService, MissingField, Mode, QuestionAnswered, Status as QuestionStatus
 
 from .expects import ChoiceInvalid, FieldsInvalid, build_expects, tax_label, validate_choice, validate_fields, vehicle_id
-from .agent import Agent
+from .email_notifications import EmailNotificationService, EmailNotConfigured, InvalidEmailLink
+from .agent import Agent, RepQuestionResult, employee_wording, general_question_id, today_copay_question_id
+from .models import ConversationRow
+from .understanding import rep_scope_ok_in_context
 from .llm.factory import build_llm_chain
 from .llm.port import ChatMessage, LLMChain, LLMError, LLMPort
 from .fallback import recorded_text
@@ -51,7 +54,7 @@ from .repository import (
 )
 from .option_map import map_json
 from .stage import ConversationState, OptionResult, RepReason, Stage, map_missing, map_ready, results_stale
-from .templates import FIELD_NAMES
+from .templates import FIELD_NAMES, INQUIRY_PURPOSE, INQUIRY_PURPOSE_DEFAULT, inquiry_next_text
 
 
 log = logging.getLogger(__name__)
@@ -76,6 +79,10 @@ class ConversationConflict(Exception):
     """תור אחר על אותה שיחה נכתב בזמן שהתור הזה רץ. התור הזה בוטל ולא נשמר דבר ממנו."""
 
 
+class RepQuestionInvalid(ValueError):
+    """שאלה לנציג שאי אפשר לשלוח: ריקה, ארוכה מדי, או מחוץ להיקף (rep_scope_ok). ההודעה בעברית, לתצוגה לעובד."""
+
+
 @dataclass
 class TurnResult:
     conversation_id: str
@@ -97,6 +104,7 @@ class ConversationView:
     state: ConversationState
     messages: list[dict[str, Any]]
     expects: dict[str, Any] = field(default_factory=dict)
+    rep_questions: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -126,7 +134,18 @@ def _store_runs(repo: ConversationRepository, conv_id: uuid.UUID, snapshot_id: u
 
 def _message_json(m: Any) -> dict[str, Any]:
     return {"seq": m.seq, "role": m.role, "source": m.source, "content": m.content,
-            "created_at": m.created_at.isoformat()}
+            "created_at": m.created_at.isoformat(), "rep_question_id": getattr(m, "rep_question_id", None)}
+
+
+def _rep_question_json(q: Any) -> dict[str, Any]:
+    return {
+        "id": q.id, "missing_field": q.missing_field.value, "question_text": q.question_text,
+        "employee_text": employee_wording(q.missing_field, q.question_text),     # what the employee is shown
+        "option_id": q.option_id or None, "car_label": q.context.get("car_label"), "status": q.status.value,
+        "created_at": q.created_at.isoformat(),
+        "answered_at": q.answered_at.isoformat() if q.answered_at else None,
+        "answer_value": q.answer_value, "answer_note": q.answer_note,
+    }
 
 
 def _uuid(value: str) -> uuid.UUID:
@@ -138,12 +157,14 @@ def _uuid(value: str) -> uuid.UUID:
 
 class ConversationService:
     def __init__(self, sessions: sessionmaker, rules: RulesStore, llm: LLMChain,
-                 cases: Optional[CasesService] = None, max_messages: int = 80, llm_mode: str = "llm_first"):
+                 cases: Optional[CasesService] = None, max_messages: int = 80, llm_mode: str = "llm_first",
+                 email_notifications: Optional[EmailNotificationService] = None):
         self.sessions = sessions
         self.rules = rules
         self.llm = llm
         self.agent = Agent(llm, llm_mode)
         self.cases = cases or CasesService(sessions)
+        self.email_notifications = email_notifications
         self.cases.subscribe(self.apply_answer)   # תשובת נציג → מיושמת על השיחה
         self.max_messages = max_messages
         self._snapshot_ids: dict[str, uuid.UUID] = {}
@@ -300,9 +321,10 @@ class ConversationService:
             if not saved:
                 log.warning("turn discarded: conversation changed by a concurrent turn")
                 raise ConversationConflict()
-            self._store_questions(session, repo, conv_id, state, outcome)
+            opened = self._store_questions(session, repo, conv_id, state, outcome)
             # seq מחושב כאן, אחרי העדכון ותחת אותה נעילת כתיבה
             repo.add_message(conv_id, "user", text, "user")
+            self._record_inquiries(repo, conv_id, opened)
             repo.add_message(conv_id, "assistant", outcome.reply, outcome.source, outcome.guard_blocked)
             _store_runs(repo, conv_id, snapshot_id, pending)
 
@@ -314,7 +336,7 @@ class ConversationService:
                           results_stale=results_stale(state))
 
     def _store_questions(self, session, repo: ConversationRepository, conv_id: uuid.UUID,
-                         state: ConversationState, outcome) -> None:
+                         state: ConversationState, outcome) -> list[Any]:
         """שאלות לנציג — באותה טרנזקציה: תור שבוטל (409) לא משאיר שאלה, ותור חוזר לא יוצר כפיל."""
         self.cases.cancel(session, outcome.cancel_question_ids)
         if getattr(outcome, "copay_selection", None) is not None:
@@ -324,6 +346,226 @@ class ConversationService:
         if required and state.pending_rep is not None:
             state.pending_rep.question_ids = list(dict.fromkeys(state.pending_rep.question_ids + required))
             repo.update_state(conv_id, state.model_dump(mode="json"))
+        return opened
+
+    def _record_inquiries(self, repo: ConversationRepository, conv_id: uuid.UUID, questions: list[Any],
+                          wording: Optional[str] = None) -> None:
+        """One inquiry record in the chat per question to the representative, whatever opened it (the inquiry card,
+        a chat message, a representative's answer): a message of source "rep_inquiry" that carries the question's
+        id, written once (a question reused by a later turn is not recorded again). The employee's screen shows it
+        as the inquiry's status card; its text is the employee-facing summary (never the representative's
+        structured wording, never pay data)."""
+        recorded = repo.recorded_inquiries(conv_id)
+        conversation = repo.get(conv_id)
+        mail = self._mail_enabled
+        for q in questions:
+            if q.id in recorded:
+                continue
+            car = q.context.get("car_label")
+            about = f" בנושא {car}" if car else ""
+            said = wording or employee_wording(q.missing_field, q.question_text) or INQUIRY_PURPOSE.get(
+                q.missing_field, INQUIRY_PURPOSE_DEFAULT)
+            after = inquiry_next_text(mail, bool(conversation.email_verified_at), bool(conversation.email_ciphertext),
+                                      simulated=self._mail_simulated) if conversation is not None else ""
+            repo.add_message(conv_id, "assistant", f"פנייה לנציג הרכב{about}:\n{said}\n\n{after}".strip(),
+                             "rep_inquiry", rep_question_id=q.id)
+            recorded.add(q.id)
+
+    # ---------- פנייה יזומה של העובד לנציג (rep-question endpoint, Package A) ----------
+
+    MAX_REP_QUESTION_CHARS = 500
+
+    def rep_question(self, conversation_id: str, token: str, question: str,
+                     intent: str = "general", option_id: Optional[str] = None,
+                     email: Optional[str] = None) -> dict[str, Any]:
+        """שאלה שהעובד יוזם לנציג, דרך מנגנון הפניות הקיים — בלי understand/parser/LLM.
+
+        הסיווג נקבע ע"י הכוונה (intent), לא ע"י בחירת רכב/סכום/מילת מפתח, ומאומת בשרת מול מצב השיחה:
+        intent='copay_verification' + רכב תקף שנמצא בתוצאות המורשות עם מקור קטלוגי וסכום → NEW_CAR_COPAY
+        (תשובת הנציג עשויה לעדכן את החישוב של אותו רכב). כל מצב אחר, לרבות כל ספק → GENERAL_QUESTION
+        (אינפורמטיבי, לעולם לא משנה חישוב). לקוח לא יכול להפוך שאלה כללית לאישור סכום: הכוונה בלבד קובעת,
+        והשרת מאמת את הרכב. מניעת כפילות דרך האינדקס הייחודי הקיים (בלי replace): פנייה פתוחה זהה מוחזרת
+        כ-exists עם הנוסח השמור, ונושאים שונים לא נחסמים זה את זה."""
+        question = " ".join((question or "").split())
+        if not question:
+            raise RepQuestionInvalid("השאלה ריקה. כתבו מה תרצו לברר מול נציג הרכב.")
+        if len(question) > self.MAX_REP_QUESTION_CHARS:
+            raise RepQuestionInvalid(f"השאלה ארוכה מדי (עד {self.MAX_REP_QUESTION_CHARS} תווים).")
+        question = redact_id_numbers(question)
+        snapshot = self.rules.current
+        snapshot_id = self.snapshot_id(snapshot)
+
+        for _ in range(self.APPLY_RETRIES):
+            # (א) קריאה קצרה — אימות הרשאה וגרסה
+            with self.sessions() as session:
+                repo = ConversationRepository(session)
+                row = self._load(repo, conversation_id, token)
+                conv_id, loaded_count, loaded_version = row.id, row.message_count, row.version
+                state = ConversationState.model_validate(row.state)
+
+            # סיווג + הגנת היקף. GENERAL_QUESTION עובר את הגנת ההיקף, אבל בהתחשב בהקשר השיחה: כשיש רכב על
+            # המסך (רכב נוכחי או חלופות מושוות), שאלה טבעית קצרה בהקשר הרכב מתקבלת ("אפשר עם וו גרירה?"),
+            # ורק שאלה מניפולטיבית, מחוץ לנושא או על השכר האישי נדחית. NEW_CAR_COPAY הוא בירור מובנה לרכב ידוע.
+            field = MissingField.NEW_CAR_COPAY if intent == "copay_verification" else MissingField.GENERAL_QUESTION
+            if intent == "current_copay" and state.current.source in ("catalog", "tax", "stated"):
+                # today's copay asked from the representative (1/11): an amount answer the employee may apply
+                field = MissingField.CURRENT_COPAY
+            if field == MissingField.GENERAL_QUESTION:
+                has_car_context = state.current.source is not None or bool(state.results)
+                if not rep_scope_ok_in_context(snapshot, question, has_car_context=has_car_context):
+                    raise RepQuestionInvalid(
+                        "אפשר לשלוח לנציג רק שאלה על הרכב, הזכאות או התנאים. נסחו אותה שוב, למשל על רכב מסוים, "
+                        "זמינות, אבזור או תנאי השימוש.")
+
+            # (ב) מפתח ה-dedup לפי הסוג, ובדיקת פנייה פתוחה קיימת (בלי replace)
+            if field == MissingField.NEW_CAR_COPAY:
+                dedup_option = option_id or ""
+            elif field == MissingField.CURRENT_COPAY:
+                dedup_option = today_copay_question_id(state)
+            else:
+                dedup_option = general_question_id(question)
+            existing_id, existing = self._open_question(str(conv_id), field, dedup_option)
+
+            # (ג) הסוכן בונה את הפנייה ומסמן את התוצאה (בלי סשן פתוח)
+            pending: list[_PendingRun] = []
+            outcome = self.agent.rep_question(snapshot, self._find_vehicle, state, question, field, option_id,
+                                              existing, _collector(pending))
+            result: RepQuestionResult = outcome.rep_question_result
+            if result.status == "invalid":
+                raise RepQuestionInvalid(result.message)
+            if result.status == "exists":
+                # שום דבר לא נפתח ולא נכתב: the employee is pointed to the inquiry already in the chat (its id)
+                result.question_id = existing_id or ""
+                return {**self._rep_question_payload(result, state), **self._email_payload(conversation_id)}
+
+            # (ד) כתיבה קצרה — רק אם הגרסה לא השתנתה; אחרת מנסים שוב מההתחלה. The session cookie is the
+            # employee's identity here; the email is only the channel for a notice, so without mail delivery the
+            # inquiry is opened and its answer comes to the chat, and nothing is said about email.
+            notifier = self.email_notifications if self._mail_enabled else None
+            with self.sessions() as session, session.begin():
+                repo = ConversationRepository(session)
+                if not repo.save_turn(conv_id, loaded_version, state=state.model_dump(mode="json"),
+                                      stage=state.stage.value, message_count=loaded_count, llm_mode=self.llm.mode):
+                    continue
+                conversation = repo.get(conv_id)
+                if conversation is None:
+                    raise ConversationNotFound()
+                if notifier is not None:
+                    if email:
+                        email = notifier.normalize_email(email)          # a bad address: 422, nothing saved
+                    elif not conversation.email_verified_at and notifier.settings.email_backend == "smtp":
+                        raise ValueError("כתובת אימייל נדרשת כדי לעדכן אתכם כשהנציג יענה.")
+                opened = [self.cases.open_question(session, str(conv_id), req)
+                          for req in outcome.question_requests]
+                if notifier is not None and email and opened:
+                    try:
+                        with session.begin_nested():
+                            notifier.prepare_verification(session, conversation, email, opened[0].id)
+                    except EmailNotConfigured as exc:     # mail trouble never costs the inquiry
+                        log.warning("verification email not queued (%s)", type(exc).__name__)
+                if result.status == "created" and opened:
+                    # the same inquiry record as a chat-opened question: the employee's own words and the car
+                    self._record_inquiries(repo, conv_id, opened[:1], wording=question)
+                _store_runs(repo, conv_id, snapshot_id, pending)
+            if opened:
+                result.question_id = opened[0].id
+            self._flush_email()
+            log.info("rep question opened field=%s status=%s", result.missing_field, result.status)
+            return {**self._rep_question_payload(result, state), **self._email_payload(conversation_id)}
+        raise ConversationConflict()
+
+    @property
+    def _mail_enabled(self) -> bool:
+        return self.email_notifications is not None and self.email_notifications.enabled
+
+    @property
+    def _mail_simulated(self) -> bool:
+        """The fake backend: mail is written to local files, nothing reaches a real inbox (31/10)."""
+        s = self.email_notifications.settings if self.email_notifications is not None else None
+        return self._mail_enabled and s.email_backend == "fake" and s.email_fake_notice
+
+    def _flush_email(self) -> None:
+        """Delivers queued mail within the request only with the fake backend; SMTP is the worker's. A failure is
+        logged (no address, no token) and never undoes what the request saved."""
+        notifier = self.email_notifications
+        if notifier is None or not notifier.sends_inline:
+            return
+        try:
+            notifier.process_pending()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("email outbox flush failed (%s)", type(exc).__name__)
+
+    def _email_payload(self, conversation_id: str) -> dict[str, Any]:
+        state = self.email_status(conversation_id)
+        return {"email_verified": state["verified"], "email_status": state["status"],
+                "email_delivery": state["delivery"], "email_pending": state["pending_address"],
+                "email_simulated": state.get("simulated", False)}
+
+    def email_status(self, conversation_id: str) -> dict[str, Any]:
+        """The employee's email state for this conversation. delivery "disabled": no mail at all (say nothing about
+        it). A stored address that cannot be decrypted reads as not verified, never as an error."""
+        if not self._mail_enabled:
+            return {"verified": False, "email": None, "status": "disabled", "delivery": "disabled",
+                    "pending_address": False}
+        notifier = self.email_notifications
+        with self.sessions() as session:
+            row = session.get(ConversationRow, _uuid(conversation_id))
+            if row is None:
+                return {"verified": False, "email": None, "status": "pending", "delivery": "enabled",
+                        "pending_address": False}
+            if not row.email_verified_at or not row.email_ciphertext:
+                # pending_address: an address was given and waits for its verification (the screen offers a new
+                # link); the address itself is never sent back before it is verified
+                return {"verified": False, "email": None, "status": notifier.verification_status(session, row),
+                        "delivery": "enabled", "pending_address": bool(row.email_ciphertext),
+                        "simulated": self._mail_simulated}
+            try:
+                address = notifier._decrypt(row.email_ciphertext)
+            except EmailNotConfigured:
+                return {"verified": False, "email": None, "status": "failed", "delivery": "enabled",
+                        "pending_address": False}
+            return {"verified": True, "email": address, "status": "verified", "delivery": "enabled",
+                    "pending_address": False, "simulated": self._mail_simulated}
+
+    def resend_verification(self, conversation_id: str, token: str, email: Optional[str] = None) -> dict[str, Any]:
+        """A new verification link when the previous one expired or could not be delivered (never while one is
+        still valid; at most MAX_VERIFY_SENDS per conversation and address). Without an address: the one this
+        conversation is waiting to verify (the screen never holds it)."""
+        if not self._mail_enabled:
+            raise EmailNotConfigured("Email delivery is not configured")
+        notifier = self.email_notifications
+        with self.sessions() as session, session.begin():
+            conversation = self._load(ConversationRepository(session), conversation_id, token)
+            if not email and not conversation.email_ciphertext:
+                raise ValueError("לא נמסרה כתובת אימייל בשיחה הזו.")
+            address = email or notifier._decrypt(conversation.email_ciphertext)
+            resend = notifier.prepare_verification(session, conversation, address)
+        self._flush_email()
+        return {**self._email_payload(conversation_id), "resend": resend}
+
+    def redeem_email_link(self, token: str) -> tuple[str, str, str | None]:
+        if self.email_notifications is None:
+            raise InvalidEmailLink()
+        conversation_id, session_token, question_id = self.email_notifications.redeem(token)
+        self._flush_email()
+        return conversation_id, session_token, question_id
+
+    def _open_question(self, conversation_id: str, field: "MissingField",
+                       option_id: str) -> tuple[Optional[str], Optional[str]]:
+        """(id, נוסח) של פנייה פתוחה קיימת לאותו (שיחה, סוג, רכב/hash), או (None, None). לזיהוי כפילות בלי replace."""
+        for q in self.cases.list_for_conversation(conversation_id, QuestionStatus.OPEN):
+            if q.missing_field == field and (q.option_id or "") == option_id:
+                return q.id, q.question_text
+        return None, None
+
+    def _rep_question_payload(self, result: RepQuestionResult, state: ConversationState) -> dict[str, Any]:
+        """תגובת ה-API: הסטטוס האמיתי, ומצב התוצאות המעודכן (copay_pending) כדי שהלקוח יזהה הצלחה ממשית
+        ולא רק מהודעת טקסט."""
+        return {"status": result.status, "missing_field": result.missing_field,
+                "question_id": result.question_id or None, "option_id": result.option_id,
+                "car_label": result.car_label, "catalog_amount": result.catalog_amount,
+                "question_text": result.question_text,
+                "results": [r.model_dump(mode="json") for r in state.results]}
 
     # ---------- תשובות הנציג ----------
 
@@ -351,10 +593,25 @@ class ConversationService:
                 if not repo.save_turn(conv_id, loaded_version, state=state.model_dump(mode="json"),
                                       stage=state.stage.value, message_count=loaded_count, llm_mode=self.llm.mode):
                     continue                                                 # תור מקביל כתב — שוב מההתחלה
-                self._store_questions(session, repo, conv_id, state, outcome)
+                opened = self._store_questions(session, repo, conv_id, state, outcome)
                 if outcome.reply:
-                    repo.add_message(conv_id, "assistant", outcome.reply, "rep")
+                    repo.add_message(conv_id, "assistant", outcome.reply, "rep",
+                                     rep_question_id=event.question_id)
+                if outcome.follow_up:                # the advisor's next step: its own message, same transaction
+                    repo.add_message(conv_id, "assistant", outcome.follow_up, "template")
+                self._record_inquiries(repo, conv_id, opened)       # a question this answer led to
                 _store_runs(repo, conv_id, snapshot_id, pending)
+                if self._mail_enabled:
+                    # the notice is extra: a key that no longer decrypts, or any mail error, never loses the
+                    # representative's answer (it is saved in the same transaction, outside this savepoint)
+                    try:
+                        with session.begin_nested():
+                            conversation = repo.get(conv_id)
+                            if conversation is not None:
+                                self.email_notifications.prepare_answer(session, conversation, event.question_id)
+                    except Exception as exc:  # noqa: BLE001
+                        log.warning("answer notice for %s not queued (%s)", event.question_id, type(exc).__name__)
+            self._flush_email()
             log.info("rep answer %s applied to the conversation", event.question_id)
             return True
         log.warning("rep answer %s not applied after %d conflicts; it will be applied on the next read",
@@ -386,13 +643,23 @@ class ConversationService:
             row = repo.get(conv_id)
             state = ConversationState.model_validate(row.state)
             messages = [_message_json(m) for m in repo.messages(conv_id) if m.seq > after]
+        questions = self.cases.list_for_conversation(str(conv_id))
         pending = [{"missing_field": q.missing_field.value, "mode": q.mode.value, "status": q.status.value,
                     "option_id": q.option_id or None}
                    for q in self.cases.list_for_conversation(str(conv_id), QuestionStatus.OPEN)]
         return {"conversation_id": str(conv_id), "stage": state.stage.value, "messages": messages,
                 "pending_questions": pending, "expects": build_expects(state, self.rules.current),
                 "results": [r.model_dump(mode="json") for r in state.results],
-                "results_stale": results_stale(state), "option_map": map_json(state), **map_readiness(state)}
+                "results_stale": results_stale(state), "option_map": map_json(state),
+                # today's copay as the employee gave or confirmed it (31/10): the screen tells it apart from the new
+                # cars' catalog amounts
+                "today_copay": str(state.current.copay) if state.current.copay is not None else None,
+                "today_copay_source": state.current.copay_source if state.current.copay is not None else None,
+                "today_copay_provisional": (str(state.current.copay_provisional)
+                                            if state.current.copay is None and state.current.copay_provisional
+                                            is not None else None),
+                "today_car": state.current.label or None,   # the card above the comparison (1/11)
+                "rep_questions": [_rep_question_json(q) for q in questions], **map_readiness(state)}
 
     def view(self, conversation_id: str, token: str) -> ConversationView:
         self._apply_pending(self._authorized(conversation_id, token))
@@ -402,11 +669,16 @@ class ConversationService:
             state = ConversationState.model_validate(row.state)
             messages = [_message_json(m) for m in repo.messages(row.id)]
             return ConversationView(conversation_id=str(row.id), stage=state.stage, state=state,
-                                    messages=messages, expects=build_expects(state, self.rules.current))
+                                    messages=messages, expects=build_expects(state, self.rules.current),
+                                    rep_questions=[_rep_question_json(q) for q in
+                                                   self.cases.list_for_conversation(str(row.id))])
 
     def _load(self, repo: ConversationRepository, conversation_id: str, token: str):
         row = repo.get(_uuid(conversation_id))
-        if row is None or not token or not hmac.compare_digest(row.session_token_hash, token_hash(token)):
+        if row is None or not token or not any(
+            hmac.compare_digest(saved, token_hash(token))
+            for saved in [row.session_token_hash, *(row.additional_session_token_hashes or [])]
+        ):
             raise ConversationNotFound()
         return row
 
@@ -438,11 +710,34 @@ def reproduce_run(sessions: sessionmaker, run_id: str) -> ScenarioResult:
                         _STATE.validate_python(inputs["alternative"]), snapshot.calc, occupation)
 
 
+_MODEL_RAN = ("fixed", "pending")      # the model understood the turn; code's template phrased it
+
+
+def engine_state(llm: LLMChain, say: Optional[str] = None) -> Optional[str]:
+    """What the conversation engine really is, for the employee's badge (31/10) — never from a key alone.
+    "none": no model configured (templates only); "ai": the model ran; "limited": the model failed (a turn that fell
+    back to the templates, or every entry failing / cooling down); "untried": configured, not called yet.
+    With `say` (one turn's SAY): what that turn shows, or None when code answered it alone (buttons, a form)."""
+    if not llm.available:
+        return "none"
+    if say is not None:
+        if say == "outage":
+            return "limited"
+        return "ai" if say.startswith(("llm", "guard")) or say in _MODEL_RAN else None
+    live = [s for s in llm.status() if s["status"] != "disabled"]
+    ready = [s for s in live if not s["cooling_down"]]
+    if any(s["status"] == "ok" for s in ready):
+        return "ai"
+    if ready and all(s["status"] == "untried" for s in ready):
+        return "untried"
+    return "limited"
+
+
 __all__ = [
-    "ChatMessage", "LLMError",
+    "ChatMessage", "LLMError", "EmailNotificationService", "EmailNotConfigured", "InvalidEmailLink",
     "ConversationConflict", "ConversationLimitReached", "ConversationNotFound", "ConversationService",
     "ConversationState",
     "ConversationView", "LLMChain", "LLMPort", "OptionResult", "RepReason", "Stage",
-    "TurnResult", "build_llm_chain", "map_json", "map_readiness", "results_stale", "reproduce_run", "ChoiceInvalid",
+    "TurnResult", "build_llm_chain", "engine_state", "map_json", "map_readiness", "results_stale", "reproduce_run", "ChoiceInvalid",
     "FieldsInvalid",
 ]

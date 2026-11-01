@@ -149,7 +149,10 @@ def _zero_next_to_field(field: str, toks: list[str], cues: Sequence[str]) -> boo
     """The zero belongs to this field: a cue right before its word (only connecting words between: "אין לי
     ילדים", "ואין בונוס"), or a zero right after it ("ילדים: 0"). A cue for another phrase does not reach
     across to a word joined with "ו" ("אין נקודות זיכוי וילדים" is not "no children")."""
-    stems = ZERO_WORDS.get(field, ())
+    return _zero_next_to_stems(ZERO_WORDS.get(field, ()), toks, cues)
+
+
+def _zero_next_to_stems(stems: Sequence[str], toks: list[str], cues: Sequence[str]) -> bool:
     seqs = [words(c) for c in cues if words(c)]
 
     def bare(t: str) -> str:
@@ -192,10 +195,56 @@ def _zero_next_to_field(field: str, toks: list[str], cues: Sequence[str]) -> boo
     return False
 
 
-def zero_grounded(field: str, text: str, cues: Sequence[str]) -> bool:
+CONTRIBUTION_FIELDS = ("pension_percent", "study_fund_percent")
+
+
+def contributions_zero_said(text: str, cues: Sequence[str], terms: Sequence[str], nothing: Sequence[str]) -> bool:
+    """Nothing is deducted, said for both contributions together (1/11): a zero cue next to a word that names them
+    both ("אין הפרשות", "אפס הפרשות", "בלי הפרשות בכלל"), or a phrase that says nothing is deducted ("לא יורד לי
+    כלום"). Never from a number: "0" alone says nothing about which field."""
+    toks = words(text)
+    if any(any(s in t for s in ZERO_WORDS[f]) for f in CONTRIBUTION_FIELDS for t in toks):
+        return False                       # "אין הפרשה לפנסיה": that field alone, read as before
+    joined = f" {' '.join(toks)} "
+    if any(f" {' '.join(words(p))} " in joined for p in nothing if words(p)):
+        return True
+    stems = tuple(w for t in terms for w in words(t))
+    return bool(stems) and has_zero_cue(text, cues) and _zero_next_to_stems(stems, words(text.lower()), cues)
+
+
+def _names_other_field(field: str, text: str) -> bool:
+    """The message names a field other than this one ("אין נקודות זיכוי וילדים" names two): a zero cue in it is
+    then not about the question on screen alone."""
+    toks = words(text.lower())
+    return any(any(s in t for s in stems for t in toks) for f, stems in ZERO_WORDS.items() if f != field)
+
+
+def bare_zero_answer(text: str, negatives: Sequence[str], allowed: Sequence[str]) -> bool:
+    """A short answer that only says "no / none" ("לא", "גם לא", "אין", "אפס", "לא יורד", "לא מופרש"): a negative
+    word and nothing but the allowed words around it. Like a bare number, it answers only the one field the last
+    question asked (never a grouped question). A question, an uncertainty ("לא יודע") or another field's word is
+    not one."""
+    if "?" in text:
+        return False
+    toks = [t[1:] if len(t) > 2 and t[0] == _PREFIX else t for t in words(text)]
+    neg = {t for n in negatives for t in words(n)}
+    ok = neg | {t for a in allowed for t in words(a)}
+    return 0 < len(toks) <= 5 and any(t in neg for t in toks) and all(t in ok for t in toks)
+
+
+def zero_grounded(field: str, text: str, cues: Sequence[str], terms: Sequence[str] = (),
+                  nothing: Sequence[str] = (), asked: Optional[str] = None,
+                  bare: tuple[Sequence[str], Sequence[str]] = ((), ())) -> bool:
     """A zero for this field is said: a zero cue ("אין", "בלי", "ללא", "אפס", "0") together with the field's word
     ("אין עמלות", "ילדים: 0"), or a bare "אין" for a field that may be answered so. A cue for another field is
-    not a zero for this one."""
+    not a zero for this one. For pension and study fund, also a zero said for both together ("אין הפרשות"). A short
+    "no" ("גם לא", "לא מופרש") grounds a zero only for the field the last question asked (`asked`)."""
+    if field in CONTRIBUTION_FIELDS and contributions_zero_said(text, cues, terms, nothing):
+        return True
+    if asked == field and bare_zero_answer(text, *bare):
+        return True
+    if asked == field and has_zero_cue(text, cues) and not _names_other_field(field, text):
+        return True                    # "קרן השתלמות? גם את זה אין לי": the zero is about the question on screen
     if not has_zero_cue(text, cues):
         return False
     if _zero_next_to_field(field, words(text.lower()), cues):

@@ -104,6 +104,11 @@ class CurrentCar(BaseModel):
     choices: list[CarChoice] = Field(default_factory=list)
     copay: Optional[Decimal] = None
     copay_unknown: bool = False
+    # where today's copay came from (1/11): "rep_confirmed" = the representative's answer, applied by the employee
+    copay_source: Optional[str] = None
+    # today's copay pending with the representative (1/11): the catalog amount, used for the calculation only until
+    # the answer — never the employee's confirmation, never shown as verified; cleared by any real amount
+    copay_provisional: Optional[Decimal] = None
     # When there is no company car today: does the employee receive a car-maintenance allowance?
     # maintenance=Decimal: the confirmed amount (0 = the employee said they do NOT receive one).
     # maintenance=None + maintenance_unknown=True: "אבדוק בהמשך" — unknown, never assumed, blocks the net.
@@ -192,6 +197,9 @@ class PendingConfirmation(BaseModel):
     approximate: bool = False
     unusual: bool = False   # a legal but rare value: asked "לאשר / לתקן" once
     scale: bool = False     # a tiny amount ("3" for commissions): asked "3 ₪ או 3,000 ₪?"; value is the amount said
+    # more fields held with the same answer (1/11): "אין הפרשות" holds pension 0% and study fund 0% together, asked
+    # once ("לרשום פנסיה 0% וקרן השתלמות 0%?") and saved together on "לאשר"
+    also: dict[str, Decimal] = Field(default_factory=dict)
 
 
 class CarClarification(BaseModel):
@@ -211,6 +219,15 @@ class GeneralQuestion(BaseModel):
     answer: Optional[str] = None    # the representative's answer, once it arrived
 
 
+class RepCopayOffer(BaseModel):
+    """The representative answered today's copay with an amount (1/11): offered, applied only when the employee
+    confirms it. Removed once applied, so a second click, a reload or a reopened conversation never applies it again."""
+
+    question_id: str
+    amount: Decimal
+    car_label: str = ""
+
+
 class ConversationState(BaseModel):
     stage: Stage = Stage.COLLECT_PROFILE
     profile: Profile = Field(default_factory=Profile)
@@ -228,6 +245,7 @@ class ConversationState(BaseModel):
     group_conflict: Optional[GroupConflict] = None
     confirmed_unusual: list[str] = Field(default_factory=list)   # fields whose rare value the employee confirmed
     applied_answers: list[str] = Field(default_factory=list)    # תשובות נציג שכבר יושמו (פעם אחת בלבד)
+    rep_copay_offer: Optional[RepCopayOffer] = None             # today's copay from the rep, awaiting the employee
     pending_clarification: Optional[CarClarification] = None
     pending_confirmation: Optional[PendingConfirmation] = None
     pending_occupation: Optional[PendingOccupation] = None
@@ -245,6 +263,9 @@ class ConversationState(BaseModel):
     unknown_told: int = 0    # replies about fields the employee does not know (the wording alternates)
     misses: int = 0          # answers in a row that were not understood (never the same reply twice)
     unanswered_question: Optional[str] = None    # a question the FAQ does not cover: "לשאול את נציג התחבורה"
+    # the employee's latest question nothing here answered, kept after its turn: "היית צריך לשאול את הנציג" offers
+    # to send exactly that (cleared once it is sent)
+    last_rep_question: Optional[str] = None
     pending_rep_question: Optional[str] = None   # the privacy-checked text shown before sending to the rep
     pending_rep_key: Optional[str] = None        # its option_id, from the employee's own words (dedup)
     general_questions: dict[str, GeneralQuestion] = Field(default_factory=dict)   # sent to the rep, by option_id
@@ -255,8 +276,14 @@ class ConversationState(BaseModel):
     # only be saved to it, never remapped to another field.
     asked_field: Optional[str] = None
     pace: Literal["normal", "one_at_a_time"] = "normal"   # "שאלה אחת כל פעם": kept until the employee changes it
+    brief: bool = False      # "יותר קצר" / "בלי הסברים": short, plain wording, kept for the conversation
+    social_told: int = 0     # small-talk replies so far (the wording turns, never the same line twice in a row)
+    feedback_told: int = 0   # acknowledgements of feedback about a previous reply (the wording turns)
     links_shown: list[str] = Field(default_factory=list)  # links already offered (each one once)
     link_now: Optional[str] = None                        # the link of the reply on screen (kept on reload)
+    # a correction the employee asked for (1/11): the save_profile argument whose new value the reply asked for; the
+    # next message's bare value is saved to it like the correction form, at any stage, then it is cleared
+    correcting_field: Optional[str] = None
     # Fields the employee asked to answer later ("את השכר אבדוק אחר כך"). They are skipped as the next
     # question while any other field can still be asked, and come back when nothing else is askable or a
     # calculation needs them. Never a default, never dropped — just postponed. A value given later clears it.
@@ -316,7 +343,7 @@ def current_unknown(c: CurrentCar) -> list[str]:
     out = []
     if c.use_value_unknown and c.use_value is None:
         out.append("use_value")
-    if c.copay_unknown and c.copay is None:
+    if c.copay_unknown and c.copay is None and c.copay_provisional is None:
         out.append("copay")
     return out
 

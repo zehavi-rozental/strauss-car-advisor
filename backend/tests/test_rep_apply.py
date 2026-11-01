@@ -156,9 +156,12 @@ def test_rep_answer_unblocks_and_the_flow_continues(client):
     assert answer(client, q["id"], "ג").status_code == 200
     updates = client.get(f"/api/conversations/{cid}/updates?after={seq}").json()
     assert updates["stage"] == "CHOOSE_OPTIONS"
-    [rep] = updates["messages"]
+    # the representative's answer, then the advisor's next question as a message of its own
+    [rep, follow] = updates["messages"]
+    assert (rep["source"], follow["source"]) == ("rep", "template") and follow["seq"] == rep["seq"] + 1
     assert rep["content"].startswith("נציג התחבורה השיב: קבוצת הזכאות שלכם היא ג.")
-    assert "איזה רכבים להשוות" in rep["content"]
+    assert "איזה רכבים להשוות" not in rep["content"]
+    assert "איזה רכבים להשוות" in follow["content"]
     body = say(client, cid, "אטו 3")                                  # ממשיכים כרגיל
     assert body["stage"] == "PRESENTED" and body["results"][0]["delta_display"] == "661"
 
@@ -321,7 +324,7 @@ def test_pending_copay_uses_the_scenario_wording_until_the_rep_confirms(client):
     """The rule since 22/10: the catalog amount is used and said; the employee's request opens the question, the
     card waits for the answer, and the answer makes it approved."""
     cid, body = start(client, *NOA[:3])
-    assert "לפי הקטלוג, ההשתתפות ברכב הזה היא 300 ₪" in body["reply"] and open_questions(client) == []
+    assert "ההשתתפות ב-ATTO 3 (2025) לפי הקטלוג היא 300 ₪" in body["reply"] and open_questions(client) == []
     body = say(client, cid, NOA[3])
     assert "פניתי לנציג התחבורה לבירור ההשתתפות ב-ATTO 3 (2025)" in body["reply"]
     [q] = open_questions(client)

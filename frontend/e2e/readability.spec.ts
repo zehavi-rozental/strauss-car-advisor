@@ -65,7 +65,7 @@ for (const viewport of [{ width: 1366, height: 860 }, { width: 375, height: 800 
 test('the correction form fields are readable', async ({ page }) => {
   await open(page)
   for (const m of [NOA, 'יש לי קורולה קרוס', '300', 'אטו 3']) await send(page, m)
-  await page.getByRole('button', { name: 'פירוט מלא' }).first().click()
+  await page.getByRole('button', { name: 'פירוט החישוב' }).first().click()
   await page.getByRole('dialog', { name: 'טבלת השוואה' }).getByRole('button', { name: 'תיקון נתונים' }).click()
   for (const id of ['#pf-bonus', '#pf-pension_percent']) {
     expect(await contrastWhileTyping(page.locator(id), '1200'), id).toBeGreaterThanOrEqual(MIN_CONTRAST)
@@ -86,17 +86,20 @@ test('the representative’s fields are readable', async ({ browser }) => {
   test.skip(!REP_TOKEN, 'REP_TOKEN not provided')
   const page = await (await browser.newContext()).newPage()
   await open(page)
-  for (const m of [NOA, 'יש לי קורולה קרוס', '300', 'אטו 3']) await send(page, m)
+  // this test's own question (a new car's copay the employee asks about): never another spec's last card
+  for (const m of [NOA, 'יש לי קורולה קרוס', '300', 'אטו 3', 'אני רוצה שנציג התחבורה יאשר את ההשתתפות']) await send(page, m)
   const rep = await (await browser.newContext()).newPage()
   await rep.goto('/rep')
   expect(await contrastWhileTyping(rep.getByLabel('קוד גישה'), 'abc')).toBeGreaterThanOrEqual(MIN_CONTRAST)
   await rep.getByLabel('קוד גישה').fill(REP_TOKEN)
   await rep.getByRole('button', { name: 'כניסה' }).click()
-  const card = rep.locator('.rep-card').last()
+  const card = rep.locator('.rep-card', { hasText: 'ATTO 3' }).last()
   await expect(card).toBeVisible({ timeout: 20_000 })
-  expect(await contrastWhileTyping(card.getByLabel('הערה לעובד'), 'הערה')).toBeGreaterThanOrEqual(MIN_CONTRAST)
+  // the note is optional (29/10); its field is as readable as any other
+  expect(await contrastWhileTyping(card.getByLabel('הערה לעובד (לא חובה)'), 'הערה')).toBeGreaterThanOrEqual(MIN_CONTRAST)
   await card.getByRole('button', { name: 'סכום אחר' }).click()
-  expect(await contrastWhileTyping(card.getByLabel('סכום (₪)'), '300')).toBeGreaterThanOrEqual(MIN_CONTRAST)
+  // "סכום (₪)", or "סכום ההשתתפות (₪)" on a new car's copay
+  expect(await contrastWhileTyping(card.getByLabel(/^סכום( ההשתתפות)? \(₪\)$/), '300')).toBeGreaterThanOrEqual(MIN_CONTRAST)
   await rep.context().close()
   await page.context().close()
 })

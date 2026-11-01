@@ -19,6 +19,7 @@ from app.modules.rules.public import (CarRoleCues, CatalogCar, RulesSnapshot, ca
                                       mentions, words)
 
 from .free_text import looks_like_title
+from .grounding import bare_zero_answer
 from .llm.port import ToolCall
 from .parsing import (
     NAME_PREFIX_LETTERS,
@@ -180,7 +181,12 @@ def _bound_value_plan(state: ConversationState, snapshot: RulesSnapshot, text: s
     if m is None:
         return None
     head, rest = m.group(1), (m.group(2) or "").strip()
-    read = read_value(head, snapshot.extensions.answer_fillers)
+    ext = snapshot.extensions
+    read = read_value(head, ext.answer_fillers)
+    if read is None and arg != "base_salary" and bare_zero_answer(text, ext.bare_zero_negatives, ext.bare_zero_words):
+        # a bare "no" ("גם לא", "לא מופרש") answers the field asked with 0; pension 0% / credit points 0 are then
+        # confirmed once by save_profile (unusual_values)
+        return ParserPlan(_call("save_profile", **{arg: 0}), True)
     if read is None:
         return None
     value, approximate = read
@@ -268,12 +274,12 @@ _CORRECTABLE = PROFILE_ARGS
 def _profile_value_correction_plan(state: ConversationState, snapshot: RulesSnapshot,
                                    text: str) -> Optional[ParserPlan]:
     """Correcting a profile value after it was already saved ("טעיתי, השכר שלי 16,000", "בעצם פנסיה 7%"),
-    at any stage — including after a result is on screen. Needs an explicit correction cue and a labelled
-    value for a field that already has a (different) value; the whole message must carry nothing else to
-    act on. save_profile clears calculated_for, so the net is recomputed with the corrected value."""
+    at any stage — including after a result is on screen. Needs a labelled value for a field that already has a
+    (different) value, with an explicit correction cue, or with every value in the message such a change ("הפנסיה
+    שלי 6%" after the results: it was "not understood" and dropped, 1/11); the whole message must carry nothing else
+    to act on. save_profile clears calculated_for, so the net is recomputed with the corrected value."""
     ext = snapshot.extensions
-    if not _has_correction_cue(text, ext.correction_cues):
-        return None
+    cue = _has_correction_cue(text, ext.correction_cues)
     reading = read_profile(text, snapshot.occupations.keys(), ext.correction_cues, ext.value_qualifiers)
     p = state.profile
     changes: dict[str, object] = {}
@@ -288,7 +294,7 @@ def _profile_value_correction_plan(state: ConversationState, snapshot: RulesSnap
         if same:
             continue                                 # same value — nothing to change
         changes[arg] = new
-    if not changes:
+    if not changes or (not cue and set(reading.fields) != set(changes)):
         return None
     # nothing else of meaning beyond what we read, the correction cue, and plain fillers
     fillers = [*ext.answer_fillers, *ext.profile_fillers, *ext.correction_cues, "שלי", "הוא", "היא", "אבל",
@@ -699,7 +705,11 @@ def car_roles(text: str, cars: list[CatalogCar], cues: CarRoleCues) -> dict[str,
                 for i, j in _phrase_at(ws, phrase):
                     after = [c for a, _, c in at if a >= j]
                     before = [c for _, b, c in at if b <= i]
-                    if after or before:
+                    # "היום" and a relative clause ("הקורולה שיש לי") describe the car before them, not the next one
+                    relative = ws[i].startswith("ש") and not phrase.startswith("ש")
+                    if (phrase in cues.trailing or relative) and before:
+                        found[before[-1]].add(role)
+                    elif after or before:
                         found[after[0] if after else before[-1]].add(role)
     return {code: next(iter(roles)) if len(roles) == 1 else None for code, roles in found.items()}
 
@@ -804,6 +814,9 @@ def _car_detail_plan(snapshot: RulesSnapshot, question: str, text: str) -> Parse
         if only(none_span(text)):
             return ParserPlan(_call("save_profile", current_copay="0"), True)
     arg = {"use_value": "current_use_value", "copay": "current_copay", "maintenance": "current_maintenance"}[question]
+    if "%" in text or "אחוז" in text:
+        # a percent is never an amount in shekels (31/10: "5%" typed for the pension was asked as "5 ₪ or 5,000 ₪?")
+        return ParserPlan()
     read = read_value(text, fillers)
     if read is None:
         return ParserPlan()

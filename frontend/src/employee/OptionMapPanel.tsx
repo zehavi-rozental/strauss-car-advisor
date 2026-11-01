@@ -148,9 +148,9 @@ export function OptionMapPanel({ map, onClose, onCompare }: Props) {
         <div className="panel-actions">
           <button type="button" className="chip chip-primary" disabled={picked.length === 0}
                   onClick={() => onCompare(asResults(map, picked))}>
-            השוואה מפורטת{picked.length ? ` (${picked.length})` : ''}
+            השוואה לעיון{picked.length ? ` (${picked.length})` : ''}
           </button>
-          <span className="form-hint">אפשר לבחור עד {MAX_COMPARE} חלופות להשוואה זו לצד זו. הרשימה המלאה נשארת כאן.</span>
+          <span className="form-hint">אפשר לסמן עד {MAX_COMPARE} רכבים ולהשוות אותם זה לצד זה. ההשוואה בצ'אט לא משתנה.</span>
         </div>
       </aside>
     </div>,
