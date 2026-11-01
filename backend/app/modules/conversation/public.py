@@ -658,6 +658,7 @@ class ConversationService:
                 "today_copay_provisional": (str(state.current.copay_provisional)
                                             if state.current.copay is None and state.current.copay_provisional
                                             is not None else None),
+                "today_car": state.current.label or None,   # the card above the comparison (1/11)
                 "rep_questions": [_rep_question_json(q) for q in questions], **map_readiness(state)}
 
     def view(self, conversation_id: str, token: str) -> ConversationView:

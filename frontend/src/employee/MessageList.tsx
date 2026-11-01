@@ -45,6 +45,8 @@ interface Props {
   todayCopaySource?: string | null
   /** an answer to keep in view (the email link, or an update waiting for the employee) */
   focusQuestionId?: string | null
+  /** today's car and its copay, once above the comparison (1/11) */
+  todayCard?: ReactNode
 }
 
 export const STALE_NOTE = 'לא מעודכן: החישוב הזה נעשה לפני השינוי האחרון, ויחושב מחדש כשכל הפרטים יהיו ידועים.'
@@ -52,7 +54,8 @@ export const STALE_NOTE = 'לא מעודכן: החישוב הזה נעשה לפ�
 export function MessageList({ messages, repQuestions = [], results, resultsStale = false, resultsAnchor, typing,
                               onOpenTable, onAskCopay, onResendVerification, mapCard, tail,
                               onRetry, onCorrect, busy, showAuthor = false, repCopayOffer = null, onSend,
-                              todayCopay = null, todayCopaySource = null, focusQuestionId = null }: Props) {
+                              todayCopay = null, todayCopaySource = null, focusQuestionId = null,
+                              todayCard = null }: Props) {
   const end = useRef<HTMLDivElement>(null)
   const [copied, setCopied] = useState<number | null>(null)
   useEffect(() => {
@@ -111,26 +114,54 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
     ? copayAnswers.reduce((a, b) => ((a.answered_at ?? '') > (b.answered_at ?? '') ? a : b)).id : null
   const repAnswerAction = (questionId: string) => {
     if (inquiries.get(questionId)?.missing_field !== 'CURRENT_COPAY') return null
-    if (repCopayOffer && onSend && repCopayOffer.choices[0]?.id === `apply:${questionId}`) {
+    const offer = repCopayOffer && onSend && repCopayOffer.choices[0]?.id === `apply:${questionId}` ? repCopayOffer : null
+    const question = inquiries.get(questionId)
+    // today's copay answered through "לברר מול נציג": one titled unit — the car, the amount in the calculation now,
+    // the amount the representative gave, the note, then the update (or what was done)
+    const unit = question?.option_id?.startsWith('today:') && question.answer_value
+    const inUse = offer ? offer.context?.previous ?? offer.context?.provisional ?? null : null
+    const action = actionFor(questionId, offer)
+    if (!unit || !question) return action
+    return (
+      <div className="rep-copay-answer" aria-label="תשובת נציג התחבורה">
+        <p className="rep-copay-answer-title"><Icon name="rep" size={16} />התקבלה תשובת נציג התחבורה</p>
+        <dl className="rep-copay-answer-facts">
+          {question.car_label && <div><dt>הרכב</dt><dd><bdi>{question.car_label}</bdi></dd></div>}
+          {inUse && <div><dt>הסכום בחישוב הנוכחי</dt><dd><Money value={inUse} /></dd></div>}
+          <div><dt>הסכום שהנציג מסר</dt><dd><Money value={question.answer_value as string} /></dd></div>
+          {question.answer_note && <div><dt>הערת הנציג</dt><dd className="rep-note-text">{question.answer_note}</dd></div>}
+        </dl>
+        {action}
+      </div>
+    )
+  }
+  const actionFor = (questionId: string, offer: ExpectsField | null) => {
+    if (offer && onSend) {
       return (
         <div className="rep-answer-action">
-          <RepCopayUpdate field={repCopayOffer} disabled={busy ?? false} onSend={onSend} />
+          <RepCopayUpdate field={offer} disabled={busy ?? false} onSend={onSend} />
         </div>
       )
     }
     if (questionId === latestCopayAnswer && todayCopaySource === 'rep_confirmed' && todayCopay) {
       return (
         <p className="rep-answer-done" role="status">
-          <Icon name="check" size={16} />העדכון בוצע: ההשתתפות <Money value={todayCopay} /> לפי תשובת הנציג שאישרתם.
+          <Icon name="check" size={16} />החישוב עודכן: ההשתתפות <Money value={todayCopay} /> לפי תשובת הנציג שאישרתם.
           {resultsAnchor != null && <> <a href={`#message-${resultsAnchor}`}>לתוצאות המעודכנות</a></>}
         </p>
       )
     }
     return null
   }
+  // a structured answer replaces the bubble's own text (the same facts, never said twice)
+  const copayUnit = (m: ChatMessage) => {
+    const q = m.source === 'rep' && m.rep_question_id ? inquiries.get(m.rep_question_id) : undefined
+    return Boolean(q && q.missing_field === 'CURRENT_COPAY' && q.option_id?.startsWith('today:') && q.answer_value)
+  }
   const cards = results.length > 0 && (
     <div className={resultsStale ? 'result-cards result-stale' : 'result-cards'} data-stale={resultsStale || undefined}>
       {resultsStale && <p className="stale-note" role="status">{STALE_NOTE}</p>}
+      {todayCard}
       {results.length > 1
         ? <SummaryCard items={results} current={!resultsStale} onOpenTable={onOpenTable}
                        onAskCopay={resultsStale ? undefined : onAskCopay}
@@ -176,7 +207,7 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
               <div className="bubble bubble-bot">
                 <span className="bubble-avatar" aria-hidden="true"><BrandMark size={22} /></span>
                 <div className="bubble-main">
-                  <div className="bubble-text"><RichText text={text} /></div>
+                  {!copayUnit(m) && <div className="bubble-text"><RichText text={text} /></div>}
                   <div className="bubble-meta">
                     <span className="bubble-time">{formatTime(m.created_at)}</span>
                     {showAuthor && messageAuthor(m.source) && (

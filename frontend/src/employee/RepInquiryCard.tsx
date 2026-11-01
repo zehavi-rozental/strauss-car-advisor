@@ -44,6 +44,9 @@ export function RepInquiryCard({
   const [email, setEmail] = useState(knownEmail ?? '')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // errors next to their own field (1/11); `error` is the server's, above the buttons
+  const [fieldErrors, setFieldErrors] = useState<{ question?: string; email?: string }>({})
+  const emailField = useRef<HTMLInputElement>(null)
   const [result, setResult] = useState<RepQuestionResult | null>(null)
   const section = useRef<HTMLElement>(null)
   const field = useRef<HTMLTextAreaElement>(null)
@@ -51,7 +54,8 @@ export function RepInquiryCard({
   // the question field focused, so the employee sees where to write
   useEffect(() => {
     section.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
-    field.current?.focus({ preventScroll: true })
+    // the address comes first when one is needed (visible at once, never behind "המשך")
+    ;(emailField.current ?? field.current)?.focus({ preventScroll: true })
   }, [])
 
   // an address is asked only when mail is on and none is verified for this conversation yet
@@ -61,8 +65,15 @@ export function RepInquiryCard({
   const emailOk = emailTyped && EMAIL_RE.test(email.trim())
 
   const toSummary = () => {
-    if (!trimmed) { setError('כתבו את השאלה לנציג.'); return }
-    if (needsEmail && !emailOk) { setError('כתובת אימייל תקינה נדרשת כדי לשלוח קישור אימות.'); return }
+    const errors: { question?: string; email?: string } = {}
+    if (needsEmail && !emailTyped) errors.email = 'כתבו כתובת אימייל, כדי שנוכל לעדכן אתכם כשהנציג יענה.'
+    else if (needsEmail && !emailOk) errors.email = 'הכתובת לא נראית תקינה. בדקו אותה, למשל name@example.com.'
+    if (!trimmed) errors.question = 'כתבו את השאלה לנציג.'
+    setFieldErrors(errors)
+    if (errors.email || errors.question) {
+      ;(errors.email ? emailField.current : field.current)?.focus()
+      return
+    }
     setError(null)
     setStep('summary')
   }
@@ -108,10 +119,6 @@ export function RepInquiryCard({
               {catalogAmount && <span> · השתתפות לפי הקטלוג: {catalogAmount} ₪</span>}
             </p>
           )}
-          <label className="rep-inquiry-label" htmlFor="rep-q">מה תרצו לשאול?</label>
-          <textarea ref={field} id="rep-q" className="rep-inquiry-text" rows={3} value={question} disabled={disabled || sending}
-                    onChange={(e) => setQuestion(e.target.value)} maxLength={500}
-                    placeholder="כתבו כאן את השאלה לנציג הרכב" />
           {emailSimulated && (
             <p className="rep-inquiry-hint" role="note">
               סביבת בדיקות: לא נשלח מייל אמיתי. התשובה של הנציג תופיע כאן בשיחה.
@@ -119,20 +126,30 @@ export function RepInquiryCard({
           )}
           {needsEmail && (
             <>
-              <label className="rep-inquiry-label" htmlFor="rep-email">כתובת אימייל לעדכונים</label>
-              <input id="rep-email" className="rep-inquiry-email" type="email" dir="ltr" value={email}
-                     disabled={disabled || sending} onChange={(e) => setEmail(e.target.value)}
-                     placeholder="name@example.com" required autoComplete="email" />
-              <p className="rep-inquiry-hint">
-                נשלח קישור חד־פעמי לאימות הכתובת. לאחר האימות נעדכן אתכם כשהנציג יענה.
-              </p>
+              <label className="rep-inquiry-label" htmlFor="rep-email">כתובת אימייל לעדכון כשהנציג יענה</label>
+              <input ref={emailField} id="rep-email" className="rep-inquiry-email" type="email" dir="ltr" value={email}
+                     disabled={disabled || sending} placeholder="name@example.com" required autoComplete="email"
+                     aria-invalid={fieldErrors.email ? true : undefined}
+                     aria-describedby={fieldErrors.email ? 'rep-email-error' : 'rep-email-hint'}
+                     onChange={(e) => { setEmail(e.target.value); setFieldErrors((f) => ({ ...f, email: undefined })) }} />
+              {fieldErrors.email
+                ? <p id="rep-email-error" className="rep-inquiry-field-error" role="alert">{fieldErrors.email}</p>
+                : <p id="rep-email-hint" className="rep-inquiry-hint">
+                    נשלח קישור חד־פעמי לאימות הכתובת. התשובה תופיע גם כאן בשיחה.
+                  </p>}
             </>
           )}
+          <label className="rep-inquiry-label" htmlFor="rep-q">מה תרצו לשאול?</label>
+          <textarea ref={field} id="rep-q" className="rep-inquiry-text" rows={3} value={question} disabled={disabled || sending}
+                    maxLength={500} placeholder="כתבו כאן את השאלה לנציג הרכב"
+                    aria-invalid={fieldErrors.question ? true : undefined}
+                    aria-describedby={fieldErrors.question ? 'rep-q-error' : undefined}
+                    onChange={(e) => { setQuestion(e.target.value); setFieldErrors((f) => ({ ...f, question: undefined })) }} />
+          {fieldErrors.question && <p id="rep-q-error" className="rep-inquiry-field-error" role="alert">{fieldErrors.question}</p>}
           {error && <p className="rep-inquiry-error" role="alert"><Icon name="alert" size={16} />{error}</p>}
           <div className="rep-inquiry-actions">
             <button type="button" className="btn btn-quiet" disabled={sending} onClick={onCancel}>ביטול</button>
-            <button type="button" className="btn btn-primary" disabled={sending || !trimmed || (needsEmail && !emailOk)}
-                    onClick={toSummary}>
+            <button type="button" className="btn btn-primary" disabled={sending} onClick={toSummary}>
               המשך
             </button>
           </div>
@@ -149,7 +166,7 @@ export function RepInquiryCard({
             <div><dt>השאלה לנציג</dt><dd><bdi>{trimmed}</bdi></dd></div>
             {needsEmail && <div><dt>אימייל לעדכון</dt><dd dir="ltr">{email.trim()}</dd></div>}
           </dl>
-          {intent === 'copay_verification' && (
+          {(intent === 'copay_verification' || intent === 'current_copay') && (
             <p className="rep-inquiry-note">
               עד שהנציג יאמת סכום אישי, החישוב ממשיך להתבסס על סכום ברירת המחדל בקטלוג.
             </p>

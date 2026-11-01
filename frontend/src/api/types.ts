@@ -215,6 +215,7 @@ export interface ConversationView {
   profile: Record<string, unknown>
   current_car: Record<string, unknown>
   today_copay?: string | null   // today's copay as the employee gave or confirmed it
+  today_car?: string | null     // today's car (the card above the comparison, 1/11)
   today_copay_provisional?: string | null   // pending with the rep: the catalog amount used meanwhile
   today_copay_source?: string | null   // rep_confirmed / catalog_confirmed / null (typed by the employee)
   selected: string[]
@@ -253,6 +254,7 @@ export interface UpdatesResponse {
   expects: Expects
   results: OptionResult[]
   today_copay?: string | null   // today's copay as the employee gave or confirmed it
+  today_car?: string | null     // today's car (the card above the comparison, 1/11)
   today_copay_provisional?: string | null   // pending with the rep: the catalog amount used meanwhile
   today_copay_source?: string | null   // rep_confirmed / catalog_confirmed / null (typed by the employee)
   results_stale?: boolean     // the results predate the last change: history, not a recommendation

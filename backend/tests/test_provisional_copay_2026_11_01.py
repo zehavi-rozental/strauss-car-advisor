@@ -144,3 +144,14 @@ def test_the_three_copay_states_name_their_source_and_offer_no_second_check(engi
     assert all(f["field"] not in ("copay", "rep_copay") for f in v["expects"]["fields"])
     results = send({"text": "הכי משתלם"})["results"]
     assert results and all("today_copay_provisional" not in r for r in results)
+
+
+def test_view_and_updates_name_todays_car_for_the_card_above_the_comparison(engine):
+    """The card above the comparison (1/11) names today's car: the same label in the view and in /updates."""
+    client = make_client(engine)
+    cid, send, _ = at_copay(client)
+    send({"choice": "catalog:CAR-07", "field": "copay"})
+    v = client.get(f"/api/conversations/{cid}").json()
+    assert v["today_car"] and "COROLLA" in v["today_car"]
+    u = client.get(f"/api/conversations/{cid}/updates?after=0").json()
+    assert u["today_car"] == v["today_car"]

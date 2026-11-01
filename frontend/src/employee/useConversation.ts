@@ -76,6 +76,7 @@ export function useConversation() {
   const [resultsStale, setResultsStale] = useState(false)
   const [todayCopayProvisional, setTodayCopayProvisional] = useState<string | null>(null)
   const [todayCopay, setTodayCopay] = useState<string | null>(null)
+  const [todayCar, setTodayCar] = useState<string | null>(null)
   const [todayCopaySource, setTodayCopaySource] = useState<string | null>(null)   // the employee's own amount, not the catalog's
   const [mapReady, setMapReady] = useState(false)          // the server can build the option map now
   const [optionMapState, setOptionMapState] = useState<OptionMap | null>(null)
@@ -127,6 +128,7 @@ export function useConversation() {
     setLastAssistant(lastAssistantRef.current)
     setResultsStale(Boolean(view.results_stale))
     setTodayCopay(view.today_copay ?? null)
+    setTodayCar(view.today_car ?? null)
     setTodayCopaySource(view.today_copay_source ?? null)
     setTodayCopayProvisional(view.today_copay_provisional ?? null)
     setMapReady(view.map_ready === true)
@@ -156,6 +158,7 @@ export function useConversation() {
       setLastAssistant(lastAssistantRef.current)
       setResultsStale(Boolean(u.results_stale))
       if (u.today_copay !== undefined) setTodayCopay(u.today_copay)
+      if (u.today_car !== undefined) setTodayCar(u.today_car)
       if (u.today_copay_source !== undefined) setTodayCopaySource(u.today_copay_source)
       if (u.today_copay_provisional !== undefined) setTodayCopayProvisional(u.today_copay_provisional)
       setMapReady(u.map_ready === true)
@@ -438,7 +441,7 @@ export function useConversation() {
   const questionKey = `${lastAssistant ?? ''}|${JSON.stringify(expects)}`
 
   return {
-    engine, focusQuestionId, todayCopay, todayCopaySource, todayCopayProvisional,
+    engine, focusQuestionId, todayCopay, todayCar, todayCopaySource, todayCopayProvisional,
     conversationId, repEmail, emailEnabled, emailSimulated, emailPending,
     messages, stage, expects, questionKey, results, resultsStale, mapReady, optionMap: optionMapState, resultsAnchor,
     pendingQuestions,

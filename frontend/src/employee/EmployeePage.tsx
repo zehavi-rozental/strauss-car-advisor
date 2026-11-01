@@ -12,7 +12,7 @@ import { MAP_REQUEST } from './optionMap'
 import { Composer } from './Composer'
 import { MessageList } from './MessageList'
 import { PayslipUpload } from './PayslipUpload'
-import { RepAnswerPending } from './ResultCard'
+import { TodayCopayCard } from './TodayCopayCard'
 import { ProfileForm } from './ProfileForm'
 import { Progress } from './Progress'
 import { SelectionCard } from './SelectionCard'
@@ -180,7 +180,23 @@ export function EmployeePage() {
   // gentle link to raise a copay inquiry with the rep. Derived from the stage, so it never repeats on a poll.
   // the representative's amount for today's copay, waiting for the employee: its button is under the answer (1/11)
   const repCopayOffer = fieldsOf(c.expects).find((f) => f.field === 'rep_copay') ?? null
-  const showCopayBanner = c.stage === 'CHOOSE_OPTIONS' || c.stage === 'CALCULATING' || c.todayCopayProvisional != null
+  // with results on screen, today's car card above them says it all (1/11); the note is only for before results
+  const showCopayBanner = c.results.length === 0
+    && (c.stage === 'CHOOSE_OPTIONS' || c.stage === 'CALCULATING' || c.todayCopayProvisional != null)
+  // today's copay inquiry and its answer, by the exact question (the option id "today:<code>")
+  const todayQuestions = c.repQuestions.filter((q) => q.missing_field === 'CURRENT_COPAY' && q.option_id?.startsWith('today:'))
+  const openToday = todayQuestions.find((q) => q.status === 'OPEN')
+  const offerId = repCopayOffer?.choices[0]?.id?.replace(/^apply:/, '') ?? null
+  const answerMessage = offerId ? c.messages.find((m) => m.source === 'rep' && m.rep_question_id === offerId) : undefined
+  const recordMessage = openToday ? c.messages.find((m) => m.source === 'rep_inquiry' && m.rep_question_id === openToday.id) : undefined
+  const todayCard = c.results.length > 0 && (
+    <TodayCopayCard disabled={busy} onAsk={openTodayCopayInquiry} state={{
+      car: c.todayCar, copay: c.todayCopay, source: c.todayCopaySource, provisional: c.todayCopayProvisional,
+      inquiryOpen: openToday != null, inquiryHref: recordMessage ? `#message-${recordMessage.seq}` : null,
+      answerAmount: repCopayOffer ? repCopayOffer.context?.amount ?? null : null,
+      answerHref: answerMessage ? `#message-${answerMessage.seq}` : null,
+    }} />
+  )
   // a car's card asks about that car (its option_id is the inquiry's car); without a card, a general question
   const openCopayInquiry = (car?: OptionResult) => {
     const catalogSource = car?.result.copay_source === 'catalog' || car?.result.copay_source === 'catalog_final'
@@ -196,7 +212,10 @@ export function EmployeePage() {
     })
   }
   const onInquirySaved = (res: RepQuestionResult) => {
-    if (inquiry?.copayToday && (res.status === 'created' || res.status === 'exists')) {
+    // the copay question on screen is answered "with the representative"; after results the amount in use stays
+    // as it is (the card shows the open inquiry) and the answer is offered as an update
+    const copayAsked = fieldsOf(c.expects).some((f) => f.field === 'copay')
+    if (inquiry?.copayToday && copayAsked && (res.status === 'created' || res.status === 'exists')) {
       void c.send({ choice: 'rep', field: 'copay' }, 'לברר מול נציג')
     }
     // created: the inquiry's record now stands in the chat, so the card closes. exists: the card stays and says
@@ -298,7 +317,6 @@ export function EmployeePage() {
             <p className="loading"><span className="loading-bar" aria-hidden="true" />טוען את השיחה…</p>
           )}
           {/* the interactive area stays mounted while a message is sent (disabled), so nothing typed is lost */}
-          <RepAnswerPending.Provider value={repCopayOffer != null}>
           <MessageList messages={c.messages} repQuestions={c.repQuestions} results={c.results} resultsStale={c.resultsStale}
                        resultsAnchor={c.resultsAnchor} typing={c.sending}
                        onOpenTable={() => setTableOpen(true)}
@@ -309,8 +327,8 @@ export function EmployeePage() {
                        onRetry={(seq) => void c.retry(seq)} onCorrect={firstVisit ? undefined : correct} busy={busy}
                        showAuthor={c.engine !== null && c.engine !== 'none'}
                        repCopayOffer={repCopayOffer} onSend={c.send} todayCopay={c.todayCopay}
-                       todayCopaySource={c.todayCopaySource} focusQuestionId={c.focusQuestionId} />
-          </RepAnswerPending.Provider>
+                       todayCopaySource={c.todayCopaySource} focusQuestionId={c.focusQuestionId}
+                       todayCard={todayCard} />
         </div>
       </main>
 
