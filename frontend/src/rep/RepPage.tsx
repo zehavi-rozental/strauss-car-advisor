@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { ApiError, repApi, resetRepSession } from '../api/client'
 import type { RepQuestion } from '../api/types'
+import { ServiceStatus } from '../shell/ServiceStatus'
+import { useBackendReady } from '../shell/backendReady'
 import { REP_LOGOUT_EVENT } from '../shell/repSession'
 import { BrandMark } from '../ui/BrandMark'
 import { Icon } from '../ui/Icon'
@@ -53,12 +55,14 @@ function Portal({ token, onLogout }: { token: string; onLogout: (message?: strin
   const [success, setSuccess] = useState(0)
   const [pausedFor, setPausedFor] = useState<number | null>(null)
   const poller = useRef<RepPoller | null>(null)
+  const backend = useBackendReady()          // the lists are polled only once the server and its database answer
   const logout = useRef(onLogout)
   logout.current = onLogout
 
   // the list on screen every 5 s, the other one every minute, both after an answer; nothing while the tab is
   // hidden; a 429 pauses it for its Retry-After (repPolling.ts, QA 22/10)
   useEffect(() => {
+    if (!backend.ready) return
     const p = new RepPoller({
       fetchOpen: () => repApi.listQuestions(token, 'OPEN'),
       fetchAnswered: () => repApi.listQuestions(token, 'ANSWERED'),
@@ -88,7 +92,7 @@ function Portal({ token, onLogout }: { token: string; onLogout: (message?: strin
       poller.current = null
       document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [token])
+  }, [token, backend.ready])
 
   useEffect(() => { poller.current?.setTab(tab) }, [tab])
 
@@ -143,6 +147,7 @@ function Portal({ token, onLogout }: { token: string; onLogout: (message?: strin
       </header>
       <main className="rep-main">
         {success > 0 && <div className="success-bar" role="status"><Icon name="check" size={18} />התשובה נשלחה לעובד</div>}
+        <ServiceStatus state={backend.state} onRetry={backend.retry} />
         {error && <div className="error-bar" role="alert"><Icon name="alert" size={18} /><span>{error}</span></div>}
         {pausedFor !== null && (
           <div className="error-bar rep-paused" role="status">

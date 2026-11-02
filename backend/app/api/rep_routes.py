@@ -26,6 +26,7 @@ from app.modules.cases.public import (
 )
 
 from .deps import context
+from .ratelimit import client_address
 
 router = APIRouter(prefix="/api/rep")
 
@@ -65,10 +66,10 @@ def rep_name(request: Request, x_rep_token: Optional[str] = Header(None),
     2. הקוד: שגוי או חסר — נספר לכתובת, 401;
     3. רק אחרי קוד נכון: קריאות לפי כתובת, תשובות לפי סשן הנציג (ובתקרה לכתובת), כך שרענון המסך אף פעם
        לא מכלה את מכסת התשובות ונציגים באותה רשת לא חולקים אותה.
-    הכתובת היא request.client — מאחורי Render ה-start script סומך על X-Forwarded-For רק מ-proxy פרטי
-    (FORWARDED_ALLOW_IPS), כך שאי אפשר לזייף אותה."""
+    הכתובת: ratelimit.client_address — request.client (מאחורי Render ה-start script סומך על X-Forwarded-For רק
+    מ-proxy פרטי, FORWARDED_ALLOW_IPS), או הכתובת שה-Worker של Cloudflare שלח עם הסוד המשותף; אי אפשר לזייף אותה."""
     ctx = context(request)
-    client = request.client.host if request.client else "unknown"
+    client = client_address(request, ctx.settings.edge_proxy_secret)
     wait = ctx.rep_gate.locked(client)
     if wait is not None:
         raise _too_many(wait)

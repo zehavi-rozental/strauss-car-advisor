@@ -60,7 +60,8 @@ function lastAssistantSeq(messages: Message[]): number | null {
   return null
 }
 
-export function useConversation() {
+/** `ready`: the server and its database answer (shell/backendReady.ts); until then nothing is requested. */
+export function useConversation(ready = true) {
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [stage, setStage] = useState<Stage | null>(null)
@@ -223,12 +224,13 @@ export function useConversation() {
 
   // the engine's real state at load (no model call); each turn then says what answered it
   useEffect(() => {
+    if (!ready) return
     api.health().then((h) => { if (h.engine) setEngine((e) => e ?? h.engine ?? null) }).catch(() => {})
-  }, [])
+  }, [ready])
 
   // load: the stored conversation, or a new one
   useEffect(() => {
-    if (started.current) return
+    if (!ready || started.current) return
     started.current = true
     ;(async () => {
       try {
@@ -270,7 +272,7 @@ export function useConversation() {
         setLoading(false)
       }
     })()
-  }, [applyView, sync, setExpects])
+  }, [ready, applyView, sync, setExpects])
 
   const resumeEmailLink = useCallback(async () => {
     const token = emailReturnToken.current

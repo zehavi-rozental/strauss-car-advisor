@@ -29,6 +29,7 @@ from app.modules.conversation.public import (
 from app.modules.payslip.public import PayslipError
 
 from .deps import context
+from .ratelimit import client_address
 
 router = APIRouter(prefix="/api")
 
@@ -118,7 +119,7 @@ def occupations(request: Request) -> list[dict[str, Any]]:
 @router.post("/conversations", status_code=201)
 def create_conversation(request: Request, response: Response) -> dict[str, Any]:
     ctx = context(request)
-    client = request.client.host if request.client else "unknown"
+    client = client_address(request, ctx.settings.edge_proxy_secret)
     if not ctx.create_limiter.allow(client):
         raise HTTPException(429, "יותר מדי שיחות חדשות. נסו שוב בעוד דקה.")
     turn, token = ctx.service.start()
@@ -250,7 +251,7 @@ class EmailLinkIn(BaseModel):
 @router.post("/conversations/return")
 def return_to_conversation(body: EmailLinkIn, request: Request, response: Response) -> dict[str, Optional[str]]:
     """One-time email proof: verify the mailbox, issue a second session cookie, then resume that conversation."""
-    client = request.client.host if request.client else "unknown"
+    client = client_address(request, context(request).settings.edge_proxy_secret)
     if not context(request).message_limiter.allow(f"email-return:{client}"):
         raise HTTPException(429, "יותר מדי ניסיונות. נסו שוב בעוד דקה.")
     try:
@@ -284,7 +285,7 @@ async def payslip_extract(request: Request, file: UploadFile) -> dict[str, Any]:
     ctx = context(request)
     if not ctx.payslip.enabled:
         raise HTTPException(503, "העלאת תלוש אינה זמינה כרגע. אפשר למלא את הנתונים ידנית.")
-    client = request.client.host if request.client else "unknown"
+    client = client_address(request, ctx.settings.edge_proxy_secret)
     if not ctx.payslip_limiter.allow(client):
         raise HTTPException(429, "יותר מדי העלאות. נסו שוב בעוד דקה.")
     data = await _read_capped(file, ctx.settings.payslip_max_bytes)

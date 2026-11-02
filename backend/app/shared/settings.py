@@ -100,6 +100,9 @@ class Settings(BaseSettings):
     rep_write_address_limit_per_minute: int = 60
     rep_auth_failure_limit_per_minute: int = 10
     session_cookie_secure: bool = False
+    # Shared with the Cloudflare edge Worker (edge/): with it, X-Edge-Client-IP is the visitor's address for the
+    # per-address limits. Empty (the default): that header is ignored, as before the edge existed.
+    edge_proxy_secret: str = ""
     log_level: str = "INFO"
 
     @field_validator("database_url")
