@@ -73,3 +73,37 @@ test('the rep screen waits too, and starts polling once ready', async ({ page })
   expect(lists).toBe(0)
   await expect.poll(() => lists, { timeout: 30_000 }).toBeGreaterThan(0)
 })
+
+const edgeWaking = (route: Route) => route.fulfill({ status: 503, contentType: 'application/json', headers: { 'retry-after': '5' },
+  body: JSON.stringify({ detail: 'השרת מתעורר. נסו שוב בעוד רגע.', message_he: 'השרת מתעורר. נסו שוב בעוד רגע.', edge: 'origin_waking', upstream_status: 429 }) })
+
+test("the edge's JSON while Render wakes (its 429 / challenge page) is a wake-up, not 'busy'", async ({ page }) => {
+  await asleepFor(page, 3, edgeWaking)
+  await page.goto('/employee')
+  await expect(page.locator(STATUS)).toContainText(WAKING)
+  await expect(page.locator(STATUS)).not.toContainText('עומס')
+  await expect(page.locator(BOT).first()).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator(STATUS)).toHaveCount(0)
+})
+
+test('a message the edge could not deliver is never resent by itself; "לשלוח שוב" sends it exactly once', async ({ page }) => {
+  await page.goto('/employee')
+  await expect(page.locator(BOT).first()).toBeVisible({ timeout: 30_000 })
+  let posts = 0
+  let failNext = true
+  await page.route('**/api/conversations/*/messages', async (route) => {
+    posts += 1
+    if (failNext) { failNext = false; await edgeWaking(route) } else await route.continue()
+  })
+  await asleepFor(page, 2, edgeWaking)                       // the server is waking: the next two probes say so
+  await page.getByLabel('הודעה').fill('אני בקבוצה ג')
+  await page.getByRole('button', { name: 'שליחה' }).click()
+  await expect(page.getByRole('button', { name: /לשלוח שוב/ })).toBeVisible()
+  await expect(page.locator(STATUS)).toContainText(WAKING)  // the readiness line is back
+  await expect(page.locator(STATUS)).toHaveCount(0, { timeout: 30_000 })
+  await page.waitForTimeout(3_000)
+  expect(posts).toBe(1)                                      // nothing was sent again by itself
+  await page.getByRole('button', { name: /לשלוח שוב/ }).click()
+  await expect.poll(() => posts).toBe(2)
+  await expect(page.getByRole('button', { name: /לשלוח שוב/ })).toHaveCount(0)
+})

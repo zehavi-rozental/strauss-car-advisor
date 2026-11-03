@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ApiError, repApi, resetRepSession } from '../api/client'
 import type { RepQuestion } from '../api/types'
 import { ServiceStatus } from '../shell/ServiceStatus'
-import { useBackendReady } from '../shell/backendReady'
+import { reportBackendLost, useBackendReady } from '../shell/backendReady'
 import { REP_LOGOUT_EVENT } from '../shell/repSession'
 import { BrandMark } from '../ui/BrandMark'
 import { Icon } from '../ui/Icon'
@@ -74,7 +74,7 @@ function Portal({ token, onLogout }: { token: string; onLogout: (message?: strin
         setAnsweredLoaded(true)
       },
       onLoaded: () => setError(null),
-      onError: (e) => setError(e instanceof ApiError ? e.message_he : 'משהו השתבש'),
+      onError: (e) => { if (!reportBackendLost(e)) setError(e instanceof ApiError ? e.message_he : 'משהו השתבש') },
       onUnauthorized: () => logout.current(BAD_TOKEN),
       onPause: setPausedFor,
       channel: browserChannel(),        // other rep tabs of this browser share what they fetch

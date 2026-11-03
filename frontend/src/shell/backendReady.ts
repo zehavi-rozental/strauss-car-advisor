@@ -66,6 +66,13 @@ export class ReadinessProbe {
     this.begin()
   }
 
+  /** A request failed because the server stopped answering (the edge said so): probe again, as at load. */
+  lost(): void {
+    if (this.state !== 'ready') return
+    this.set('waking')
+    this.begin()
+  }
+
   /** The tab became visible again: a probe waiting for it continues. */
   resume(): void {
     if (!this.waitingForVisible) return
@@ -91,23 +98,30 @@ export class ReadinessProbe {
     this.inFlight = true
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), this.o.attemptTimeoutMs)
-    let outcome: 'ready' | 'db_down' | 'busy' | 'again'
+    let outcome: 'ready' | 'db_down' | 'busy' | 'unconfigured' | 'again'
+    let wait = 0
     try {
       const h = await this.o.fetchHealth(controller.signal)
       this.health = h
       outcome = h.status === 'ok' && h.db === true ? 'ready' : 'db_down'
     } catch (e) {
-      // a platform 429 (the edge's daily limit) is not a wake-up: waiting seconds would not help
-      outcome = e instanceof ApiError && e.status === 429 ? 'busy' : 'again'
+      outcome = 'again'                                  // network, timeout, the edge saying the server is waking
+      if (e instanceof ApiError) {
+        if (e.edge === 'not_configured') outcome = 'unconfigured'
+        // a 429 that is neither JSON from our server nor the edge's own answer: the platform's daily limit,
+        // which waiting seconds would not cure
+        else if (e.status === 429 && e.fromPlatform) outcome = 'busy'
+        else if (e.status === 429) wait = (e.retryAfter ?? 10) * 1000   // our server's own limit: wait as told
+      }
     } finally {
       clearTimeout(timeout)
       this.inFlight = false
     }
     if (outcome === 'ready') { this.clearTimers(); this.set('ready'); return }
     if (outcome === 'busy') { this.clearTimers(); this.set('busy'); return }
-    if (outcome === 'db_down') { this.clearTimers(); this.set('unavailable'); return }   // the server answers: no wake-up to wait for
+    if (outcome === 'db_down' || outcome === 'unconfigured') { this.clearTimers(); this.set('unavailable'); return }
     if (this.state === 'checking') this.set('waking')
-    const delay = this.o.delaysMs[Math.min(this.attempt, this.o.delaysMs.length - 1)]
+    const delay = Math.max(wait, this.o.delaysMs[Math.min(this.attempt, this.o.delaysMs.length - 1)])
     this.attempt += 1
     if (this.o.now() - this.startedAt + delay > this.o.budgetMs) { this.clearTimers(); this.set('unavailable'); return }
     this.timer = setTimeout(() => void this.tick(), delay)
@@ -139,6 +153,18 @@ function sharedProbe(): ReadinessProbe {
     }
   }
   return shared
+}
+
+/** A request answered by the edge, not by the server (it went to sleep or is down again): back to "waking"
+ *  until /api/health answers. Never resends anything itself. */
+export function isBackendLost(e: unknown): boolean {
+  return e instanceof ApiError && (e.edge === 'origin_waking' || e.edge === 'origin_unreachable' || e.fromPlatform)
+}
+
+export function reportBackendLost(e: unknown): boolean {
+  if (!isBackendLost(e)) return false
+  sharedProbe().lost()
+  return true
 }
 
 export function useBackendReady(): { state: Readiness; ready: boolean; health: Health | null; retry: () => void } {

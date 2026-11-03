@@ -109,6 +109,48 @@ describe('the readiness probe (the static page waits for the server and its data
     expect(t.p.state).toBe('waking')              // tried again at once, still asleep: the notice is back
   })
 
+  it("the edge's own answer while the server wakes (JSON origin_waking) is waking, then ready", async () => {
+    const edge = () => new ApiError(503, 'השרת מתעורר', {}, 5, false, 'origin_waking')
+    const t = probe([edge(), edge(), OK])
+    t.p.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(t.p.state).toBe('waking')
+    await vi.advanceTimersByTimeAsync(3_000)
+    expect(t.p.state).toBe('ready')
+  })
+
+  it("our server's own 429 (JSON) is not a platform limit: waits its Retry-After and tries again", async () => {
+    const t = probe([new ApiError(429, 'יותר מדי', {}, 7, false), OK])
+    t.p.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(t.p.state).toBe('waking')
+    await vi.advanceTimersByTimeAsync(6_900)
+    expect(t.calls()).toBe(1)                     // not before the 7 s it asked for
+    await vi.advanceTimersByTimeAsync(200)
+    expect(t.p.state).toBe('ready')
+  })
+
+  it('an edge without a configured backend is "unavailable", not an endless wake-up', async () => {
+    const t = probe([new ApiError(503, 'x', {}, null, false, 'not_configured')])
+    t.p.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(t.p.state).toBe('unavailable')
+  })
+
+  it('lost(): a request found the server gone after ready -> waking, probed again, ready again', async () => {
+    const t = probe([OK, waking(), OK])
+    t.p.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(t.p.state).toBe('ready')
+    t.p.lost()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(t.p.state).toBe('waking')
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(t.p.state).toBe('ready')
+    expect(t.calls()).toBe(3)
+    expect(t.maxConcurrent()).toBe(1)
+  })
+
   it('start() twice never sends two requests; a hidden tab sends nothing until it is visible', async () => {
     let visible = false
     const t = probe([OK], { visible: () => visible })

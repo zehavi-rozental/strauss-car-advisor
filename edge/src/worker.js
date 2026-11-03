@@ -14,11 +14,13 @@ export function isApiPath(pathname) {
   return pathname === '/api' || pathname.startsWith('/api/')
 }
 
-function edgeError(status, code, message_he) {
-  return new Response(JSON.stringify({ detail: message_he, message_he, edge: code }), {
+// A JSON answer the client can tell apart from the backend's own (`edge` is set only here). No upstream body,
+// header or address is copied into it.
+function edgeError(status, code, message_he, extra = {}) {
+  return new Response(JSON.stringify({ detail: message_he, message_he, edge: code, ...extra }), {
     status,
     headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store',
-               'x-edge-proxied': '1' },
+               'x-edge-proxied': '1', 'retry-after': '5' },
   })
 }
 
@@ -48,6 +50,16 @@ export async function proxy(request, env, fetchImpl = fetch) {
     })
   } catch {
     return edgeError(503, 'origin_unreachable', 'השרת עדיין לא זמין. נסו שוב בעוד רגע.')
+  }
+
+  // Our backend answers every /api request with JSON (its own 429s and errors included: a rate limit, a Gemini or
+  // payslip failure). Anything else is the hosting layer in front of it: Render's 429 or challenge page while the
+  // service wakes up, a 502/503 page. That is never passed on as if the backend had said it.
+  const type = upstream.headers.get('content-type') || ''
+  if (upstream.status >= 200 && !(upstream.status >= 300 && upstream.status < 400) && upstream.status !== 204
+      && !type.includes('application/json')) {
+    await upstream.body?.cancel()
+    return edgeError(503, 'origin_waking', 'השרת מתעורר. נסו שוב בעוד רגע.', { upstream_status: upstream.status })
   }
 
   const response = new Response(upstream.body, upstream)   // status, headers (Set-Cookie included) and body

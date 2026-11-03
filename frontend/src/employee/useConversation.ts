@@ -2,6 +2,7 @@
 // results and open rep questions. The client only orders and displays them.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, api } from '../api/client'
+import { reportBackendLost } from '../shell/backendReady'
 import { normalizeResults } from '../api/normalize'
 import { mapKey } from './optionMap'
 import { placeAnchor, type CardAnchor } from './anchors'
@@ -267,7 +268,8 @@ export function useConversation(ready = true) {
         await sync()
         setError(null)
       } catch (e) {
-        setError(e instanceof ApiError ? e.message_he : String(e))
+        if (reportBackendLost(e)) started.current = false     // loaded again once the server answers
+        else setError(e instanceof ApiError ? e.message_he : String(e))
       } finally {
         setLoading(false)
       }
@@ -333,6 +335,7 @@ export function useConversation(ready = true) {
       await sync()
       return { ok: true }
     } catch (e) {
+      reportBackendLost(e)
       if (e instanceof ApiError && RETRYABLE(e.status) && 'text' in body) {
         // keep the bubble, marked as not sent, with "לשלוח שוב"
         const seq = -Date.now()
@@ -447,9 +450,9 @@ export function useConversation(ready = true) {
   // polling: only while a rep question is open and the tab is visible
   const waitingForRep = pendingQuestions.length > 0 || stage === 'WAITING_FOR_REP'
   useEffect(() => {
-    if (!waitingForRep || !conversationId) return
+    if (!waitingForRep || !conversationId || !ready) return    // no polling while the server is not answering
     let timer: number | undefined
-    const tick = () => { sync().catch(() => undefined) }
+    const tick = () => { sync().catch((e) => { reportBackendLost(e) }) }
     const start = () => {
       if (timer === undefined && document.visibilityState === 'visible') timer = window.setInterval(tick, POLL_MS)
     }
@@ -471,7 +474,7 @@ export function useConversation(ready = true) {
       stop()
       document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [waitingForRep, conversationId, sync])
+  }, [waitingForRep, conversationId, sync, ready])
 
   // the question on screen: a new bot message or a different expected answer. A poll that brings neither
   // is the same question, and whatever its link opened stays open.

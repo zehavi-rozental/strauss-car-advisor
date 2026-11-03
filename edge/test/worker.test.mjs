@@ -109,6 +109,34 @@ test('a POST body is streamed to the backend byte for byte (8 MB multipart)', as
   }
 })
 
+test('a non-JSON answer from the hosting layer (Render waking: 429 text, a challenge page, a 502) is a JSON 503', async () => {
+  for (const [status, type, body] of [[429, 'text/plain', 'Too Many Requests'],
+                                      [429, 'text/html', '<title>Just a moment...</title>'],
+                                      [502, 'text/html', '<html>Bad gateway</html>'],
+                                      [200, 'text/html', '<html>waking up</html>']]) {
+    const { fetchImpl } = recorder(new Response(body, { status, headers: { 'content-type': type, 'set-cookie': 'x=1' } }))
+    const r = await proxy(new Request('https://edge.example/api/health'), ENV, fetchImpl)
+    const j = await r.json()
+    assert.equal(r.status, 503, `${status} ${type}`)
+    assert.equal(j.edge, 'origin_waking')
+    assert.equal(j.upstream_status, status)
+    assert.ok(!JSON.stringify(j).includes(body))                 // nothing of the upstream page is passed on
+    assert.equal(r.headers.get('set-cookie'), null)
+    assert.equal(r.headers.get('retry-after'), '5')
+  }
+})
+
+test("the backend's own JSON errors pass through unchanged (a real rate limit, a payslip or Gemini failure)", async () => {
+  for (const [status, body] of [[429, { detail: 'יותר מדי שיחות חדשות. נסו שוב בעוד דקה.' }],
+                                [422, { detail: 'השירות לא הצליח לקרוא את הקובץ.' }],
+                                [503, { detail: 'העלאת תלוש אינה זמינה כרגע.' }]]) {
+    const { fetchImpl } = recorder(new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } }))
+    const r = await proxy(new Request('https://edge.example/api/x', { method: 'POST' }), ENV, fetchImpl)
+    assert.equal(r.status, status)
+    assert.deepEqual(await r.json(), body)
+  }
+})
+
 test('the default handler proxies /api and leaves the rest to the assets', async () => {
   const seen = []
   const env = { BACKEND_ORIGIN: '', ASSETS: { fetch: async (r) => { seen.push(new URL(r.url).pathname); return new Response('asset') } } }

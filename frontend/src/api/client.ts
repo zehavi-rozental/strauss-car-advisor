@@ -29,15 +29,18 @@ export class ApiError extends Error {
   readonly retryAfter: number | null          // a 429's Retry-After, in seconds
   /** The answer did not come from our server (no JSON): the hosting layer answered, e.g. while it starts. */
   readonly fromPlatform: boolean
+  /** Set only by the edge Worker (edge/src/worker.js): origin_waking | origin_unreachable | not_configured. */
+  readonly edge: string | null
 
   constructor(status: number, message_he: string, errors: Record<string, string> = {},
-              retryAfter: number | null = null, fromPlatform = false) {
+              retryAfter: number | null = null, fromPlatform = false, edge: string | null = null) {
     super(message_he)
     this.status = status
     this.message_he = message_he
     this.errors = errors
     this.retryAfter = retryAfter
     this.fromPlatform = fromPlatform
+    this.edge = edge
   }
 }
 
@@ -77,7 +80,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   if (!response.ok) {
     throw new ApiError(response.status, errorMessage(body), body?.errors ?? {},
-                       retryAfterSeconds(response.headers.get('Retry-After')))
+                       retryAfterSeconds(response.headers.get('Retry-After')), false,
+                       typeof body?.edge === 'string' ? body.edge : null)
   }
   return body as T
 }

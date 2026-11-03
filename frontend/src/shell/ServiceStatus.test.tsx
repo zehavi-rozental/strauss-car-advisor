@@ -38,6 +38,16 @@ describe('an answer that is not JSON is never a success (a wake-up page or a pla
     expect(e.fromPlatform).toBe(true)
   })
 
+  it("the edge's JSON 503 carries its code and Hebrew message; it is not mistaken for the platform", async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ detail: 'השרת מתעורר. נסו שוב בעוד רגע.', message_he: 'השרת מתעורר. נסו שוב בעוד רגע.', edge: 'origin_waking', upstream_status: 429 }),
+                                                       { status: 503, headers: { 'content-type': 'application/json', 'retry-after': '5' } })))
+    const e = await api.health().catch((x) => x)
+    expect(e.edge).toBe('origin_waking')
+    expect(e.fromPlatform).toBe(false)
+    expect(e.retryAfter).toBe(5)
+    expect(e.message_he).toBe('השרת מתעורר. נסו שוב בעוד רגע.')
+  })
+
   it("a platform 429 without JSON is 'busy'; the app's own 429 keeps its Hebrew message", async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('error code: 1027', { status: 429 })))
     const platform = await api.health().catch((x) => x)
