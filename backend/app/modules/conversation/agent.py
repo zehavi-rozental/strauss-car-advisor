@@ -115,12 +115,14 @@ from .templates import (
     stated_copay_text,
     group_conflict_text,
     form_saved_text,
+    removed_options_text,
     rep_opt_out_text,
     results_text,
     held_fix_text,
 )
 from .tools import (
     available_options,
+    removed_options,
     OPT_OUT_ID,
     OPT_OUT_WORDS,
     TOOL_SPECS,
@@ -749,6 +751,19 @@ def ack_text(changed: dict[str, Any], group: Optional[str] = None) -> str:
     return f"רשמתי: {', '.join(parts)}." if parts else ""
 
 
+_ACK_ARG = {**{f: ARG_OF[f] for f in _ACK_FIELDS}, "copay": "current_copay", "use_value": "current_use_value",
+            "maintenance": "current_maintenance"}
+
+
+def update_text(replaced: dict[str, tuple[Any, Any]], group: Optional[tuple[str, str]] = None) -> str:
+    """"עדכנתי: שכר בסיס 20,000 ₪ במקום 18,000 ₪." — every value this turn replaced, from the state the tools wrote."""
+    parts = [f"קבוצה {group[1]} במקום {group[0]}"] if group else []
+    for field_, (old, new) in replaced.items():
+        arg = _ACK_ARG[field_]
+        parts.append(form_saved_text({arg: old}, {arg: new}).removeprefix("עדכנתי: ").removesuffix("."))
+    return f"עדכנתי: {', '.join(parts)}." if parts else ""
+
+
 def _dedup_lines(reply: str) -> str:
     """Safety net on an assembled reply: never emit the same non-empty line twice. Order preserved, the
     first occurrence wins. Blank lines (paragraph breaks) are kept as-is."""
@@ -799,24 +814,36 @@ class _Before:
     unknown: tuple = ()   # fields the employee said they do not know, before the turn
     car_unknown: tuple = ()   # today's car values the employee said they do not know, before the turn
 
+    data_version: int = 0
+
     @classmethod
     def of(cls, state: ConversationState) -> "_Before":
         p = state.profile
         return cls((p.occupation, p.group), tuple(state.selected), state.rank_requested, blocking_rep_reason(state),
                    _values(state), current_group(state)[0], tuple(p.unknown_fields),
-                   tuple(current_unknown(state.current)))
+                   tuple(current_unknown(state.current)), state.data_version)
 
     def changed(self, state: ConversationState) -> dict[str, Any]:
         return {f: v for f, v in _values(state).items() if v is not None and v != self.values.get(f)}
 
+    def saved_lines(self, state: ConversationState) -> list[str]:
+        """What this turn really saved, from the state: "עדכנתי: X במקום Y." for what it replaced, "רשמתי: …" for what
+        is new. Written only after the tools ran, so a save that was refused is never reported."""
+        p, changed = state.profile, self.changed(state)
+        replaced = {f: (self.values[f], v) for f, v in changed.items() if self.values.get(f) is not None}
+        old_group = self.occupation[1]
+        new_group = p.group if (p.group and not p.occupation and (p.occupation, p.group) != self.occupation) else None
+        lines = [update_text(replaced, (old_group, new_group) if new_group and old_group else None),
+                 ack_text({f: v for f, v in changed.items() if f not in replaced},
+                          new_group if not old_group else None)]
+        return [line for line in lines if line]
+
     def confirmations(self, state: ConversationState, snapshot: RulesSnapshot, just_calculated: bool,
                       recorded_said: bool = False) -> list[str]:
         p, lines = state.profile, []
-        # every value saved this turn is said once ("רשמתי: …"), never saved silently
-        new_group = p.group if (p.group and not p.occupation and (p.occupation, p.group) != self.occupation) else None
-        line = ack_text(self.changed(state), new_group)
-        if line and not recorded_said:
-            lines.append(line)
+        # every value saved this turn is said once ("רשמתי: …" / "עדכנתי: X במקום Y."), never saved silently
+        if not recorded_said:
+            lines.extend(self.saved_lines(state))
         unknown = [f for f in p.unknown_fields if f not in self.unknown]
         if unknown:
             lines.append(unknown_ack_text(unknown))
@@ -980,6 +1007,8 @@ class Agent:
                           exact_amounts=True)
         before = next_stage(state)
         previous = _form_values(state)
+        prior = _Before.of(state)       # the data before this save: what the turn changed is measured from here
+        ctx.value_source = "payslip" if source == "payslip" else "form"
         # A value held from chat ("פנסיה 0": לאשר?) is older than the form: a form value for the same field
         # replaces it; a held value for another field stays held (never dropped silently).
         held_before = state.pending_confirmation
@@ -992,7 +1021,7 @@ class Agent:
         saved = {k: values[k] for k in facts.get("saved", []) if k in values}   # only what really changed state
         notice = form_saved_text(previous, saved, source)
         plan = ParserPlan([], True, notice=notice, direct=True, acked=True) if notice             else ParserPlan([], True, direct=True)
-        return self._finish(ctx, (), label, plan, before, record_run, choice=True)
+        return self._finish(ctx, (), label, plan, before, record_run, choice=True, prior=prior)
 
     def run_turn(self, snapshot: RulesSnapshot, find_vehicle: VehicleLookup, state: ConversationState,
                  history: Sequence[ChatMessage], text: str, record_run: RecordRun) -> TurnOutcome:
@@ -1163,12 +1192,13 @@ class Agent:
         the correction form (same gate, same "עדכנתי" line); the wait goes on, and the calculation that follows the
         answer uses it. Before, it was dropped with only the waiting line."""
         previous = _form_values(ctx.state)
+        prior = _Before.of(ctx.state)
         facts = run_tool(ctx, "save_profile", values)
         saved = {k: values[k] for k in facts.get("saved", []) if k in values}
         notice = form_saved_text(previous, saved, None)
         plan = (ParserPlan([], True, notice=notice, direct=True, acked=True) if notice
                 else ParserPlan([], True, direct=True))
-        return self._finish(ctx, (), text, plan, before, record_run, choice=True)
+        return self._finish(ctx, (), text, plan, before, record_run, choice=True, prior=prior)
 
     @staticmethod
     def _start_correction(ctx: ToolContext, keep_copay_unknown: bool = False) -> Stage:
@@ -1185,7 +1215,8 @@ class Agent:
 
     def _finish(self, ctx: ToolContext, history: Sequence[ChatMessage], text: str, plan: ParserPlan,
                 before: Stage, record_run: RecordRun, choice: bool = False,
-                und: Optional[Understanding] = None, extra: Sequence[str] = ()) -> TurnOutcome:
+                und: Optional[Understanding] = None, extra: Sequence[str] = (),
+                prior: Optional[_Before] = None) -> TurnOutcome:
         """UNDERSTAND (parser + one LLM call) → DECIDE (code: save, then a reply plan) → SAY (the LLM
         writes the plan; the template renders it when the LLM is off, fails or breaks a check)."""
         state, snapshot = ctx.state, ctx.snapshot
@@ -1200,6 +1231,7 @@ class Agent:
             state.link_now = "profile_form"  # the form is the way to answer everything together
         car_before = _car_key(state)
         before_turn = _Before.of(state)
+        prior = prior or before_turn      # a form saves before this runs: the turn's change is measured from before it
         data_before = (dict(profile_args(state.profile)), list(state.selected))
         has_car_said = und.has_car and state.current.source is None and not state.current.has_car
         if has_car_said:
@@ -1207,6 +1239,8 @@ class Agent:
         used_llm = False
         candidate: Optional[Candidate] = None
         llm_failed = False
+        save_refused = False                 # code asked to save and nothing was saved: nothing is reported as saved
+        choice = choice or plan.code_only    # code decided the turn and code words it: the same in both modes
         gap_ack = ""
         before_turn_unanswered = state.unanswered_question
         deadline = self.llm.turn_deadline()   # אחרי LLM_TURN_DEADLINE_S — תבניות, בלי ספקים נוספים
@@ -1217,7 +1251,9 @@ class Agent:
         if parser_decides or not self.llm.available:
             path = "choice" if choice else "parser" if plan.complete else "templates"
             # a direct answer to the code's own question ("לא" to a confirmation) is understood
-            understood = self._execute(ctx, plan.calls) or plan.notice is not None or (plan.direct and plan.complete)
+            ran = self._execute(ctx, plan.calls)
+            save_refused = bool(plan.calls) and not ran
+            understood = ran or plan.notice is not None or (plan.direct and plan.complete)
             if plan.clarify_scope:
                 # a blanket "לא ידוע" / "אין לי כלום" / "הכל 5" on a grouped question: nothing is saved,
                 # and from here the fields are asked one at a time, so each answer is unambiguous.
@@ -1232,7 +1268,8 @@ class Agent:
                 # still writes the reply, told what was saved
                 try:
                     _, candidate = self._llm_turn(ctx, history, text, plan, deadline, {}, conflicts, und,
-                                                  applied=parser_hint(plan.calls) or "nothing (the message was read)",
+                                                  applied=(parser_hint(plan.calls) if ran and plan.calls
+                                                           else "nothing (the message was read)"),
                                                   phrase_only=not meaningful(und.remainder))
                     phrase_only = not meaningful(und.remainder)
                     used_llm = True
@@ -1267,7 +1304,9 @@ class Agent:
             if not understood and not conflicts and not asked and not (declined and plan.guess):
                 if plan.calls or plan.notice is not None or not declined:
                     path = "fallback"            # הקורא פעל, או שהמודל נכשל
-                understood = self._execute(ctx, plan.calls) or plan.notice is not None
+                ran = self._execute(ctx, plan.calls)
+                save_refused = bool(plan.calls) and not ran
+                understood = ran or plan.notice is not None
             elif understood and not und.question_only:
                 # labelled values the LLM left out ("משלמת עליה 300" next to the car) — never dropped,
                 # and said, since the LLM's reply does not know about them
@@ -1289,6 +1328,8 @@ class Agent:
         if candidate is None:
             state.unanswered_question = (und.unanswered[0] if und.unanswered
                                          else before_turn_unanswered if und.complaint else None)
+        if plan.offer_rep:
+            state.unanswered_question = plan.offer_rep    # code's own offer, with the question it would send
         # "הכי משתלם" / "תמליץ" / "דרג": a request to rank ALL eligible cars. Recorded now (even mid-profile)
         # so the options step is auto-ranked and the employee is never asked to pick cars to compare. A set of
         # cars the employee already chose is left as is — ranking only fills an empty choice.
@@ -1296,6 +1337,7 @@ class Agent:
             state.rank_requested = True
         self._open_blocking_rep(ctx)
         self._resolve_rank(ctx)
+        self._rerank(ctx, prior.data_version)
         just_calculated = False
         if next_stage(state) == Stage.CALCULATING:
             self._calculate(ctx, record_run)
@@ -1317,8 +1359,12 @@ class Agent:
             # checks, so it also names a value held for confirmation ("עמלות 15 ₪": 15 or 15,000?) as recorded.
             # The acknowledgement comes from the state instead (only what was really saved).
             notice = None
+        if save_refused and (notice or "").startswith(("רשמתי", "עדכנתי")):
+            notice = None                    # the notice was written before the save, and the save did not happen
         said = (notice or "").startswith("רשמתי") or plan.acked
         confirmations = before_turn.confirmations(state, snapshot, just_calculated, said)
+        if just_calculated and state.removed_options:
+            confirmations.append(removed_options_text(state.removed_options))
         if plan.notice is not None and plan.notice.startswith(COPAY_WITH_REP[:40]):
             # the copay is pending with the rep, not "unknown, look at the payslip": that line says it instead
             confirmations = [line for line in confirmations if line != CURRENT_UNKNOWN_ACK]
@@ -1482,11 +1528,11 @@ class Agent:
             state.unanswered_question = und.unanswered[0]
         if gap_ack and source == "llm":
             reply = f"{gap_ack}\n{reply}"
-        if source == "llm" and "רשמתי" not in reply:
+        if source == "llm" and "רשמתי" not in reply and "עדכנתי" not in reply:
             # what code saved this turn is said, from the state, when the model's reply left it out (live Gemini 1/11:
             # the study fund saved as 0 and an unknown copay were not mentioned); never saved silently
             unknown = [f for f in state.profile.unknown_fields if f not in before_turn.unknown]
-            acks = [ack_text(before_turn.changed(state)), unknown_ack_text(unknown) if unknown else "",
+            acks = [*before_turn.saved_lines(state), unknown_ack_text(unknown) if unknown else "",
                     CURRENT_UNKNOWN_ACK if [f for f in current_unknown(state.current)
                                             if f not in before_turn.car_unknown] else ""]
             acks = [a for a in acks if a]
@@ -2014,6 +2060,15 @@ class Agent:
         return True
 
     @staticmethod
+    def _rerank(ctx: ToolContext, data_version: int) -> None:
+        """The cars on screen came from the ranking ("3 החלופות עם הנטו הגבוה ביותר") and a value the engine uses changed:
+        they are ranked again, on the new values, so the sentence and the count stay true. A selection the employee
+        made is theirs and stays. Only when a calculation is due anyway (never on a value still missing)."""
+        state = ctx.state
+        if state.ranked_count and state.data_version != data_version and next_stage(state) == Stage.CALCULATING:
+            run_tool(ctx, "rank_options", {})
+
+    @staticmethod
     def _resolve_rank(ctx: ToolContext) -> None:
         """"הכי משתלם" שנרשם לפני שהפרטים היו ידועים: עכשיו, כשרק החלופות חסרות, הבחירה נעשית."""
         state = ctx.state
@@ -2049,6 +2104,7 @@ class Agent:
         field, qid = event.missing_field, event.question_id
         lines: list[str] = []
         show_results = False
+        data_version = state.data_version
         pending = state.pending_rep
         was_waiting_on_copay = pending is not None and pending.reason == RepReason.NEW_CAR_COPAY
         if pending is not None and qid in pending.question_ids:
@@ -2068,6 +2124,11 @@ class Agent:
             line = self._apply_new_car_copay(ctx, event, amount, record_run)
             if line:
                 lines.append(line)
+            if default is None or amount != default:
+                # another amount can change which cars lead: the ranking on screen is done again below
+                state.data_version += 1
+                if state.ranked_count and not results_stale(state):
+                    state.calculated_for = []
             show_results = was_waiting_on_copay and state.pending_rep is None   # REP_REQUIRED: עכשיו מציגים
         elif field == MissingField.CURRENT_COPAY and event.option_id.startswith(TODAY_COPAY_PREFIX):
             # the employee's own inquiry about today's copay (1/11): the amount is offered, never applied by itself
@@ -2117,10 +2178,13 @@ class Agent:
             if queued:
                 state.selected, state.calculated_for = queued, []
         self._resolve_rank(ctx)
+        self._rerank(ctx, data_version)
         just_calculated = False
         if next_stage(state) == Stage.CALCULATING:
             self._calculate(ctx, record_run)
             just_calculated = True
+            if state.removed_options:
+                lines.append(removed_options_text(state.removed_options))
         follow: list[str] = []                 # the advisor's next step, after the answer and what it changed
         map_had = state.option_map is not None
         if self._resolve_map(ctx):
@@ -2182,6 +2246,7 @@ class Agent:
         old_delta = item.result.get("delta_display")
         item.run_id = record_run(option.label, inputs, result)
         item.result = dump_option(state, option.id, alternative, result)
+        state.results_version += 1
         if result.delta_display is None:
             return rep_confirmed_text(item.label, event.effective_date, amount)
         return rep_changed_text(item.label, amount, event.effective_date, old_delta, result.delta_display,
@@ -2200,10 +2265,12 @@ class Agent:
         results: list[OptionResult] = []
         needs_opt_out = False
         required_labels: list[str] = []
+        # a chosen car the rules no longer allow (another group, fewer children, it became today's car) leaves the
+        # comparison and the employee is told why; it is never shown as eligible and never just disappears
+        state.removed_options = removed_options(snap, state, options)
+        state.selected = [o for o in state.selected if o in options]
         for option_id in state.selected:
-            option = options.get(option_id)
-            if option is None:
-                continue
+            option = options[option_id]
             alternative, result = evaluate_option(snap, state, option, employee, current, occupation)
             inputs = {
                 "employee": employee.model_dump(mode="json"),
@@ -2225,6 +2292,7 @@ class Agent:
                 if policy == "REP_REQUIRED" and option.car.default_copay is not None:
                     required_labels.append(option.label)
         state.results = results
+        state.results_version += 1
         ctx.copay_selection = list(state.selected)
         state.rep_copay_asked = [o for o in state.rep_copay_asked if o in state.selected]   # the rest are cancelled
         state.calculated_for = list(state.selected)

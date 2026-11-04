@@ -170,6 +170,9 @@ class ConfirmedCopay(BaseModel):
     value: Decimal
     effective_date: Optional[date] = None
     changed: bool = False       # הנציג קבע סכום שונה מהקטלוג
+    # far from the catalog amount and confirmed by the representative all the same (extensions.rep_copay_review): the
+    # calculation shows it marked as unusual, and it is never ranked as a regular option
+    unusual: bool = False
 
 
 class GroupConflict(BaseModel):
@@ -209,6 +212,29 @@ class CarClarification(BaseModel):
     catalog_code: str
     label: str
     reg_year: Optional[int] = None      # שנה שנכתבה עם הרכב — להתאמה, אם זה הרכב של היום
+
+
+class RemovedOption(BaseModel):
+    """A car that left the comparison when the data changed, and the rule that took it out (never silently)."""
+
+    option_id: str
+    label: str
+    reason: str
+
+
+class PendingValueIntent(BaseModel):
+    """A value said with no clear intent ("20,000" after the results): is it a real change, or only a check? Asked once
+    with two buttons; nothing is saved or calculated before the answer."""
+
+    values: dict[str, Decimal] = Field(default_factory=dict)
+    label: str = ""
+
+
+class ConsentRecord(BaseModel):
+    """What the employee accepted and when: the notice's version and the date, nothing else."""
+
+    version: str
+    at: str
 
 
 class GeneralQuestion(BaseModel):
@@ -288,6 +314,20 @@ class ConversationState(BaseModel):
     # question while any other field can still be asked, and come back when nothing else is askable or a
     # calculation needs them. Never a default, never dropped — just postponed. A value given later clears it.
     deferred_fields: list[str] = Field(default_factory=list)
+    # bumped by every real change of a value the engine uses; an edit made on an older screen is refused (409)
+    data_version: int = 0
+    # bumped by every calculation; a message that reported results carries the version it reported, so an older one
+    # is marked "חישוב קודם" and never reads as current
+    results_version: int = 0
+    # the cars the last recalculation took out of the comparison, each with its rule
+    removed_options: list[RemovedOption] = Field(default_factory=list)
+    # save_profile argument -> where the value came from: chat / form / payslip / representative
+    field_sources: dict[str, str] = Field(default_factory=dict)
+    pending_value_intent: Optional[PendingValueIntent] = None
+    # the last "what if" (a check on a copy of the data, never saved): what its buttons apply, until the next message
+    last_scenario: Optional[dict[str, Any]] = None
+    # the employee's acceptance of a notice, by kind ("ai_processing", "payslip"): version and date only
+    consents: dict[str, ConsentRecord] = Field(default_factory=dict)
     # STRAUSS DRIVE 360°: "השווה את כל האפשרויות שלי". Kept once asked; recalculated whenever it is out of date
     # and every value it needs is known. Never changes the selection.
     map_requested: bool = False

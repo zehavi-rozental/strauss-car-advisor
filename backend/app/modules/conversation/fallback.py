@@ -45,8 +45,9 @@ from .parsing import (
     unread_words,
     year_spans,
 )
-from .stage import ARG_OF, PROFILE_ARGS, Q2_FIELDS, CarClarification, ConversationState, current_group
-from .templates import money, paced, recorded_text   # recorded_text: re-exported (agent, public)
+from .stage import (ARG_OF, PROFILE_ARGS, Q2_FIELDS, CarClarification, ConversationState, Stage, current_group,
+                    next_stage)
+from .templates import group_from_role_text, money, paced, recorded_text   # recorded_text: re-exported (agent, public)
 from .tools import OPT_OUT_WORDS, available_options
 
 _RANK_RE = re.compile(r"(?:מה\s+)?הכי\s*(?:משתלם|כדאי|טוב)(?:\s+לי)?|תמליץ|המלצ|דרג", re.IGNORECASE)
@@ -83,6 +84,8 @@ class ParserPlan:
     clarify: Optional[CarClarification] = None   # רכב שלא ברור אם הוא של היום או חלופה — שואלים
     acked: bool = False                      # the notice already names every value saved (no second "רשמתי")
     asks: Optional[str] = None               # the notice IS the question, about this save_profile field
+    code_only: bool = False                  # code decided and code words the reply, in both modes (no model call)
+    offer_rep: Optional[str] = None          # the reply offers to ask the representative exactly this
     clarify_scope: bool = False              # a blanket answer ("לא ידוע", "אין לי כלום", "הכל 5") to a
     #   grouped Q2: too broad to split silently — save nothing, switch to one field at a time, ask again
 
@@ -245,8 +248,10 @@ def _group_correction_plan(state: ConversationState, snapshot: RulesSnapshot, te
     once the group is known). Rejected by save_profile if an occupation determines the group — correct, the
     rules decide it then."""
     p = state.profile
-    if p.group is None or p.occupation is not None:
-        return None                              # nothing set yet, or the occupation table owns the group
+    if p.group is None:
+        return None                              # nothing set yet
+    if p.occupation is not None:
+        return _group_from_role_plan(state, snapshot, text)   # the occupations table owns the group
     if "group" in current_group(state)[1]:
         return None                              # the group is already being asked — the normal path handles it
     hit = _group_reading(text, snapshot.calc.group_order)
@@ -263,8 +268,31 @@ def _group_correction_plan(state: ConversationState, snapshot: RulesSnapshot, te
     fillers = [*ext.answer_fillers, *ext.correction_cues, "אני", "אבל", "זה", "למעשה", "בעצם"]
     if unread_words(text, [span], (), fillers):
         return None
-    return ParserPlan(_call("save_profile", eligibility_group=new_group), True, direct=True,
-                      notice=f"עדכנתי: קבוצה {new_group}.")
+    # tagged "combined": a correction is valid at any stage. Before, the stage gate refused it once the alternatives
+    # were on screen while the prewritten notice still said "עדכנתי" (the group never changed). What was saved is said
+    # from the state, only after the save
+    return ParserPlan([ToolCall("save_profile", {"eligibility_group": new_group}, "combined")], True, direct=True,
+                      code_only=True)
+
+
+def _group_from_role_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Optional[ParserPlan]:
+    """A group stated once the role is known and the alternatives or the results are on screen: the occupations table
+    decides it, so nothing changes. Said plainly, with the two ways on: another role, or asking the representative.
+    (A role stated next to another group while the details are collected keeps the conflict flow, C4.)"""
+    p = state.profile
+    if next_stage(state) not in (Stage.CHOOSE_OPTIONS, Stage.PRESENTED) or not re.search(r"קבוצ(?:ה|ת)", text):
+        return None
+    hit = _group_reading(text, snapshot.calc.group_order)
+    if hit is None or hit[0] == p.group or "?" in text:
+        return None
+    ext = snapshot.extensions
+    fillers = [*ext.answer_fillers, *ext.correction_cues, "אני", "אבל", "זה", "למעשה", "בעצם"]
+    if unread_words(text, [hit[1]], (), fillers):
+        return None
+    return ParserPlan(complete=True, direct=True, code_only=True, acked=True,
+                      notice=group_from_role_text(p.occupation or "", p.group or "", hit[0]),
+                      offer_rep=f"התפקיד שלי הוא {p.occupation}, ובטבלת העיסוקים הוא שייך לקבוצה {p.group}. "
+                                f"לדעתי הקבוצה שלי היא {hit[0]}. איזו קבוצה חלה עליי?")
 
 
 # save_profile arg name → the Profile attribute it corrects (for a value correction after it was set)
@@ -301,19 +329,10 @@ def _profile_value_correction_plan(state: ConversationState, snapshot: RulesSnap
                "למעשה", "בעצם", "זה", "הם"]
     if unread_words(text, reading.spans, reading.phrases, fillers):
         return None
-    def _label(arg: str, v: object) -> str:
-        names = {"base_salary": "שכר בסיס", "commissions": "עמלות", "bonus": "בונוס",
-                 "pension_percent": "פנסיה", "study_fund_percent": "קרן השתלמות",
-                 "credit_points": "נקודות זיכוי", "children_under_23": "ילדים"}
-        pct = arg in ("pension_percent", "study_fund_percent")
-        return f"{names[arg]} {v}%" if pct else f"{names[arg]} {money(Decimal(str(v)))}" if arg == "base_salary" else f"{names[arg]} {v}"
-    notice = "עדכנתי: " + ", ".join(_label(a, v) for a, v in changes.items()) + "."
     # tagged "combined" so the stage gate is relaxed: a correction is a valid fact at any stage, including
     # after a result is on screen (save_profile then clears calculated_for and the net is recomputed).
-    # fallback_notice (not notice) so the generic "רשמתי" acknowledgement built from the saved state is not
-    # duplicated — the state-based confirmation line is the single source of truth for what changed.
-    return ParserPlan([ToolCall("save_profile", changes, "combined")], True, direct=True,
-                      fallback_notice=notice)
+    # No notice: the state-based line ("עדכנתי: X במקום Y") is the single source of truth for what changed.
+    return ParserPlan([ToolCall("save_profile", changes, "combined")], True, direct=True, code_only=True)
 
 
 def _says_mine(text: str, cues: Iterable[str]) -> bool:

@@ -50,6 +50,7 @@ from .stage import (
     CurrentCar,
     PendingConfirmation,
     PendingOccupation,
+    RemovedOption,
     Stage,
     missing_current_car,
     missing_profile,
@@ -100,6 +101,10 @@ class ToolContext:
     # the employee's message is phrased as a question ("האם 45 או 45 אלף?", "זה 45 אלף?"): set by the agent, so a
     # value held for confirmation is never resolved by it, whoever asks to save (the model or the reader)
     question_message: bool = False
+    # where a value saved in this turn comes from (field_sources): chat, or a structured form / a reviewed payslip
+    value_source: str = "chat"
+    # the model called try_scenario: code runs the check on a copy and writes the reply (never saved)
+    scenario_request: Optional[dict[str, Any]] = None
 
 
 class ToolError(Exception):
@@ -267,6 +272,7 @@ def _check_ranges(ctx: ToolContext, args: SaveProfileArgs) -> tuple[SaveProfileA
 def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
     p, c, snap = ctx.state.profile, ctx.state.current, ctx.snapshot
     saved: list[str] = []
+    values_before = (p.model_dump(), c.model_dump())
     held = ctx.state.pending_confirmation
     question_about_held = held is not None and ctx.question_message and getattr(args, held.field, None) is not None
     if question_about_held:
@@ -415,9 +421,13 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
                 p.approximate_fields.append(arg)
             elif arg not in args.approximate_fields and arg in p.approximate_fields:
                 p.approximate_fields.remove(arg)
-    if saved:
+    for name in saved:
+        if not name.startswith(("unknown:", "defer:")):
+            ctx.state.field_sources[name] = ctx.value_source
+    if saved and (p.model_dump(), c.model_dump()) != values_before:
         # only a real change makes the results out of date: a value held or refused changes nothing, and a
-        # needless recalculation re-showed the old result and hid the confirmation question (QA 22/10)
+        # needless recalculation re-showed the old result and hid the confirmation question (QA 22/10). The same
+        # value said again changes nothing either: the results stand as they are
         _invalidate_results(ctx.state)
     return {"saved": saved, "ignored": ignored,
             "missing": missing_profile(p) + missing_current_car(c)}
@@ -434,6 +444,8 @@ def _invalidate_results(state: ConversationState, data: bool = True) -> None:
     """נתון השתנה → התוצאות הקודמות כבר לא תקפות; יחושבו מחדש לאותן חלופות. data=False: only the
     selection changed (the option map, which covers every option, is still valid)."""
     state.calculated_for = []
+    if data:
+        state.data_version += 1
     if data and state.option_map is not None:
         state.option_map.fresh = False
 
@@ -464,6 +476,11 @@ def match_current_car(ctx: ToolContext, args: MatchCarArgs) -> dict[str, Any]:
             new.copay_provisional = old.copay_provisional
         if new.copay == old.copay:
             new.copay_source = old.copay_source
+    elif (new is not old and new.copay is not None and new.source in ("catalog", "tax", "stated")
+          and old.source in ("catalog", "tax", "stated")
+          and (new.label, new.catalog_code) != (old.label, old.catalog_code)):
+        # another car: its copay was said about the previous one. Kept (nothing is assumed in its place), and said so
+        new.copay_source = "carried"
     return out
 
 
@@ -626,6 +643,25 @@ def classify_options(snapshot: RulesSnapshot, state: ConversationState
     return out, excluded
 
 
+def removed_options(snapshot: RulesSnapshot, state: ConversationState, options: dict[str, Option]) -> list[RemovedOption]:
+    """The selected cars the rules no longer allow, each with its rule: the same function that says what is eligible."""
+    gone = [o for o in state.selected if o not in options]
+    if not gone:
+        return []
+    excluded = {x.label: x.reason for x in classify_options(snapshot, state)[1]}
+    cars = {c.catalog_code: c for c in snapshot.catalog}
+    out: list[RemovedOption] = []
+    for option_id in gone:
+        car = cars.get(option_id)
+        label = car.label if car is not None else OptOutState().label
+        if car is not None and car.catalog_code == state.current.catalog_code:
+            reason = "זה הרכב שלכם היום"
+        else:
+            reason = excluded.get(label, "הוא לא זמין לכם לפי הנתונים החדשים")
+        out.append(RemovedOption(option_id=option_id, label=label, reason=reason))
+    return out
+
+
 def available_options(snapshot: RulesSnapshot, state: ConversationState) -> list[Option]:
     """רכבים מהקבוצה של העובד ומטה, רכבי המסלול המשפחתי ל-4+ ילדים, וויתור כשהעיסוק מאפשר."""
     return classify_options(snapshot, state)[0]
@@ -709,6 +745,8 @@ def rank_options(ctx: ToolContext, args: NoArgs) -> dict[str, Any]:
     # each option as the comparison and the map calculate it: the copay the representative confirmed, else the
     # catalog policy (QA 22/10: the ranking used the catalog copay even after a confirmation)
     policy, confirmed = ctx.snapshot.extensions.copay_policy, ctx.state.confirmed_copays
+    # a representative's amount marked as unusual may be a mistake: said on its own, never ranked against the others
+    options = [o for o in options if not (o.id in confirmed and confirmed[o.id].unusual)]
     states = {o.id: option_state(o, policy, confirmed[o.id].value if o.id in confirmed else None) for o in options}
     ranked = engine_rank_options(employee, current, list(states.values()), ctx.snapshot.calc, occupation)
     by_label = {s.label: oid for oid, s in states.items()}

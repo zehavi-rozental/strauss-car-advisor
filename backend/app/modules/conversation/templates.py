@@ -331,7 +331,8 @@ COPAY_UPDATE = "אם לרכב החדש סוכם אתכם סכום אחר, אפש
 
 
 # where today's copay came from, in the words the employee reads (1/11)
-TODAY_COPAY_SOURCE = {"rep_confirmed": "לפי תשובת הנציג שאישרתם", "catalog_confirmed": "לפי סכום הקטלוג שאישרתם"}
+TODAY_COPAY_SOURCE = {"rep_confirmed": "לפי תשובת הנציג שאישרתם", "catalog_confirmed": "לפי סכום הקטלוג שאישרתם",
+                      "carried": "מהרכב הקודם"}
 
 
 def catalog_copays_text(items: Sequence[tuple[str, Any]], today_copay: Any = None,
@@ -350,6 +351,8 @@ def catalog_copays_text(items: Sequence[tuple[str, Any]], today_copay: Any = Non
     elif today_copay is not None and Decimal(str(today_copay)) > 0:
         source = TODAY_COPAY_SOURCE.get(today_source or "", "שמסרתם")
         line += f"\nלרכב שלכם היום חישבתי עם ההשתתפות {source}: {money(today_copay)}."
+        if today_source == "carried":
+            line += " אם היא שונה ברכב הזה, כתבו את הסכום."
     return line
 
 
@@ -796,24 +799,45 @@ def rep_note_text(note: Optional[str]) -> str:
     return f"הערת הנציג: {clean}" if clean else ""
 
 
+_CAR_VALUE_TEXT = {"current_copay": "השתתפות", "current_use_value": "שווי שימוש", "current_maintenance": "אחזקת רכב"}
+
+
+def labelled_value(field: str, value: Any) -> str:
+    """One saved value, in the words of the "רשמתי" / "עדכנתי" lines."""
+    if field in _CAR_VALUE_TEXT:
+        return f"{_CAR_VALUE_TEXT[field]} {_show(field, value)}"
+    return recorded_text({field: value})
+
+
 def form_saved_text(previous: dict[str, Any], saved: dict[str, Any], source: Optional[str] = None) -> str:
     """What the form / a reviewed payslip changed: "עדכנתי: שכר בסיס 18,000 ₪ במקום 15,000 ₪." for a value
     that replaced another, "רשמתי: …" for a new one. A value equal to the one already saved is not repeated."""
     def same(a: Any, b: Any) -> bool:
         return a is not None and b is not None and Decimal(str(a)) == Decimal(str(b))
 
-    changed = [f"{recorded_text({k: v})} במקום {_show(k, previous[k])}" for k, v in saved.items()
+    changed = [f"{labelled_value(k, v)} במקום {_show(k, previous[k])}" for k, v in saved.items()
                if previous.get(k) is not None and not same(previous[k], v)]
-    new = {k: v for k, v in saved.items() if previous.get(k) is None}
+    new = [labelled_value(k, v) for k, v in saved.items() if previous.get(k) is None]
     where = " מהתלוש" if source == "payslip" else ""
     lines = []
     if changed:
         lines.append(f"עדכנתי{where}: {', '.join(changed)}.")
     if new:
-        lines.append(f"רשמתי{where}: {recorded_text(new)}.")
+        lines.append(f"רשמתי{where}: {', '.join(new)}.")
     if not lines and saved:
         lines.append("הערכים זהים למה שכבר רשמתי.")
     return "\n".join(lines)
+
+
+def group_from_role_text(occupation: str, table_group: str, stated: str) -> str:
+    """A group stated while the role decides it: nothing changed, why, and what can be done."""
+    return (f"קבוצת הזכאות נקבעת לפי התפקיד: {occupation} שייך לקבוצה {table_group}, ולכן לא שיניתי אותה לקבוצה {stated}.\n"
+            "אם התפקיד לא נכון, אפשר לעדכן אותו. אם לדעתכם הקבוצה בטבלה לא נכונה, נציג התחבורה יכול לבדוק.")
+
+
+def removed_options_text(removed: Sequence[Any]) -> str:
+    """Cars that left the comparison when the data changed: each one, and the rule that took it out."""
+    return "\n".join(f"{r.label} יצא מההשוואה. {r.reason}." for r in removed)
 
 
 def rep_maintenance_text(amount: Decimal) -> str:
