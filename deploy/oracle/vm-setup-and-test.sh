@@ -32,6 +32,9 @@ APP=$(docker compose ps -q app)
 docker cp /srv/strauss/e2e_api.py "$APP":/tmp/e2e_api.py >/dev/null && docker cp /srv/strauss/synthetic_payslip.pdf "$APP":/tmp/p.pdf >/dev/null
 docker compose exec -T -u root app chmod 644 /tmp/e2e_api.py /tmp/p.pdf
 docker compose exec -T app python /tmp/e2e_api.py "https://$DOMAIN" /tmp/p.pdf 2>&1 | sed -E 's#postgres(ql)?://[^ ]+#<db-url>#g'
+echo "== mail (a login only, nothing is sent)"
+docker cp /srv/strauss/mail_check.py "$APP":/tmp/mail_check.py >/dev/null && docker compose exec -T -u root app chmod 644 /tmp/mail_check.py
+docker compose exec -T app python /tmp/mail_check.py 2>&1 | grep -E '^(PASS|FAIL|INFO)'
 echo "== calculation engine on the VM"
 docker compose exec -T app python -m app.verify 2>&1 | tail -1
 echo "== Oracle Cloud Agent (why Run Command does not pick up commands)"
