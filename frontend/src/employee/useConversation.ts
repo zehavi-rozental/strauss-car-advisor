@@ -2,6 +2,7 @@
 // results and open rep questions. The client only orders and displays them.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, api } from '../api/client'
+import { reportBackendLost } from '../shell/backendReady'
 import { normalizeResults } from '../api/normalize'
 import { mapKey } from './optionMap'
 import { placeAnchor, type CardAnchor } from './anchors'
@@ -60,7 +61,8 @@ function lastAssistantSeq(messages: Message[]): number | null {
   return null
 }
 
-export function useConversation() {
+/** `ready`: the server and its database answer (shell/backendReady.ts); until then nothing is requested. */
+export function useConversation(ready = true) {
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [stage, setStage] = useState<Stage | null>(null)
@@ -223,12 +225,13 @@ export function useConversation() {
 
   // the engine's real state at load (no model call); each turn then says what answered it
   useEffect(() => {
+    if (!ready) return
     api.health().then((h) => { if (h.engine) setEngine((e) => e ?? h.engine ?? null) }).catch(() => {})
-  }, [])
+  }, [ready])
 
   // load: the stored conversation, or a new one
   useEffect(() => {
-    if (started.current) return
+    if (!ready || started.current) return
     started.current = true
     ;(async () => {
       try {
@@ -265,12 +268,13 @@ export function useConversation() {
         await sync()
         setError(null)
       } catch (e) {
-        setError(e instanceof ApiError ? e.message_he : String(e))
+        if (reportBackendLost(e)) started.current = false     // loaded again once the server answers
+        else setError(e instanceof ApiError ? e.message_he : String(e))
       } finally {
         setLoading(false)
       }
     })()
-  }, [applyView, sync, setExpects])
+  }, [ready, applyView, sync, setExpects])
 
   const resumeEmailLink = useCallback(async () => {
     const token = emailReturnToken.current
@@ -331,6 +335,7 @@ export function useConversation() {
       await sync()
       return { ok: true }
     } catch (e) {
+      reportBackendLost(e)
       if (e instanceof ApiError && RETRYABLE(e.status) && 'text' in body) {
         // keep the bubble, marked as not sent, with "לשלוח שוב"
         const seq = -Date.now()
@@ -445,9 +450,9 @@ export function useConversation() {
   // polling: only while a rep question is open and the tab is visible
   const waitingForRep = pendingQuestions.length > 0 || stage === 'WAITING_FOR_REP'
   useEffect(() => {
-    if (!waitingForRep || !conversationId) return
+    if (!waitingForRep || !conversationId || !ready) return    // no polling while the server is not answering
     let timer: number | undefined
-    const tick = () => { sync().catch(() => undefined) }
+    const tick = () => { sync().catch((e) => { reportBackendLost(e) }) }
     const start = () => {
       if (timer === undefined && document.visibilityState === 'visible') timer = window.setInterval(tick, POLL_MS)
     }
@@ -469,7 +474,7 @@ export function useConversation() {
       stop()
       document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [waitingForRep, conversationId, sync])
+  }, [waitingForRep, conversationId, sync, ready])
 
   // the question on screen: a new bot message or a different expected answer. A poll that brings neither
   // is the same question, and whatever its link opened stays open.

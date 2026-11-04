@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { ApiError, api } from '../api/client'
 import type { OptionResult } from '../api/types'
 import { FlowCar } from '../art/FlowCar'
+import { ServiceStatus } from '../shell/ServiceStatus'
+import { useBackendReady } from '../shell/backendReady'
 import { Icon } from '../ui/Icon'
 import { AnswerWidgets } from './AnswerWidgets'
 import { ComparisonPanel } from './ComparisonPanel'
@@ -51,7 +53,8 @@ function lastUserQuestion(messages: Message[]): string {
 }
 
 export function EmployeePage() {
-  const c = useConversation()
+  const backend = useBackendReady()
+  const c = useConversation(backend.ready)
   const busy = c.sending || c.loading
   const [tableOpen, setTableOpen] = useState(false)
   const [mapOpen, setMapOpen] = useState(false)
@@ -309,7 +312,8 @@ export function EmployeePage() {
 
       <main className="chat-body">
         <div className="chat-column">
-          {c.loading && (
+          <ServiceStatus state={backend.state} onRetry={backend.retry} />
+          {c.loading && backend.ready && (
             <p className="loading"><span className="loading-bar" aria-hidden="true" />טוען את השיחה…</p>
           )}
           {/* the interactive area stays mounted while a message is sent (disabled), so nothing typed is lost */}

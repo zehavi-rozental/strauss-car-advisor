@@ -1,10 +1,27 @@
 <div dir="rtl">
 
-# יועץ הרכב של שטראוס
+# STRAUSS DRIVE | יועץ הרכב של שטראוס
+
+🚀 **Live Demo — STRAUSS DRIVE**
+
+**[https://strauss-drive.strauss-drive-edge.workers.dev/](https://strauss-drive.strauss-drive-edge.workers.dev/)**
+
+**Open Code AI Hackathon 2026 | אתגר שטראוס — אחד הפרויקטים הזוכים**
 
 בוט בעברית שמחשב לעובד איך שינוי ברכב הצמוד משפיע על הנטו שלו: מעבר לרכב חשמלי, רכב אחר, קבוצה נמוכה יותר, ויתור על הרכב או מסלול ברוכת ילדים.
 
 מנוע החישוב משחזר את **12 מתוך 12** ערכי הנטו שבנתוני הייחוס של שטראוס, כולל מס הכנסה, ביטוח לאומי, גילום החזר החשמל וחלק העובד במסלול המשפחתי.
+
+## הסביבה החיה
+
+| רכיב | מה הוא עושה |
+| --- | --- |
+| Cloudflare Worker | מגיש את אפליקציית React מיד ומעביר את `/api` לשרת באותה כתובת, כך שה-cookie נשאר של האתר ואין צורך ב-CORS |
+| Oracle Cloud (Always Free) | שרת שפועל תמיד, בלי השהיית התעוררות: FastAPI ב-Docker מאחורי Caddy עם תעודת HTTPS, הפעלה מחדש אוטומטית בתקלה |
+| Neon PostgreSQL | מסד הנתונים של הסביבה החיה (פרנקפורט) |
+| Google Gemini | הבנת שפה חופשית וקריאת תלושים; כל מספר מגיע ממנוע החישוב, לא מהמודל |
+
+הוראות הפריסה, החזרה לאחור, הגיבויים והסודות (שמות בלבד): [`deploy/oracle/README.md`](../deploy/oracle/README.md).
 
 ## התקנה
 
@@ -86,6 +103,8 @@ curl -X POST -H "X-Rep-Token: $REP_ACCESS_TOKEN" -H "Content-Type: application/j
 | `app/modules/cases` | שאלות לנציג התחבורה |
 | `app/modules/conversation` | מכונת המצבים והסוכן |
 | `app/shared` | כסף, מסד נתונים והגדרות סביבה |
+| `../edge/` | ה-Worker של Cloudflare: האפליקציה ו-proxy ל-`/api` |
+| `../deploy/` | פריסת השרת ב-Oracle, בדיקות E2E, גיבוי ושחזור של מסד הנתונים וכלי מאגר הסודות |
 
 כל מודול חושף ממשק אחד (`public.py`), ו-`lint-imports` נכשל אם הגבול נעקף או אם מנוע החישוב תלוי במסד הנתונים. כך כל מודול ניתן להוצאה למיקרו-שירות נפרד.
 

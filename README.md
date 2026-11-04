@@ -2,15 +2,15 @@
 
 # STRAUSS DRIVE | AI-Powered Corporate Car Advisor
 
-### 🚀 Live Demo — STRAUSS DRIVE
+🚀 **Live Demo — STRAUSS DRIVE**
 
-**[https://strauss-drive.strauss-drive-edge.workers.dev/employee](https://strauss-drive.strauss-drive-edge.workers.dev/employee)**
+**[https://strauss-drive.strauss-drive-edge.workers.dev/](https://strauss-drive.strauss-drive-edge.workers.dev/)**
 
 **Open Code AI Hackathon 2026 | Strauss Challenge — One of the Winning Projects**
 
 A Hebrew conversational advisor that shows an employee, in shekels, how changing their company car changes their monthly net pay.
 
-[![Live Demo](https://img.shields.io/badge/Live_Demo-Open_STRAUSS_DRIVE-0B5394?style=for-the-badge&logo=cloudflare&logoColor=white)](https://strauss-drive.strauss-drive-edge.workers.dev/employee)
+[![Live Demo](https://img.shields.io/badge/Live_Demo-Open_STRAUSS_DRIVE-0B5394?style=for-the-badge&logo=cloudflare&logoColor=white)](https://strauss-drive.strauss-drive-edge.workers.dev/)
 [![GitHub Repository](https://img.shields.io/badge/GitHub_Repository-strauss--car--advisor-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/zehavi-rozental/strauss-car-advisor)
 [![Representative Portal](https://img.shields.io/badge/Representative_Portal-/rep-E8590C?style=for-the-badge)](https://strauss-drive.strauss-drive-edge.workers.dev/rep)
 
@@ -82,6 +82,7 @@ An employee who is thinking about switching company cars, moving to an electric 
 
 | | |
 | --- | --- |
+| Home | https://strauss-drive.strauss-drive-edge.workers.dev/ — choose the employee advisor or the representative portal |
 | Employee advisor | https://strauss-drive.strauss-drive-edge.workers.dev/employee |
 | Representative portal | https://strauss-drive.strauss-drive-edge.workers.dev/rep — protected by an access code; demo access is available on request |
 | Health endpoint | https://strauss-drive.strauss-drive-edge.workers.dev/api/health |
@@ -266,6 +267,8 @@ GitHub Actions runs everything on every push and pull request: secret scan → b
 
 Email notifications are implemented but not enabled in production; inquiries and answers work in the conversation without them.
 
+Operations (deploy, rollback, network, secrets, backups): [`deploy/oracle/README.md`](deploy/oracle/README.md). A GitHub Actions workflow checks the public link every 15 minutes.
+
 ## Local Development
 
 Requirements: Python 3.11+, Node.js, and optionally a Gemini API key (without one, the advisor runs in template mode).
@@ -311,9 +314,11 @@ strauss-car-advisor/
 │   ├── src/                     # employee/, rep/, api/, format/, ui/
 │   └── e2e/                     # Playwright specs
 ├── docs/                        # Hebrew documentation, screenshots
+├── edge/                        # Cloudflare Worker: static React app + /api proxy
+├── deploy/                      # oracle/ (VM, cloud-init, E2E suite), backup/ (PostgreSQL), secrets/ (encrypted store tools)
 ├── Dockerfile
-├── render.yaml
-└── .github/workflows/           # ci.yml, deploy.yml, live-eval.yml
+├── render.yaml                  # the earlier Render deployment
+└── .github/workflows/           # ci.yml, deploy.yml, live-eval.yml, uptime.yml
 ```
 
 ## Hackathon Recognition

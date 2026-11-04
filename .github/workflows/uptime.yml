@@ -1,0 +1,40 @@
+# Free uptime check of the public link. A failed run makes GitHub email the workflow's owner (Settings ->
+# Notifications -> Actions: "failed workflows only", email on). Scheduled runs happen on the default branch only.
+name: Uptime (live link)
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # the page only: static, served by Cloudflare (no server, database or model)
+    - cron: "7 * * * *"      # hourly also /api/health: one SELECT 1; never opens a conversation or calls Gemini
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: uptime
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      URL: https://strauss-drive.strauss-drive-edge.workers.dev
+    steps:
+      - name: Page loads (3 attempts, 30 s apart, before reporting down)
+        run: |
+          for i in 1 2 3; do
+            code=$(curl -s -o /tmp/page -m 20 -w '%{http_code}' "$URL/employee" || echo 000)
+            if [ "$code" = 200 ] && grep -q 'id="root"' /tmp/page; then echo "page ok"; exit 0; fi
+            echo "attempt $i: HTTP $code"; [ "$i" -lt 3 ] && sleep 30
+          done
+          echo "::error::the page did not load in 3 attempts"; exit 1
+      - name: API and database answer (hourly and on manual runs)
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '7 * * * *'
+        run: |
+          for i in 1 2 3; do
+            body=$(curl -s -m 30 "$URL/api/health" || true)
+            if echo "$body" | grep -q '"db":true'; then echo "api ok"; exit 0; fi
+            echo "attempt $i: $(echo "$body" | head -c 120)"; [ "$i" -lt 3 ] && sleep 30
+          done
+          echo "::error::/api/health did not report a healthy database in 3 attempts"; exit 1

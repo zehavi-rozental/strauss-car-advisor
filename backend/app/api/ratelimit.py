@@ -1,11 +1,36 @@
 """הגבלת קצב בזיכרון: חלון נע של דקה לכל מפתח (שיחה / כתובת IP)."""
 from __future__ import annotations
 
+import hmac
+import ipaddress
 import math
 import threading
 import time
 from collections import defaultdict, deque
 from typing import Callable, Literal, Optional
+
+from starlette.requests import Request
+
+# The Cloudflare edge Worker (edge/src/worker.js) sends the visitor's address with a shared secret.
+EDGE_CLIENT_IP_HEADER = "x-edge-client-ip"
+EDGE_SECRET_HEADER = "x-edge-secret"
+
+
+def client_address(request: Request, edge_secret: str) -> str:
+    """The caller's address, the key of every per-address limit.
+
+    Behind the edge Worker every request arrives from a few Cloudflare addresses, so the Worker sends the
+    visitor's address in X-Edge-Client-IP; it is used only when X-Edge-Secret matches EDGE_PROXY_SECRET (empty:
+    never) and is a valid address. Otherwise the connection's address, which the start script takes from
+    X-Forwarded-For only behind a private proxy (FORWARDED_ALLOW_IPS), so a direct caller cannot choose it either."""
+    direct = request.client.host if request.client else "unknown"
+    sent = request.headers.get(EDGE_SECRET_HEADER, "")
+    if not edge_secret or not sent or not hmac.compare_digest(sent.encode(), edge_secret.encode()):
+        return direct
+    try:
+        return str(ipaddress.ip_address(request.headers.get(EDGE_CLIENT_IP_HEADER, "").strip()))
+    except ValueError:
+        return direct
 
 
 class RateLimiter:

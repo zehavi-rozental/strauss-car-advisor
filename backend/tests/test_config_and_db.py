@@ -70,6 +70,19 @@ def test_money_roundtrip_sqlite():
         assert c.execute(select(t.c.v)).scalar_one() == Decimal("1234.5678")
 
 
+def test_a_postgres_pool_checks_a_connection_before_using_it(monkeypatch):
+    # Neon (and any server that drops idle connections) closes them while the compute sleeps; without the check
+    # the first request after a quiet period fails. Only the arguments are checked (no driver, no server needed).
+    import app.shared.db as db
+
+    assert make_engine("sqlite://").pool._pre_ping is False              # SQLite is local: no check
+    seen: list[dict] = []
+    monkeypatch.setattr(db, "create_engine", lambda url, **kw: seen.append(kw) or object())
+    db.make_engine("postgresql+psycopg2://u:p@db.example/x")
+    db.make_engine("postgresql+psycopg2://u:p@db.example/x", pool_pre_ping=False)
+    assert [kw.get("pool_pre_ping") for kw in seen] == [True, False]
+
+
 @pytest.fixture(scope="module")
 def vehicle_session():
     engine = make_engine("sqlite://")

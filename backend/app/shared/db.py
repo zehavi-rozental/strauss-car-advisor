@@ -85,6 +85,10 @@ class Base(DeclarativeBase):
 
 
 def make_engine(url: str, **kwargs) -> Engine:
+    if not url.startswith("sqlite"):
+        # a pooled connection may have been closed by the server while idle (a serverless Postgres such as Neon
+        # suspends after a few idle minutes): test it before use instead of failing the next request
+        kwargs.setdefault("pool_pre_ping", True)
     engine = create_engine(url, future=True, **kwargs)
     if url.startswith("sqlite"):
         @event.listens_for(engine, "connect")

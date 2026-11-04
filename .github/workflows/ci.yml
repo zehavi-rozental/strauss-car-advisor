@@ -95,6 +95,20 @@ jobs:
       - run: npx vitest run
       - run: npm run build
 
+  # The Cloudflare edge Worker (edge/): static assets + the /api proxy. Plain JS, Node's own test runner.
+  edge:
+    name: Edge Worker (proxy tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: edge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm test
+
   e2e:
     name: E2E (Playwright, production start script + PostgreSQL)
     needs: [backend, frontend]

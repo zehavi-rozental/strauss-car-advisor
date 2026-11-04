@@ -18,20 +18,29 @@ import type {
 
 const GENERIC_ERROR = 'משהו השתבש. נסו שוב בעוד רגע.'
 const NETWORK_ERROR = 'אין חיבור לשרת. בדקו את החיבור ונסו שוב.'
+// no JSON from the server: a page or an error from the hosting layer (the server is starting, or a platform limit)
+const NOT_READY_ERROR = 'השרת עדיין לא מוכן. נסו שוב בעוד רגע.'
+const BUSY_ERROR = 'יש כרגע עומס על השירות. נסו שוב מאוחר יותר.'
 
 export class ApiError extends Error {
   readonly status: number
   readonly message_he: string
   readonly errors: Record<string, string>     // per field (the profile form), empty otherwise
   readonly retryAfter: number | null          // a 429's Retry-After, in seconds
+  /** The answer did not come from our server (no JSON): the hosting layer answered, e.g. while it starts. */
+  readonly fromPlatform: boolean
+  /** Set only by the edge Worker (edge/src/worker.js): origin_waking | origin_unreachable | not_configured. */
+  readonly edge: string | null
 
   constructor(status: number, message_he: string, errors: Record<string, string> = {},
-              retryAfter: number | null = null) {
+              retryAfter: number | null = null, fromPlatform = false, edge: string | null = null) {
     super(message_he)
     this.status = status
     this.message_he = message_he
     this.errors = errors
     this.retryAfter = retryAfter
+    this.fromPlatform = fromPlatform
+    this.edge = edge
   }
 }
 
@@ -62,9 +71,17 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError(0, NETWORK_ERROR)
   }
   const body = await response.json().catch(() => null)
+  if (body === null || typeof body !== 'object') {
+    // every API answer is a JSON object: anything else is the hosting layer (a wake-up page, a platform 429 or
+    // 502), never a success with an empty body
+    const status = response.ok ? 503 : response.status
+    throw new ApiError(status, status === 429 ? BUSY_ERROR : NOT_READY_ERROR, {},
+                       retryAfterSeconds(response.headers.get('Retry-After')), true)
+  }
   if (!response.ok) {
     throw new ApiError(response.status, errorMessage(body), body?.errors ?? {},
-                       retryAfterSeconds(response.headers.get('Retry-After')))
+                       retryAfterSeconds(response.headers.get('Retry-After')), false,
+                       typeof body?.edge === 'string' ? body.edge : null)
   }
   return body as T
 }
@@ -74,6 +91,9 @@ const conv = (id: string) => `/api/conversations/${encodeURIComponent(id)}`
 export const api = {
   /** The engine's real state (this request makes no model call). */
   health: () => request<{ engine?: EngineState }>('/api/health'),
+  /** The readiness probe (shell/backendReady.ts): the server answers and its database is reachable. */
+  probeHealth: (signal: AbortSignal) =>
+    request<{ status?: string; db?: boolean; engine?: EngineState }>('/api/health', { signal, cache: 'no-store' }),
   createConversation: () => request<TurnResponse>('/api/conversations', { method: 'POST' }),
   getConversation: (id: string) => request<ConversationView>(conv(id)),
   sendMessage: (id: string, body: MessageIn) =>

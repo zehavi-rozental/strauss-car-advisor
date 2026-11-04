@@ -22,3 +22,7 @@ qa/
 
 # the challenge source files as delivered (identical copies live in backend/config and backend/data): never committed
 reference-files/
+
+# Cloudflare edge Worker: local secrets and wrangler state, never committed
+edge/.dev.vars
+edge/.wrangler/
