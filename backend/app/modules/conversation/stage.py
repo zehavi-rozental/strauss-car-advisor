@@ -170,8 +170,8 @@ class ConfirmedCopay(BaseModel):
     value: Decimal
     effective_date: Optional[date] = None
     changed: bool = False       # הנציג קבע סכום שונה מהקטלוג
-    # far from the catalog amount and confirmed by the representative all the same (extensions.rep_copay_review): the
-    # calculation shows it marked as unusual, and it is never ranked as a regular option
+    # far from the catalog amount and confirmed by the representative all the same. A mark for the screen only: the
+    # calculation and the order are what the amount gives (no rule gives a ceiling)
     unusual: bool = False
 
 

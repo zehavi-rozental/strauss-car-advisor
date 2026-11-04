@@ -2478,8 +2478,8 @@ class Agent:
         state.results_version += 1
         if result.delta_display is None:
             return rep_confirmed_text(item.label, event.effective_date, amount)
-        if state.confirmed_copays[option.id].unusual or item.result.get("unusual_result"):
-            # never presented as a regular result: the amount, why it stands out, and what to do
+        if state.confirmed_copays[option.id].unusual:
+            # the amount, why it stands out, and what to do; the calculation stands, on the card
             return rep_unusual_copay_text(item.label, amount, option.car.default_copay if option.car else None)
         return rep_changed_text(item.label, amount, event.effective_date, old_delta, result.delta_display,
                                 catalog=option.car.default_copay if option.car else None,

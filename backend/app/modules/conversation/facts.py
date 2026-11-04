@@ -131,7 +131,7 @@ def facts_view(state: ConversationState, snapshot: RulesSnapshot) -> dict[str, A
     missing = [i["label"] for i in items if i["status"] in ("missing", "unknown")]
     assumptions = list(dict.fromkeys(a for r in ok for a in r.result.get("assumptions") or []))
     if "mock" in snapshot.calc.rules_version:
-        assumptions.append("כללי המס, הקטלוג והזכאות כאן הם נתוני הדגמה, ולא אומתו מול מקור רשמי.")
+        assumptions.append("גרסת הכללים שבמערכת טעונה אימות, ולכן הסכומים הם הערכה.")
     return {"version": state.data_version, "results_version": state.results_version, "ranked": bool(state.ranked_count),
             "items": items,
             "strip": _strip_keys(state, known), "missing": missing, "assumptions": assumptions}

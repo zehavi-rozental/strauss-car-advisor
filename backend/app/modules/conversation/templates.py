@@ -470,12 +470,9 @@ def results_text(state: ConversationState, head: bool = True) -> str:
     """At most two short lines for a plain comparison: a summary, then what is waiting. The detail
     lives only in the structured results (the summary card and the comparison panel). head=False: without the summary
     (the "what changed" card and its lines said it), only what is waiting or unusual."""
-    ok, bad, unusual = [], [], []
+    ok, bad = [], []
     for item in state.results:
         r = item.result
-        if r.get("unusual_copay") or r.get("unusual_result"):
-            unusual.append(item)       # said on its own, never "the highest net" and never a recommendation
-            continue
         (ok if r["status"] == "OK" and r.get("delta_display") is not None else bad).append(item)
     lines: list[str] = []
     best = max(ok, key=lambda i: Decimal(str(i.result["delta_display"]))) if ok else None
@@ -500,8 +497,11 @@ def results_text(state: ConversationState, head: bool = True) -> str:
             lines.append(f"{head}, ו{_among(len(ok))} הנטו שלכם לא ישתנה.")
         else:
             lines.append(f"{head}. {_best_line(best)}")
-    for item in unusual:
-        lines.append(f"{item.label}: ההשתתפות שנמסרה חריגה, ולכן החישוב שלו לא מוצג כתוצאה רגילה. כדאי לבקש מהנציג לבדוק אותה.")
+    for item in state.results:        # a mark, in words: the calculation and the order above stand as they are
+        if item.result.get("unusual_copay"):
+            lines.append(f"{item.label}: ההשתתפות שנמסרה חריגה. החישוב מוצג לפי הסכום הזה, וכדאי לבקש מהנציג לבדוק אותו.")
+        elif item.result.get("unusual_result"):
+            lines.append(f"{item.label}: הנטו בחישוב יוצא אפס או פחות. כדאי לבדוק את הסכומים מול הנציג.")
     for item in bad:
         r = item.result
         if r["status"] == "NOT_ELIGIBLE":
@@ -734,11 +734,11 @@ def _delta_words(delta: Any) -> str:
 
 
 def rep_unusual_copay_text(label: str, amount: Decimal, catalog: Any = None) -> str:
-    """A representative's amount far from the catalog: said as what it is, and never presented as a regular result."""
+    """A representative's amount far from the catalog: said as what it is. The calculation stands, on the card."""
     was = f", מול {money(catalog)} בקטלוג" if catalog else ""
     return (f"נציג התחבורה מסר השתתפות של {money(amount)} בחודש {in_label(label)}{was}.\n"
-            "זה סכום חריג: ייתכן שמדובר בטעות הקלדה או בסכום חד-פעמי, ולכן הוא לא נכלל בדירוג ואין כאן המלצה לפיו.\n"
-            "אפשר לבקש מהנציג לבדוק אותו שוב.")
+            "זה סכום חריג: ייתכן שמדובר בטעות הקלדה או בסכום חד-פעמי.\n"
+            "החישוב לפי הסכום הזה מופיע בכרטיס, ואפשר לבקש מהנציג לבדוק אותו שוב.")
 
 
 def rep_changed_text(label: str, amount: Decimal, effective: Optional[date], old_delta: Any, new_delta: Any,

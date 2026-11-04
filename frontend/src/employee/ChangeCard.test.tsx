@@ -113,11 +113,11 @@ describe('older figures and amounts that stand out', () => {
     expect(html.indexOf(SUPERSEDED_LABEL)).toBeLessThan(html.indexOf('הודעה 2'))
   })
 
-  it('an unusual amount is said, and its figures are not drawn', () => {
-    const unusual = { option_id: 'CAR-05', label: 'NIRO', run_id: 'r', result: { status: 'OK', unusual_copay: true, delta_display: '-349245',
+  it('an unusual amount is marked, and its calculation stays on screen', () => {
+    const unusual = { option_id: 'CAR-05', label: 'NIRO', run_id: 'r', result: { status: 'OK', unusual_copay: true, delta_display: '-349245', drivers: [],
       alternative: { net_display: '-338542' } } } as unknown as OptionResult
     const html = list([unusual], 2)
     expect(html).toContain(UNUSUAL_NOTE)
-    expect(html).not.toContain('338')
+    expect(html).toContain('338')
   })
 })

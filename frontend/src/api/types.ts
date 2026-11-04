@@ -138,8 +138,8 @@ export interface ScenarioResult {
   drivers: Driver[]
   electric_refund: Decimal | null
   copay_pending: boolean
-  unusual_copay?: boolean     // a representative's amount that stands out: said, never drawn as a regular result
-  unusual_result?: boolean    // a net of zero or less: the same
+  unusual_copay?: boolean     // a representative's amount that stands out: a mark, the calculation is drawn as it is
+  unusual_result?: boolean    // a net of zero or less: a mark too
   /** where the new car's copay comes from: the catalog default waiting for the representative ("catalog"), the
    *  representative's amount ("representative", from copay_effective_date), no catalog amount ("missing": not
    *  calculated), the catalog as final ("catalog_final") or none (opting out). An older server sends nothing. */
@@ -224,6 +224,7 @@ export interface ChangeRow { field: string; label: string; before: string; after
 export interface CardOption {
   option_id: string
   label: string
+  unusual?: boolean
   before: { net: string | null; delta: string | null } | null
   after: { net: string | null; delta: string | null }
 }

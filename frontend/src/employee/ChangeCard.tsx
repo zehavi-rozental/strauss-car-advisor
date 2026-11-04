@@ -37,7 +37,7 @@ function Options({ options }: { options: CardOption[] }) {
       <tbody>
         {options.map((o) => (
           <tr key={o.option_id}>
-            <th scope="row"><bdi>{o.label}</bdi></th>
+            <th scope="row"><bdi>{o.label}</bdi>{o.unusual && <span className="change-mark"> (סכום חריג)</span>}</th>
             <td><Change value={o.before?.delta} /></td>
             <td><Change value={o.after.delta} /></td>
           </tr>

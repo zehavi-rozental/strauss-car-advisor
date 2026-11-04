@@ -14,13 +14,16 @@ from .templates import _VALUE_LABELS, _show, money
 
 def snapshot_results(state: ConversationState) -> dict[str, Any]:
     """The results on record, before a change replaces them."""
-    ok = [r for r in state.results if r.result.get("status") == "OK" and r.result.get("delta_display") is not None
-          and not r.result.get("unusual_copay") and not r.result.get("unusual_result")]
+    ok = _calculated(state)
     today = ok[0].result["today"]["net_display"] if ok else None
     return {"today_net": str(today) if today is not None else None,
             "options": {r.option_id: {"label": r.label, "net": str(r.result["alternative"]["net_display"]),
                                       "delta": str(r.result["delta_display"])} for r in ok},
             "order": _order(ok), "stale": results_stale(state), "ranked": state.ranked_count}
+
+
+def _calculated(state: ConversationState) -> list[Any]:
+    return [r for r in state.results if r.result.get("status") == "OK" and r.result.get("delta_display") is not None]
 
 
 def _order(ok: list[Any]) -> list[str]:
@@ -31,12 +34,12 @@ def build_receipt(before: dict[str, Any], state: ConversationState, changes: lis
     """None when there was nothing to compare with, or nothing changed. Only what changed is listed."""
     if not before["options"] and not state.removed_options:
         return None
-    ok = [r for r in state.results if r.result.get("status") == "OK" and r.result.get("delta_display") is not None
-          and not r.result.get("unusual_copay") and not r.result.get("unusual_result")]
+    ok = _calculated(state)
     today_after = str(ok[0].result["today"]["net_display"]) if ok else None
     options = []
     for r in sorted(ok, key=lambda r: -Decimal(str(r.result["delta_display"]))):
         options.append({"option_id": r.option_id, "label": r.label,
+                        "unusual": bool(r.result.get("unusual_copay") or r.result.get("unusual_result")),
                         "before": ({k: before["options"][r.option_id][k] for k in ("net", "delta")}
                                    if r.option_id in before["options"] else None),
                         "after": {"net": str(r.result["alternative"]["net_display"]),
@@ -88,7 +91,8 @@ def receipt_lines(receipt: dict[str, Any]) -> list[str]:
     if receipt["options"]:
         best = receipt["options"][0]
         head = "הנטו הגבוה ביותר" if len(receipt["options"]) > 1 else "הרכב שבדקתם"
-        lines.append(f"{head}: {best['label']}, {_delta_words(best['after']['delta'])}.")
+        mark = " (סכום חריג)" if best.get("unusual") else ""
+        lines.append(f"{head}: {best['label']}{mark}, {_delta_words(best['after']['delta'])}.")
     if len(receipt["options"]) > 1:
         lines.append("הסדר בין הרכבים השתנה." if receipt["order_changed"] else "הסדר בין הרכבים לא השתנה.")
     return lines

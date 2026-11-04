@@ -91,7 +91,7 @@ test.describe('one value, on its own', () => {
     await expect(sheet).toContainText('18,500')
     await expect(sheet).toContainText('מהשיחה')
     await expect(sheet).toContainText('חסר')
-    await expect(sheet).toContainText('לא אומתו')       // the demo rules are said
+    await expect(sheet).toContainText('טעונה אימות')    // the rules version is marked as needing verification
   })
 })
 

@@ -645,8 +645,8 @@ def classify_options(snapshot: RulesSnapshot, state: ConversationState
 
 def rep_copay_unusual(snapshot: RulesSnapshot, option_id: str, amount: Decimal) -> bool:
     """A representative's monthly copay for a new car that is far from the catalog amount (extensions.rep_copay_review_multiple),
-    or above the range set for a copay. No rule gives a ceiling, so this never refuses: it asks for a confirmation and marks the
-    result. It may be a typo, or a one-time amount written as a monthly one."""
+    or above the range set for a copay. No rule gives a ceiling, so this never refuses and never changes a calculation or an
+    order: it only asks for a confirmation and marks the result. It may be a typo, or a one-time amount written as a monthly one."""
     ext = snapshot.extensions
     bounds = ext.value_ranges.get("current_copay")
     if bounds is not None and amount > bounds[1]:
@@ -759,8 +759,6 @@ def rank_options(ctx: ToolContext, args: NoArgs) -> dict[str, Any]:
     # each option as the comparison and the map calculate it: the copay the representative confirmed, else the
     # catalog policy (QA 22/10: the ranking used the catalog copay even after a confirmation)
     policy, confirmed = ctx.snapshot.extensions.copay_policy, ctx.state.confirmed_copays
-    # a representative's amount marked as unusual may be a mistake: said on its own, never ranked against the others
-    options = [o for o in options if not (o.id in confirmed and confirmed[o.id].unusual)]
     states = {o.id: option_state(o, policy, confirmed[o.id].value if o.id in confirmed else None) for o in options}
     ranked = engine_rank_options(employee, current, list(states.values()), ctx.snapshot.calc, occupation)
     by_label = {s.label: oid for oid, s in states.items()}

@@ -276,7 +276,7 @@ export function PrivacyNotice({ privacy, disabled, onAccept, onHide }:
   { privacy: Privacy; disabled: boolean; onAccept: () => void; onHide: () => void }) {
   return (
     <aside className="privacy-notice" aria-label="פרטיות">
-      {privacy.demo && <p className="privacy-demo"><Icon name="alert" size={16} />זו סביבת הדגמה עם כללים לדוגמה. אל תזינו כאן נתוני שכר אמיתיים.</p>}
+      {privacy.demo && <p className="privacy-demo"><Icon name="alert" size={16} />זו סביבת הדגמה. אל תזינו כאן נתוני שכר אמיתיים.</p>}
       <p>
         כדי להבין כתיבה חופשית, ההודעות שלכם והנתונים שמסרתם נשלחים לעיבוד ב-Google Gemini, בלי פרטי קשר ובלי מספרי זהות.
         החישובים עצמם נעשים כאן. בלי אישור, השיחה ממשיכה בלי AI.

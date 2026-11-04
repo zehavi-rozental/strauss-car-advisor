@@ -508,7 +508,7 @@ def test_an_unusual_amount_is_asked_back_and_nothing_is_saved(engine):
     assert client.get("/api/rep/questions?status=OPEN", headers=rep(client)).json()[0]["id"] == qid
 
 
-def test_a_confirmed_unusual_amount_is_marked_and_never_a_regular_result(engine):
+def test_a_confirmed_unusual_amount_is_marked_and_its_calculation_stands(engine):
     client = make_client(engine, rep_access_token="t")
     cid, qid = asked_rep(client)
     r = client.post(f"/api/rep/questions/{qid}/answer", headers=rep(client), json={"value": "350000", "confirm_unusual": True})
@@ -516,6 +516,8 @@ def test_a_confirmed_unusual_amount_is_marked_and_never_a_regular_result(engine)
     v = client.get(f"/api/conversations/{cid}").json()
     niro = next(x for x in v["results"] if x["option_id"] == "CAR-05")
     assert niro["result"]["unusual_copay"] is True
+    assert Decimal(str(niro["result"]["alternative"]["copay"])) == 350000     # the amount as given, calculated as it is
+    assert niro["result"]["status"] == "OK" and niro["result"]["delta_display"] is not None
     message = v["messages"][-1]["content"]
     assert "חריג" in message and "-338" not in message and "הנטו יהיה" not in message
 
@@ -528,13 +530,13 @@ def test_a_usual_amount_passes_without_a_question(engine):
     assert "unusual_copay" not in niro["result"] and Decimal(str(niro["result"]["alternative"]["copay"])) == 300
 
 
-def test_a_flagged_car_is_not_ranked(engine):
+def test_a_flagged_car_is_counted_and_placed_by_its_net_like_any_other(engine):
     client = make_client(engine, rep_access_token="t")
     cid, qid = asked_rep(client)
     client.post(f"/api/rep/questions/{qid}/answer", headers=rep(client), json={"value": "350000", "confirm_unusual": True})
     client.post(f"/api/conversations/{cid}/messages", json={"text": "הכי משתלם"})
     v = client.get(f"/api/conversations/{cid}").json()
-    assert "CAR-05" not in [r["option_id"] for r in v["results"]]
+    assert "CAR-05" not in [r["option_id"] for r in v["results"]]        # its net puts it last, not the mark
 
 
 def test_a_copay_said_as_one_time_is_not_saved(engine):

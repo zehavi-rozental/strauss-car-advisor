@@ -53,7 +53,8 @@ interface Props {
 }
 
 export const SUPERSEDED_LABEL = 'חישוב קודם'
-export const UNUSUAL_NOTE = 'ההשתתפות שנמסרה חריגה, ולכן החישוב לא מוצג כתוצאה רגילה ולא נכלל בדירוג.'
+export const UNUSUAL_NOTE = 'ההשתתפות שנמסרה חריגה. החישוב מוצג לפי הסכום הזה, וכדאי לבקש מהנציג לבדוק אותו.'
+export const UNUSUAL_RESULT_NOTE = 'הנטו בחישוב יוצא אפס או פחות. כדאי לבדוק את הסכומים מול הנציג.'
 const isUnusual = (r: OptionResult) => Boolean(r.result.unusual_copay || r.result.unusual_result)
 
 export const STALE_NOTE = 'לא מעודכן: החישוב הזה נעשה לפני השינוי האחרון, ויחושב מחדש כשכל הפרטים יהיו ידועים.'
@@ -191,17 +192,16 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
     const q = m.source === 'rep' && m.rep_question_id ? inquiries.get(m.rep_question_id) : undefined
     return Boolean(q && q.missing_field === 'CURRENT_COPAY' && q.option_id?.startsWith('today:') && q.answer_value)
   }
-  // an amount that stands out is never drawn as a regular result: only said
-  const regular = results.filter((r) => !isUnusual(r))
+  // an amount that stands out keeps its calculation and its place: it is marked, and the note says why to check it
   const unusual = results.filter(isUnusual)
   const cards = results.length > 0 && (
     <div className={resultsStale ? 'result-cards result-stale' : 'result-cards'} data-stale={resultsStale || undefined}>
       {resultsStale && <p className="stale-note" role="status">{STALE_NOTE}</p>}
       {todayCard}
-      {regular.length > 1
-        ? <SummaryCard items={regular} current={!resultsStale} onOpenTable={onOpenTable} />
-        : regular.map((r) => <ResultCard key={`${r.option_id}:${r.run_id}`} item={r} onOpenTable={onOpenTable} />)}
-      {unusual.map((r) => <p key={r.option_id} className="unusual-note" role="status"><bdi>{r.label}</bdi>: {UNUSUAL_NOTE}</p>)}
+      {results.length > 1
+        ? <SummaryCard items={results} current={!resultsStale} onOpenTable={onOpenTable} />
+        : results.map((r) => <ResultCard key={`${r.option_id}:${r.run_id}`} item={r} onOpenTable={onOpenTable} />)}
+      {unusual.map((r) => <p key={r.option_id} className="unusual-note" role="status"><bdi>{r.label}</bdi>: {r.result.unusual_copay ? UNUSUAL_NOTE : UNUSUAL_RESULT_NOTE}</p>)}
     </div>
   )
 

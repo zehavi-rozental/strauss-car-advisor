@@ -355,7 +355,7 @@ def test_the_facts_say_what_is_known_missing_and_where_it_came_from(engine):
     send({"text": "קורולה 2026"})
     v = view(client, cid)
     assert item(v, "current_use_value")["source"] == "catalog" and item(v, "current_use_value")["edit"] is None
-    assert "כללי המס" in " ".join(v["facts"]["assumptions"])     # mock rules: said on the screen
+    assert "טעונה אימות" in " ".join(v["facts"]["assumptions"])     # the rules version is marked as needing verification
     send({"choice": "catalog:CAR-07", "field": "copay"})
     send({"text": "הכי משתלם"})
     v = view(client, cid)
