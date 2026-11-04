@@ -183,6 +183,7 @@ class Extensions(_Strict):
     all_at_once_cues: list[str] = Field(default_factory=list)   # "תן לי את כל השאלות בפעם אחת"
     # a value that is not (yet) true: code runs a check on a copy of the data and saves nothing (conversation.whatif)
     hypothetical_cues: list[str] = Field(default_factory=list)
+    hypothetical_value_cues: list[str] = Field(default_factory=list)
     # a value said as a fact that changed ("עלה ל", "אני מרוויח עכשיו"): a real update of what is saved
     declared_change_cues: list[str] = Field(default_factory=list)
     # verbs and words that name the salary, next to an amount ("ארוויח 20,000", "המשכורת עלתה ל-20 אלף")

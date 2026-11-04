@@ -35,7 +35,9 @@ from .tools import (
 _NUMBER = r"\d[\d,]*(?:\.\d+)?"
 _AMOUNT_RE = re.compile(rf"({_NUMBER})\s*(אלף)?")
 _GROUP_RE = re.compile(r"קבוצ(?:ה|ת)(?:\s+זכאות)?\s+([א-ד])(?![א-ת])")
-_FIRST_ASK = ("מה", "כמה", "איך", "מתי")
+_NOT_A_CONDITION = {"אפשר", "ניתן", "כך", "כן", "לא"}             # "אם אפשר, תעדכן": a request, not a condition
+_UNSURE_BEFORE = {"יודע", "יודעת", "יודעים", "בטוח", "בטוחה", "בטוחים", "זוכר", "זוכרת", "זוכרים"}   # "לא יודע אם": not a condition either
+_NAMES_A_VALUE = re.compile(r"\d[\d,]{2,}|\d+\s*אלף|\d\s*%")       # an amount or a percentage; "MAZDA 3" is a car
 
 
 @dataclass(frozen=True)
@@ -58,12 +60,18 @@ def says_any(text: str, cues: Any) -> bool:
 
 
 def is_hypothetical(text: str, snapshot: RulesSnapshot) -> bool:
-    """The message asks about a value that is not (yet) true: "מה יקרה אם", "ואם", "נניח", "אם הייתי"; or opens with "אם"
-    and asks something ("אם השכר שלי 20,000 מה הנטו?")."""
-    if says_any(text, snapshot.extensions.hypothetical_cues):
+    """The message asks about a value that is not (yet) true: "מה יקרה אם", "נניח", "תרחיש", or a condition anywhere in it
+    ("כמה יישאר לי אם אקבל 20,000?"). A mistake here is the safe one: nothing is saved, and the check offers to save."""
+    ext = snapshot.extensions
+    if says_any(text, ext.hypothetical_cues):
+        return True
+    if _NAMES_A_VALUE.search(text) and says_any(text, ext.hypothetical_value_cues):
         return True
     ws = words(text)
-    return bool(ws) and ws[0] == "אם" and ("?" in text or any(w in _FIRST_ASK for w in ws[1:]))
+    for i, w in enumerate(ws):
+        if w in ("אם", "ואם") and (i + 1 == len(ws) or ws[i + 1] not in _NOT_A_CONDITION) and (i == 0 or ws[i - 1] not in _UNSURE_BEFORE):
+            return True
+    return False
 
 
 def _amount(raw: str, thousands: Optional[str]) -> Optional[Decimal]:
@@ -80,7 +88,30 @@ def _salary_value(text: str, snapshot: RulesSnapshot) -> Optional[Decimal]:
     if not terms:
         return None
     m = re.search(rf"(?<![א-ת\w])[והבלשמ]?(?:{terms})(?![א-ת\w])[^\d]{{0,30}}?({_NUMBER})\s*(אלף)?", text)
+    if m is None:       # the amount first: "20,000 שכר", "תקן ל-20,000 את השכר". Not a small number: "3 ילדים והשכר" names no salary
+        m = re.search(rf"(\d[\d,]{{2,}}|\d+(?=\s*אלף))\s*(אלף)?[^\d]{{0,12}}?(?<![א-ת\w])[והבלשמ]?(?:{terms})(?![א-ת\w])", text)
     return _amount(m.group(1), m.group(2)) if m else None
+
+
+_PERCENT_FIRST = {"pension_percent": r"פנסיה", "study_fund_percent": r"קרן\s+(?:ה)?השתלמות|השתלמות"}
+
+
+def _percent_first(text: str) -> dict[str, Decimal]:
+    """"7% לפנסיה": the percentage before its word, which the profile reader reads the other way round."""
+    out = {}
+    for arg, word in _PERCENT_FIRST.items():
+        m = re.search(rf"(\d+(?:\.\d+)?)\s*%\s*(?:של\s+)?[לבו]?(?:{word})", text)
+        if m:
+            out[arg] = Decimal(m.group(1))
+    return out
+
+
+def _lone_salary(snapshot: RulesSnapshot, text: str) -> Optional[Decimal]:
+    """One amount in a hypothetical, with no word for what it is, in the range of a salary: "נגיד שאני מקבל 20,000". The check says
+    which value it took, and nothing is saved."""
+    bounds = snapshot.extensions.value_ranges.get("base_salary")
+    amounts = [v for m in re.finditer(rf"(\d[\d,]{{2,}}|\d+(?=\s*אלף))\s*(אלף)?", text) if (v := _amount(m.group(1), m.group(2))) is not None]
+    return amounts[0] if len(amounts) == 1 and bounds is not None and max(bounds[0], Decimal(3000)) <= amounts[0] <= bounds[1] else None
 
 
 def read_values(state: ConversationState, snapshot: RulesSnapshot, text: str) -> dict[str, Decimal]:
@@ -90,6 +121,8 @@ def read_values(state: ConversationState, snapshot: RulesSnapshot, text: str) ->
     values = {k: Decimal(str(v)) for k, v in reading.fields.items() if k in PROFILE_ARGS}
     if "base_salary" not in values and (salary := _salary_value(text, snapshot)) is not None:
         values["base_salary"] = salary
+    for arg, value in _percent_first(text).items():
+        values.setdefault(arg, value)
     if "השתתפות" in text and state.current.source in ("catalog", "tax", "stated"):
         copay = parse_copay(text)
         if copay is not None:
@@ -111,9 +144,13 @@ def read_change(state: ConversationState, snapshot: RulesSnapshot, text: str) ->
     if hypothetical:
         group = _GROUP_RE.search(text)
         cars = tuple(c.catalog_code for c in named_cars(text, snapshot.catalog))
+        if not values and not group and not cars and (lone := _lone_salary(snapshot, text)) is not None:
+            values = {"base_salary": lone}
         if values or group or cars:
             return Change("what_if", values, group.group(1) if group else None, cars)
         return None
+    if not values and (salary := _instead_of_saved(state, text)) is not None:
+        return Change("update", {"base_salary": salary})            # "לא 18,000, אלא 20,000": the saved salary is named, so it is it
     replaced = {k: v for k, v in values.items() if _current(state, k) is not None
                 and Decimal(str(_current(state, k))) != v}
     if not replaced or set(replaced) != set(values):
@@ -123,6 +160,25 @@ def read_change(state: ConversationState, snapshot: RulesSnapshot, text: str) ->
     if says_any(text, snapshot.extensions.declared_change_cues):
         return Change("update", replaced)
     return None
+
+
+def _instead_of_saved(state: ConversationState, text: str) -> Optional[Decimal]:
+    """Two amounts, one of them the saved salary, with a word that replaces one by the other."""
+    base = state.profile.base
+    if base is None or not re.search(r"(?<![א-ת])(?:אלא|ולא|במקום)(?![א-ת])", text):
+        return None
+    amounts = [v for m in _AMOUNT_RE.finditer(text) if (v := _amount(m.group(1), m.group(2))) is not None]
+    if len(amounts) != 2 or base not in amounts or amounts[0] == amounts[1]:
+        return None
+    return amounts[0] if amounts[1] == base else amounts[1]
+
+
+def read_loose_change(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Optional[dict[str, Decimal]]:
+    """A value that differs from the saved one, said with nothing that tells a change from a question ("שכר בסס 20000"): asked,
+    never guessed and never left as "not understood"."""
+    values = read_values(state, snapshot, text)
+    replaced = {k: v for k, v in values.items() if _current(state, k) is not None and Decimal(str(_current(state, k))) != v}
+    return replaced if replaced and set(replaced) == set(values) else None
 
 
 def read_bare_amount(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Optional[dict[str, Decimal]]:

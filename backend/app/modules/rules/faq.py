@@ -86,6 +86,7 @@ class Faq(BaseModel):
     # "אפשר להמשיך אחר כך?": can the conversation wait; "מה רשמת עליי?": what is saved, from the state, in code
     pause_terms: tuple[str, ...] = ()
     data_request_terms: tuple[str, ...] = ()
+    delete_terms: tuple[str, ...] = ()
     # a request to upload a payslip (1/11): "תלוש" next to one of these verbs, at any stage, before the flow question
     payslip_upload_terms: tuple[str, ...] = ()
     # a request to see the cars (1/11): one of the verbs next to one of the objects ("תציג לי אפשרויות", "תראה לי

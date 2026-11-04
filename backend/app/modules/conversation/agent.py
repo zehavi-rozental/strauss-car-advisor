@@ -75,7 +75,9 @@ from .templates import (
     UNANSWERED,
     CHOOSE_TO_COMPARE,
     COPAY_WITH_REP,
+    DELETE_ANSWER,
     PAUSE_ANSWER,
+    PRESENTED_UNSURE,
     PAYSLIP_OFFER,
     data_summary_text,
     what_if_missing_text,
@@ -133,6 +135,7 @@ from .whatif import (
     is_hypothetical,
     read_bare_amount,
     read_change,
+    read_loose_change,
     run_scenario,
     scenario_ask,
     scenario_text,
@@ -1139,6 +1142,17 @@ class Agent:
             return self._finish(ctx, history, text, ParserPlan(complete=True, notice=PAUSE_ANSWER, direct=True,
                                                                code_only=True, acked=True), before, record_run,
                                 und=Understanding(remainder="", resume=True))
+        if (before == Stage.PRESENTED and state.results and not results_stale(state) and state.asked_field is None
+                and all(w == "מה" for w in words(text))):
+            # "?" or "מה" with results on screen: it says nothing, so the reply says what can be done (not "compare other cars")
+            return self._finish(ctx, history, text, ParserPlan(complete=True, notice=PRESENTED_UNSURE, direct=True,
+                                                               code_only=True, acked=True), before, record_run,
+                                und=Understanding(remainder="", resume=True))
+        if says_phrase(text, faq.delete_terms) and not named_cars(text, snapshot.catalog):
+            # "תמחק הכול": never done from a sentence, and never left as "not understood": where it is done, and what it does
+            return self._finish(ctx, history, text, ParserPlan(complete=True, notice=DELETE_ANSWER, direct=True,
+                                                               code_only=True, acked=True), before, record_run,
+                                und=Understanding(remainder="", resume=True))
         if says_phrase(text, faq.data_request_terms):
             # "מה רשמת עליי?": from the state, in both modes (a definition of the term answered the wrong question)
             return self._finish(ctx, history, text, ParserPlan(complete=True, notice=data_summary_text(state),
@@ -1289,6 +1303,9 @@ class Agent:
             else:
                 # הקורא הדטרמיניסטי קודם, על ההודעה בלי השאלות שבה. מה שהוא קורא במלואו לא מגיע למודל.
                 plan = fallback_plan(state, snapshot, und.remainder)
+                if (not plan.calls and plan.notice is None and state.asked_field is None and before in (Stage.PRESENTED, Stage.CHOOSE_OPTIONS)
+                        and (values := read_loose_change(state, snapshot, text)) is not None):
+                    return self._ask_value_intent(state, values)   # a new value with no word for what it is: asked
         return self._finish(ctx, history, text, plan, before, record_run, und=und, extra=[pace] if pace else ())
 
     # ---------- a change, or a check ----------
