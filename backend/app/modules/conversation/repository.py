@@ -66,11 +66,13 @@ class ConversationRepository:
     # ---------- הודעות ----------
 
     def add_message(self, conversation_id: uuid.UUID, role: str, content: str, source: str,
-                    guard_blocked: bool = False, rep_question_id: Optional[str] = None) -> MessageRow:
+                    guard_blocked: bool = False, rep_question_id: Optional[str] = None,
+                    results_version: Optional[int] = None, card: Optional[dict[str, Any]] = None) -> MessageRow:
         seq = self.session.scalar(select(func.coalesce(func.max(MessageRow.seq), 0))
                                   .where(MessageRow.conversation_id == conversation_id)) + 1
         row = MessageRow(conversation_id=conversation_id, seq=seq, role=role, content=content, source=source,
-                         guard_blocked=guard_blocked, rep_question_id=rep_question_id)
+                         guard_blocked=guard_blocked, rep_question_id=rep_question_id,
+                         results_version=results_version, card=card)
         self.session.add(row)
         self.session.flush()
         return row

@@ -191,6 +191,10 @@ social_replies:
   proceed: ["בסדר, ממשיכים.", "בשמחה, נמשיך."]
 # "let's move on" with no value and no question in it ("אוקי אז מה ההמשך אני כבר רוצה", 31/10): the open
 # question is picked up (social kind "proceed"); without a model it got "לא בטוח שהבנתי" and the question explained
+pause_terms: [להמשיך אחר כך, נמשיך אחר כך, להמשיך מאוחר יותר, נמשיך מאוחר יותר, להמשיך מחר, לחזור אחר כך, לחזור מאוחר יותר, לחזור לזה אחר כך,
+              אפשר לעצור, לעצור עכשיו, לסיים ולחזור, תשמור לי, השיחה נשמרת, השיחה נשמרה]
+data_request_terms: [מה רשמת, מה רשום, מה יש לך עליי, מה יש לך עלי, מה אתה יודע עליי, מה אתה יודע עלי, אילו נתונים יש, איזה נתונים יש,
+                     מה הנתונים שלי, מה השכר שרשמת, מה מסרתי, מה כתבתי עד עכשיו, תראה לי מה, תראי לי מה, פרטים שמסרתי]
 proceed_terms: [המשך, להמשיך, נמשיך, תמשיך, הלאה, להתקדם, נתקדם, קדימה]
 # "אני רוצה להעלות תלוש", "אי אפשר להעלות תלוש?" (1/11): the word תלוש with one of these opens the uploader at once,
 # whatever was asked before; "מה רשום בתלוש?" (no verb) stays a question for the FAQ

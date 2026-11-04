@@ -35,7 +35,9 @@ from app.shared.db import new_id
 
 from app.modules.cases.public import CasesService, MissingField, Mode, QuestionAnswered, Status as QuestionStatus
 
-from .expects import ChoiceInvalid, FieldsInvalid, build_expects, tax_label, validate_choice, validate_fields, vehicle_id
+from .expects import (ChoiceInvalid, FieldsInvalid, build_expects, parse_vehicle_id, tax_label, validate_choice,
+                      validate_fields, vehicle_id)
+from .facts import facts_view
 from .email_notifications import EmailNotificationService, EmailNotConfigured, InvalidEmailLink
 from .agent import Agent, RepQuestionResult, employee_wording, general_question_id, today_copay_question_id
 from .models import ConversationRow
@@ -53,8 +55,8 @@ from .repository import (
     token_hash,
 )
 from .option_map import map_json
-from .stage import ConversationState, OptionResult, RepReason, Stage, map_missing, map_ready, results_stale
-from .templates import FIELD_NAMES, INQUIRY_PURPOSE, INQUIRY_PURPOSE_DEFAULT, inquiry_next_text
+from .stage import PROFILE_ARGS, ConversationState, OptionResult, RepReason, Stage, map_missing, map_ready, results_stale
+from .templates import FIELD_NAMES, INQUIRY_PURPOSE, INQUIRY_PURPOSE_DEFAULT, inquiry_next_text, labelled_value
 
 
 log = logging.getLogger(__name__)
@@ -79,6 +81,10 @@ class ConversationConflict(Exception):
     """תור אחר על אותה שיחה נכתב בזמן שהתור הזה רץ. התור הזה בוטל ולא נשמר דבר ממנו."""
 
 
+class StaleEdit(ConversationConflict):
+    """An edit made on a screen older than the data (base_version): nothing was saved, the screen reloads."""
+
+
 class RepQuestionInvalid(ValueError):
     """שאלה לנציג שאי אפשר לשלוח: ריקה, ארוכה מדי, או מחוץ להיקף (rep_scope_ok). ההודעה בעברית, לתצוגה לעובד."""
 
@@ -95,6 +101,9 @@ class TurnResult:
     say: str = ""             # SAY: llm, or why the template was used (ללוג; לא נשלח ב-API)
     expects: dict[str, Any] = field(default_factory=dict)   # מה השאלה הבאה מצפה לקבל (כפתורים, סוג)
     results_stale: bool = False   # the results on record predate the last change (stage.results_stale)
+    facts: dict[str, Any] = field(default_factory=dict)     # what is known, for the context strip ("הנתונים שלי")
+    card: Optional[dict[str, Any]] = None                   # "what changed", or a what-if check
+    results_version: int = 0
 
 
 @dataclass
@@ -134,7 +143,8 @@ def _store_runs(repo: ConversationRepository, conv_id: uuid.UUID, snapshot_id: u
 
 def _message_json(m: Any) -> dict[str, Any]:
     return {"seq": m.seq, "role": m.role, "source": m.source, "content": m.content,
-            "created_at": m.created_at.isoformat(), "rep_question_id": getattr(m, "rep_question_id", None)}
+            "created_at": m.created_at.isoformat(), "rep_question_id": getattr(m, "rep_question_id", None),
+            "results_version": getattr(m, "results_version", None), "card": getattr(m, "card", None)}
 
 
 def _rep_question_json(q: Any) -> dict[str, Any]:
@@ -256,20 +266,20 @@ class ConversationService:
         return self._timed(conversation_id, token, "", list(ids), field)
 
     def send_fields(self, conversation_id: str, token: str, values: dict[str, Any],
-                    source: Optional[str] = None) -> TurnResult:
+                    source: Optional[str] = None, base_version: Optional[int] = None) -> TurnResult:
         """טופס מובנה של שדות פרופיל (Q2 או תיקון): נבדק מול הטווחים (FieldsInvalid, כל השדות השגויים;
         דבר לא נשמר) ונשמר בקוד, בלי מודל השפה. ההודעה שנשמרת היא טקסט קריא של הערכים, לתצוגה בלבד.
         source="payslip": values the employee reviewed and approved from a payslip (said so in the history)."""
-        return self._timed(conversation_id, token, "", None, None, values, source)
+        return self._timed(conversation_id, token, "", None, None, values, source, base_version)
 
     def _timed(self, conversation_id: str, token: str, text: str, choice: Optional[list[str]],
                field: Optional[str] = None, fields: Optional[dict[str, Any]] = None,
-               source: Optional[str] = None) -> TurnResult:
+               source: Optional[str] = None, base_version: Optional[int] = None) -> TurnResult:
         started = time.monotonic()
         path, say = "error", ""
         try:
             self._apply_pending(self._authorized(conversation_id, token))
-            result = self._send(conversation_id, token, text, choice, field, fields, source)
+            result = self._send(conversation_id, token, text, choice, field, fields, source, base_version)
             path, say = result.path, result.say
             return result
         finally:
@@ -277,7 +287,7 @@ class ConversationService:
 
     def _send(self, conversation_id: str, token: str, text: str, choice: Optional[list[str]] = None,
               field: Optional[str] = None, fields: Optional[dict[str, Any]] = None,
-              source: Optional[str] = None) -> TurnResult:
+              source: Optional[str] = None, base_version: Optional[int] = None) -> TurnResult:
         """שלושה שלבים, כדי שאף טרנזקציה לא תהיה פתוחה בזמן קריאות למודל השפה:
         (א) קריאה קצרה, (ב) הסוכן בלי סשן פתוח, (ג) כתיבה קצרה של כל התור."""
         snapshot = self.rules.current
@@ -292,6 +302,8 @@ class ConversationService:
                 raise ConversationLimitReached()
             conv_id, loaded_count, loaded_version = row.id, row.message_count, row.version
             state = ConversationState.model_validate(row.state)
+            if base_version is not None and base_version != state.data_version:
+                raise StaleEdit()
             history = [ChatMessage("user" if m.role == "user" else "assistant", m.content)
                        for m in repo.messages(row.id)]
         if choice is not None:
@@ -299,8 +311,8 @@ class ConversationService:
             text, field = validate_choice(build_expects(state, snapshot), choice, snapshot, self._get_vehicle, field)
 
         if fields is not None:
-            fields = validate_fields(snapshot, fields)      # לפני כל שינוי במצב
-            text = ("מהתלוש (אושר): " if source == "payslip" else "") + recorded_text(fields)
+            fields = validate_fields(snapshot, fields, state, self._get_vehicle)      # לפני כל שינוי במצב
+            text = ("מהתלוש (אושר): " if source == "payslip" else "") + self._fields_text(fields, snapshot)
 
         # (ב) הסוכן — הרצות החישוב נאספות בזיכרון
         pending: list[_PendingRun] = []
@@ -325,7 +337,8 @@ class ConversationService:
             # seq מחושב כאן, אחרי העדכון ותחת אותה נעילת כתיבה
             repo.add_message(conv_id, "user", text, "user")
             self._record_inquiries(repo, conv_id, opened)
-            repo.add_message(conv_id, "assistant", outcome.reply, outcome.source, outcome.guard_blocked)
+            repo.add_message(conv_id, "assistant", outcome.reply, outcome.source, outcome.guard_blocked,
+                             results_version=outcome.results_version, card=outcome.card)
             _store_runs(repo, conv_id, snapshot_id, pending)
 
         return TurnResult(conversation_id=str(conv_id), stage=state.stage, reply=outcome.reply,
@@ -333,7 +346,29 @@ class ConversationService:
                           results=state.results if outcome.just_calculated else [],
                           pending_rep=state.pending_rep.reason if state.pending_rep else None,
                           path=outcome.path, say=outcome.say, expects=build_expects(state, snapshot),
-                          results_stale=results_stale(state))
+                          results_stale=results_stale(state), facts=facts_view(state, snapshot), card=outcome.card,
+                          results_version=state.results_version)
+
+    def _fields_text(self, fields: dict[str, Any], snapshot: RulesSnapshot) -> str:
+        """The history line of a structured change, in plain words."""
+        profile = {k: v for k, v in fields.items() if k in PROFILE_ARGS}
+        parts = [recorded_text(profile)] if profile else []
+        for key, value in fields.items():
+            if key in ("current_copay", "current_use_value", "current_maintenance"):
+                parts.append(labelled_value(key, value))
+            elif key == "eligibility_group":
+                parts.append(f"קבוצה {value}")
+            elif key == "occupation":
+                parts.append(f"תפקיד {value}")
+            elif key == "current_car":
+                if value == "no_car":
+                    parts.append("אין לי רכב צמוד")
+                else:
+                    car = next((c for c in snapshot.catalog if c.catalog_code == value), None)
+                    key_ = parse_vehicle_id(str(value))
+                    info = self._get_vehicle(key_) if car is None and key_ is not None else None
+                    parts.append(f"הרכב שלי היום: {car.label if car else tax_label(info) if info else value}")
+        return ", ".join(parts)
 
     def _store_questions(self, session, repo: ConversationRepository, conv_id: uuid.UUID,
                          state: ConversationState, outcome) -> list[Any]:
@@ -596,9 +631,10 @@ class ConversationService:
                 opened = self._store_questions(session, repo, conv_id, state, outcome)
                 if outcome.reply:
                     repo.add_message(conv_id, "assistant", outcome.reply, "rep",
-                                     rep_question_id=event.question_id)
+                                     rep_question_id=event.question_id, results_version=outcome.results_version)
                 if outcome.follow_up:                # the advisor's next step: its own message, same transaction
-                    repo.add_message(conv_id, "assistant", outcome.follow_up, "template")
+                    repo.add_message(conv_id, "assistant", outcome.follow_up, "template",
+                                     results_version=outcome.results_version)
                 self._record_inquiries(repo, conv_id, opened)       # a question this answer led to
                 _store_runs(repo, conv_id, snapshot_id, pending)
                 if self._mail_enabled:
@@ -659,6 +695,8 @@ class ConversationService:
                                             if state.current.copay is None and state.current.copay_provisional
                                             is not None else None),
                 "today_car": state.current.label or None,   # the card above the comparison (1/11)
+                "facts": facts_view(state, self.rules.current), "data_version": state.data_version,
+                "results_version": state.results_version,
                 "rep_questions": [_rep_question_json(q) for q in questions], **map_readiness(state)}
 
     def view(self, conversation_id: str, token: str) -> ConversationView:
@@ -734,6 +772,8 @@ def engine_state(llm: LLMChain, say: Optional[str] = None) -> Optional[str]:
 
 
 __all__ = [
+    "StaleEdit",
+    "facts_view",
     "ChatMessage", "LLMError", "EmailNotificationService", "EmailNotConfigured", "InvalidEmailLink",
     "ConversationConflict", "ConversationLimitReached", "ConversationNotFound", "ConversationService",
     "ConversationState",

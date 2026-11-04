@@ -137,6 +137,21 @@ bare_zero_words: [גם, ממש, באמת, בכלל, כלום, שום, דבר, ל
 all_at_once_cues: [כל השאלות בפעם אחת, כל השאלות ביחד, כל השאלות יחד, את כל השאלות, כל השאלות במכה, אמלא הכל ביחד,
                    אמלא הכול ביחד, אמלא הכל בבת אחת, אמלא הכול בבת אחת, בבת אחת, רשימת השאלות]
 pace_reset_cues: [הכול ביחד, הכל ביחד, כמה שאלות ביחד]
+# "מה אם": a value that is not (yet) true. Code runs a check on a copy of the data; nothing is saved (conversation.whatif).
+hypothetical_cues: [מה יקרה אם, מה קורה אם, מה יהיה אם, מה אם, ומה אם, ואם, אם הייתי, אם הייתה, אם היה, אם היו, אם אהיה, אם אעבור,
+                    נניח, בהנחה ש, בהנחה, תיאורטית, בתיאוריה, לו הייתי, אילו הייתי, במקרה ש, בוא נגיד, בואו נגיד, לדוגמה אם,
+                    רק לבדוק אם, תבדוק מה קורה אם, תבדוק מה יקרה אם]
+# A value said as a fact that changed: a real update ("אני מרוויח עכשיו 20,000", "השכר עלה ל-20 אלף"). Only for a value
+# already saved; the same value with a question mark is asked back.
+declared_change_cues: [עכשיו, כעת, עלה ל, עלתה ל, ירד ל, ירדה ל, עלו ל, ירדו ל, קיבלתי העלאה, קיבלתי תוספת, תעדכן, תעדכני, תעדכנו, לעדכן,
+                       תשנה ל, תשני ל, שנה ל, שני ל, אני מרוויח, אני מרוויחה, אני משתכר, אני משתכרת, מהחודש, החל מהחודש]
+salary_words: [שכר, השכר, משכורת, המשכורת, מרוויח, מרוויחה, ארוויח, נרוויח, תרוויח, אשתכר, משתכר, משתכרת, העלאה, העלו]
+# Selection changes in words, with a catalog car named: code works out the new list; the eligibility rules apply.
+selection_add_cues: [תוסיף, תוסיפי, תוסיפו, הוסף, הוסיפי, להוסיף, גם את, תכניס, תכניסי, נוסיף]
+selection_remove_cues: [תוריד, תורידי, תורידו, להוריד, תסיר, תסירי, להסיר, תמחק, תמחקי, בלי את, לא רוצה את, נוריד]
+selection_replace_cues: [במקום, תחליף, תחליפי, להחליף את, תשנה ל, תשני ל]
+rep_copay_review_multiple: 3     # a review threshold (no rule gives a ceiling): above it the representative confirms once
+
 # STRAUSS DRIVE 360°: map every eligible option (the engine calculates each one; nothing is chosen for the employee)
 option_map_cues: [כל האפשרויות, את כל האפשרויות, כל החלופות, את כל החלופות, מפת האפשרויות, מפת אפשרויות, "360°"]
 

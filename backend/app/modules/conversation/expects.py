@@ -86,20 +86,59 @@ def _pick_field(expects: dict[str, Any], ids: list[str], field: Optional[str]) -
 
 FORM_FIELDS = ("base_salary", "commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points",
                "children_under_23")      # base_salary: from a reviewed payslip (api ProfileFieldsIn)
+# one value edited on its own ("הנתונים שלי"): the same gates as the rest
+EDIT_FIELDS = ("eligibility_group", "occupation", "current_copay", "current_use_value", "current_maintenance", "current_car")
 _FORM_LABELS = {"base_salary": "שכר בסיס", "commissions": "עמלות", "bonus": "בונוס", "pension_percent": "פנסיה",
-                "study_fund_percent": "קרן השתלמות", "credit_points": "נקודות זיכוי", "children_under_23": "ילדים"}
+                "study_fund_percent": "קרן השתלמות", "credit_points": "נקודות זיכוי", "children_under_23": "ילדים",
+                "current_copay": "השתתפות", "current_use_value": "שווי שימוש", "current_maintenance": "אחזקת רכב"}
 
 
-def validate_fields(snapshot: RulesSnapshot, values: dict[str, Any]) -> dict[str, Any]:
+def _edit_errors(snapshot: RulesSnapshot, state: Optional[ConversationState], values: dict[str, Any],
+                 get_vehicle: Optional[VehicleGetter]) -> dict[str, str]:
+    """What the rules do not allow to change this way, each with its reason in plain words."""
+    errors: dict[str, str] = {}
+    if "eligibility_group" in values:
+        if values["eligibility_group"] not in snapshot.calc.group_order:
+            errors["eligibility_group"] = f"קבוצת זכאות היא אחת מ: {', '.join(snapshot.calc.group_order)}."
+        elif state is not None and state.profile.occupation:
+            errors["eligibility_group"] = (f"הקבוצה נקבעת לפי התפקיד ({state.profile.occupation}). אפשר לעדכן את התפקיד, "
+                                           "או לבקש מהנציג לבדוק.")
+    if "occupation" in values and values["occupation"] not in snapshot.occupations:
+        errors["occupation"] = "בחרו תפקיד מהרשימה."
+    if state is not None:
+        source = state.current.source
+        if "current_copay" in values and source not in ("catalog", "tax", "stated"):
+            errors["current_copay"] = "קודם צריך לדעת מה הרכב של היום."
+        if "current_use_value" in values and source in ("catalog", "tax"):
+            errors["current_use_value"] = "שווי השימוש של הרכב הזה נלקח מהמאגר. כדי לשנות אותו, עדכנו את הרכב."
+        if "current_use_value" in values and source is None and not state.current.query:
+            errors["current_use_value"] = "קודם צריך לדעת מה הרכב של היום."
+        if "current_maintenance" in values and source != "none":
+            errors["current_maintenance"] = "אחזקת רכב רלוונטית רק למי שאין לו רכב צמוד היום."
+    if "current_car" in values:
+        code = str(values["current_car"])
+        known = code == "no_car" or any(c.catalog_code == code for c in snapshot.catalog)
+        if not known:
+            key = parse_vehicle_id(code)
+            known = key is not None and get_vehicle is not None and get_vehicle(key) is not None
+        if not known:
+            errors["current_car"] = "בחרו רכב מהרשימה."
+    return errors
+
+
+def validate_fields(snapshot: RulesSnapshot, values: dict[str, Any], state: Optional[ConversationState] = None,
+                    get_vehicle: Optional[VehicleGetter] = None) -> dict[str, Any]:
     """הטופס המובנה: לפחות שדה אחד, ורק שדות הטופס; כל ערך בטווח של extensions.yaml (אותם טווחים
     כמו save_profile). מחוץ לטווח — ChoiceInvalid (422) והמצב לא משתנה."""
     values = {k: v for k, v in values.items() if v is not None}
-    if not values or any(k not in FORM_FIELDS for k in values):
+    if not values or any(k not in FORM_FIELDS and k not in EDIT_FIELDS for k in values):
         raise ChoiceInvalid(INVALID)
     ranges = snapshot.extensions.value_ranges
     errors = {key: f"{_FORM_LABELS[key]}: הערך מחוץ לטווח ({ranges[key][0]}–{ranges[key][1]})"
               for key, value in values.items()
-              if key in ranges and not Decimal(ranges[key][0]) <= Decimal(value) <= Decimal(ranges[key][1])}
+              if key in ranges and key in _FORM_LABELS
+              and not Decimal(ranges[key][0]) <= Decimal(value) <= Decimal(ranges[key][1])}
+    errors.update(_edit_errors(snapshot, state, values, get_vehicle))
     if errors:
         raise FieldsInvalid(errors)
     return values
@@ -135,8 +174,12 @@ def COPAY_CHOICES(code: Optional[str]) -> list[dict[str, str]]:
 COPAY_CHOICES_NO_CATALOG = [{"id": "other", "label": "להזין סכום"}, {"id": "rep", "label": "לברר מול נציג"}]
 
 
+VALUE_INTENT = [{"id": "update", "label": "לעדכן את הנתון"}, {"id": "what_if", "label": "רק לבדוק"}]
+SCENARIO_APPLY = [{"id": "apply", "label": "לעדכן כנתון שלי"}, {"id": "dismiss", "label": "להשאיר כבדיקה"}]
+SCENARIO_ADD = [{"id": "apply", "label": "להוסיף להשוואה"}, {"id": "dismiss", "label": "להשאיר כבדיקה"}]
+
 CLOSED = {"confirmation", "occupation_confirmation", "clarification", "car_choice", "drive", "rep_question",
-          "ambiguity", "ask_rep"}
+          "ambiguity", "ask_rep", "value_intent", "scenario_apply"}
 
 
 def build_expects(state: ConversationState, snapshot: RulesSnapshot) -> dict[str, Any]:
@@ -174,6 +217,11 @@ def build_expects(state: ConversationState, snapshot: RulesSnapshot) -> dict[str
 
 def _build(state: ConversationState, snapshot: RulesSnapshot) -> dict[str, Any]:
     stage = next_stage(state)
+    if state.pending_value_intent is not None:
+        return _expects("value_intent", "choice", VALUE_INTENT)
+    if state.last_scenario is not None:
+        apply = state.last_scenario.get("apply") or {}
+        return _expects("scenario_apply", "choice", SCENARIO_ADD if apply.get("add_options") else SCENARIO_APPLY)
     if state.pending_rep_question is not None:
         return _expects("rep_question", "choice", REP_SEND)
     if state.pending_ambiguity is not None:

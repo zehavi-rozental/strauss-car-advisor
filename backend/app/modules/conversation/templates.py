@@ -15,7 +15,7 @@ from app.modules.rules.public import FAMILY_GROUP, RulesSnapshot
 from app.shared.money import to_shekel
 
 from .stage import (MAX_OPTIONS, PROFILE_ARGS, Q2_FIELDS, profile_args, ConversationState, RepReason, Stage, current_group,
-                    current_unknown, missing_current_car, next_stage, open_profile, unknown_missing)
+                    current_unknown, missing_current_car, next_stage, open_profile, results_stale, unknown_missing)
 from .tools import available_options
 
 DRIVE_HE = {"PETROL": "בנזין", "HYBRID": "היברידי", "PLUG_IN": "פלאג-אין", "ELECTRIC": "חשמלי"}
@@ -466,16 +466,19 @@ def _best_line(best: Any) -> str:
     return f"הנטו הגבוה ביותר: {best.label}, בלי שינוי בנטו."
 
 
-def results_text(state: ConversationState) -> str:
+def results_text(state: ConversationState, head: bool = True) -> str:
     """At most two short lines for a plain comparison: a summary, then what is waiting. The detail
-    lives only in the structured results (the summary card and the comparison panel)."""
+    lives only in the structured results (the summary card and the comparison panel). head=False: without the summary
+    (the "what changed" card and its lines said it), only what is waiting or unusual."""
     ok, bad = [], []
     for item in state.results:
         r = item.result
         (ok if r["status"] == "OK" and r.get("delta_display") is not None else bad).append(item)
     lines: list[str] = []
     best = max(ok, key=lambda i: Decimal(str(i.result["delta_display"]))) if ok else None
-    if state.ranked_count and ok:
+    if not head:
+        pass
+    elif state.ranked_count and ok:
         # "הכי משתלם": how many were ranked, and that only the top ones are shown
         top = (f"אלה {len(ok)} החלופות עם הנטו המשוער הגבוה ביותר:" if len(ok) > 1
                else "זו החלופה עם הנטו המשוער הגבוה ביותר:")
@@ -833,6 +836,38 @@ def group_from_role_text(occupation: str, table_group: str, stated: str) -> str:
     """A group stated while the role decides it: nothing changed, why, and what can be done."""
     return (f"קבוצת הזכאות נקבעת לפי התפקיד: {occupation} שייך לקבוצה {table_group}, ולכן לא שיניתי אותה לקבוצה {stated}.\n"
             "אם התפקיד לא נכון, אפשר לעדכן אותו. אם לדעתכם הקבוצה בטבלה לא נכונה, נציג התחבורה יכול לבדוק.")
+
+
+def data_summary_text(state: ConversationState) -> str:
+    """"מה רשמת עליי?": what is saved and what is still missing, from the state only. The full list, with where each value
+    came from, is one tap away ("הנתונים שלי")."""
+    p, c = state.profile, state.current
+    known = [f"קבוצה {p.group}"] if p.group else []
+    if p.occupation or p.occupation_text:
+        known.append(f"תפקיד {p.occupation or p.occupation_text}")
+    profile = {arg: getattr(p, attr) for arg, attr in _PROFILE_LABEL_ARGS.items() if getattr(p, attr) is not None}
+    if profile:
+        known.append(recorded_text(profile))
+    if c.source == "none":
+        known.append("אין רכב צמוד היום")
+    elif c.label:
+        known.append(f"רכב היום {c.label}")
+    if c.copay is not None:
+        known.append(labelled_value("current_copay", c.copay))
+    if not known:
+        return "עוד לא רשמתי אף נתון."
+    return f"רשום אצלי: {', '.join(known)}.\nהרשימה המלאה, עם המקור של כל נתון, נמצאת ב\"הנתונים שלי\", ושם אפשר גם לעדכן."
+
+
+_PROFILE_LABEL_ARGS = {"base_salary": "base", "commissions": "commissions", "bonus": "bonus",
+                       "pension_percent": "pension_percent", "study_fund_percent": "study_fund_percent",
+                       "credit_points": "credit_points", "children_under_23": "children"}
+
+
+def what_if_missing_text(missing: Sequence[str]) -> str:
+    """A check that cannot run yet: why, and that the value in it was not saved."""
+    return (f"כדי לבדוק מה יקרה, חסרים לי עוד: {', '.join(missing)}.\n"
+            "לא רשמתי את הערך שציינתם, כי שאלתם עליו כבדיקה.")
 
 
 def removed_options_text(removed: Sequence[Any]) -> str:
@@ -1282,6 +1317,7 @@ def options_ask(state: ConversationState, snapshot: RulesSnapshot) -> str:
 
 def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood: bool,
                just_calculated: bool, matched_car: bool = False, notice: Optional[str] = None,
+               results_summary: Optional[str] = None,
                rep_opened: bool = False, notice_asks: bool = False, cta_field: Optional[str] = None,
                confirmations: Sequence[str] = (),
                answers: Sequence[tuple[str, str]] = (), follow_up: Sequence[str] = (),
@@ -1301,7 +1337,8 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
     # השתתפות שהנציג חייב לאשר (REP_REQUIRED): התוצאה מוצגת רק אחרי התשובה
     hide_results = waiting and state.pending_rep is not None and state.pending_rep.reason == RepReason.NEW_CAR_COPAY
     if just_calculated and state.results and not hide_results:
-        plan.ack.append(results_text(state))
+        plan.ack.append("\n".join(x for x in (results_summary, results_text(state, head=False)) if x)
+                        if results_summary else results_text(state))
         plan.fixed = True
     if waiting:
         plan.ask.append(asked_text(state) if rep_opened else WAITING)
@@ -1319,7 +1356,7 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
         ok = [r for r in state.results if r.result.get("status") == "OK" and r.result.get("delta_display") is not None]
         if ok:
             best = max(ok, key=lambda r: Decimal(str(r.result["delta_display"])))
-            if best.result.get("why"):
+            if best.result.get("why") and not results_summary:
                 plan.ask.append(f"הסיבה העיקרית {in_label(best.label)}: {best.result['why']}")
             plan.cta = (NEXT_AFTER_RANK if state.ranked_count else NEXT_AFTER_RESULTS)
         return plan
@@ -1344,6 +1381,14 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
         plan.ask.append(clarify_role_text(state.pending_clarification.label))
         return plan
     fields = current_group(state)[1]
+    if (state.stage == Stage.PRESENTED and state.results and not results_stale(state) and not notice_asks
+            and state.pending_confirmation is None and state.pending_occupation is None):
+        # results on screen and nothing open: the reply stays with them. Choosing cars again is an option, never the
+        # question every other message falls back to (the review's A-04, the conversation bugs of 22/10)
+        if not understood and not answers and not extra and not follow_up:
+            plan.ask.append(PRESENTED_UNSURE)
+        plan.cta = NEXT_AFTER_RANK if state.ranked_count else NEXT_AFTER_RESULTS
+        return plan
     if notice_asks and notice:
         plan.ask.append(notice)                        # range problem / conflict: the sentence asks
         if cta_field:
@@ -1398,6 +1443,10 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
 
 
 UNSURE = "לא בטוח שהבנתי למה התכוונתם."
+PRESENTED_UNSURE = ("לא בטוח שהבנתי למה התכוונתם. התוצאות נשארות כפי שהן.\n"
+                    "אפשר לשאול עליהן, לעדכן נתון, או לבדוק מה יקרה אם משהו ישתנה.")
+PAUSE_ANSWER = ("כן. הפרטים נשמרים, ואפשר לחזור לשיחה מהדפדפן הזה כל עוד היא פתוחה בו. אחרי זמן ללא פעילות היא ננעלת, "
+                "ואחרי תקופת השמירה היא נמחקת.\nבמחשב משותף כדאי לבחור \"מחיקת השיחה\" בסיום.")
 OPEN_HELP = "איך אפשר לעזור לכם היום עם רכב החברה?"
 OPEN_HELP_CTA = "אפשר לכתוב כאן כל שאלה, או להתחיל מקבוצת הזכאות שלכם."
 

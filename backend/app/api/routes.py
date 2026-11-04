@@ -20,8 +20,10 @@ from app.modules.conversation.public import (
     EmailNotConfigured,
     InvalidEmailLink,
     RepQuestionInvalid,
+    StaleEdit,
     TurnResult,
     engine_state,
+    facts_view,
     map_json,
     map_readiness,
     results_stale,
@@ -47,6 +49,13 @@ class ProfileFieldsIn(BaseModel):
     study_fund_percent: Optional[Decimal] = None
     credit_points: Optional[Decimal] = None
     children_under_23: Optional[int] = None
+    # one value edited on its own ("הנתונים שלי"), through the same gates
+    eligibility_group: Optional[str] = None
+    occupation: Optional[str] = None
+    current_copay: Optional[Decimal] = None
+    current_use_value: Optional[Decimal] = None
+    current_maintenance: Optional[Decimal] = None
+    current_car: Optional[str] = None
 
 
 class MessageIn(BaseModel):
@@ -57,6 +66,7 @@ class MessageIn(BaseModel):
     fields: Optional[ProfileFieldsIn] = None
     field: Optional[str] = None      # בשאלה מקובצת: לאיזה שדה הבחירה (כשכמה שדות מציעים אותו מזהה)
     source: Optional[Literal["payslip"]] = None   # fields only: values approved from a reviewed payslip
+    base_version: Optional[int] = None    # fields only: the data version the screen showed (409 if it changed since)
 
 
 def _turn(t: TurnResult, service: ConversationService) -> dict[str, Any]:
@@ -72,6 +82,9 @@ def _turn(t: TurnResult, service: ConversationService) -> dict[str, Any]:
         "pending_rep": t.pending_rep.value if t.pending_rep else None,
         "expects": t.expects,
         "results_stale": t.results_stale,
+        "results_version": t.results_version,
+        "facts": t.facts,
+        "card": t.card,
     }
 
 
@@ -151,7 +164,7 @@ def send_message(conversation_id: str, body: MessageIn, request: Request) -> Any
         raise HTTPException(429, "יותר מדי הודעות בדקה. נסו שוב עוד מעט.")
     try:
         if form is not None:
-            return _turn(ctx.service.send_fields(conversation_id, token, form, body.source), ctx.service)
+            return _turn(ctx.service.send_fields(conversation_id, token, form, body.source, body.base_version), ctx.service)
         if choice is not None:
             return _turn(ctx.service.send_choice(conversation_id, token, choice, body.field), ctx.service)
         return _turn(ctx.service.send(conversation_id, token, text), ctx.service)
@@ -164,6 +177,8 @@ def send_message(conversation_id: str, body: MessageIn, request: Request) -> Any
         raise HTTPException(404, NOT_FOUND) from None
     except ConversationLimitReached:
         raise HTTPException(429, "הגעתם למספר ההודעות המרבי בשיחה. אפשר לפתוח שיחה חדשה.") from None
+    except StaleEdit:
+        raise HTTPException(409, "הנתונים השתנו בינתיים, ולכן לא שמרתי. בדקו את הערך ונסו שוב.") from None
     except ConversationConflict:
         raise HTTPException(409, "ההודעה הקודמת עדיין בטיפול") from None
 
@@ -314,6 +329,8 @@ def get_conversation(conversation_id: str, request: Request) -> dict[str, Any]:
             "today_copay_provisional": (state["current"].get("copay_provisional")
                                         if state["current"]["copay"] is None else None),
             "selected": state["selected"], "results": state["results"],
+            "facts": facts_view(view.state, context(request).rules.current), "data_version": view.state.data_version,
+            "results_version": view.state.results_version,
             "results_stale": results_stale(view.state), "option_map": map_json(view.state),
             **map_readiness(view.state),
             "pending_rep": state["pending_rep"]["reason"] if state["pending_rep"] else None,

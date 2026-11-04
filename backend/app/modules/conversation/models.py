@@ -48,6 +48,8 @@ class ConversationRow(Base):
     llm_mode: Mapped[str] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow, onupdate=utcnow)
+    # the last authorized request: after a long pause the session is no longer accepted (a shared computer)
+    last_access_at: Mapped[Optional[datetime]] = mapped_column(UtcDateTime, nullable=True)
 
 
 class MessageRow(Base):
@@ -62,6 +64,10 @@ class MessageRow(Base):
     source: Mapped[str] = mapped_column(String(16))        # user / llm / template
     rep_question_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     guard_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
+    # the results this message reported (state.results_version): an older one is shown as "חישוב קודם"
+    results_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # a structured card shown with the message: "what changed", or a what-if check
+    card: Mapped[Optional[dict[str, Any]]] = mapped_column(PortableJSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
 
 

@@ -845,6 +845,27 @@ def show_cars(ctx: ToolContext, args: "NoArgs") -> dict[str, Any]:
                                    "כתבו את הדגם והשנה.\" (for the alternatives: which of them to compare)."}
 
 
+class ScenarioArgs(_Args):
+    eligibility_group: Optional[str] = None
+    base_salary: Num = None
+    commissions: Num = None
+    bonus: Num = None
+    pension_percent: Num = None
+    study_fund_percent: Num = None
+    credit_points: Num = None
+    children_under_23: Optional[int] = None
+    current_copay: Num = None
+    options: list[str] = Field(default_factory=list)
+
+
+def try_scenario(ctx: ToolContext, args: ScenarioArgs) -> dict[str, Any]:
+    """A hypothetical ("מה יקרה אם…"): the model understood it, code runs the check on a copy and writes the reply. Nothing
+    is saved."""
+    ctx.scenario_request = args.model_dump(exclude_none=True)
+    return {"ok_note": "the system runs this check on a copy and shows the employee the result; nothing is saved. Do "
+                       "not write figures yourself."}
+
+
 NUM = {"type": "number"}
 
 TOOL_SPECS: dict[str, ToolSpec] = {
@@ -908,6 +929,15 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         "Select up to 3 alternatives to compare (option ids or model names from STATE). The system calculates "
         "as soon as the profile and the current car are known; you never calculate.",
         _obj({"options": {"type": "array", "items": {"type": "string"}}}, ["options"])),
+    "try_scenario": ToolSpec(
+        "try_scenario",
+        "The employee asks what WOULD happen if a value were different (a hypothetical, in any wording), or if they chose "
+        "a car. Pass only what they said. The system runs the check on a copy of the data and writes the reply; nothing "
+        "is saved. Never call save_profile for a hypothetical.",
+        _obj({"eligibility_group": {"type": "string"}, "base_salary": NUM, "commissions": NUM, "bonus": NUM,
+              "pension_percent": NUM, "study_fund_percent": NUM, "credit_points": NUM,
+              "children_under_23": {"type": "integer"}, "current_copay": NUM,
+              "options": {"type": "array", "items": {"type": "string"}}})),
     "show_cars": ToolSpec(
         "show_cars",
         "The employee asks to see the cars or the options, or cannot name today's car and wants help finding it "
@@ -930,6 +960,7 @@ TOOLS: dict[str, tuple[type[_Args], Callable[[ToolContext, Any], dict[str, Any]]
     "select_options": (CalculateArgs, calculate),
     "propose_rep_question": (RepQuestionArgs, propose_rep_question),
     "show_cars": (NoArgs, show_cars),
+    "try_scenario": (ScenarioArgs, try_scenario),
 }
 
 

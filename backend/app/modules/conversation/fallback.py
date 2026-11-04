@@ -162,6 +162,43 @@ def fallback_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) 
     return _fallback_plan_rest(state, snapshot, group, fields, t)
 
 
+def selection_change(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Optional[list[str]]:
+    """The alternatives after "תוסיף גם את X", "תוריד את X", "במקום X תבדוק את Y" with cars on screen: the new list, or None.
+    Only cars the message names change; a car not eligible is read by the selection tool's own rules."""
+    if not state.selected or "?" in text:
+        return None
+    named = sorted(named_cars(text, snapshot.catalog), key=lambda c: _first_position(text, c))
+    if not named:
+        return None
+    ext = snapshot.extensions
+    codes = [c.catalog_code for c in named]
+    if _says_cue(text, ext.selection_replace_cues):
+        out_of = [c for c in codes if c in state.selected]
+        into = [c for c in codes if c not in state.selected]
+        if len(out_of) >= 1 and len(into) >= 1:
+            return [into[0] if o == out_of[0] else o for o in state.selected]
+        if into and not out_of and len(state.selected) == 1:
+            return into[:1]
+        return None
+    if _says_cue(text, ext.selection_remove_cues):
+        if not all(c in state.selected for c in codes):
+            return None
+        return [o for o in state.selected if o not in codes]
+    if _says_cue(text, ext.selection_add_cues):
+        return list(dict.fromkeys([*state.selected, *codes]))
+    return None
+
+
+def _says_cue(text: str, cues: Iterable[str]) -> bool:
+    return any(re.search(r"(?<![א-ת\w])[ו]?" + r"\s+".join(map(re.escape, cue.split())) + r"(?![א-ת\w])", text) for cue in cues)
+
+
+def _first_position(text: str, car: CatalogCar) -> int:
+    lowered = text.lower()
+    found = [lowered.find(n.lower()) for n in (car.model_name, car.catalog_code, *car.aliases) if n and n.lower() in lowered]
+    return min(found) if found else len(text)
+
+
 def asks_base(state: ConversationState) -> bool:
     """The question on screen asks the base salary ("…ומה שכר הבסיס החודשי שלכם?"); the greeting does not."""
     return state.asked_field == "base_salary" or "שכר הבסיס" in state.last_ask or "שכר בסיס" in state.last_ask

@@ -181,6 +181,19 @@ class Extensions(_Strict):
     pace_reset_cues: list[str] = Field(default_factory=list)    # "הכול ביחד"
     defer_cues: list[str] = Field(default_factory=list)         # "את השכר אבדוק אחר כך"
     all_at_once_cues: list[str] = Field(default_factory=list)   # "תן לי את כל השאלות בפעם אחת"
+    # a value that is not (yet) true: code runs a check on a copy of the data and saves nothing (conversation.whatif)
+    hypothetical_cues: list[str] = Field(default_factory=list)
+    # a value said as a fact that changed ("עלה ל", "אני מרוויח עכשיו"): a real update of what is saved
+    declared_change_cues: list[str] = Field(default_factory=list)
+    # verbs and words that name the salary, next to an amount ("ארוויח 20,000", "המשכורת עלתה ל-20 אלף")
+    salary_words: list[str] = Field(default_factory=list)
+    # selection changes in words ("תוסיף גם את NIRO", "תוריד את NIRO", "במקום X תבדוק את Y")
+    selection_add_cues: list[str] = Field(default_factory=list)
+    selection_remove_cues: list[str] = Field(default_factory=list)
+    selection_replace_cues: list[str] = Field(default_factory=list)
+    # a representative's copay for a new car far from the catalog amount is asked to be confirmed and is marked as
+    # unusual. No rule gives a ceiling, so this is a review threshold, not a limit: a multiple of the catalog amount
+    rep_copay_review_multiple: Decimal = Decimal(3)
     option_map_cues: list[str] = Field(default_factory=list)    # STRAUSS DRIVE 360°: "השווה את כל האפשרויות שלי"
     zero_cues: list[str] = Field(default_factory=list)          # a zero the employee said ("אין", "בלי"...)
     # words that name both contributions together (1/11): "אין הפרשות" is a zero for pension AND study fund, asked

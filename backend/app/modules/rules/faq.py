@@ -83,6 +83,9 @@ class Faq(BaseModel):
     social_replies: dict[str, tuple[str, ...]] = {}
     # "let's move on" with nothing else to read ("אוקי אז מה ההמשך"): the open question picked up, never "not sure"
     proceed_terms: tuple[str, ...] = ()
+    # "אפשר להמשיך אחר כך?": can the conversation wait; "מה רשמת עליי?": what is saved, from the state, in code
+    pause_terms: tuple[str, ...] = ()
+    data_request_terms: tuple[str, ...] = ()
     # a request to upload a payslip (1/11): "תלוש" next to one of these verbs, at any stage, before the flow question
     payslip_upload_terms: tuple[str, ...] = ()
     # a request to see the cars (1/11): one of the verbs next to one of the objects ("תציג לי אפשרויות", "תראה לי
