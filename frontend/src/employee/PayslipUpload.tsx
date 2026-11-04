@@ -29,7 +29,7 @@ interface Props {
 // MIME types the server accepts (it also re-checks by file signature). Guides the file picker.
 const ACCEPT = 'application/pdf,image/jpeg,image/png,image/webp'
 const UPLOAD_HINT = 'מעלים PDF של התלוש. הקובץ לא נשמר, ואפשר לבדוק כל ערך לפני שהוא נרשם.'
-export const PAYSLIP_NOTICE = 'שורות השכר נקראות מהקובץ כאן, ורק הן נשלחות לעיבוד ב-Google Gemini, בלי שורות עם שם, ת"ז, בנק או כתובת. ' +
+export const PAYSLIP_NOTICE = 'הקובץ נקרא כאן, וממנו נשלחים לעיבוד ב-Google Gemini רק שמות של רכיבי שכר והסכומים שלהם. שם, ת"ז, בנק וכתובת לא נשלחים. ' +
   'צילום או סריקה אי אפשר לקרוא כך, ולכן הם לא נשלחים ומומלץ למלא ידנית.'
 export const PAYSLIP_CONSENT = 'הבנתי ומאשר/ת. זו הדגמה, ולכן אעלה רק תלוש לדוגמה ולא תלוש אמיתי.'
 const MANUAL_HINT = 'מלאו את הנתונים ידנית, בחרו מה לעדכן ואשרו. אפשר גם לבטל ולכתוב בצ׳אט.'

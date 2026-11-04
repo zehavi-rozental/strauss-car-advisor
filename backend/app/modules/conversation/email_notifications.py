@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import html
 import json
 import logging
@@ -19,17 +20,21 @@ from typing import Any
 from urllib.parse import quote, urlparse
 
 from cryptography.fernet import Fernet, InvalidToken
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from app.shared.db import utcnow
 
-from .models import ConversationRow, EmailLinkRow, EmailOutboxRow, MessageRow
+from .models import ConversationRow, EmailLinkRow, EmailOutboxRow, EmailSendCountRow, MessageRow
 from .repository import token_hash
 
 log = logging.getLogger(__name__)
 
-EMAIL_RE = r"^[^\s@]+@[^\s@]+\.[^\s@]+$"
+ALL_MAIL_KEY = "*"
+
+# a plain address only: "x<victim@example.com>" or "victim@example.com(c)" would reach the same mailbox under another name
+EMAIL_RE = r"^[a-z0-9._%+'-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}$"
 MAX_ATTEMPTS = 8
 LINK_TTL = timedelta(hours=24)
 MAX_VERIFY_SENDS = 5          # verification links per conversation and address (a new one only when none is valid)
@@ -62,7 +67,7 @@ def local_url(url: str) -> bool:
 
 
 # a long number in the employee's question may be pay data: such a question is not copied into an email (1/11)
-_LONG_NUMBER_RE = re.compile(r"\d[\d,.]{2,}")
+_LONG_NUMBER_RE = re.compile(r"\d[\d,.]{2,}|\d+\s*אלף|הוסר")
 _YEAR_RE = re.compile(r"(?<!\d)20\d\d(?!\d)")
 
 
@@ -154,12 +159,12 @@ class EmailNotificationService:
         now = utcnow()
         if not self._may_send_verification(session, conversation, digest, now):
             return "limit"
-        if self._recipient_at_limit(session, digest, now):
+        conversation.email_ciphertext = self._encrypt(email)      # first: at the limit below, everything looks the same as a sent one
+        if self._recipient_at_limit(session, email, now):
             # nothing is sent, and the answer is the same as a sent one: no one learns anything about an address, and a
             # mailbox cannot be flooded from many conversations. Only the count is logged
             log.warning("verification mail not sent: the recipient's daily limit")
             return "queued"
-        conversation.email_ciphertext = self._encrypt(email)
         sent = list(session.scalars(select(EmailOutboxRow).where(
             EmailOutboxRow.conversation_id == conversation.id, EmailOutboxRow.purpose == "VERIFY",
             EmailOutboxRow.dedupe_key.startswith(f"verify:{conversation.id}:{digest}"))))
@@ -178,6 +183,8 @@ class EmailNotificationService:
             return "limit"
         dedupe_key = f"verify:{conversation.id}:{digest}" + (f":{len(sent)}" if sent else "")
         self._queue(session, conversation, email, "VERIFY", question_id, dedupe_key, digest)
+        self._count_send(session, self._mailbox_key(email), now)
+        self._count_send(session, ALL_MAIL_KEY, now)
         return "queued"
 
     def _may_send_verification(self, session, conversation: ConversationRow, digest: str, now: Any) -> bool:
@@ -189,18 +196,42 @@ class EmailNotificationService:
         if digest not in tried and len(tried) >= getattr(s, "email_addresses_per_conversation", 3):
             log.warning("verification mail not sent: addresses per conversation")
             return False
-        day_ago = now - timedelta(days=1)
-        count = session.scalar(select(func.count()).select_from(EmailOutboxRow).where(EmailOutboxRow.created_at > day_ago))
-        if count >= getattr(s, "email_daily_send_limit", 400):
+        if self._sends_today(session, ALL_MAIL_KEY, now) >= getattr(s, "email_daily_send_limit", 400):
             log.warning("verification mail not sent: the daily mail limit")
             return False
         return True
 
-    def _recipient_at_limit(self, session, digest: str, now: Any) -> bool:
-        count = session.scalar(select(func.count()).select_from(EmailLinkRow).where(
-            EmailLinkRow.email_hash == digest, EmailLinkRow.purpose == "VERIFY",
-            EmailLinkRow.created_at > now - timedelta(days=1)))
-        return count >= getattr(self.settings, "email_recipient_daily_limit", 5)
+    def _recipient_at_limit(self, session, email: str, now: Any) -> bool:
+        return self._sends_today(session, self._mailbox_key(email), now) >= getattr(self.settings, "email_recipient_daily_limit", 5)
+
+    # What was sent is counted apart from the conversations: deleting a conversation removes its rows, and must not reset a limit.
+    # The key cannot be turned back into an address without the service's own key, and the rows are gone in two days.
+    def _mailbox_key(self, email: str) -> str:
+        local, _, domain = email.partition("@")
+        mailbox = f"{local.split('+')[0]}@{domain}"                 # name+1@ and name+2@ are one mailbox
+        secret = (self.settings.email_encryption_key or "").encode("utf-8")
+        return hmac.new(secret, mailbox.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    @staticmethod
+    def _sends_today(session, key: str, now: Any) -> int:
+        return session.scalar(select(EmailSendCountRow.count).where(
+            EmailSendCountRow.key == key, EmailSendCountRow.day == now.date())) or 0
+
+    @staticmethod
+    def _count_send(session, key: str, now: Any) -> None:
+        more = update(EmailSendCountRow).where(EmailSendCountRow.key == key, EmailSendCountRow.day == now.date()).values(
+            count=EmailSendCountRow.count + 1)
+        if session.execute(more).rowcount:
+            return
+        try:
+            with session.begin_nested():
+                session.add(EmailSendCountRow(key=key, day=now.date(), count=1))
+        except IntegrityError:          # the same first send, at the same moment, in another request
+            session.execute(more)
+
+    def purge_counters(self) -> None:
+        with self.sessions() as session, session.begin():
+            session.execute(delete(EmailSendCountRow).where(EmailSendCountRow.day < (utcnow() - timedelta(days=2)).date()))
 
     def prepare_answer(self, session, conversation: ConversationRow, question_id: str) -> None:
         """One notice per answer. Before the address is verified it waits outside the queue (AWAITING)."""
@@ -238,7 +269,13 @@ class EmailNotificationService:
             recipient_ciphertext=self._encrypt(email), token_ciphertext=self._encrypt(raw_token),
             status=status, attempts=0, next_attempt_at=utcnow()))
 
-    def redeem(self, raw_token: str) -> tuple[str, str, str | None]:
+    def redeem(self, raw_token: str, current_token: str = "") -> tuple[str, str | None, str | None, bool]:
+        """(conversation, a new session or None, the question, verified only).
+
+        A verification link only verifies: it opens nothing in a browser that is not already in the conversation, so naming someone
+        else's address gets them nothing and gets you nothing, and the employee's own browser simply goes on. An answer link, in another
+        browser, moves the conversation there and every other session stops: whoever named the address cannot read what the person
+        writes after clicking, and a browser left open on a shared computer shows nothing any more."""
         if not raw_token or len(raw_token) > 200:
             raise InvalidEmailLink()
         now = utcnow()
@@ -253,14 +290,22 @@ class EmailNotificationService:
             email = self._decrypt(conversation.email_ciphertext)
             if hashlib.sha256(email.encode("utf-8")).hexdigest() != link.email_hash:
                 raise InvalidEmailLink()
+            here = bool(current_token) and any(hmac.compare_digest(saved, token_hash(current_token)) for saved in
+                                               [conversation.session_token_hash, *(conversation.additional_session_token_hashes or [])])
+            verified_only = link.purpose == "VERIFY" and not here
             if link.purpose == "VERIFY":
                 conversation.email_verified_at = now
-                conversation.last_access_at = now
-                # answer notices that waited for this verification join the queue now
-                session.execute(
-                    update(EmailOutboxRow)
-                    .where(EmailOutboxRow.conversation_id == conversation.id, EmailOutboxRow.status == AWAITING)
-                    .values(status="PENDING", next_attempt_at=now))
+                if here:
+                    conversation.last_access_at = now
+                # answer notices that waited for this verification join the queue now, to this address only: one written while another
+                # address was on record (a typo, corrected since) must not go to a stranger with the employee's question in it
+                for waiting in session.scalars(select(EmailOutboxRow).where(
+                        EmailOutboxRow.conversation_id == conversation.id, EmailOutboxRow.status == AWAITING)):
+                    waiting.recipient_ciphertext = self._encrypt(email)
+                    waiting.status, waiting.next_attempt_at = "PENDING", now
+                    session.execute(update(EmailLinkRow).where(
+                        EmailLinkRow.conversation_id == conversation.id, EmailLinkRow.purpose == waiting.purpose,
+                        EmailLinkRow.question_id == waiting.question_id, EmailLinkRow.consumed_at.is_(None)).values(email_hash=link.email_hash))
             elif not conversation.email_verified_at:
                 raise InvalidEmailLink()
             else:
@@ -273,12 +318,14 @@ class EmailNotificationService:
             )
             if consumed.rowcount != 1:
                 raise InvalidEmailLink()
-            conversation.additional_session_token_hashes = (
-                list(conversation.additional_session_token_hashes or []) + [token_hash(new_session_token)]
-            )[-10:]
+            if here or verified_only:
+                new_session_token = None
+            else:
+                conversation.session_token_hash = token_hash(new_session_token)
+                conversation.additional_session_token_hashes = []
             conversation_id = str(conversation.id)
             question_id = link.question_id
-        return conversation_id, new_session_token, question_id
+        return conversation_id, new_session_token, question_id, verified_only
 
     def process_pending(self, limit: int = 25) -> int:
         now = utcnow()
@@ -350,8 +397,8 @@ class EmailNotificationService:
         asked = ""
         if purpose == "VERIFY":
             subject = "STRAUSS DRIVE | אימות כתובת האימייל"
-            introduction = "כדי לאמת את כתובת האימייל ולחזור לשיחה, פתחו את הקישור המאובטח."
-            button = "פתיחת השיחה המאובטחת"
+            introduction = "כדי לאמת את כתובת האימייל, פתחו את הקישור המאובטח."
+            button = "אימות הכתובת"
         else:
             subject = "STRAUSS DRIVE | התקבלה תשובה מנציג התחבורה"
             introduction = "התקבלה תשובה מנציג התחבורה לפנייה שלכם. הקישור יפתח את השיחה ישירות בתשובה."

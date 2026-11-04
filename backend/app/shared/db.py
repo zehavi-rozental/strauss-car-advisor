@@ -89,7 +89,8 @@ def make_engine(url: str, **kwargs) -> Engine:
         # a pooled connection may have been closed by the server while idle (a serverless Postgres such as Neon
         # suspends after a few idle minutes): test it before use instead of failing the next request
         kwargs.setdefault("pool_pre_ping", True)
-    engine = create_engine(url, future=True, **kwargs)
+    # hide_parameters: a failed statement's error carries the SQL, never the values (salaries, messages) bound to it
+    engine = create_engine(url, future=True, hide_parameters=True, **kwargs)
     if url.startswith("sqlite"):
         @event.listens_for(engine, "connect")
         def _fk_on(dbapi_conn, _):

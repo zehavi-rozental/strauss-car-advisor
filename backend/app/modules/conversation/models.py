@@ -5,11 +5,11 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Optional
 
-from sqlalchemy import Boolean, ForeignKey, Integer, LargeBinary, String, Text, Uuid, text
+from sqlalchemy import Boolean, Date, ForeignKey, Integer, LargeBinary, String, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.db import Base, Money, PortableJSON, UtcDateTime, new_id, utcnow
@@ -100,6 +100,16 @@ class EmailLinkRow(Base):
     expires_at: Mapped[datetime] = mapped_column(UtcDateTime)
     consumed_at: Mapped[Optional[datetime]] = mapped_column(UtcDateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+
+
+class EmailSendCountRow(Base):
+    """Mail sent, per mailbox and per day, apart from the conversations: deleting a conversation does not reset a limit. The key is a keyed
+    hash of the address (or "*" for all mail); no address, conversation or content is here, and the rows are purged after two days."""
+    __tablename__ = "email_send_counts"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    count: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class EmailOutboxRow(Base):

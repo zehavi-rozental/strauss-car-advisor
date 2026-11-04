@@ -163,7 +163,7 @@ def test_gross_and_net_are_explained(ranked, text):
     assert "לפני ניכויים" in view()["messages"][-1]["content"]
 
 
-@pytest.mark.parametrize("text", ["אם אפשר תעדכן את השכר ל-20,000", "לא יודע אם השכר שלי השתנה"])
+@pytest.mark.parametrize("text", ["אם אפשר תעדכן את השכר ל-20,000", "לא יודע אם השכר שלי השתנה", "אם ג'י 4", "אם גי 4", "אם ג׳י 4", "NIRO ואם ג'י 4"])
 def test_if_is_not_always_a_condition(ranked, text):
     from app.modules.conversation.whatif import is_hypothetical
     from app.modules.rules.public import load_snapshot

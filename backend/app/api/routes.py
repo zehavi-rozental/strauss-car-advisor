@@ -7,7 +7,8 @@ from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict
+from starlette.concurrency import run_in_threadpool
+from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy import text as sql
 
 from app.modules.calculation.public import ENGINE_VERSION
@@ -41,6 +42,11 @@ COOKIE = "sca_session"
 NOT_FOUND = "השיחה לא נמצאה"
 
 
+def _clean_text(value: str) -> str:
+    """A NUL or a lone surrogate cannot be stored or encoded: they are dropped here, not turned into a server error."""
+    return value.replace("\x00", "").encode("utf-8", "ignore").decode("utf-8")
+
+
 class ProfileFieldsIn(BaseModel):
     """טופס Q2 / תיקון נתונים: רק מה שנשלח נשמר. הטווחים נבדקים בשירות מול extensions.yaml."""
     model_config = ConfigDict(extra="forbid")
@@ -59,6 +65,15 @@ class ProfileFieldsIn(BaseModel):
     current_maintenance: Optional[Decimal] = None
     current_car: Optional[str] = None
 
+    @field_validator("base_salary", "commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points",
+                     "current_copay", "current_use_value", "current_maintenance")
+    @classmethod
+    def _an_ordinary_number(cls, value: Optional[Decimal]) -> Optional[Decimal]:
+        """"1e-999990" is a valid Decimal of a million characters: it would be stored and sent to the model on every later call."""
+        if value is not None and (not value.is_finite() or value.adjusted() > 9 or value.as_tuple().exponent < -6):
+            raise ValueError("not an ordinary number")
+        return value
+
 
 class MessageIn(BaseModel):
     """בדיוק אחד מהארבעה: טקסט חופשי, בחירה אחת, כמה בחירות (חלופות), או טופס שדות פרופיל."""
@@ -68,6 +83,11 @@ class MessageIn(BaseModel):
     fields: Optional[ProfileFieldsIn] = None
     field: Optional[str] = None      # בשאלה מקובצת: לאיזה שדה הבחירה (כשכמה שדות מציעים אותו מזהה)
     source: Optional[Literal["payslip"]] = None   # fields only: values approved from a reviewed payslip
+    @field_validator("text")
+    @classmethod
+    def _printable(cls, value: Optional[str]) -> Optional[str]:
+        return _clean_text(value) if value is not None else None
+
     base_version: Optional[int] = None    # fields only: the data version the screen showed (409 if it changed since)
 
 
@@ -126,7 +146,11 @@ def health(request: Request) -> dict[str, Any]:
     # the models, their last call and any error are for whoever operates the service, not for every visitor
     expected = ctx.settings.rep_access_token
     sent = request.headers.get("x-rep-token", "")
-    if expected and sent and hmac.compare_digest(sent.encode(), expected.encode()):
+    client = client_address(request, ctx.settings.edge_proxy_secret)
+    good = bool(expected and sent) and ctx.rep_gate.locked(client) is None and hmac.compare_digest(sent.encode(), expected.encode())
+    if sent and not good:
+        ctx.rep_gate.failed(client)      # the same count of wrong codes as the rep's screen: this is no way to guess the code
+    if good:
         out.update(config_error=ctx.rules.last_error, llm=ctx.service.llm.mode, llm_mode=ctx.service.agent.mode,
                    llm_chain=ctx.service.llm.status())
     return out
@@ -272,6 +296,12 @@ class RepQuestionIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     question: str
     intent: Literal["general", "copay_verification", "current_copay"] = "general"
+
+    @field_validator("question")
+    @classmethod
+    def _printable(cls, value: str) -> str:
+        return _clean_text(value)
+
     option_id: Optional[str] = None
     email: Optional[str] = None
 
@@ -293,6 +323,8 @@ def rep_question(conversation_id: str, body: RepQuestionIn, request: Request) ->
         return ctx.service.rep_question(conversation_id, token, body.question, body.intent, option_id, body.email)
     except RepQuestionInvalid as exc:
         raise HTTPException(422, str(exc)) from None
+    except UnicodeError:
+        raise HTTPException(422, "הטקסט מכיל תווים לא תקינים.") from None
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from None
     except EmailNotConfigured as exc:
@@ -341,18 +373,23 @@ class EmailLinkIn(BaseModel):
 
 
 @router.post("/conversations/return")
-def return_to_conversation(body: EmailLinkIn, request: Request, response: Response) -> dict[str, Optional[str]]:
-    """One-time email proof: verify the mailbox, issue a second session cookie, then resume that conversation."""
+def return_to_conversation(body: EmailLinkIn, request: Request, response: Response) -> dict[str, Any]:
+    """One-time email proof. A verification link verifies; it opens the conversation only where it is already open. An answer link
+    opens it here, and every other browser's session stops (EmailNotificationService.redeem)."""
     client = client_address(request, context(request).settings.edge_proxy_secret)
     if not context(request).message_limiter.allow(f"email-return:{client}"):
         raise HTTPException(429, "יותר מדי ניסיונות. נסו שוב בעוד דקה.")
     try:
-        conversation_id, token, question_id = context(request).service.redeem_email_link(body.token)
+        conversation_id, token, question_id, verified_only = context(request).service.redeem_email_link(
+            body.token, request.cookies.get(COOKIE, ""))
     except InvalidEmailLink:
         raise HTTPException(410, "הקישור אינו תקף או שכבר נוצל. בקשו קישור חדש דרך השיחה המקורית.") from None
-    response.set_cookie(COOKIE, token, httponly=True, samesite="lax",
-                        secure=context(request).settings.session_cookie_secure, path="/api")
-    return {"conversation_id": conversation_id, "question_id": question_id}
+    if verified_only:
+        return {"conversation_id": None, "question_id": None, "verified_only": True}      # the address is verified, and nothing more
+    if token is not None:
+        response.set_cookie(COOKIE, token, httponly=True, samesite="lax",
+                            secure=context(request).settings.session_cookie_secure, path="/api")
+    return {"conversation_id": conversation_id, "question_id": question_id, "verified_only": False}
 
 
 async def _read_capped(upload: UploadFile, max_bytes: int) -> bytes:
@@ -389,7 +426,8 @@ async def payslip_extract(request: Request, file: UploadFile, conversation_id: s
         raise HTTPException(422, str(exc)) from None
     data = await _read_capped(file, ctx.settings.payslip_max_bytes)
     try:
-        result = ctx.payslip.extract(data)
+        # reading a file and asking the model take seconds: never on the loop that serves every other visitor
+        result = await run_in_threadpool(ctx.payslip.extract, data)
     except PayslipError as exc:
         raise HTTPException(422, exc.message_he) from None
     finally:

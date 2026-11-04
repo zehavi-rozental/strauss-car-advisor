@@ -156,7 +156,7 @@ export function useConversation(ready = true) {
   const [resultsVersion, setResultsVersion] = useState<number | null>(null)
   const resultsVersionRef = useRef(0)
   // a conversation saved in this browser, waiting for someone to choose it; or one that locked after a pause
-  const [gate, setGate] = useState<{ id: string; updatedAt?: string; locked: boolean } | null>(null)
+  const [gate, setGate] = useState<{ id: string; updatedAt?: string; locked: boolean; gone?: boolean } | null>(null)
   const [pendingQuestions, setPendingQuestions] = useState<PendingQuestion[]>([])
   const [repQuestions, setRepQuestions] = useState<RepInquiry[]>([])
   const [returnTokenPending, setReturnTokenPending] = useState(false)
@@ -167,6 +167,7 @@ export function useConversation(ready = true) {
   // the link was refused for good: its token is dropped; a conversation stored in this browser may be reopened
   // (the server still checks the session cookie)
   const [returnLinkInvalid, setReturnLinkInvalid] = useState(false)
+  const [returnVerified, setReturnVerified] = useState(false)
   const [returnStored, setReturnStored] = useState(false)
   const [sending, setSending] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -222,7 +223,20 @@ export function useConversation(ready = true) {
     const run = async (): Promise<Message[]> => {
       const id = idRef.current
       if (!id) return []
-      const u = await api.getUpdates(id, lastSeqRef.current)
+      let u
+      try {
+        u = await api.getUpdates(id, lastSeqRef.current)
+      } catch (e) {
+        if (e instanceof ApiError && e.code === 'session_locked') {
+          setGate({ id, locked: true })
+          return []
+        }
+        if (e instanceof ApiError && e.status === 404) {       // opened elsewhere from a mailbox link, or deleted
+          setGate({ id, locked: true, gone: true })
+          return []
+        }
+        throw e
+      }
       const fresh = u.messages.filter((m) => m.seq > lastSeqRef.current)
       if (fresh.length) lastSeqRef.current = Math.max(...fresh.map((m) => m.seq))
       lastAssistantRef.current = lastAssistantSeq(fresh) ?? lastAssistantRef.current
@@ -371,6 +385,11 @@ export function useConversation(ready = true) {
       if (token) {
         const returned = await api.redeemEmailLink(token)
         emailReturnToken.current = null
+        if (returned.verified_only || !returned.conversation_id) {
+          setReturnVerified(true)      // a verification link: the address is verified, and the conversation stays where it is
+          setReturnStored(readStoredId() !== null)
+          return
+        }
         storeId(returned.conversation_id)
         idRef.current = returned.conversation_id
         targetQuestionId = returned.question_id
@@ -432,6 +451,10 @@ export function useConversation(ready = true) {
         return { ok: true }                    // handled: kept on screen with "לשלוח שוב"
       }
       setMessages((prev) => prev.filter((m) => !m.pending))
+      if (e instanceof ApiError && idRef.current && (e.code === 'session_locked' || e.status === 404)) {
+        setGate({ id: idRef.current, locked: true, gone: e.status === 404 })     // the session stopped: nothing stays on the screen
+        return { ok: false, errors: {} }
+      }
       if (e instanceof ApiError) {
         setError(e.message_he)
         if (e.status === 409) await reload().catch(() => undefined)
@@ -554,6 +577,7 @@ export function useConversation(ready = true) {
       emailReturnToken.current = null
       setReturnTokenPending(false)
       setReturnLinkInvalid(false)
+      setReturnVerified(false)
       setReturnTokenError(null)
       await sync()
     } catch (e) {
@@ -562,6 +586,24 @@ export function useConversation(ready = true) {
       setLoading(false)
     }
   }, [gate, sync, setExpects, setOptionMap])
+
+  // the screen locks with the server: pay left open on a shared computer does not stay there after the person has gone
+  const idleMinutes = privacy?.idle_minutes ?? 0
+  useEffect(() => {
+    if (!idleMinutes || !conversationId || gate) return
+    let last = Date.now()
+    const seen = () => { last = Date.now() }
+    const events = ['keydown', 'pointerdown', 'touchstart', 'scroll'] as const
+    events.forEach((name) => window.addEventListener(name, seen, { passive: true, capture: true }))
+    const check = () => { if (Date.now() - last > idleMinutes * 60_000) setGate({ id: conversationId, locked: true }) }
+    const timer = window.setInterval(check, 30_000)
+    document.addEventListener('visibilitychange', check)
+    return () => {
+      events.forEach((name) => window.removeEventListener(name, seen, { capture: true }))
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', check)
+    }
+  }, [idleMinutes, conversationId, gate])
 
   // polling: only while a rep question is open and the tab is visible
   const waitingForRep = pendingQuestions.length > 0 || stage === 'WAITING_FOR_REP'
@@ -602,7 +644,7 @@ export function useConversation(ready = true) {
     conversationId, repEmail, emailEnabled, emailSimulated, emailPending,
     messages, stage, expects, questionKey, results, resultsStale, mapReady, mapMissing, optionMap: optionMapState, mapAnchor, resultsAnchor,
     pendingQuestions,
-    repQuestions, returnTokenPending, returnTokenError, returnLinkInvalid, returnStored, resumeEmailLink,
+    repQuestions, returnTokenPending, returnTokenError, returnVerified, returnLinkInvalid, returnStored, resumeEmailLink,
     waitingForRep, sending, loading, error, send, sendFields, retry, reload, loadProfile, newConversation,
     facts, privacy, resultsVersion, gate, resumeStored, editField, answerAiNotice,
     dismissError: () => setError(null),

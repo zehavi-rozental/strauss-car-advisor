@@ -142,8 +142,8 @@ def _catalog_supported(sentence: str, snapshot: RulesSnapshot) -> bool:
 
 
 # a reply never sends anyone elsewhere and never asks for what the service does not need, whatever the message said
-_LINK_RE = re.compile(r"https?://|www\.|\b[\w-]+\.(?:com|net|org|co\.il|io|ly|me)\b", re.I)
-SENSITIVE_ASKS = ("תעודת זהות", "תעודת הזהות", "מספר זהות", 'ת"ז', "ת״ז", "מספר חשבון", "מספר החשבון", "חשבון בנק", "פרטי בנק", "סיסמה", "סיסמא",
+_LINK_RE = re.compile(r"https?://|www\.|\b[a-z0-9-]+\.[a-z]{2,}\b", re.I)    # any domain: no reply here has a reason to name one
+SENSITIVE_ASKS = ("תעודת זהות", "תעודת הזהות", "מספר זהות", "מספר הזהות", "ת.ז", "הת.ז", 'ת"ז', "ת״ז", "מספר חשבון", "מספר החשבון", "חשבון בנק", "פרטי בנק", "סיסמה", "סיסמא",
                   "מספר אשראי", "כרטיס אשראי", "קוד אימות", "מספר דרכון")
 
 

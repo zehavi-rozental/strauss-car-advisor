@@ -257,8 +257,13 @@ def test_options_read_in_full_select_without_the_llm(sessions, text, code):
     assert [r.option_id for r in turns[-1].results] == [code]
 
 
-@pytest.mark.parametrize("text", ["MODEL 3",                         # קבוצה ד — לא זמין לנועה (ג)
-                                  "אני רוצה לבדוק את אטו 3 הלבן",     # מילה נוספת
+def test_a_car_above_the_group_selects_nothing_and_says_why_without_an_llm(sessions):
+    svc = service(sessions, LLMChain())
+    turns, token = talk(svc, NOA[:2] + ["MODEL 3"])                     # קבוצה ד — לא זמין לנועה (ג)
+    assert "לא זמין לכם" in turns[-1].reply and svc.view(turns[-1].conversation_id, token).state.selected == []
+
+
+@pytest.mark.parametrize("text", ["אני רוצה לבדוק את אטו 3 הלבן",     # מילה נוספת
                                   "אטו 3 או משהו דומה"])
 def test_option_messages_not_read_in_full_select_nothing_without_an_llm(sessions, text):
     svc = service(sessions, LLMChain())

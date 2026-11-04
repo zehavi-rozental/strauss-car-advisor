@@ -173,6 +173,8 @@ def _not_available_plan(state: ConversationState, snapshot: RulesSnapshot, text:
     that are available in the same message are still chosen. Only reads the message: eligibility itself is classify_options."""
     if next_stage(state) not in (Stage.CHOOSE_OPTIONS, Stage.PRESENTED) or state.asked_field is not None or "?" in text:
         return None
+    if _says_cue(text, snapshot.extensions.car_role_cues.current) or _says_mine(text, snapshot.extensions.correction_cues):
+        return None
     named = [c for c in named_cars(text, snapshot.catalog) if c.catalog_code != state.current.catalog_code]
     if not named:
         return None

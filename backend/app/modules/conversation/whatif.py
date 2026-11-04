@@ -36,6 +36,7 @@ _NUMBER = r"\d[\d,]*(?:\.\d+)?"
 _AMOUNT_RE = re.compile(rf"({_NUMBER})\s*(אלף)?")
 _GROUP_RE = re.compile(r"קבוצ(?:ה|ת)(?:\s+זכאות)?\s+([א-ד])(?![א-ת])")
 _NOT_A_CONDITION = {"אפשר", "ניתן", "כך", "כן", "לא"}             # "אם אפשר, תעדכן": a request, not a condition
+_MG_IN_HEBREW = re.compile(r"(?<![א-ת])[וה]?אם\s*ג['׳]?י(?![א-ת])")   # "אם ג'י 4" and "ואם ג'י 4": the car MG4, not a condition
 _UNSURE_BEFORE = {"יודע", "יודעת", "יודעים", "בטוח", "בטוחה", "בטוחים", "זוכר", "זוכרת", "זוכרים"}   # "לא יודע אם": not a condition either
 _NAMES_A_VALUE = re.compile(r"\d[\d,]{2,}|\d+\s*אלף|\d\s*%")       # an amount or a percentage; "MAZDA 3" is a car
 
@@ -63,13 +64,15 @@ def is_hypothetical(text: str, snapshot: RulesSnapshot) -> bool:
     """The message asks about a value that is not (yet) true: "מה יקרה אם", "נניח", "תרחיש", or a condition anywhere in it
     ("כמה יישאר לי אם אקבל 20,000?"). A mistake here is the safe one: nothing is saved, and the check offers to save."""
     ext = snapshot.extensions
+    text = _MG_IN_HEBREW.sub("MG", text)
     if says_any(text, ext.hypothetical_cues):
         return True
     if _NAMES_A_VALUE.search(text) and says_any(text, ext.hypothetical_value_cues):
         return True
     ws = words(text)
     for i, w in enumerate(ws):
-        if w in ("אם", "ואם") and (i + 1 == len(ws) or ws[i + 1] not in _NOT_A_CONDITION) and (i == 0 or ws[i - 1] not in _UNSURE_BEFORE):
+        following = ws[i + 1] if i + 1 < len(ws) else ""
+        if w in ("אם", "ואם") and following not in _NOT_A_CONDITION and (i == 0 or ws[i - 1] not in _UNSURE_BEFORE):
             return True
     return False
 

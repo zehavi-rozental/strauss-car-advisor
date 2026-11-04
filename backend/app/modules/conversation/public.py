@@ -48,7 +48,7 @@ from .llm.factory import build_llm_chain
 from .llm.port import ChatMessage, LLMChain, LLMError, LLMPort
 from .fallback import recorded_text
 from .tools import rep_copay_unusual
-from .parsing import redact_contact_details, redact_id_numbers
+from .parsing import redact_contact_details, redact_id_numbers, redact_pay_mentions
 from .repository import (
     DATA_FILE,
     EXTENSIONS_FILE,
@@ -435,6 +435,7 @@ class ConversationService:
 
     # ---------- פנייה יזומה של העובד לנציג (rep-question endpoint, Package A) ----------
 
+    MAX_OPEN_REP_QUESTIONS = 10      # open at once in one conversation: the representative's queue is not free to fill
     MAX_REP_QUESTION_CHARS = 500
 
     def rep_question(self, conversation_id: str, token: str, question: str,
@@ -464,6 +465,12 @@ class ConversationService:
                 row = self._load(repo, conversation_id, token)
                 conv_id, loaded_count, loaded_version = row.id, row.message_count, row.version
                 state = ConversationState.model_validate(row.state)
+                if self.cases.open_count(session, str(conv_id)) >= self.MAX_OPEN_REP_QUESTIONS:
+                    raise RepQuestionInvalid("יש כבר כמה פניות פתוחות לנציג. אפשר לשלוח פנייה נוספת אחרי שיענה.")
+
+            # what the representative reads: their question, not contact details and not the employee's pay
+            question = redact_pay_mentions(redact_contact_details(question),
+                                           (state.profile.base, state.profile.commissions, state.profile.bonus))
 
             # סיווג + הגנת היקף. GENERAL_QUESTION עובר את הגנת ההיקף, אבל בהתחשב בהקשר השיחה: כשיש רכב על
             # המסך (רכב נוכחי או חלופות מושוות), שאלה טבעית קצרה בהקשר הרכב מתקבלת ("אפשר עם וו גרירה?"),
@@ -605,12 +612,12 @@ class ConversationService:
         self._flush_email()
         return {**self._email_payload(conversation_id), "resend": resend}
 
-    def redeem_email_link(self, token: str) -> tuple[str, str, str | None]:
+    def redeem_email_link(self, token: str, current_token: str = "") -> tuple[str, str | None, str | None, bool]:
         if self.email_notifications is None:
             raise InvalidEmailLink()
-        conversation_id, session_token, question_id = self.email_notifications.redeem(token)
+        redeemed = self.email_notifications.redeem(token, current_token)
         self._flush_email()
-        return conversation_id, session_token, question_id
+        return redeemed
 
     def _open_question(self, conversation_id: str, field: "MissingField",
                        option_id: str) -> tuple[Optional[str], Optional[str]]:
@@ -700,14 +707,17 @@ class ConversationService:
         total = 0
         while True:
             with self.sessions() as session, session.begin():
-                ids = list(session.scalars(select(ConversationRow.id).where(
-                    ConversationRow.updated_at < cutoff,
-                    (ConversationRow.last_access_at.is_(None)) | (ConversationRow.last_access_at < cutoff)).limit(batch)))
+                # also a conversation nobody wrote in, after a day: opening one costs nothing, and it fills the database for nothing
+                untouched = (ConversationRow.message_count == 0) & (ConversationRow.updated_at < utcnow() - timedelta(days=1))
+                expired = (ConversationRow.updated_at < cutoff) & (
+                    (ConversationRow.last_access_at.is_(None)) | (ConversationRow.last_access_at < cutoff))
+                ids = list(session.scalars(select(ConversationRow.id).where(expired | untouched).limit(batch)))
                 for conv_id in ids:
                     self._delete_rows(session, conv_id)
             total += len(ids)
             if len(ids) < batch:
                 break
+        self.email_notifications.purge_counters()
         if total:
             log.info("retention: %d conversations deleted", total)
         return total
@@ -780,12 +790,12 @@ class ConversationService:
                     option_id=q.option_id, value=q.answer_value, effective_date=q.effective_date,
                     note=q.answer_note))
 
-    def _authorized(self, conversation_id: str, token: str) -> uuid.UUID:
+    def _authorized(self, conversation_id: str, token: str, touch: bool = True) -> uuid.UUID:
         with self.sessions() as session:
             row = self._load(ConversationRepository(session), conversation_id, token)
             conv_id, seen = row.id, row.last_access_at
         now = utcnow()
-        if self.session_idle_minutes and (seen is None or now - seen > timedelta(minutes=1)):
+        if touch and self.session_idle_minutes and (seen is None or now - seen > timedelta(minutes=1)):
             # at most once a minute; it is not a change of the conversation, so updated_at stays
             with self.sessions() as session, session.begin():
                 session.execute(update(ConversationRow).where(ConversationRow.id == conv_id)
@@ -795,7 +805,7 @@ class ConversationService:
 
     def updates(self, conversation_id: str, token: str, after: int = 0) -> dict[str, Any]:
         """לתשאול (polling): הודעות חדשות אחרי seq, שלב, שאלות פתוחות ותוצאות אחרונות."""
-        conv_id = self._authorized(conversation_id, token)
+        conv_id = self._authorized(conversation_id, token, touch=False)      # an open tab is not someone at the computer
         self._apply_pending(conv_id)
         with self.sessions() as session:
             repo = ConversationRepository(session)
@@ -842,7 +852,8 @@ class ConversationService:
         ):
             raise ConversationNotFound()
         if self.session_idle_minutes and not allow_locked:
-            last = max(row.updated_at, row.last_access_at or row.updated_at)
+            # only the person's own actions count: a representative's answer or an open tab's polling is not someone at the computer
+            last = row.last_access_at or row.updated_at
             if utcnow() - last > timedelta(minutes=self.session_idle_minutes):
                 raise SessionLocked()
         return row

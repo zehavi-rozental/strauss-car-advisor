@@ -165,7 +165,7 @@ test('3. resend before verification says the link is still valid; the fake verif
   const other = await newPage(browser, { baseURL: BASE })            // another device, closed when the test ends
   await other.goto(`/employee#return_token=${token(verify[0].body)}`)
   await other.getByRole('button', { name: 'פתיחת השיחה המאובטחת' }).click()
-  await expect(other.locator(RECORD)).toHaveCount(1, { timeout: 30_000 })
+  await expect(other.getByRole('status')).toContainText('הכתובת אומתה', { timeout: 30_000 })
   await employee.reload()
   await expect(employee.getByRole('button', { name: 'שליחת קישור אימות מחדש' })).toHaveCount(0)   // verified now
 })

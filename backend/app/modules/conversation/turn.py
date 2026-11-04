@@ -232,10 +232,15 @@ def render_catalog(snapshot: RulesSnapshot) -> str:
 def system_message(state: ConversationState, snapshot: RulesSnapshot, parser_hint: str = "",
                    applied: str = "") -> ChatMessage:
     return ChatMessage("system", "\n\n".join([SYSTEM_PROMPT, render_faq(snapshot), render_catalog(snapshot),
-                                              state_block(state, snapshot, parser_hint, applied)]))
+                                              neutralize_block(state, snapshot, parser_hint, applied)]))
 
 
 _DELIMITER_RE = re.compile(r"<{2,}|>{2,}")
+
+
+def neutralize_block(state: ConversationState, snapshot: RulesSnapshot, parser_hint: str = "", applied: str = "") -> str:
+    """The state holds words an employee typed (a car's name, a role): they cannot close a data block in the system message either."""
+    return neutralize(state_block(state, snapshot, parser_hint, applied))
 
 
 def neutralize(text: str) -> str:
@@ -249,7 +254,8 @@ def user_message(text: str) -> ChatMessage:
 
 def history_messages(history: Sequence[ChatMessage]) -> list[ChatMessage]:
     """Earlier messages go as data too: what an employee wrote before cannot become instructions later."""
-    return [user_message(m.content) if m.role == "user" else m for m in history]
+    # a reply of ours may quote the employee (an inquiry's record), so it cannot hold the delimiter either
+    return [user_message(m.content) if m.role == "user" else ChatMessage(m.role, neutralize(m.content)) for m in history]
 
 
 @dataclass

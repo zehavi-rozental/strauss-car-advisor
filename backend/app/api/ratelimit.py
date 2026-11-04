@@ -23,14 +23,30 @@ def client_address(request: Request, edge_secret: str) -> str:
     visitor's address in X-Edge-Client-IP; it is used only when X-Edge-Secret matches EDGE_PROXY_SECRET (empty:
     never) and is a valid address. Otherwise the connection's address, which the start script takes from
     X-Forwarded-For only behind a private proxy (FORWARDED_ALLOW_IPS), so a direct caller cannot choose it either."""
-    direct = request.client.host if request.client else "unknown"
+    direct = _bucket(request.client.host) if request.client else "unknown"
     sent = request.headers.get(EDGE_SECRET_HEADER, "")
     if not edge_secret or not sent or not hmac.compare_digest(sent.encode(), edge_secret.encode()):
         return direct
+    claimed = _bucket(request.headers.get(EDGE_CLIENT_IP_HEADER, "").strip())
     try:
-        return str(ipaddress.ip_address(request.headers.get(EDGE_CLIENT_IP_HEADER, "").strip()))
+        ipaddress.ip_network(claimed, strict=False)
     except ValueError:
         return direct
+    return claimed
+
+
+def _bucket(address: str) -> str:
+    """One visitor, one key: a whole IPv6 /64 belongs to one network, so it counts as one address (otherwise every limit by address
+    is escaped by changing the last bits)."""
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return address
+    if ip.version == 6:
+        if ip.ipv4_mapped is not None:
+            return str(ip.ipv4_mapped)
+        return f"{ipaddress.ip_network(f'{ip}/64', strict=False).network_address}/64"
+    return str(ip)
 
 
 class RateLimiter:
@@ -42,9 +58,10 @@ class RateLimiter:
         self.clock = clock
         self._hits: dict[str, deque[float]] = defaultdict(deque)
         self._lock = threading.Lock()
+        self._swept = float("-inf")
 
     def _current(self, key: str) -> deque[float]:
-        if len(self._hits) > self.MAX_KEYS:
+        if len(self._hits) > self.MAX_KEYS and self.clock() - self._swept >= 1.0:
             self._sweep()
         hits, now = self._hits[key], self.clock()
         while hits and now - hits[0] >= self.window_s:
@@ -53,8 +70,11 @@ class RateLimiter:
 
     def _sweep(self) -> None:
         """Keys with nothing in the window are dropped, so made-up keys cannot grow the memory for ever."""
-        now = self.clock()
+        now = self._swept = self.clock()
         for key in [k for k, hits in self._hits.items() if not hits or now - hits[-1] >= self.window_s]:
+            del self._hits[key]
+        # still full of live keys: the oldest go. Memory stays bounded, and a flood of made-up keys cannot slow each request down
+        for key in list(self._hits)[:max(0, len(self._hits) - self.MAX_KEYS)]:
             del self._hits[key]
 
     def allow(self, key: str) -> bool:

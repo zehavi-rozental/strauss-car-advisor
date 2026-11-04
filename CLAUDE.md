@@ -310,6 +310,20 @@ Not deployed. Rules, formulas and catalog untouched.
 - **UI** (`styles/data.css`, `DataSheet.tsx`, `ChangeCard.tsx`): the strip, the sheet, the card, the notices, the resume screen, the confirm dialog (no `window.confirm`), and the three ways to see the cars as one control (`.view-switch`, `aria-pressed`).
 - Limits: not run against live Gemini (FakeLLM only), so the text-only payslip path and `try_scenario` are untested with the real model. The greeting still says "יועץ הרכב של שטראוס" (kept word for word; flagged). Rate limits are per process.
 
+### Acceptance round (4/11; same branch)
+
+Each of these came from a test that failed first. Rules, formulas and catalog untouched: `tests/test_source_independent.py` compares the system with the delivered files read directly and with `reference_oracle.py`; `tests/test_financial_baseline.py` pins it to the base commit.
+- **Reading** (`tests/test_wording_battery.py`, cue lists in `extensions.yaml`): a condition anywhere in a message is a check (`whatif.is_hypothetical`; a wrong guess saves nothing); `hypothetical_value_cues` need an amount; a new value with no word for what it is, is asked (`read_loose_change`). A named car the rules do not offer gets its rule (`fallback._not_available_plan`), the available ones in the message are still calculated; "האם מותר לי X?" is answered from `classify_options` (`eligibility_answer`). The car today said first is kept (`_early_car_plan`). "תמחק הכול" says where; nothing is deleted from a sentence.
+- **An independent audit** (`tests/test_security_audit_2026_11_04.py`, each finding as a test):
+  - `parsing.redact_contact_details`: any run of 7+ digits with separators, cards, IBAN, phones in any form, "name @ domain". `redact_pay_mentions` for what a rep reads.
+  - `payslip/minimize.py` builds from an allow-list: pay words and figures of up to 6 digits, from lines with both. `extract._parsed_page_count` uses the parser, not a text search.
+  - **A mail link moves the conversation:** `redeem` replaces every session of it. It stops someone naming another person's address from reading them, and closes a browser left open. The first browser then shows "השיחה כבר לא פתוחה כאן".
+  - The lock looks only at `last_access_at`; a rep's answer and polling (`updates`, `touch=False`) do not count. The client locks too (`useConversation`, idle timer).
+  - `email_send_counts` (migration 0007): limits survive a deleted conversation; keyed HMAC, purged in two days. Plain addresses only. Notices go only to the verified address (`redeem` re-addresses what waited).
+  - `hide_parameters` on the engine; `BodySizeLimit`; ordinary numbers only in `ProfileFieldsIn`; payslip extraction off the event loop; IPv6 /64 as one key; `/api/health` counts wrong codes; delimiter out of our own replies and the state block.
+  - Open by choice: an address can use up the shared daily ceilings, and a bad actor on a shared address can lock out its neighbours, because there are no accounts. `email_hash` on existing rows is still an unsalted SHA-256 (changing it needs a data migration). S-05, S-11, S-12 as before.
+- `e2e/qa-acceptance.spec.ts`: order of answers, partial data, each correction compared with a clean run, close and reopen, the notice, the mail, axe on every screen. `e2e/screens.spec.ts` only takes pictures, with `SCREENS_DIR`.
+
 ## NEXT (not done in this pass)
 
 - Session 6 conversation bugs (salary correction after a result, "קיה נירו", "ילד אחד", "ויתור על הרכב", blanket "לא ידוע לי") were fixed by Kiro in 3b06848 and merged in 50e2195; checked by API tests and browser journeys (`journeys.spec.ts`, "merged conversation acceptance").

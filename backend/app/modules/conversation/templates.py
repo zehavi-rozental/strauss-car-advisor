@@ -516,7 +516,7 @@ def results_text(state: ConversationState, head: bool = True) -> str:
              if i.result.get("copay_source") == "catalog_final"]
     c = state.current
     provisional = c.copay is None and c.copay_provisional is not None   # today's copay pending with the rep (1/11)
-    if not head and c.copay_source != "carried" and not provisional:
+    if not head and c.copay_source not in TODAY_COPAY_SOURCE and not provisional:
         pass                    # after a change: said with the first results and on each card, not again next to "what changed"
     elif final and all(a is not None for _, a in final):
         lines.append(catalog_copays_text(final, c.copay_provisional if provisional else c.copay,

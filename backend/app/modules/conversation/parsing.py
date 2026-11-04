@@ -9,6 +9,7 @@ import itertools
 import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Iterable, Optional
 
 from app.modules.calculation.public import Drive
@@ -49,15 +50,52 @@ def redact_id_numbers(text: str) -> str:
     return ID_NUMBER_RE.sub("[הוסר]", text)
 
 
-_EMAIL_RE = re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+")
-_PHONE_RE = re.compile(r"(?<![\d.,])(?:\+?972[-\s]?|0)\d{1,2}[-\s]?\d{3}[-\s]?\d{4}(?![\d.,])")
-_IBAN_RE = re.compile(r"(?<![A-Za-z0-9])IL\d{2}[\s\d]{10,}", re.I)
+_MARKS = "\u200e\u200f\u202a-\u202e\u2066-\u2069"              # direction marks a paste may leave inside a number
+_EMAIL_RE = re.compile(r"[^\s@]+\s*@\s*[^\s@]+\.[^\s@]+")
+_PHONE_RE = re.compile(rf"(?<![\d.,])(?:\+?972[-.\s{_MARKS}]?|0)\d{{1,2}}(?:[-.\s{_MARKS}]?\d){{7}}(?!\d)")
+_IBAN_RE = re.compile(r"(?<![A-Za-z0-9])[A-Z]{2}\d{2}(?:[\s-]?[A-Z0-9]){10,}", re.I)
+_CARD_RE = re.compile(r"(?<![\d.,])\d{4}[ -]\d{4}[ -]\d{4}[ -]\d{1,7}(?!\d)")
+_GROUPED_ID_RE = re.compile(r"(?<![\d.,])\d{2,3} \d{3} \d{3,4}(?![\d.,])")           # "31 245 6783"
+# seven digits or more, also with dashes or dots inside: an ID, an account, an employee number. No salary here reaches seven digits
+_LONG_DIGITS_RE = re.compile(rf"(?<![\d.,])\d(?:[-.{_MARKS}]?\d){{6,}}(?!\d)")
+_NOT_AN_ID = (re.compile(r"\d{1,6}\.\d{1,2}"),                        # 18500.50: an amount with agorot
+              re.compile(r"(?:19|20)\d\d-\d\d-\d\d"),                  # 2026-11-04: a date
+              re.compile(r"[1-9]\d{3,5}-[1-9]\d{3,5}"))               # 15000-20000: a range of amounts
+
+
+def _long_digits(match: "re.Match[str]") -> str:
+    return match.group() if any(p.fullmatch(match.group()) for p in _NOT_AN_ID) else "[הוסר]"
 
 
 def redact_contact_details(text: str) -> str:
     """An email address, a phone number or an account in a free-text message: not needed for anything here, so it is not
     stored and does not reach the model. (A mail address for updates has its own field, encrypted.)"""
-    return _PHONE_RE.sub("[הוסר]", _IBAN_RE.sub("[הוסר]", _EMAIL_RE.sub("[הוסר]", text)))
+    for pattern in (_EMAIL_RE, _IBAN_RE, _PHONE_RE, _CARD_RE, _GROUPED_ID_RE):
+        text = pattern.sub("[הוסר]", text)
+    return _LONG_DIGITS_RE.sub(_long_digits, text)
+
+
+_PAY_WORD_RE = re.compile(r"(?<![א-ת])[והבלשמ]?(?:שכר|משכורת|ברוטו|נטו|מרוויח|מרוויחה|מקבל|מקבלת|בסיס)(?![א-ת])[^\d]{0,20}?(\d[\d,.]*(?:\s*אלף)?)")
+
+
+def redact_pay_mentions(text: str, saved: Iterable[object] = ()) -> str:
+    """For what a representative reads: an amount said next to a word of pay, and the employee's own saved amounts in any form."""
+    text = _PAY_WORD_RE.sub(lambda m: m.group().replace(m.group(1), "[סכום הוסר]"), text)
+    for value in saved:
+        try:
+            amount = int(Decimal(str(value)))
+        except (ArithmeticError, TypeError, ValueError):
+            continue
+        if amount < 1000:
+            continue
+        forms = [f"{amount:,}", str(amount)]
+        if amount % 1000 == 0:
+            forms.append(f"{amount // 1000} אלף")
+        elif amount % 500 == 0:
+            forms.append(f"{amount / 1000:g} אלף")
+        for form in forms:
+            text = re.sub(rf"(?<![\d,.]){re.escape(form)}(?![\d,])", "[סכום הוסר]", text)
+    return text
 
 
 def parse_decimal(value: object) -> Optional[Decimal]:

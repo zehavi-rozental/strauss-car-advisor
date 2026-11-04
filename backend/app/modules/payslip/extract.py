@@ -122,6 +122,18 @@ def _pdf_page_count(data: bytes) -> int:
     return count or 1
 
 
+def _parsed_page_count(data: bytes) -> int:
+    """The parser's own count ("/P#61ge" is a /Page to it and not to a text search). A file it cannot read counts as one page: the
+    damage is reported later."""
+    try:
+        from io import BytesIO
+
+        from pypdf import PdfReader
+        return len(PdfReader(BytesIO(data)).pages)
+    except Exception:  # noqa: BLE001  (a damaged file, or the library missing)
+        return 1
+
+
 def validate_file(data: bytes, max_bytes: int, max_pages: int) -> str:
     """בודק סוג, גודל, שלמות, הצפנה ומספר עמודים. מחזיר את ה-MIME המזוהה או זורק PayslipError בעברית."""
     if not data:
@@ -136,7 +148,7 @@ def validate_file(data: bytes, max_bytes: int, max_pages: int) -> str:
             raise PayslipError(_CORRUPT)      # cut off (a partial download): no end-of-file marker
         if _pdf_is_encrypted(data):
             raise PayslipError(_ENCRYPTED)
-        if _pdf_page_count(data) > max_pages:
+        if max(_pdf_page_count(data), _parsed_page_count(data)) > max_pages:
             raise PayslipError(_TOO_MANY_PAGES.format(pages=max_pages))
     return mime
 

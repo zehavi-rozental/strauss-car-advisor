@@ -111,7 +111,7 @@ test('4. the answer: one card with the question and the full answer, its lines k
   const other = await newPage(browser)                                      // the address is verified by its link
   await other.goto(`/employee#return_token=${token(verify.body)}`)
   await other.getByRole('button', { name: 'פתיחת השיחה המאובטחת' }).click()
-  await expect(other.locator(BOT).first()).toBeVisible({ timeout: 30_000 })
+  await expect(other.getByRole('status')).toContainText('הכתובת אומתה', { timeout: 30_000 })
   await answer(browser, ids[0], ANSWER)
   const card = employee.locator('.rep-answer-card')
   await expect(card).toHaveCount(1, { timeout: 30_000 })
@@ -124,6 +124,7 @@ test('4. the answer: one card with the question and the full answer, its lines k
 })
 
 test('5-7. two inquiries: one notice each, and each link opens its own answer on another device', async ({ browser }) => {
+  let latest: Page | undefined
   ids.push(await ask(employee, SECOND))
   await answer(browser, ids[1], 'כן, אפשר להזמין וו גרירה.')
   await expect(employee.locator('.rep-answer-card')).toHaveCount(2, { timeout: 30_000 })
@@ -143,7 +144,14 @@ test('5-7. two inquiries: one notice each, and each link opens its own answer on
     await expect(focused.locator('.rep-answer-card')).toContainText(i === 0 ? FIRST : SECOND)   // the exact answer
     await expect.poll(async () => inView(phone, '.message-group.is-focused')).toBe(true)
     expect(await phone.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0)
+    latest = phone
   }
+  // the first browser's session stopped: the next thing it does says so, with nothing of the conversation on the screen
+  await employee.getByLabel('הודעה').fill('עוד שאלה')
+  await employee.getByLabel('שליחה').click()
+  await expect(employee.getByRole('region', { name: 'שיחה שמורה' })).toContainText('כבר לא פתוחה כאן', { timeout: 15_000 })
+  await expect(employee.locator('body')).not.toContainText('18,500')
+  employee = latest!         // the conversation moved with the link
 })
 
 test('8. a reload keeps the records and the answers; asked again, nothing is sent twice', async () => {

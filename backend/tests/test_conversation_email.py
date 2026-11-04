@@ -57,7 +57,7 @@ def test_verified_email_link_resumes_conversation_on_another_device_and_answer_s
     assert verification_messages[0]["to"] == EMAIL
     assert verification_messages[0]["subject"]
 
-    # The email is not stored in cleartext, and the one-time link gives a new device a session cookie.
+    # The email is not stored in cleartext, and a verification link verifies: it opens nothing on another device.
     with session_factory(employee.app.state.ctx.sessions.kw["bind"])() as session:
         conversation = session.get(ConversationRow, uuid.UUID(conversation_id))
         assert conversation is not None and EMAIL not in conversation.email_ciphertext
@@ -65,9 +65,9 @@ def test_verified_email_link_resumes_conversation_on_another_device_and_answer_s
     other_device = _client(engine)
     returned = other_device.post("/api/conversations/return", json={"token": _link(verification_messages[0])})
     assert returned.status_code == 200
-    assert returned.json()["conversation_id"] == conversation_id
-    assert other_device.get(f"/api/conversations/{conversation_id}").status_code == 200
-    assert other_device.get(f"/api/conversations/{conversation_id}").json()["rep_email_verified"] is True
+    assert returned.json()["verified_only"] is True and returned.json()["conversation_id"] is None
+    assert other_device.get(f"/api/conversations/{conversation_id}").status_code == 404
+    assert employee.get(f"/api/conversations/{conversation_id}").json()["rep_email_verified"] is True
     assert other_device.post("/api/conversations/return",
                              json={"token": _link(verification_messages[0])}).status_code == 410
 

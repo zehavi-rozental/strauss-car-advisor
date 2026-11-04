@@ -123,7 +123,7 @@ export const api = {
     request<{ resend: string }>(`${conv(id)}/email/verify`, { method: 'POST',
                                                              body: JSON.stringify(email ? { email } : {}) }),
   redeemEmailLink: (token: string) =>
-    request<{ conversation_id: string; question_id: string | null }>('/api/conversations/return', {
+    request<{ conversation_id: string | null; question_id: string | null; verified_only?: boolean }>('/api/conversations/return', {
       method: 'POST', body: JSON.stringify({ token }),
     }),
   searchCars: (q: string) => request<CarSearchItem[]>(`/api/catalog/search?q=${encodeURIComponent(q)}`),

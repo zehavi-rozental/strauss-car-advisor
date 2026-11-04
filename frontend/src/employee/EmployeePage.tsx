@@ -290,14 +290,14 @@ export function EmployeePage() {
 
   if (c.gate) {
     return (
-      <ResumeCard locked={c.gate.locked} updatedAt={c.gate.updatedAt} busy={busy} error={c.error}
+      <ResumeCard locked={c.gate.locked} gone={c.gate.gone} updatedAt={c.gate.updatedAt} busy={busy} error={c.error}
                   onResume={() => void c.resumeStored()} onDelete={() => void c.newConversation()} />
     )
   }
 
   if (c.returnTokenPending) {
     return (
-      <EmailReturnCard error={c.returnTokenError} invalid={c.returnLinkInvalid} canReturn={c.returnStored}
+      <EmailReturnCard error={c.returnTokenError} invalid={c.returnLinkInvalid} verified={c.returnVerified} canReturn={c.returnStored}
                        sending={c.sending} onOpen={() => void c.resumeEmailLink()}
                        onNew={() => void c.newConversation()} />
     )

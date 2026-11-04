@@ -125,11 +125,11 @@ test.describe('rep inquiry card in the conversation', () => {
     const verificationMail = await fakeEmailAfter(emailsBeforeVerification)
     expect(verificationMail.to).toBe('e2e.employee@example.test')
     expect(verificationMail.subject).toContain('אימות')
-    expect(verificationMail.html).toContain('פתיחת השיחה המאובטחת')
+    expect(verificationMail.html).toContain('אימות הכתובת')
     const verificationToken = verificationMail.body.match(/return_token=([A-Za-z0-9_-]+)/)?.[1]
     expect(verificationToken).toBeTruthy()
 
-    // A second device proves the mailbox and gets a fresh session cookie for this exact conversation.
+    // A second device proves the mailbox, and is given nothing else: the conversation stays where it is.
     const returnContext = await browser.newContext()
     const returnedEmployee = await returnContext.newPage()
     watchErrors(returnedEmployee)
@@ -146,10 +146,11 @@ test.describe('rep inquiry card in the conversation', () => {
     expect(returnRequests).toHaveLength(0) // an email preview does not redeem the link
     await openSecureLink.click()
     await expect.poll(() => returnRequests.length).toBe(1)
-    await expect(returnedEmployee.locator(BOT).first()).toBeVisible({ timeout: 30_000 })
+    await expect(returnedEmployee.getByRole('status')).toContainText('הכתובת אומתה', { timeout: 30_000 })
+    await expect(returnedEmployee.locator(BOT)).toHaveCount(0)      // nothing of the conversation on the device that verified
     // the employee's question stands once, in the conversation's inquiry record (not a separate message bubble)
-    await expect(returnedEmployee.getByTestId('rep-inquiry-history').filter({ hasText: edited })).toHaveCount(1)
-    await expect(returnedEmployee.locator(BOT, { hasText: edited })).toHaveCount(0)
+    await expect(page.getByTestId('rep-inquiry-history').filter({ hasText: edited })).toHaveCount(1)
+    await expect(page.locator(BOT, { hasText: edited })).toHaveCount(0)
 
     // the rep sees the exact question and answers it with free text (general → no copay fields)
     const { rep, close } = await repScreen(browser)
@@ -173,8 +174,9 @@ test.describe('rep inquiry card in the conversation', () => {
     const answerToken = answerMail.body.match(/return_token=([A-Za-z0-9_-]+)/)?.[1]
     expect(answerToken).toBeTruthy()
 
-    // The secure, one-time answer link resumes the same chat on the other device, including the rep's answer.
+    // The secure, one-time answer link moves the same chat to the other device, including the rep's answer.
     await returnContext.close()
+    await page.close()         // its session stops with the link: its polling answers 404, and it says so (qa-acceptance)
     const answerContext = await browser.newContext()
     const answeredEmployee = await answerContext.newPage()
     watchErrors(answeredEmployee)

@@ -239,7 +239,7 @@ test.describe('the notice before anything reaches the model', () => {
     await page.goto('/employee')
     const notice = page.getByRole('complementary', { name: 'פרטיות' })
     await expect(notice).toContainText('Google Gemini', { timeout: 30_000 })
-    await expect(notice).toContainText('בלי פרטי קשר ובלי מספרי זהות')
+    await expect(notice).toContainText('פרטי קשר ומספרי זהות מוסרים')
     await expect(page.locator('.status')).toContainText('בלי AI')
     await notice.getByRole('button', { name: 'מאשרים עיבוד ב-AI' }).click()
     await expect.poll(() => consents.length).toBe(1)
@@ -317,8 +317,10 @@ test.describe('the mail, end to end, with the fake provider', () => {
     const opened = await device.newPage()
     await opened.goto(`/employee#return_token=${token}`)
     await opened.getByRole('button', { name: 'פתיחת השיחה המאובטחת' }).click()
-    await expect(opened.getByTestId('rep-inquiry-history').last()).toContainText('גג נפתח', { timeout: 30_000 })
+    await expect(opened.getByRole('status')).toContainText('הכתובת אומתה', { timeout: 30_000 })
+    await expect(opened.locator('body')).not.toContainText('18,500')     // it verifies, and opens nothing here
     await device.close()
+    await expect(page.getByTestId('rep-inquiry-history').last()).toContainText('גג נפתח')     // the conversation goes on where it was
     await page.context().close()
   })
 

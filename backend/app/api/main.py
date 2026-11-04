@@ -6,7 +6,7 @@ import threading
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.engine import Engine, make_url
@@ -50,6 +50,36 @@ def startup_summary(settings: Settings, chain: LLMChain) -> str:
     return (f"startup env_file={ENV_FILE} ({'found' if ENV_FILE.exists() else 'missing'}) "
             f"database={database} llm_chain=[{', '.join(active) or 'templates'}]"
             + (f" disabled=[{', '.join(disabled)}]" if disabled else ""))
+
+
+class BodySizeLimit:
+    """A body larger than any route needs is refused before it is read: by its declared length, and by counting when none is declared."""
+
+    def __init__(self, app, default: int, larger: dict[str, int]):
+        self.app, self.default, self.larger = app, default, larger
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        limit = self.larger.get(scope["path"], self.default)
+        declared = dict(scope["headers"]).get(b"content-length", b"")
+        if declared.isdigit() and int(declared) > limit:
+            body = b'{"detail":"\xd7\x94\xd7\x91\xd7\xa7\xd7\xa9\xd7\x94 \xd7\x92\xd7\x93\xd7\x95\xd7\x9c\xd7\x94 \xd7\x9e\xd7\x93\xd7\x99."}'
+            await send({"type": "http.response.start", "status": 413,
+                        "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]})
+            return await send({"type": "http.response.body", "body": body})
+        seen = 0
+
+        async def counted():
+            nonlocal seen
+            message = await receive()
+            if message["type"] == "http.request":
+                seen += len(message.get("body", b""))
+                if seen > limit:
+                    raise HTTPException(413, "הבקשה גדולה מדי.")
+            return message
+
+        await self.app(scope, counted, send)
 
 
 def create_app(settings: Optional[Settings] = None, *, engine: Optional[Engine] = None,
@@ -120,6 +150,8 @@ def create_app(settings: Optional[Settings] = None, *, engine: Optional[Engine] 
 
     # no /docs, /redoc or /openapi.json: the service's map is not for visitors
     app = FastAPI(title="Strauss Car Advisor", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+
+    app.add_middleware(BodySizeLimit, default=256 * 1024, larger={"/api/payslip/extract": settings.payslip_max_bytes + 1024 * 1024})
 
     @app.middleware("http")
     async def security_headers(request: Request, call_next):

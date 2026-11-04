@@ -265,7 +265,7 @@ export function PrivacyLines({ privacy }: { privacy: Privacy | null }) {
       )}
       {privacy?.ai.available && (
         <li>{privacy.ai.accepted
-          ? 'הודעות השיחה והנתונים שמסרתם מעובדים ב-Google Gemini, בלי פרטי קשר ובלי מספרי זהות.'
+          ? 'הודעות השיחה והנתונים שמסרתם מעובדים ב-Google Gemini. פרטי קשר ומספרי זהות מוסרים אוטומטית לפני השליחה, אבל עדיף לא לכתוב אותם כאן.'
           : 'השיחה פועלת בלי AI: שום הודעה לא נשלחת ל-Google Gemini.'}</li>
       )}
       <li>מחיקה מסירה את השיחה מהשרת. עותקי גיבוי ומה שכבר עובד אצל ספק ה-AI נשמרים לפי התקופות שלהם.</li>
@@ -280,7 +280,7 @@ export function PrivacyNotice({ privacy, disabled, onAccept, onHide }:
     <aside className="privacy-notice" aria-label="פרטיות">
       {privacy.demo && <p className="privacy-demo"><Icon name="alert" size={16} />זו סביבת הדגמה. אל תזינו כאן נתוני שכר אמיתיים.</p>}
       <p>
-        כדי להבין כתיבה חופשית, ההודעות שלכם והנתונים שמסרתם נשלחים לעיבוד ב-Google Gemini, בלי פרטי קשר ובלי מספרי זהות.
+        כדי להבין כתיבה חופשית, ההודעות שלכם והנתונים שמסרתם נשלחים לעיבוד ב-Google Gemini. פרטי קשר ומספרי זהות מוסרים אוטומטית לפני השליחה, אבל עדיף לא לכתוב אותם כאן.
         החישובים עצמם נעשים כאן. בלי אישור, השיחה ממשיכה בלי AI.
       </p>
       <div className="field-editor-actions">
@@ -311,8 +311,8 @@ export function ConfirmDialog({ title, text, confirm, danger = false, busy, onCo
 }
 
 /** A conversation saved in this browser, or one that locked: nothing of it is shown until someone chooses. */
-export function ResumeCard({ locked, updatedAt, busy, error, onResume, onDelete }:
-  { locked: boolean; updatedAt?: string; busy: boolean; error: string | null; onResume: () => void; onDelete: () => void }) {
+export function ResumeCard({ locked, gone = false, updatedAt, busy, error, onResume, onDelete }:
+  { locked: boolean; gone?: boolean; updatedAt?: string; busy: boolean; error: string | null; onResume: () => void; onDelete: () => void }) {
   const when = updatedAt ? new Date(updatedAt).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' }) : null
   return (
     <div className="resume-screen">
@@ -320,9 +320,11 @@ export function ResumeCard({ locked, updatedAt, busy, error, onResume, onDelete 
         <header className="panel-card-head">
           <span className="panel-card-icon" aria-hidden="true"><Icon name="lock" size={20} /></span>
           <div>
-            <h3>{locked ? 'השיחה הקודמת ננעלה' : 'יש בדפדפן הזה שיחה שמורה'}</h3>
+            <h3>{gone ? 'השיחה כבר לא פתוחה כאן' : locked ? 'השיחה הקודמת ננעלה' : 'יש בדפדפן הזה שיחה שמורה'}</h3>
             <p className="form-hint">
-              {locked
+              {gone
+                ? 'היא נפתחה בדפדפן אחר מהקישור במייל, או שנמחקה. הפרטים לא מוצגים כאן.'
+                : locked
                 ? 'עבר זמן ללא פעילות, ולכן הפרטים לא מוצגים. אם אימתם מייל, הקישור מהמייל פותח את השיחה מחדש. אפשר גם למחוק אותה ולהתחיל שיחה חדשה.'
                 : `כדי להגן על הפרטים, הם לא מוצגים עד שתבחרו.${when ? ` עדכון אחרון: ${when}.` : ''} אם זו לא השיחה שלכם, מחקו והתחילו מחדש.`}
             </p>
@@ -332,7 +334,7 @@ export function ResumeCard({ locked, updatedAt, busy, error, onResume, onDelete 
         <div className="field-editor-actions">
           {!locked && <button type="button" className="chip chip-primary" disabled={busy} onClick={onResume}>להמשיך את השיחה</button>}
           <button type="button" className={locked ? 'chip chip-primary' : 'chip chip-danger'} disabled={busy} onClick={onDelete}>
-            למחוק ולהתחיל שיחה חדשה
+            {gone ? 'להתחיל שיחה חדשה' : 'למחוק ולהתחיל שיחה חדשה'}
           </button>
         </div>
       </section>

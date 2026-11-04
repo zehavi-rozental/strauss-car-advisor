@@ -2728,8 +2728,8 @@ class Agent:
 
         if self.llm.available:
             try:
-                response = self.llm.complete([ChatMessage("system", REP_QUESTION_PROMPT),
-                                              ChatMessage("user", question)], deadline=self.llm.turn_deadline())
+                response = self.llm.complete([ChatMessage("system", REP_QUESTION_PROMPT), user_message(question)],
+                                             deadline=self.llm.turn_deadline())
                 text = " ".join(response.text.split())[:300]
                 if text and snap_ok(text):
                     return text

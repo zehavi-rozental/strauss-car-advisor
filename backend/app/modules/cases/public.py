@@ -14,7 +14,7 @@ from decimal import Decimal, InvalidOperation
 from enum import Enum
 from typing import Any, Callable, Optional
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -261,6 +261,11 @@ class CasesService:
         return result.rowcount
 
     # ---------- קריאה ----------
+
+    def open_count(self, session: Session, conversation_id: str) -> int:
+        """How many questions of this conversation wait for the representative."""
+        return session.scalar(select(func.count()).select_from(RepQuestionRow).where(
+            RepQuestionRow.conversation_id == uuid.UUID(conversation_id), RepQuestionRow.status == Status.OPEN.value)) or 0
 
     def list_questions(self, status: Status = Status.OPEN) -> list[QuestionView]:
         with self.sessions() as session:

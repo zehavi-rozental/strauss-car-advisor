@@ -31,7 +31,7 @@ def test_the_edge_address_is_used_only_with_the_matching_secret():
     assert client_address(_request({**edge, "X-Edge-Secret": "a-guess"}), SECRET) == "10.0.0.5"
     assert client_address(_request({"X-Edge-Client-IP": "203.0.113.7"}), SECRET) == "10.0.0.5"
     assert client_address(_request({**edge, "X-Edge-Client-IP": "not-an-ip"}), SECRET) == "10.0.0.5"
-    assert client_address(_request({**edge, "X-Edge-Client-IP": " 2001:db8::1 "}), SECRET) == "2001:db8::1"
+    assert client_address(_request({**edge, "X-Edge-Client-IP": " 2001:db8::1 "}), SECRET) == "2001:db8::/64"
 
 
 def test_visitors_behind_the_edge_get_their_own_limits(engine):
