@@ -44,6 +44,9 @@
   color: var(--on-hero);
 }
 .chat-title { display: flex; flex-direction: column; gap: 2px; min-inline-size: 0; }
+.header-tag { align-self: flex-start; }
+/* the waiting status takes the line under the title: no third row in the band, and the route keeps its room next to the car */
+.chat-title:has(.header-tag) .status { display: none; }
 .chat-title h1 { font-size: 1.625rem; font-weight: 800; letter-spacing: -0.01em; line-height: 1.05; }
 .chat-title h1::after {
   content: '';
@@ -197,7 +200,7 @@
 
 /* ---------- messages ---------- */
 .messages { display: flex; flex-direction: column; gap: 22px; padding-block: 32px 16px; }
-.message-group { display: flex; flex-direction: column; gap: 14px; }
+.message-group { display: flex; flex-direction: column; gap: 14px; scroll-margin-block-start: var(--s3); }
 .message-group.from-bot { animation: rise var(--t-slow) var(--ease-out) both; }
 
 /* break a word only when it cannot fit on its own line ("anywhere" split model names mid-word: D2, 29/10) */

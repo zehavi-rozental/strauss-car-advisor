@@ -58,6 +58,10 @@
   overscroll-behavior-inline: contain;
 }
 .context-strip::-webkit-scrollbar { display: none; }
+/* a mouse has no way to scroll a row with no scrollbar: on a wide screen the values wrap instead */
+@media (min-width: 721px) { .context-strip { flex-wrap: wrap; overflow-x: visible; } }
+/* on a phone the row fades at its end, so that more is seen to be there */
+@media (max-width: 720px) { .context-strip { mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent); padding-inline-end: 28px; } }
 .context-all, .context-chip {
   display: inline-flex;
   flex: none;
@@ -212,5 +216,5 @@
 }
 .confirm-dialog h2 { margin: 0; font-size: 1.25rem; font-weight: 800; }
 .confirm-dialog p { margin: 0; color: var(--ink-2); }
-.resume-screen { display: grid; place-items: center; min-block-size: 60vh; padding: var(--s4); }
+.resume-screen { display: grid; place-items: center; min-block-size: calc(100dvh - var(--topbar-h)); padding: var(--s4); background: var(--paper); }
 .resume-card { display: grid; gap: var(--s3); max-inline-size: 560px; }

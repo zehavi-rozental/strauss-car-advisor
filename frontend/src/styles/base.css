@@ -74,6 +74,7 @@ img, svg { display: block; }
 .btn-brand { --bg: var(--brand); --fg: #fff; --bd: var(--brand); }
 .btn-brand:hover:not(:disabled) { --bd: var(--brand-deep); background: var(--brand-deep); }
 .btn-ghost { --bg: transparent; --fg: var(--ink-2); --bd: transparent; padding-inline: 12px; }
+.btn-quiet { --bg: transparent; --fg: var(--ink-2); --bd: var(--line-2); }
 .btn-sm { min-block-size: 32px; padding-block: 4px; padding-inline: 12px; font-size: var(--fs-small); }
 .btn-icon { inline-size: 40px; padding: 0; }
 .btn .ico, .chip .ico { inline-size: 18px; block-size: 18px; flex: none; }

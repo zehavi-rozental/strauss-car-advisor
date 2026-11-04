@@ -70,7 +70,10 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
   const [copied, setCopied] = useState<number | null>(null)
   useEffect(() => {
     if (focusQuestionId) return                 // an answer is being shown: never pulled to the bottom
-    end.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    const last = messages[messages.length - 1]
+    const card = last?.card ? document.getElementById(`message-${last.seq}`) : null
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' })   // "what changed": read from its top, the cards follow it
+    else end.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages.length, results, typing, tail != null, focusQuestionId])
   useEffect(() => {
     if (!focusQuestionId) return

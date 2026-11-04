@@ -236,7 +236,7 @@ def test_the_receipt_of_18000_to_20000(engine):
     assert {o["option_id"]: (o["before"]["delta"], o["after"]["delta"]) for o in card["options"]} == {
         "CAR-06": ("979", "1047"), "CAR-03": ("960", "1022"), "CAR-08": ("751", "797")}
     assert card["order_changed"] is False
-    assert "הסדר בין הרכבים לא השתנה" in turn["reply"] and "11,602 ₪ במקום 10,703 ₪" in turn["reply"]
+    assert "הנטו הגבוה ביותר" in turn["reply"]       # the chat says what to take from it; the figures are on the card
 
 
 def test_the_receipt_says_when_the_cars_changed(engine):
@@ -246,7 +246,7 @@ def test_the_receipt_says_when_the_cars_changed(engine):
     assert turn["card"]["order_changed"] is True
     assert [a["option_id"] for a in turn["card"]["added"]] == ["CAR-01"]
     assert [a["option_id"] for a in turn["card"]["left"]] == ["CAR-08"]
-    assert "הסדר בין הרכבים השתנה" in turn["reply"]
+    assert turn["card"]["order_changed"] is True
 
 
 def test_a_message_keeps_the_results_it_reported_so_an_older_one_can_be_marked(engine):

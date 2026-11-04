@@ -81,11 +81,8 @@ def _delta_words(delta: Any) -> str:
 
 
 def receipt_lines(receipt: dict[str, Any]) -> list[str]:
-    """The chat text next to the card: what the change means, in at most three short lines."""
+    """The chat text next to the card: the card has the figures, the order and the cars. Here only what to take from it."""
     lines = []
-    today = receipt["today_net"]
-    if today["before"] and today["after"] and today["before"] != today["after"]:
-        lines.append(f"הנטו שלכם ברכב של היום: {money(Decimal(today['after']))} במקום {money(Decimal(today['before']))}.")
     if receipt["ranked"]:
         lines.append(f"בדקתי שוב את כל {receipt['ranked']} הרכבים שאתם זכאים להם.")
     if receipt["options"]:
@@ -93,6 +90,4 @@ def receipt_lines(receipt: dict[str, Any]) -> list[str]:
         head = "הנטו הגבוה ביותר" if len(receipt["options"]) > 1 else "הרכב שבדקתם"
         mark = " (סכום חריג)" if best.get("unusual") else ""
         lines.append(f"{head}: {best['label']}{mark}, {_delta_words(best['after']['delta'])}.")
-    if len(receipt["options"]) > 1:
-        lines.append("הסדר בין הרכבים השתנה." if receipt["order_changed"] else "הסדר בין הרכבים לא השתנה.")
     return lines

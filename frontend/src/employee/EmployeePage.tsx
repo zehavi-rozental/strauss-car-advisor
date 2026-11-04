@@ -320,10 +320,10 @@ export function EmployeePage() {
               </span>
             )
           })()}
+          {c.waitingForRep && <span className="tag tag-pending header-tag">ממתין לתשובת נציג</span>}
         </div>
         <Progress stage={c.stage} hasResults={c.results.length > 0} />
         <div className="chat-actions">
-          {c.waitingForRep && <span className="tag tag-pending header-tag">ממתין לתשובת נציג</span>}
           <button type="button" className="new-chat" onClick={newChat} disabled={c.sending}>
             <Icon name="retry" size={16} />שיחה חדשה
           </button>

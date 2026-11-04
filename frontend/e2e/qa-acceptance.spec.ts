@@ -2,6 +2,7 @@
 // same values from the start (the same inputs must give the same engine result, whatever order or route they arrived by). Synthetic data only.
 import { expect, test } from '@playwright/test'
 import type { Browser, Page } from '@playwright/test'
+import AxeBuilder from '@axe-core/playwright'
 import { mkdir, readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -330,4 +331,76 @@ test.describe('the mail, end to end, with the fake provider', () => {
     await expect(page.getByRole('button', { name: 'שיחה חדשה' })).toBeVisible()
     await context.close()
   })
+})
+
+test.describe('accessibility on every screen, at rest', () => {
+  test.setTimeout(240_000)
+
+  const serious = async (page: Page, where: string) => {
+    await page.waitForTimeout(900)       // entrance animations pass through low contrast: measured at rest
+    const { violations } = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()
+    return violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')
+      .map((v) => `${where}: ${v.id} (${v.nodes.length}): ${v.nodes[0]?.target} ${v.nodes[0]?.any[0]?.message ?? ''}`)
+  }
+
+  for (const width of [1280, 375]) {
+    test(`the employee's screens (${width}px)`, async ({ browser }) => {
+      const page = await fresh(browser, width)
+      const found: string[] = []
+      await page.goto('/')
+      found.push(...await serious(page, 'entry'))
+      await page.goto('/employee')
+      await expect(page.locator(BOT).first()).toBeVisible({ timeout: 30_000 })
+      found.push(...await serious(page, 'opening'))
+      for (const m of [NOA, 'יש לי קורולה קרוס', '300']) await send(page, m)
+      found.push(...await serious(page, 'choosing'))
+      const pick = page.getByRole('button', { name: 'לבחור רכבים להשוואה' }).first()
+      if (await pick.count()) {
+        await pick.click()
+        await page.waitForTimeout(300)
+        found.push(...await serious(page, 'picker'))
+      }
+      await send(page, 'מה הכי משתלם לי?')
+      found.push(...await serious(page, 'results'))
+      await page.getByRole('button', { name: 'פירוט החישוב' }).first().click()
+      await expect(page.getByRole('dialog')).toBeVisible()
+      found.push(...await serious(page, 'comparison'))
+      await page.keyboard.press('Escape')
+      await page.getByRole('button', { name: 'כל הרכבים לפי נטו' }).click()
+      await page.getByRole('button', { name: 'פתיחת מפת האפשרויות' }).click()
+      await expect(page.getByRole('dialog')).toBeVisible()
+      found.push(...await serious(page, 'map'))
+      await page.keyboard.press('Escape')
+      await send(page, 'מה יקרה אם ארוויח 25,000?')
+      found.push(...await serious(page, 'check'))
+      await page.getByRole('button', { name: 'להשאיר כבדיקה' }).click()
+      await send(page, 'טעיתי, השכר שלי 22,000')
+      found.push(...await serious(page, 'changed'))
+      await page.getByRole('button', { name: 'שיחה חדשה' }).click()
+      await expect(page.getByRole('alertdialog')).toBeVisible()
+      found.push(...await serious(page, 'confirm'))
+      await page.getByRole('alertdialog').getByRole('button', { name: 'ביטול' }).click()
+      const other = await page.context().newPage()
+      await other.goto('/employee')
+      await expect(other.getByRole('region', { name: 'שיחה שמורה' })).toBeVisible({ timeout: 30_000 })
+      found.push(...await serious(other, 'resume'))
+      await page.context().close()
+      expect(found).toEqual([])
+    })
+
+    test(`the representative's screens (${width}px)`, async ({ browser }) => {
+      test.skip(!REP_TOKEN, 'REP_TOKEN')
+      const page = await (await browser.newContext({ viewport: { width, height: 860 } })).newPage()
+      const found: string[] = []
+      await page.goto('/rep')
+      await expect(page.getByLabel('קוד גישה')).toBeVisible()
+      found.push(...await serious(page, 'rep login'))
+      await page.getByLabel('קוד גישה').fill(REP_TOKEN)
+      await page.getByRole('button', { name: 'כניסה' }).click()
+      await expect(page.getByRole('button', { name: /יציאה/ })).toBeVisible()
+      found.push(...await serious(page, 'rep list'))
+      await page.context().close()
+      expect(found).toEqual([])
+    })
+  }
 })

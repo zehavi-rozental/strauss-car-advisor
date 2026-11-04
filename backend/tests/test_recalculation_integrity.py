@@ -121,7 +121,7 @@ def test_the_review_case_9000_to_45000_shows_the_real_three_highest(engine):
     send2({"text": "הכי משתלם"})
     assert kept == rows(view(fresh, cid2))
     assert "CAR-01" in [r[0] for r in kept] and "CAR-08" not in [r[0] for r in kept]   # PICANTO +946, not KONA EV +936
-    assert "3 החלופות עם הנטו המשוער הגבוה ביותר" in turn["reply"] or "הסדר" in turn["reply"]
+    assert "בדקתי שוב את כל" in turn["reply"] and "הנטו הגבוה ביותר" in turn["reply"]
 
 
 @pytest.mark.parametrize("q2_children, change, count", [(2, {"children_under_23": 5}, 14)])
