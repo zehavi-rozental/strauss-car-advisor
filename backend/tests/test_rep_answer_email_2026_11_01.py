@@ -167,3 +167,39 @@ def test_the_smtp_message_has_a_named_sender_a_date_and_a_message_id_on_the_send
     settings.email_from = "Strauss Car Advisor <noreply@mail.example.test>"
     service._send("abc124", "employee@example.test", "נושא", "גוף", "<p>גוף</p>")
     assert sent[1]["From"] == "Strauss Car Advisor <noreply@mail.example.test>"           # a name given is kept
+
+
+def test_both_mails_carry_the_strauss_drive_brand_and_the_public_link(engine, snapshot):
+    # Gmail SMTP (4/11): any address, the brand in the subject and heading, the link on the public site
+    c = _server(engine)
+    cid = _compare(c, [_code(snapshot, "NIRO")])
+    _verified(c, cid, snapshot)
+    _answer(c, "כן.")
+    verify, notice = _mail(c)[0], _mail(c)[-1]
+    assert verify["subject"] == "STRAUSS DRIVE | אימות כתובת האימייל"
+    assert notice["subject"] == "STRAUSS DRIVE | התקבלה תשובה מנציג התחבורה"
+    for m in (verify, notice):
+        assert ">STRAUSS DRIVE</h1>" in m["html"] and 'dir="rtl"' in m["html"]
+        assert "http://testserver/employee#return_token=" in m["body"]
+
+
+def test_gmail_smtp_signs_in_with_the_account_and_sends_to_any_address(monkeypatch):
+    import smtplib
+    calls = []
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout): calls.append(("connect", host, port))
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def starttls(self, **k): calls.append(("starttls",))
+        def login(self, user, password): calls.append(("login", user))
+        def send_message(self, message): calls.append(("send", message["To"], message["From"]))
+
+    monkeypatch.setattr(smtplib, "SMTP", FakeSMTP)
+    service = object.__new__(EmailNotificationService)
+    service.settings = SimpleNamespace(email_backend="smtp", email_from="strauss.drive@gmail.com",
+                                       email_smtp_host="smtp.gmail.com", email_smtp_port=587, email_smtp_starttls=True,
+                                       email_smtp_username="strauss.drive@gmail.com", email_smtp_password="app-pass")
+    service._send("m1", "someone@outlook.co.il", "נושא", "גוף", "<p>גוף</p>")
+    assert calls == [("connect", "smtp.gmail.com", 587), ("starttls",), ("login", "strauss.drive@gmail.com"),
+                     ("send", "someone@outlook.co.il", "STRAUSS DRIVE <strauss.drive@gmail.com>")]
