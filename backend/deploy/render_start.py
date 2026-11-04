@@ -69,7 +69,7 @@ def main() -> None:
     # X-Forwarded-For entry, which the caller writes, so a forged header would dodge every per-IP rate limit.
     os.environ.setdefault("FORWARDED_ALLOW_IPS", TRUSTED_PROXIES)
     os.execvp(sys.executable, [sys.executable, "-m", "uvicorn", "app.api.serve_spa:create_render_app", "--factory",
-                               "--host", "0.0.0.0", "--port", port, "--proxy-headers"])
+                               "--host", "0.0.0.0", "--port", port, "--proxy-headers", "--no-access-log"])
 
 
 if __name__ == "__main__":

@@ -643,6 +643,20 @@ def classify_options(snapshot: RulesSnapshot, state: ConversationState
     return out, excluded
 
 
+def rep_copay_unusual(snapshot: RulesSnapshot, option_id: str, amount: Decimal) -> bool:
+    """A representative's monthly copay for a new car that is far from the catalog amount (extensions.rep_copay_review_multiple),
+    or above the range set for a copay. No rule gives a ceiling, so this never refuses: it asks for a confirmation and marks the
+    result. It may be a typo, or a one-time amount written as a monthly one."""
+    ext = snapshot.extensions
+    bounds = ext.value_ranges.get("current_copay")
+    if bounds is not None and amount > bounds[1]:
+        return True
+    car = next((c for c in snapshot.catalog if c.catalog_code == option_id), None)
+    if car is None or not car.default_copay:
+        return False
+    return amount > car.default_copay * ext.rep_copay_review_multiple
+
+
 def removed_options(snapshot: RulesSnapshot, state: ConversationState, options: dict[str, Option]) -> list[RemovedOption]:
     """The selected cars the rules no longer allow, each with its rule: the same function that says what is eligible."""
     gone = [o for o in state.selected if o not in options]

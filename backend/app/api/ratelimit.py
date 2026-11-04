@@ -34,6 +34,8 @@ def client_address(request: Request, edge_secret: str) -> str:
 
 
 class RateLimiter:
+    MAX_KEYS = 20_000
+
     def __init__(self, limit: int, window_s: float = 60.0, clock: Callable[[], float] = time.monotonic):
         self.limit = limit
         self.window_s = window_s
@@ -42,10 +44,18 @@ class RateLimiter:
         self._lock = threading.Lock()
 
     def _current(self, key: str) -> deque[float]:
+        if len(self._hits) > self.MAX_KEYS:
+            self._sweep()
         hits, now = self._hits[key], self.clock()
         while hits and now - hits[0] >= self.window_s:
             hits.popleft()
         return hits
+
+    def _sweep(self) -> None:
+        """Keys with nothing in the window are dropped, so made-up keys cannot grow the memory for ever."""
+        now = self.clock()
+        for key in [k for k, hits in self._hits.items() if not hits or now - hits[-1] >= self.window_s]:
+            del self._hits[key]
 
     def allow(self, key: str) -> bool:
         with self._lock:

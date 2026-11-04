@@ -81,9 +81,35 @@ def make_client(engine, llm=None, **overrides) -> TestClient:
     overrides.setdefault("email_fake_notice", False)      # the fake backend stands in for real mail here
     overrides.setdefault("email_encryption_key", Fernet.generate_key().decode("ascii"))
     overrides.setdefault("email_public_app_url", "http://testserver")
+    overrides.setdefault("require_ai_consent", False)     # the notice has its own tests (test_privacy_and_abuse)
+    overrides.setdefault("email_recipient_daily_limit", 1000)
+    overrides.setdefault("email_addresses_per_conversation", 1000)
+    overrides.setdefault("email_verify_address_limit_per_hour", 100000)
+    overrides.setdefault("auth_failure_limit_per_minute", 100000)
+    overrides.setdefault("message_address_limit_per_minute", 100000)
     settings = Settings(_env_file=None, llm_provider="none", **overrides)
     app = create_app(settings, engine=engine, llm=llm if llm is not None else LLMChain())
     return TestClient(app)
+
+
+def upload_payslip(client, files=None, **kwargs):
+    """The upload as the screen does it: in this browser's conversation (a new one if it has none), notice accepted."""
+    from sqlalchemy import select
+
+    from app.modules.conversation.models import ConversationRow
+    from app.modules.conversation.public import PAYSLIP_NOTICE_VERSION
+    from app.modules.conversation.repository import token_hash
+
+    token = client.cookies.get("sca_session")
+    cid = None
+    if token:
+        with client.app.state.ctx.sessions() as s:
+            row = s.scalar(select(ConversationRow).where(ConversationRow.session_token_hash == token_hash(token)))
+            cid = str(row.id) if row else None
+    if cid is None:
+        cid = client.post("/api/conversations").json()["conversation_id"]
+    return client.post("/api/payslip/extract", files=files,
+                       data={"conversation_id": cid, "consent_version": PAYSLIP_NOTICE_VERSION}, **kwargs)
 
 
 CTA_STARTS = ("כתבו", "בחרו", "אפשר לכתוב")

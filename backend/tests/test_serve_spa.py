@@ -8,7 +8,7 @@ from app.api.serve_spa import create_render_app
 from app.modules.conversation.public import LLMChain
 from app.shared.settings import Settings
 
-from .conftest import build_engine
+from .conftest import build_engine, upload_payslip
 
 INDEX = "<!doctype html><html><body><div id='root'>strauss drive</div></body></html>"
 
@@ -71,7 +71,7 @@ def test_the_rep_api_opens_only_with_the_configured_token(tmp_path):
 
 def test_the_payslip_upload_is_closed_in_the_demo(tmp_path):
     client = make(tmp_path)                              # PAYSLIP_ENABLED defaults to false, as in render.yaml
-    r = client.post("/api/payslip/extract", files={"file": ("p.pdf", b"%PDF-1.4", "application/pdf")})
+    r = upload_payslip(client, files={"file": ("p.pdf", b"%PDF-1.4", "application/pdf")})
     assert r.status_code in (403, 404, 503)
 
 

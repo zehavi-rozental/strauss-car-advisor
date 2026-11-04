@@ -13,6 +13,7 @@ from typing import Any, Optional
 from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.modules.cases.public import (
@@ -24,6 +25,8 @@ from app.modules.cases.public import (
     QuestionView,
     Status,
 )
+
+from app.modules.conversation.public import rep_copay_unusual
 
 from .deps import context
 from .ratelimit import client_address
@@ -37,6 +40,7 @@ class AnswerIn(BaseModel):
     value: Any = None
     effective_date: Optional[str] = None
     note: Optional[str] = None
+    confirm_unusual: bool = False     # the amount stands out, and the representative confirmed it is the monthly one
 
 
 def _header_text(value: Optional[str]) -> str:
@@ -144,7 +148,7 @@ def _group_letter(value: Any, order: Any) -> Optional[str]:
 
 @router.post("/questions/{question_id}/answer")
 def answer_question(question_id: str, body: AnswerIn, request: Request,
-                    name: str = Depends(rep_name)) -> dict[str, Any]:
+                    name: str = Depends(rep_name)) -> Any:
     question_id = question_id.strip()
     effective: Optional[date] = None
     if body.effective_date:
@@ -155,6 +159,17 @@ def answer_question(question_id: str, body: AnswerIn, request: Request,
     try:
         field = context(request).cases.get(question_id).missing_field
         _check_range(request, field, body.value)
+        if field == MissingField.NEW_CAR_COPAY and not body.confirm_unusual:
+            option_id = context(request).cases.get(question_id).option_id
+            try:
+                amount = Decimal(str(body.value).replace(",", "").strip())
+            except (InvalidOperation, ValueError):
+                amount = None
+            if amount is not None and amount.is_finite() and rep_copay_unusual(
+                    context(request).rules.current, option_id, amount):
+                message = (f"הסכום חריג: {amount:,.0f} ₪ בחודש. ייתכן שזו טעות הקלדה או סכום חד-פעמי. "
+                           "כאן כותבים את הסכום החודשי. אם זה אכן הסכום החודשי, אשרו אותו.")
+                return JSONResponse({"detail": message, "message_he": message, "code": "unusual_amount"}, status_code=422)
         order = context(request).rules.current.calc.group_order
         if field == MissingField.ELIGIBILITY_GROUP and _group_letter(body.value, order) is None:
             raise AnswerInvalid(f"כתבו את אות הקבוצה: {', '.join(order)}.")

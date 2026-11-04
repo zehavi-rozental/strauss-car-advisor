@@ -27,6 +27,9 @@ class AppContext:
     create_limiter: RateLimiter
     rep_gate: RepGate
     payslip_limiter: RateLimiter
+    address_limiter: RateLimiter
+    auth_failures: RateLimiter
+    email_verify_limiter: RateLimiter
 
 
 def context(request: Request) -> AppContext:

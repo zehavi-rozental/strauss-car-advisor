@@ -31,7 +31,7 @@ from app.modules.payslip.models import SUPPORTED_FIELDS, PayslipError
 from app.modules.payslip.public import PayslipService
 from app.shared.settings import Settings
 
-from .conftest import BACKEND, build_engine
+from .conftest import BACKEND, build_engine, upload_payslip
 
 JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 32
 PDF = b"%PDF-1.4\n1 0 obj<</Type /Page>>endobj\n%%EOF"
@@ -285,8 +285,7 @@ def client_with(vision) -> TestClient:
 
 
 def test_endpoint_contract():
-    body = client_with(FakeVision(SYNTHETIC)).post(
-        "/api/payslip/extract", files={"file": ("p.pdf", PDF, "application/pdf")}).json()
+    body = upload_payslip(client_with(FakeVision(SYNTHETIC)), files={"file": ("p.pdf", PDF, "application/pdf")}).json()
     assert set(body) == {"ok", "status", "reason", "retry", "fields", "info", "message_he"}
     assert (body["ok"], body["status"], body["reason"]) == (True, "partial", "")
     assert [f["field"] for f in body["fields"]] == list(SUPPORTED_FIELDS)
@@ -301,8 +300,7 @@ def test_endpoint_contract():
 
 
 def test_endpoint_failure_contract():
-    body = client_with(FakeVision(raises=VisionError("quota"))).post(
-        "/api/payslip/extract", files={"file": ("p.pdf", PDF, "application/pdf")}).json()
+    body = upload_payslip(client_with(FakeVision(raises=VisionError("quota"))), files={"file": ("p.pdf", PDF, "application/pdf")}).json()
     assert (body["ok"], body["status"], body["reason"], body["retry"], body["fields"], body["info"]) == (
         False, "failed", "quota", True, [], [])
 
@@ -322,7 +320,7 @@ def test_confirmed_payslip_values_reach_the_profile_and_the_calculation():
     before = client.get(f"/api/conversations/{cid}").json()
     assert before["profile"]["base"] == "15000" and before["results"]
 
-    extracted = client.post("/api/payslip/extract", files={"file": ("p.pdf", PDF, "application/pdf")}).json()
+    extracted = upload_payslip(client, files={"file": ("p.pdf", PDF, "application/pdf")}).json()
     base = next(f for f in extracted["fields"] if f["field"] == "base_salary")["value"]
     r = send({"fields": {"base_salary": base}})
     assert r.status_code == 200, r.text

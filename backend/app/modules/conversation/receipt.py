@@ -14,7 +14,8 @@ from .templates import _VALUE_LABELS, _show, money
 
 def snapshot_results(state: ConversationState) -> dict[str, Any]:
     """The results on record, before a change replaces them."""
-    ok = [r for r in state.results if r.result.get("status") == "OK" and r.result.get("delta_display") is not None]
+    ok = [r for r in state.results if r.result.get("status") == "OK" and r.result.get("delta_display") is not None
+          and not r.result.get("unusual_copay") and not r.result.get("unusual_result")]
     today = ok[0].result["today"]["net_display"] if ok else None
     return {"today_net": str(today) if today is not None else None,
             "options": {r.option_id: {"label": r.label, "net": str(r.result["alternative"]["net_display"]),
@@ -30,7 +31,8 @@ def build_receipt(before: dict[str, Any], state: ConversationState, changes: lis
     """None when there was nothing to compare with, or nothing changed. Only what changed is listed."""
     if not before["options"] and not state.removed_options:
         return None
-    ok = [r for r in state.results if r.result.get("status") == "OK" and r.result.get("delta_display") is not None]
+    ok = [r for r in state.results if r.result.get("status") == "OK" and r.result.get("delta_display") is not None
+          and not r.result.get("unusual_copay") and not r.result.get("unusual_result")]
     today_after = str(ok[0].result["today"]["net_display"]) if ok else None
     options = []
     for r in sorted(ok, key=lambda r: -Decimal(str(r.result["delta_display"]))):

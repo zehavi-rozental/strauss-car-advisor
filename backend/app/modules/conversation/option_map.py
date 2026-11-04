@@ -63,6 +63,12 @@ def dump_option(state: ConversationState, option_id: str, alternative: State, re
     c = state.current
     if c.copay is None and c.copay_provisional is not None:
         out["today_copay_provisional"] = str(c.copay_provisional)   # today's net on a provisional catalog amount
+    confirmed = state.confirmed_copays.get(option_id)
+    if confirmed is not None and confirmed.unusual:
+        out["unusual_copay"] = True          # a representative's amount far from the catalog, confirmed all the same
+    alt = out.get("alternative") or {}
+    if alt.get("net_display") is not None and Decimal(str(alt["net_display"])) <= 0:
+        out["unusual_result"] = True         # a net of zero or less is no result to recommend from, whatever led to it
     return out
 
 
@@ -89,7 +95,9 @@ def evaluate_option(snapshot: RulesSnapshot, state: ConversationState, option: O
     return alternative, result
 
 
-def _status(result: ScenarioResult) -> str:
+def _status(result: ScenarioResult, unusual: bool = False) -> str:
+    if unusual:
+        return "incomplete"          # a flagged amount waits for a check; it is never ranked
     if result.status == CalcStatus.OK and result.delta_display is not None:
         return "catalog_copay" if result.copay_pending else "full"
     return "not_eligible" if result.status == CalcStatus.NOT_ELIGIBLE else "incomplete"
@@ -103,9 +111,11 @@ def build_option_map(snapshot: RulesSnapshot, state: ConversationState) -> Optio
     entries = []
     for option in options:
         alternative, result = evaluate_option(snapshot, state, option, employee, current, occupation)
+        dumped = dump_option(state, option.id, alternative, result)
         entries.append(MapEntry(option_id=option.id, label=option.label, group=option.group,
-                                drive=option.drive.value if option.drive else None, status=_status(result),
-                                result=dump_option(state, option.id, alternative, result)))
+                                drive=option.drive.value if option.drive else None,
+                                status=_status(result, bool(dumped.get("unusual_copay") or dumped.get("unusual_result"))),
+                                result=dumped))
     return OptionMap(entries=entries, excluded=excluded, fresh=True)
 
 

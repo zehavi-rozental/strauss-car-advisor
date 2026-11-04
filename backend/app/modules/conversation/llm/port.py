@@ -5,7 +5,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Callable, Literal, Optional, Protocol, Sequence
 
 import httpx
@@ -132,7 +132,10 @@ class LLMChain:
     def __init__(self, providers: Sequence[LLMPort] = (), *, disabled: Sequence[tuple[str, str]] = (),
                  cooldown_429_s: float = 60.0, cooldown_fail_s: float = 60.0,
                  turn_deadline_s: Optional[float] = None, intro_budget_s: Optional[float] = None,
-                 clock: Callable[[], float] = time.monotonic):
+                 clock: Callable[[], float] = time.monotonic, daily_call_limit: int = 0):
+        self.daily_call_limit = daily_call_limit      # 0: no ceiling; past it the templates answer until tomorrow
+        self._calls_day: Optional[date] = None
+        self._calls_today = 0
         self.entries = [ChainEntry(entry_label(p), p) for p in providers]
         self.disabled = [ChainEntry(label, None, status="disabled", detail=reason) for label, reason in disabled]
         self.cooldown_429_s = cooldown_429_s
@@ -181,6 +184,20 @@ class LLMChain:
                 })
         return out
 
+    def _count_call(self) -> None:
+        """A ceiling over all conversations: whatever anyone sends, the bill has an end. Past it, the templates answer."""
+        if not self.daily_call_limit:
+            return
+        today = datetime.now(timezone.utc).date()
+        with self._lock:
+            if self._calls_day != today:
+                self._calls_day, self._calls_today = today, 0
+            self._calls_today += 1
+            over = self._calls_today > self.daily_call_limit
+        if over:
+            log.warning("llm daily call limit reached; the templates answer until tomorrow")
+            raise LLMError("מכסת הקריאות היומית נגמרה")
+
     def _record(self, entry: ChainEntry, status: str, detail: Optional[str] = None,
                 cooldown: float = 0.0) -> None:
         with self._lock:
@@ -189,6 +206,7 @@ class LLMChain:
 
     def complete(self, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec] = (),
                  require_tool: bool = False, deadline: Optional[float] = None) -> LLMResponse:
+        self._count_call()
         last: Optional[Exception] = None
         for entry in self.entries:
             if self.clock() < entry.cooldown_until:

@@ -141,6 +141,12 @@ def _catalog_supported(sentence: str, snapshot: RulesSnapshot) -> bool:
     return "בקטלוג" in sentence or any(matched_name(sentence, c) for c in snapshot.catalog)
 
 
+# a reply never sends anyone elsewhere and never asks for what the service does not need, whatever the message said
+_LINK_RE = re.compile(r"https?://|www\.|\b[\w-]+\.(?:com|net|org|co\.il|io|ly|me)\b", re.I)
+SENSITIVE_ASKS = ("תעודת זהות", "תעודת הזהות", "מספר זהות", 'ת"ז', "ת״ז", "מספר חשבון", "מספר החשבון", "חשבון בנק", "פרטי בנק", "סיסמה", "סיסמא",
+                  "מספר אשראי", "כרטיס אשראי", "קוד אימות", "מספר דרכון")
+
+
 def check(raw: str, *, snapshot: RulesSnapshot, allowed: set[Decimal], tools_called: Iterable[str],
           fields: Sequence[str], offer_rep: bool, waiting_answer: bool, conflicts: Sequence[str],
           must_answer: bool = False, one_field: bool = False, closed: Sequence[str] = ()) -> Check:
@@ -161,6 +167,8 @@ def check(raw: str, *, snapshot: RulesSnapshot, allowed: set[Decimal], tools_cal
         bad = [n for n in numbers_in(clean) if abs(n) not in allowed]
         if bad:
             out.violations.append(Violation("number", clean))
+        if _LINK_RE.search(clean) or any(w in clean for w in SENSITIVE_ASKS):
+            out.violations.append(Violation("unsafe", clean))
     text = out.text
     lines = [line for line in text.splitlines() if line.strip()]
     if not lines:

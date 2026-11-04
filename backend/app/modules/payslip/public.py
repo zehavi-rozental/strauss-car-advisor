@@ -7,12 +7,13 @@ PayslipService מקבל קובץ (bytes), מוודא אותו, מחלץ שדות
 from __future__ import annotations
 
 import logging
+from datetime import date, datetime, timezone
 from typing import Optional
 
 from app.modules.rules.public import RulesSnapshot, RulesStore
 from app.shared.settings import Settings
 
-from .extract import VisionPort, extract, validate_file
+from .extract import VisionPort, extract, failed, validate_file
 from .fixture_vision import FixtureVision
 from .gemini_vision import GeminiVisionAdapter
 from .models import (
@@ -70,6 +71,10 @@ class PayslipService:
         self.max_bytes = settings.payslip_max_bytes
         self.max_pages = settings.payslip_max_pages
         self.timeout_s = settings.payslip_timeout_s
+        self.allow_full_file = settings.payslip_allow_full_file
+        self.daily_limit = settings.payslip_daily_limit
+        self._day: Optional[date] = None
+        self._today = 0
         self._vision = vision if vision is not None else build_vision(settings)
 
     @property
@@ -80,7 +85,14 @@ class PayslipService:
         """מוודא את הקובץ (PayslipError בעברית לקובץ לא תקין) ומחלץ. הקובץ לא נשמר בשום מקום."""
         mime = validate_file(data, self.max_bytes, self.max_pages)
         snapshot = snapshot or self.rules.current
-        return extract(data, mime, self._vision, snapshot, self.timeout_s)
+        day = datetime.now(timezone.utc).date()
+        if self._day != day:
+            self._day, self._today = day, 0
+        self._today += 1
+        if self.daily_limit and self._today > self.daily_limit:
+            log.warning("payslip daily limit reached")
+            return failed("daily_limit")
+        return extract(data, mime, self._vision, snapshot, self.timeout_s, self.allow_full_file)
 
 
 __all__ = [

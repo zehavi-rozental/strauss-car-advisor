@@ -6,7 +6,9 @@ import threading
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from sqlalchemy.engine import Engine, make_url
 
 from app.modules.cases.public import CasesService
@@ -14,6 +16,7 @@ from app.modules.conversation.public import (
     ConversationService,
     EmailNotificationService,
     LLMChain,
+    SessionLocked,
     build_llm_chain,
 )
 from app.modules.payslip.public import PayslipService
@@ -28,6 +31,13 @@ from .routes import router
 
 
 log = logging.getLogger(__name__)
+
+# the app's own pages: only its own scripts, fonts and data. Inline styles stay allowed for React's style attributes
+CONTENT_SECURITY_POLICY = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+                           "font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+SECURITY_HEADERS = {"X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY",
+                    "Permissions-Policy": "camera=(), microphone=(), geolocation=()"}
+RETENTION_CHECK_S = 3600.0
 
 
 def startup_summary(settings: Settings, chain: LLMChain) -> str:
@@ -57,6 +67,7 @@ def create_app(settings: Optional[Settings] = None, *, engine: Optional[Engine] 
     payslip = PayslipService(rules, settings)
     stop_email_worker = threading.Event()
     email_worker: Optional[threading.Thread] = None
+    retention_worker: Optional[threading.Thread] = None
 
     def start_email_worker() -> None:
         nonlocal email_worker
@@ -73,24 +84,79 @@ def create_app(settings: Optional[Settings] = None, *, engine: Optional[Engine] 
         email_worker = threading.Thread(target=run, name="email-outbox", daemon=True)
         email_worker.start()
 
+    def start_retention_worker() -> None:
+        """Conversations past their retention are deleted with everything of theirs: at startup, then every hour."""
+        nonlocal retention_worker
+        if settings.conversation_retention_days <= 0 or retention_worker is not None:
+            return
+
+        def run() -> None:
+            while True:
+                try:
+                    app.state.ctx.service.purge_expired()
+                except Exception as exc:
+                    log.error("retention worker failed (%s)", type(exc).__name__)
+                if stop_email_worker.wait(RETENTION_CHECK_S):
+                    return
+
+        retention_worker = threading.Thread(target=run, name="retention", daemon=True)
+        retention_worker.start()
+
     def stop_worker() -> None:
         stop_email_worker.set()
         if email_worker is not None:
             email_worker.join(timeout=2)
+        if retention_worker is not None:
+            retention_worker.join(timeout=2)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         start_email_worker()
+        start_retention_worker()
         try:
             yield
         finally:
             stop_worker()
 
-    app = FastAPI(title="Strauss Car Advisor", lifespan=lifespan)
+    # no /docs, /redoc or /openapi.json: the service's map is not for visitors
+    app = FastAPI(title="Strauss Car Advisor", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+
+    @app.middleware("http")
+    async def security_headers(request: Request, call_next):
+        response = await call_next(request)
+        for name, value in SECURITY_HEADERS.items():
+            response.headers.setdefault(name, value)
+        if request.url.path.startswith("/api"):
+            response.headers["Cache-Control"] = "no-store"     # pay data never stays in a cache of a shared computer
+        else:
+            response.headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+        return response
+
+    @app.exception_handler(SessionLocked)
+    async def session_locked(_request: Request, _exc: SessionLocked) -> JSONResponse:
+        message = "השיחה ננעלה אחרי זמן ללא פעילות, כדי להגן על הפרטים."
+        return JSONResponse({"detail": message, "message_he": message, "code": "session_locked"}, status_code=401)
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(_request: Request, exc: RequestValidationError) -> JSONResponse:
+        # the fields only: FastAPI's default echoes the values sent, and these can be pay data
+        fields = sorted({str(e["loc"][-1]) for e in exc.errors() if e.get("loc")})
+        message = "הבקשה אינה תקינה. בדקו את הערכים ונסו שוב."
+        return JSONResponse({"detail": message, "message_he": message, "fields": fields}, status_code=422)
+
+    @app.exception_handler(Exception)
+    async def unexpected(_request: Request, exc: Exception) -> JSONResponse:
+        log.error("unhandled error (%s)", type(exc).__name__)     # the type only: its text may carry anything
+        message = "משהו השתבש. נסו שוב בעוד רגע."
+        return JSONResponse({"detail": message, "message_he": message}, status_code=500)
+
     app.state.ctx = AppContext(
         settings=settings, sessions=sessions, rules=rules,
         service=ConversationService(sessions, rules, llm, cases, settings.max_messages_per_conversation,
-                                    settings.llm_mode, email_notifications),
+                                    settings.llm_mode, email_notifications,
+                                    require_ai_consent=settings.require_ai_consent,
+                                    session_idle_minutes=settings.session_idle_minutes,
+                                    retention_days=settings.conversation_retention_days),
         cases=cases,
         payslip=payslip,
         message_limiter=RateLimiter(settings.rate_limit_per_minute),
@@ -98,6 +164,9 @@ def create_app(settings: Optional[Settings] = None, *, engine: Optional[Engine] 
         rep_gate=RepGate(settings.rep_read_limit_per_minute, settings.rep_write_limit_per_minute,
                          settings.rep_write_address_limit_per_minute, settings.rep_auth_failure_limit_per_minute),
         payslip_limiter=RateLimiter(settings.payslip_rate_limit_per_minute),
+        address_limiter=RateLimiter(settings.message_address_limit_per_minute),
+        auth_failures=RateLimiter(settings.auth_failure_limit_per_minute),
+        email_verify_limiter=RateLimiter(settings.email_verify_address_limit_per_hour, window_s=3600.0),
     )
     app.include_router(router)
     app.include_router(rep_router)

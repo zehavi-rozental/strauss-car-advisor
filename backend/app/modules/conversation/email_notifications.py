@@ -19,7 +19,7 @@ from typing import Any
 from urllib.parse import quote, urlparse
 
 from cryptography.fernet import Fernet, InvalidToken
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import sessionmaker
 
 from app.shared.db import utcnow
@@ -151,8 +151,15 @@ class EmailNotificationService:
             if not conversation.email_ciphertext or self._decrypt(conversation.email_ciphertext) != email:
                 raise ValueError("כתובת האימייל כבר אומתה ואי אפשר להחליף אותה דרך הפנייה.")
             return "verified"
-        conversation.email_ciphertext = self._encrypt(email)
         now = utcnow()
+        if not self._may_send_verification(session, conversation, digest, now):
+            return "limit"
+        if self._recipient_at_limit(session, digest, now):
+            # nothing is sent, and the answer is the same as a sent one: no one learns anything about an address, and a
+            # mailbox cannot be flooded from many conversations. Only the count is logged
+            log.warning("verification mail not sent: the recipient's daily limit")
+            return "queued"
+        conversation.email_ciphertext = self._encrypt(email)
         sent = list(session.scalars(select(EmailOutboxRow).where(
             EmailOutboxRow.conversation_id == conversation.id, EmailOutboxRow.purpose == "VERIFY",
             EmailOutboxRow.dedupe_key.startswith(f"verify:{conversation.id}:{digest}"))))
@@ -172,6 +179,28 @@ class EmailNotificationService:
         dedupe_key = f"verify:{conversation.id}:{digest}" + (f":{len(sent)}" if sent else "")
         self._queue(session, conversation, email, "VERIFY", question_id, dedupe_key, digest)
         return "queued"
+
+    def _may_send_verification(self, session, conversation: ConversationRow, digest: str, now: Any) -> bool:
+        """One conversation cannot mail many addresses: a few corrections of a typo, and a pause between them. All mail
+        of a day has its own ceiling, under the provider's, so an abuse cannot take the service's mail down."""
+        s = self.settings
+        tried = set(session.scalars(select(EmailLinkRow.email_hash).where(
+            EmailLinkRow.conversation_id == conversation.id, EmailLinkRow.purpose == "VERIFY")))
+        if digest not in tried and len(tried) >= getattr(s, "email_addresses_per_conversation", 3):
+            log.warning("verification mail not sent: addresses per conversation")
+            return False
+        day_ago = now - timedelta(days=1)
+        count = session.scalar(select(func.count()).select_from(EmailOutboxRow).where(EmailOutboxRow.created_at > day_ago))
+        if count >= getattr(s, "email_daily_send_limit", 400):
+            log.warning("verification mail not sent: the daily mail limit")
+            return False
+        return True
+
+    def _recipient_at_limit(self, session, digest: str, now: Any) -> bool:
+        count = session.scalar(select(func.count()).select_from(EmailLinkRow).where(
+            EmailLinkRow.email_hash == digest, EmailLinkRow.purpose == "VERIFY",
+            EmailLinkRow.created_at > now - timedelta(days=1)))
+        return count >= getattr(self.settings, "email_recipient_daily_limit", 5)
 
     def prepare_answer(self, session, conversation: ConversationRow, question_id: str) -> None:
         """One notice per answer. Before the address is verified it waits outside the queue (AWAITING)."""
@@ -226,6 +255,7 @@ class EmailNotificationService:
                 raise InvalidEmailLink()
             if link.purpose == "VERIFY":
                 conversation.email_verified_at = now
+                conversation.last_access_at = now
                 # answer notices that waited for this verification join the queue now
                 session.execute(
                     update(EmailOutboxRow)
@@ -233,6 +263,8 @@ class EmailNotificationService:
                     .values(status="PENDING", next_attempt_at=now))
             elif not conversation.email_verified_at:
                 raise InvalidEmailLink()
+            else:
+                conversation.last_access_at = now        # the mailbox proved it: a locked conversation opens again
             consumed = session.execute(
                 update(EmailLinkRow)
                 .where(EmailLinkRow.id == link.id, EmailLinkRow.consumed_at.is_(None),
@@ -326,12 +358,12 @@ class EmailNotificationService:
             button = "לצפייה בתשובת הנציג"
             asked = self._asked(row_id, question_id)      # the employee's own question (1/11), never the answer
         body = (f"{introduction}\n\n" + (f"השאלה שלכם: {asked}\n\n" if asked else "")
-                + f"{button}: {url}\n\nהקישור תקף ל-24 שעות ופועל פעם אחת.\n\nSTRAUSS DRIVE — יועץ הרכב של שטראוס")
+                + f"{button}: {url}\n\nהקישור תקף ל-24 שעות ופועל פעם אחת.\n\nSTRAUSS DRIVE — ייעוץ רכב חברה")
         html_body = (
             '<div dir="rtl" style="font-family:Arial,sans-serif;max-width:560px;margin:auto;'
             'padding:24px;color:#18332c">'
             '<h1 style="font-size:22px;margin:0">STRAUSS DRIVE</h1>'
-            '<p style="margin:4px 0 20px;color:#52615c">יועץ הרכב של שטראוס</p>'
+            '<p style="margin:4px 0 20px;color:#52615c">ייעוץ רכב חברה</p>'
             f'<p style="line-height:1.7">{html.escape(introduction)}</p>'
             + (f'<p style="line-height:1.7;background:#f3f6f5;padding:12px 16px;border-radius:6px">'
                f'<strong>השאלה שלכם:</strong><br>{html.escape(asked)}</p>' if asked else "")

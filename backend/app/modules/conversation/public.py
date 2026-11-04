@@ -9,10 +9,12 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Optional
 
 from pydantic import TypeAdapter
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
@@ -31,7 +33,7 @@ from app.modules.vehicles.public import (
     VehicleRepository,
     match_current_car,
 )
-from app.shared.db import new_id
+from app.shared.db import new_id, utcnow
 
 from app.modules.cases.public import CasesService, MissingField, Mode, QuestionAnswered, Status as QuestionStatus
 
@@ -40,12 +42,13 @@ from .expects import (ChoiceInvalid, FieldsInvalid, build_expects, parse_vehicle
 from .facts import facts_view
 from .email_notifications import EmailNotificationService, EmailNotConfigured, InvalidEmailLink
 from .agent import Agent, RepQuestionResult, employee_wording, general_question_id, today_copay_question_id
-from .models import ConversationRow
+from .models import CalculationRunRow, ConversationRow, EmailLinkRow, EmailOutboxRow, MessageRow
 from .understanding import rep_scope_ok_in_context
 from .llm.factory import build_llm_chain
 from .llm.port import ChatMessage, LLMChain, LLMError, LLMPort
 from .fallback import recorded_text
-from .parsing import redact_id_numbers
+from .tools import rep_copay_unusual
+from .parsing import redact_contact_details, redact_id_numbers
 from .repository import (
     DATA_FILE,
     EXTENSIONS_FILE,
@@ -55,7 +58,7 @@ from .repository import (
     token_hash,
 )
 from .option_map import map_json
-from .stage import PROFILE_ARGS, ConversationState, OptionResult, RepReason, Stage, map_missing, map_ready, results_stale
+from .stage import PROFILE_ARGS, ConsentRecord, ConversationState, OptionResult, RepReason, Stage, map_missing, map_ready, results_stale
 from .templates import FIELD_NAMES, INQUIRY_PURPOSE, INQUIRY_PURPOSE_DEFAULT, inquiry_next_text, labelled_value
 
 
@@ -81,6 +84,21 @@ class ConversationConflict(Exception):
     """תור אחר על אותה שיחה נכתב בזמן שהתור הזה רץ. התור הזה בוטל ולא נשמר דבר ממנו."""
 
 
+class SessionLocked(Exception):
+    """The session is right but the conversation waited too long: nothing of it is shown. Only the mailbox link opens it
+    again, or it is deleted and a new one starts. A separate exception, so no route reads it as "not found"."""
+
+
+class ConsentInvalid(ValueError):
+    """A notice accepted in another version than the one on the server, or an unknown one."""
+
+
+# the notices the employee accepts; a new wording gets a new version, and is shown again
+AI_NOTICE_VERSION = "2026-11-demo-1"
+PAYSLIP_NOTICE_VERSION = "2026-11-demo-1"
+NOTICE_VERSIONS = {"ai_processing": AI_NOTICE_VERSION, "payslip": PAYSLIP_NOTICE_VERSION}
+
+
 class StaleEdit(ConversationConflict):
     """An edit made on a screen older than the data (base_version): nothing was saved, the screen reloads."""
 
@@ -104,6 +122,7 @@ class TurnResult:
     facts: dict[str, Any] = field(default_factory=dict)     # what is known, for the context strip ("הנתונים שלי")
     card: Optional[dict[str, Any]] = None                   # "what changed", or a what-if check
     results_version: int = 0
+    privacy: dict[str, Any] = field(default_factory=dict)   # what the screen says about the data
 
 
 @dataclass
@@ -168,11 +187,17 @@ def _uuid(value: str) -> uuid.UUID:
 class ConversationService:
     def __init__(self, sessions: sessionmaker, rules: RulesStore, llm: LLMChain,
                  cases: Optional[CasesService] = None, max_messages: int = 80, llm_mode: str = "llm_first",
-                 email_notifications: Optional[EmailNotificationService] = None):
+                 email_notifications: Optional[EmailNotificationService] = None, *, require_ai_consent: bool = False,
+                 session_idle_minutes: int = 0, retention_days: int = 0):
         self.sessions = sessions
         self.rules = rules
         self.llm = llm
         self.agent = Agent(llm, llm_mode)
+        self.require_ai_consent = require_ai_consent
+        self.session_idle_minutes = session_idle_minutes
+        self.retention_days = retention_days
+        # no notice accepted yet: the same conversation, with the rules and the calculation only
+        self.no_model_agent = Agent(LLMChain(), llm_mode)
         self.cases = cases or CasesService(sessions)
         self.email_notifications = email_notifications
         self.cases.subscribe(self.apply_answer)   # תשובת נציג → מיושמת על השיחה
@@ -252,7 +277,8 @@ class ConversationService:
             repo.add_message(row.id, "assistant", greeting, "template")
             conversation_id = str(row.id)
         return TurnResult(conversation_id=conversation_id, stage=state.stage, reply=greeting,
-                          source="template", expects=build_expects(state, self.rules.current)), token
+                          source="template", expects=build_expects(state, self.rules.current),
+                          facts=facts_view(state, self.rules.current), privacy=self.privacy_json(state)), token
 
     # ---------- תור ----------
 
@@ -292,7 +318,7 @@ class ConversationService:
         (א) קריאה קצרה, (ב) הסוכן בלי סשן פתוח, (ג) כתיבה קצרה של כל התור."""
         snapshot = self.rules.current
         snapshot_id = self.snapshot_id(snapshot)   # אחרי טעינה מחדש — נוצרת כאן, מחוץ לתור
-        text = redact_id_numbers(text)
+        text = redact_contact_details(redact_id_numbers(text))
 
         # (א) קריאה
         with self.sessions() as session:
@@ -316,14 +342,15 @@ class ConversationService:
 
         # (ב) הסוכן — הרצות החישוב נאספות בזיכרון
         pending: list[_PendingRun] = []
+        agent = self._agent_for(state)
         if fields is not None:
-            outcome = self.agent.run_fields(snapshot, self._find_vehicle, self._get_vehicle, state, fields, text,
+            outcome = agent.run_fields(snapshot, self._find_vehicle, self._get_vehicle, state, fields, text,
                                             _collector(pending), source)
         elif choice is not None:
-            outcome = self.agent.run_choice(snapshot, self._find_vehicle, self._get_vehicle, state, choice, text,
+            outcome = agent.run_choice(snapshot, self._find_vehicle, self._get_vehicle, state, choice, text,
                                             _collector(pending), field)
         else:
-            outcome = self.agent.run_turn(snapshot, self._find_vehicle, state, history, text, _collector(pending))
+            outcome = agent.run_turn(snapshot, self._find_vehicle, state, history, text, _collector(pending))
 
         # (ג) כתיבה — רק אם הגרסה לא השתנתה מאז (א); אחרת התור כולו מבוטל
         with self.sessions() as session, session.begin():
@@ -347,7 +374,7 @@ class ConversationService:
                           pending_rep=state.pending_rep.reason if state.pending_rep else None,
                           path=outcome.path, say=outcome.say, expects=build_expects(state, snapshot),
                           results_stale=results_stale(state), facts=facts_view(state, snapshot), card=outcome.card,
-                          results_version=state.results_version)
+                          results_version=state.results_version, privacy=self.privacy_json(state))
 
     def _fields_text(self, fields: dict[str, Any], snapshot: RulesSnapshot) -> str:
         """The history line of a structured change, in plain words."""
@@ -602,6 +629,93 @@ class ConversationService:
                 "question_text": result.question_text,
                 "results": [r.model_dump(mode="json") for r in state.results]}
 
+    # ---------- פרטיות: הסכמה, מחיקה, שמירה מוגבלת ----------
+
+    def _agent_for(self, state: ConversationState) -> Agent:
+        """The model only after the employee accepted the notice about it; otherwise the rules and the calculation."""
+        if self.require_ai_consent and "ai_processing" not in state.consents:
+            return self.no_model_agent
+        return self.agent
+
+    def privacy_json(self, state: ConversationState) -> dict[str, Any]:
+        """What the screen needs to say about the data: the notices and whether they were accepted, the periods."""
+        ai_on = self.llm.available
+        return {"ai": {"available": ai_on, "required": self.require_ai_consent and ai_on,
+                       "accepted": "ai_processing" in state.consents, "version": AI_NOTICE_VERSION},
+                "payslip": {"accepted": "payslip" in state.consents, "version": PAYSLIP_NOTICE_VERSION},
+                "retention_days": self.retention_days, "idle_minutes": self.session_idle_minutes,
+                "demo": "mock" in self.rules.current.calc.rules_version}
+
+    def set_consent(self, conversation_id: str, token: str, kind: str, accepted: bool, version: str = "") -> dict[str, Any]:
+        """The notice accepted, or withdrawn: only its version and the date are kept. Withdrawn, the model stops being
+        called for this conversation."""
+        expected = NOTICE_VERSIONS.get(kind)
+        if expected is None or (accepted and version != expected):
+            raise ConsentInvalid("האישור אינו תקף. רעננו את העמוד ונסו שוב.")
+        for _ in range(self.APPLY_RETRIES):
+            with self.sessions() as session:
+                row = self._load(ConversationRepository(session), conversation_id, token)
+                conv_id, count, loaded_version = row.id, row.message_count, row.version
+                state = ConversationState.model_validate(row.state)
+            if accepted:
+                state.consents[kind] = ConsentRecord(version=expected, at=utcnow().isoformat())
+            else:
+                state.consents.pop(kind, None)
+            with self.sessions() as session, session.begin():
+                if ConversationRepository(session).save_turn(
+                        conv_id, loaded_version, state=state.model_dump(mode="json"), stage=state.stage.value,
+                        message_count=count, llm_mode=self.llm.mode):
+                    return self.privacy_json(state)
+        raise ConversationConflict()
+
+    def status(self, conversation_id: str, token: str) -> dict[str, Any]:
+        """Whether a saved conversation holds anything, without showing any of it: what the resume screen asks about."""
+        with self.sessions() as session:
+            repo = ConversationRepository(session)
+            row = self._load(repo, conversation_id, token)
+            has_data = row.message_count > 0
+            return {"conversation_id": str(row.id), "has_data": has_data, "updated_at": row.updated_at.isoformat(),
+                    "idle_minutes": self.session_idle_minutes}
+
+    def delete(self, conversation_id: str, token: str) -> None:
+        """Everything of this conversation, from this server: messages, pay data, calculations, questions and answers,
+        the address and its links. The holder of the session may do it even after the session locked."""
+        with self.sessions() as session, session.begin():
+            row = self._load(ConversationRepository(session), conversation_id, token, allow_locked=True)
+            self._delete_rows(session, row.id)
+        log.info("conversation deleted by its owner")
+
+    def _delete_rows(self, session: Any, conv_id: uuid.UUID) -> None:
+        self.cases.delete_for_conversation(session, str(conv_id))
+        for model in (EmailOutboxRow, EmailLinkRow, CalculationRunRow, MessageRow):
+            session.execute(delete(model).where(model.conversation_id == conv_id).execution_options(synchronize_session=False))
+        session.execute(delete(ConversationRow).where(ConversationRow.id == conv_id).execution_options(synchronize_session=False))
+
+    def purge_expired(self, batch: int = 200) -> int:
+        """Conversations with no activity for the retention period: deleted with everything of theirs. Returns how many.
+        Only the count is logged. Backups and the database provider's history keep to their own periods."""
+        if self.retention_days <= 0:
+            return 0
+        cutoff = utcnow() - timedelta(days=self.retention_days)
+        total = 0
+        while True:
+            with self.sessions() as session, session.begin():
+                ids = list(session.scalars(select(ConversationRow.id).where(
+                    ConversationRow.updated_at < cutoff,
+                    (ConversationRow.last_access_at.is_(None)) | (ConversationRow.last_access_at < cutoff)).limit(batch)))
+                for conv_id in ids:
+                    self._delete_rows(session, conv_id)
+            total += len(ids)
+            if len(ids) < batch:
+                break
+        if total:
+            log.info("retention: %d conversations deleted", total)
+        return total
+
+    def authorize(self, conversation_id: str, token: str) -> None:
+        """The caller may act on this conversation, or ConversationNotFound / SessionLocked. Marks the access."""
+        self._authorized(conversation_id, token)
+
     # ---------- תשובות הנציג ----------
 
     APPLY_RETRIES = 3
@@ -668,7 +782,16 @@ class ConversationService:
 
     def _authorized(self, conversation_id: str, token: str) -> uuid.UUID:
         with self.sessions() as session:
-            return self._load(ConversationRepository(session), conversation_id, token).id
+            row = self._load(ConversationRepository(session), conversation_id, token)
+            conv_id, seen = row.id, row.last_access_at
+        now = utcnow()
+        if self.session_idle_minutes and (seen is None or now - seen > timedelta(minutes=1)):
+            # at most once a minute; it is not a change of the conversation, so updated_at stays
+            with self.sessions() as session, session.begin():
+                session.execute(update(ConversationRow).where(ConversationRow.id == conv_id)
+                                .values(last_access_at=now, updated_at=ConversationRow.updated_at)
+                                .execution_options(synchronize_session=False))
+        return conv_id
 
     def updates(self, conversation_id: str, token: str, after: int = 0) -> dict[str, Any]:
         """לתשאול (polling): הודעות חדשות אחרי seq, שלב, שאלות פתוחות ותוצאות אחרונות."""
@@ -696,7 +819,7 @@ class ConversationService:
                                             is not None else None),
                 "today_car": state.current.label or None,   # the card above the comparison (1/11)
                 "facts": facts_view(state, self.rules.current), "data_version": state.data_version,
-                "results_version": state.results_version,
+                "results_version": state.results_version, "privacy": self.privacy_json(state),
                 "rep_questions": [_rep_question_json(q) for q in questions], **map_readiness(state)}
 
     def view(self, conversation_id: str, token: str) -> ConversationView:
@@ -711,13 +834,17 @@ class ConversationService:
                                     rep_questions=[_rep_question_json(q) for q in
                                                    self.cases.list_for_conversation(str(row.id))])
 
-    def _load(self, repo: ConversationRepository, conversation_id: str, token: str):
+    def _load(self, repo: ConversationRepository, conversation_id: str, token: str, allow_locked: bool = False):
         row = repo.get(_uuid(conversation_id))
         if row is None or not token or not any(
             hmac.compare_digest(saved, token_hash(token))
             for saved in [row.session_token_hash, *(row.additional_session_token_hashes or [])]
         ):
             raise ConversationNotFound()
+        if self.session_idle_minutes and not allow_locked:
+            last = max(row.updated_at, row.last_access_at or row.updated_at)
+            if utcnow() - last > timedelta(minutes=self.session_idle_minutes):
+                raise SessionLocked()
         return row
 
 
@@ -772,6 +899,9 @@ def engine_state(llm: LLMChain, say: Optional[str] = None) -> Optional[str]:
 
 
 __all__ = [
+    "ConsentInvalid",
+    "SessionLocked",
+    "rep_copay_unusual",
     "StaleEdit",
     "facts_view",
     "ChatMessage", "LLMError", "EmailNotificationService", "EmailNotConfigured", "InvalidEmailLink",

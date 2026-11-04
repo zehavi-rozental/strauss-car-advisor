@@ -23,6 +23,7 @@ from typing import Any, Optional, Protocol
 from app.modules.rules.public import RulesSnapshot
 
 from .privacy import plausible, safe_label
+from .minimize import minimized_payslip_text
 from .models import (
     ASSIGNABLE_INFO,
     FIELD_KIND,
@@ -61,6 +62,9 @@ _MESSAGES = {
     "unreadable": ("לא הצלחנו לקרוא את הכתוב בקובץ. נסו צילום חד יותר או קובץ PDF מקורי, "
                    "או מלאו את הנתונים ידנית."),
 }
+TEXT_MIME = "text/plain"
+_TEXT_NOTE = ("\n\nHere you get the text of the payslip's pay lines, read from a PDF, instead of the file: identifying lines "
+              "were removed, and the words of a Hebrew line may be in reverse order. Report only what it clearly shows.")
 _FAIL_MESSAGES = {
     "timeout": "שירות הקריאה לא הגיב בזמן. אפשר לנסות שוב בעוד רגע, או למלא את הנתונים ידנית.",
     "quota": "שירות הקריאה עמוס כרגע. אפשר לנסות שוב בעוד דקה, או למלא את הנתונים ידנית.",
@@ -68,6 +72,9 @@ _FAIL_MESSAGES = {
     "rejected": "שירות הקריאה לא קיבל את הקובץ. אפשר לנסות קובץ אחר, או למלא את הנתונים ידנית.",
     "invalid_response": "קיבלנו תשובה לא תקינה משירות הקריאה. אפשר לנסות שוב, או למלא את הנתונים ידנית.",
     "not_configured": "קריאת תלושים לא זמינה כרגע. אפשר למלא את הנתונים ידנית.",
+    "needs_full_file": ("הקובץ הזה הוא צילום או סריקה, ואין בו טקסט שאפשר לקרוא כאן. כדי לא לשלוח את כולו לשירות חיצוני, "
+                        "מלאו את הנתונים ידנית."),
+    "daily_limit": "קריאת תלושים הגיעה למכסה היומית. אפשר למלא את הנתונים ידנית, או לנסות שוב מחר.",
 }
 _RETRY = {"timeout", "quota", "unavailable", "invalid_response"}
 
@@ -410,13 +417,21 @@ def failed(reason: str) -> ExtractionResult:
 
 
 def extract(data: bytes, mime: str, vision: Optional[VisionPort], snapshot: RulesSnapshot,
-            timeout_s: float) -> ExtractionResult:
+            timeout_s: float, allow_full_file: bool = True) -> ExtractionResult:
     """מריץ חילוץ על קובץ שכבר עבר validate_file. אף פעם לא זורק — מחזיר ExtractionResult עם status,
     כדי שה-API תמיד יחזיר תשובה ברורה ולעולם לא יציג כשל כהצלחה."""
     if vision is None:
         return failed("not_configured")
+    prompt = _SYSTEM_PROMPT
+    if getattr(vision, "accepts_text", False):
+        # a provider outside: its pay lines instead of the file, when the file has a text layer
+        text = minimized_payslip_text(data, mime)
+        if text:
+            data, mime, prompt = text.encode("utf-8"), TEXT_MIME, _SYSTEM_PROMPT + _TEXT_NOTE
+        elif not allow_full_file:
+            return failed("needs_full_file")
     try:
-        raw = vision.extract(data, mime, _SYSTEM_PROMPT, timeout_s)
+        raw = vision.extract(data, mime, prompt, timeout_s)
     except VisionError as exc:
         log.warning("payslip extraction failed: %s", exc)        # the reason (HTTP status / timeout), no content
         return failed(exc.reason if exc.reason in _FAIL_MESSAGES else "unavailable")

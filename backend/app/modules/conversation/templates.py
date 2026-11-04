@@ -470,9 +470,12 @@ def results_text(state: ConversationState, head: bool = True) -> str:
     """At most two short lines for a plain comparison: a summary, then what is waiting. The detail
     lives only in the structured results (the summary card and the comparison panel). head=False: without the summary
     (the "what changed" card and its lines said it), only what is waiting or unusual."""
-    ok, bad = [], []
+    ok, bad, unusual = [], [], []
     for item in state.results:
         r = item.result
+        if r.get("unusual_copay") or r.get("unusual_result"):
+            unusual.append(item)       # said on its own, never "the highest net" and never a recommendation
+            continue
         (ok if r["status"] == "OK" and r.get("delta_display") is not None else bad).append(item)
     lines: list[str] = []
     best = max(ok, key=lambda i: Decimal(str(i.result["delta_display"]))) if ok else None
@@ -497,6 +500,8 @@ def results_text(state: ConversationState, head: bool = True) -> str:
             lines.append(f"{head}, ו{_among(len(ok))} הנטו שלכם לא ישתנה.")
         else:
             lines.append(f"{head}. {_best_line(best)}")
+    for item in unusual:
+        lines.append(f"{item.label}: ההשתתפות שנמסרה חריגה, ולכן החישוב שלו לא מוצג כתוצאה רגילה. כדאי לבקש מהנציג לבדוק אותה.")
     for item in bad:
         r = item.result
         if r["status"] == "NOT_ELIGIBLE":
@@ -726,6 +731,14 @@ def rep_confirmed_text(label: str, effective: Optional[date], amount: Any = None
 def _delta_words(delta: Any) -> str:
     v = to_shekel(Decimal(str(delta)))
     return f"תוספת של {money(v)}" if v > 0 else f"{money(-v)} פחות" if v < 0 else "בלי שינוי"
+
+
+def rep_unusual_copay_text(label: str, amount: Decimal, catalog: Any = None) -> str:
+    """A representative's amount far from the catalog: said as what it is, and never presented as a regular result."""
+    was = f", מול {money(catalog)} בקטלוג" if catalog else ""
+    return (f"נציג התחבורה מסר השתתפות של {money(amount)} בחודש {in_label(label)}{was}.\n"
+            "זה סכום חריג: ייתכן שמדובר בטעות הקלדה או בסכום חד-פעמי, ולכן הוא לא נכלל בדירוג ואין כאן המלצה לפיו.\n"
+            "אפשר לבקש מהנציג לבדוק אותו שוב.")
 
 
 def rep_changed_text(label: str, amount: Decimal, effective: Optional[date], old_delta: Any, new_delta: Any,
@@ -1353,7 +1366,8 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
         return plan
     if plan.fixed and state.stage == Stage.PRESENTED:
         # after results: why (the engine's main driver, in words), then one relevant next step
-        ok = [r for r in state.results if r.result.get("status") == "OK" and r.result.get("delta_display") is not None]
+        ok = [r for r in state.results if r.result.get("status") == "OK" and r.result.get("delta_display") is not None
+              and not r.result.get("unusual_copay") and not r.result.get("unusual_result")]
         if ok:
             best = max(ok, key=lambda r: Decimal(str(r.result["delta_display"])))
             if best.result.get("why") and not results_summary:

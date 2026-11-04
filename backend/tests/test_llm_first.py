@@ -67,5 +67,7 @@ def test_parser_first_keeps_noa_without_llm_calls(sessions):
 
 
 def test_health_shows_the_mode(engine):
-    assert make_client(engine).get("/api/health").json()["llm_mode"] == "llm_first"
-    assert make_client(engine, llm_mode="parser_first").get("/api/health").json()["llm_mode"] == "parser_first"
+    op = {"X-Rep-Token": "op"}
+    assert make_client(engine, rep_access_token="op").get("/api/health", headers=op).json()["llm_mode"] == "llm_first"
+    assert make_client(engine, llm_mode="parser_first", rep_access_token="op").get(
+        "/api/health", headers=op).json()["llm_mode"] == "parser_first"

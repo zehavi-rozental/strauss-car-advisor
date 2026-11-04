@@ -73,9 +73,9 @@ def test_id_number_is_redacted(engine, sessions):
 
 
 def test_health_catalog_occupations(engine):
-    client = make_client(engine)
+    client = make_client(engine, rep_access_token="op")
     health = client.get("/api/health").json()
-    assert health["db"] is True and health["llm"] == "templates"
+    assert health["db"] is True and client.get("/api/health", headers={"X-Rep-Token": "op"}).json()["llm"] == "templates"
     assert health["payslip"] is False          # no vision key: the upload answers 503, health says so
     assert health["rules_version"] == "mock-2026-10-12"
     assert "key" not in str(health).lower()    # the health page never carries a secret

@@ -162,7 +162,7 @@ def test_health_lists_every_entry_and_its_last_status(engine):
     c = ScriptedProvider("groq", "c")
     ch = LLMChain([a, b, c], disabled=[("openrouter:d", "no API key (OPENROUTER_API_KEY)")])
     ch.complete(MSG)
-    health = make_client(engine, llm=ch).get("/api/health").json()
+    health = make_client(engine, llm=ch, rep_access_token="op").get("/api/health", headers={"X-Rep-Token": "op"}).json()
     entries = {e["entry"]: e for e in health["llm_chain"]}
     assert list(entries) == ["gemini:a", "gemini:b", "groq:c", "openrouter:d"]
     assert entries["gemini:a"]["status"] == "429" and entries["gemini:a"]["cooling_down"].endswith("s")
@@ -176,10 +176,11 @@ def test_health_lists_every_entry_and_its_last_status(engine):
 def test_health_before_any_call_and_after_418(engine):
     a, b = ScriptedProvider("gemini", "a", [418]), ScriptedProvider("groq", "c")
     ch = LLMChain([a, b])
-    client = make_client(engine, llm=ch)
-    assert [e["status"] for e in client.get("/api/health").json()["llm_chain"]] == ["untried", "untried"]
+    client = make_client(engine, llm=ch, rep_access_token="op")
+    health = lambda: client.get("/api/health", headers={"X-Rep-Token": "op"}).json()     # noqa: E731
+    assert [e["status"] for e in health()["llm_chain"]] == ["untried", "untried"]
     ch.complete(MSG)
-    first = client.get("/api/health").json()["llm_chain"][0]
+    first = health()["llm_chain"][0]
     assert first["status"] == "418" and first["cooling_down"] == "until restart"
 
 

@@ -34,7 +34,7 @@ from .parsing import (YEAR_RE, copay_unknown_span, has_all_scope, is_unknown, ma
                       occupation_match, parse_copay, read_profile, redact_id_numbers)
 from .guards import (FIELD_WORDS, SINGULAR_RE, TAG_RE, Check, Violation, ask_lines, check, content_sentences, drop,
                      has_statement, sentences, strip_tags, verify)
-from .turn import LLM_TOOLS, Candidate, parser_hint, render_catalog, render_faq, run_rounds, state_block, system_message, user_message
+from .turn import LLM_TOOLS, Candidate, history_messages, parser_hint, render_catalog, render_faq, run_rounds, state_block, system_message, user_message
 from .option_map import build_option_map, dump_option, dump_result as _dump, evaluate_option, map_reply
 from .option_map import with_assumptions as _with_assumptions
 from .understanding import (NO_CAR_OR_ZERO, NOT_IN_CATALOG, Understanding, answer_like, asks_attribute, rep_scope_ok,
@@ -106,6 +106,7 @@ from .templates import (
     range_refused_text,
     render,
     rep_changed_text,
+    rep_unusual_copay_text,
     rep_confirmed_text,
     rep_copay_applied_text,
     rep_copay_offer_text,
@@ -139,6 +140,7 @@ from .whatif import (
 from .tools import (
     available_options,
     removed_options,
+    rep_copay_unusual,
     OPT_OUT_ID,
     OPT_OUT_WORDS,
     TOOL_SPECS,
@@ -712,6 +714,7 @@ def _ambiguity_answer(text: str) -> Optional[str]:
 # tool calls that carry what the employee said explicitly, or an answer to the code's own question: any stage
 _EXPLICIT_ANSWERS = {"combined", "confirmed", "scale", "ambiguity"}
 SCENARIO_KEPT = "בסדר, הנתונים שלכם נשארו כפי שהיו."
+ONE_TIME_AMOUNT = "ההשתתפות כאן היא סכום חודשי, ולכן לא רשמתי את הסכום הזה. כמה יורד לכם בחודש רגיל?"
 
 
 def _scenario_change(ctx: ToolContext, args: dict[str, Any]) -> Change:
@@ -1258,6 +1261,10 @@ class Agent:
             ctx.copay_source = "catalog_confirmed"     # the catalog amount, confirmed by the employee (1/11)
             plan = ParserPlan([ToolCall("save_profile", {"current_copay": str(hint)}, "catalog_confirmed")], True,
                               direct=True)
+        elif (state.current.source in ("catalog", "tax", "stated") and parse_copay(text) is not None
+              and says_phrase(text, snapshot.extensions.value_qualifiers)):
+            # "השתתפות 5,000 חד פעמי": the copay here is a monthly amount; nothing is saved, the monthly one is asked
+            plan = ParserPlan(complete=True, notice=ONE_TIME_AMOUNT, direct=True, code_only=True, acked=True)
         elif (state.current.source in ("catalog", "tax", "stated") and (amount := parse_copay(text)) is not None
               and amount != state.current.copay and "?" not in text and len(re.findall(r"\d[\d,.]*", text)) == 1
               and all(car.catalog_code == state.current.catalog_code for car in named_cars(text, snapshot.catalog))):
@@ -1837,7 +1844,7 @@ class Agent:
             return facts
 
         messages = [system_message(state, snap, "" if applied or not plan.complete else parser_hint(plan.calls), applied),
-                    *history[-HISTORY:], user_message(text)]
+                    *history_messages(history[-HISTORY:]), user_message(text)]
         # phrase_only: code read the whole message (a request about the conversation, "שאלה אחר שאלה"): the model
         # writes the reply and changes nothing (live Gemini 1/11: it deferred the pension the employee never mentioned)
         tools = () if phrase_only else _understand_tools(state)
@@ -2338,7 +2345,8 @@ class Agent:
         if field == MissingField.NEW_CAR_COPAY:
             default = next((c.default_copay for c in snapshot.catalog if c.catalog_code == event.option_id), None)
             state.confirmed_copays[event.option_id] = ConfirmedCopay(
-                value=amount, effective_date=event.effective_date, changed=default is None or amount != default)
+                value=amount, effective_date=event.effective_date, changed=default is None or amount != default,
+                unusual=rep_copay_unusual(snapshot, event.option_id, amount))
             if state.option_map is not None:
                 state.option_map.fresh = False      # this option's copay is no longer the catalog's
             line = self._apply_new_car_copay(ctx, event, amount, record_run)
@@ -2470,6 +2478,9 @@ class Agent:
         state.results_version += 1
         if result.delta_display is None:
             return rep_confirmed_text(item.label, event.effective_date, amount)
+        if state.confirmed_copays[option.id].unusual or item.result.get("unusual_result"):
+            # never presented as a regular result: the amount, why it stands out, and what to do
+            return rep_unusual_copay_text(item.label, amount, option.car.default_copay if option.car else None)
         return rep_changed_text(item.label, amount, event.effective_date, old_delta, result.delta_display,
                                 catalog=option.car.default_copay if option.car else None,
                                 today_net=result.today.net_display if result.today else None,

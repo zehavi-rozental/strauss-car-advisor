@@ -1,10 +1,11 @@
 """נקודות הקצה. כאן רק HTTP: עוגייה, הגבלת קצב, סריאליזציה. ההיגיון במודולים."""
 from __future__ import annotations
 
+import hmac
 from decimal import Decimal
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Request, Response, UploadFile
+from fastapi import APIRouter, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text as sql
@@ -12,6 +13,7 @@ from sqlalchemy import text as sql
 from app.modules.calculation.public import ENGINE_VERSION
 from app.modules.conversation.public import (
     ChoiceInvalid,
+    ConsentInvalid,
     ConversationConflict,
     ConversationLimitReached,
     ConversationNotFound,
@@ -85,11 +87,27 @@ def _turn(t: TurnResult, service: ConversationService) -> dict[str, Any]:
         "results_version": t.results_version,
         "facts": t.facts,
         "card": t.card,
+        "privacy": t.privacy,
     }
 
 
 def _service(request: Request) -> ConversationService:
     return context(request).service
+
+
+def _authorized(request: Request, conversation_id: str) -> str:
+    """The session of this conversation, or 404. Checked before any budget is counted: a stranger cannot use up the budget of
+    someone else's conversation, or grow the limiter with made-up ids. Wrong tries are counted per address."""
+    ctx = context(request)
+    client = client_address(request, ctx.settings.edge_proxy_secret)
+    if ctx.auth_failures.full(client):
+        raise HTTPException(429, "יותר מדי בקשות. נסו שוב בעוד דקה.")
+    try:
+        ctx.service.authorize(conversation_id, request.cookies.get(COOKIE, ""))
+    except ConversationNotFound:
+        ctx.auth_failures.hit(client)
+        raise HTTPException(404, NOT_FOUND) from None
+    return client
 
 
 @router.get("/health")
@@ -102,11 +120,16 @@ def health(request: Request) -> dict[str, Any]:
     except Exception:
         db_ok = False
     calc = ctx.rules.current.calc
-    return {"status": "ok" if db_ok else "degraded", "db": db_ok, "rules_version": calc.rules_version,
-            "extensions_version": calc.extensions_version, "engine_version": ENGINE_VERSION,
-            "config_error": ctx.rules.last_error, "llm": ctx.service.llm.mode, "llm_mode": ctx.service.agent.mode,
-            "llm_chain": ctx.service.llm.status(), "engine": engine_state(ctx.service.llm),
-            "payslip": ctx.payslip.enabled}
+    out = {"status": "ok" if db_ok else "degraded", "db": db_ok, "rules_version": calc.rules_version,
+           "extensions_version": calc.extensions_version, "engine_version": ENGINE_VERSION,
+           "engine": engine_state(ctx.service.llm), "payslip": ctx.payslip.enabled}
+    # the models, their last call and any error are for whoever operates the service, not for every visitor
+    expected = ctx.settings.rep_access_token
+    sent = request.headers.get("x-rep-token", "")
+    if expected and sent and hmac.compare_digest(sent.encode(), expected.encode()):
+        out.update(config_error=ctx.rules.last_error, llm=ctx.service.llm.mode, llm_mode=ctx.service.agent.mode,
+                   llm_chain=ctx.service.llm.status())
+    return out
 
 
 @router.get("/catalog")
@@ -141,6 +164,54 @@ def create_conversation(request: Request, response: Response) -> dict[str, Any]:
     return _turn(turn, ctx.service)
 
 
+class ConsentIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["ai_processing", "payslip"]
+    accepted: bool
+    version: str = ""
+
+
+@router.post("/conversations/{conversation_id}/consent")
+def consent(conversation_id: str, body: ConsentIn, request: Request) -> dict[str, Any]:
+    """The employee's answer to a notice: its version and the date are kept, nothing else. Withdrawn, the model stops."""
+    conversation_id = conversation_id.strip()
+    _authorized(request, conversation_id)
+    try:
+        return _service(request).set_consent(conversation_id, request.cookies.get(COOKIE, ""), body.kind, body.accepted,
+                                             body.version)
+    except ConsentInvalid as exc:
+        raise HTTPException(422, str(exc)) from None
+    except ConversationNotFound:
+        raise HTTPException(404, NOT_FOUND) from None
+    except ConversationConflict:
+        raise HTTPException(409, "הפעולה לא נשמרה עקב פעולה מקבילה. נסו שוב.") from None
+
+
+@router.get("/conversations/{conversation_id}/status")
+def conversation_status(conversation_id: str, request: Request) -> dict[str, Any]:
+    """Whether this browser's saved conversation holds anything, and nothing of what it holds: the resume screen."""
+    try:
+        return _service(request).status(conversation_id.strip(), request.cookies.get(COOKIE, ""))
+    except ConversationNotFound:
+        raise HTTPException(404, NOT_FOUND) from None
+
+
+@router.delete("/conversations/{conversation_id}", status_code=204)
+def delete_conversation(conversation_id: str, request: Request) -> Response:
+    """Deletes this conversation and everything of it from this server, and the session cookie from this browser."""
+    client = client_address(request, context(request).settings.edge_proxy_secret)
+    if context(request).auth_failures.full(client):
+        raise HTTPException(429, "יותר מדי בקשות. נסו שוב בעוד דקה.")
+    try:
+        _service(request).delete(conversation_id.strip(), request.cookies.get(COOKIE, ""))
+    except ConversationNotFound:
+        context(request).auth_failures.hit(client)
+        raise HTTPException(404, NOT_FOUND) from None
+    response = Response(status_code=204)
+    response.delete_cookie(COOKIE, path="/api")
+    return response
+
+
 @router.post("/conversations/{conversation_id}/messages")
 def send_message(conversation_id: str, body: MessageIn, request: Request) -> Any:
     conversation_id = conversation_id.strip()
@@ -160,7 +231,8 @@ def send_message(conversation_id: str, body: MessageIn, request: Request) -> Any
     if choice is not None and (not choice or len(choice) > 20 or any(len(c) > 80 for c in choice)):
         raise HTTPException(422, "הבחירה אינה מהאפשרויות שהוצעו")
     token = request.cookies.get(COOKIE, "")
-    if not ctx.message_limiter.allow(conversation_id):
+    client = _authorized(request, conversation_id)
+    if not ctx.message_limiter.allow(conversation_id) or not ctx.address_limiter.allow(client):
         raise HTTPException(429, "יותר מדי הודעות בדקה. נסו שוב עוד מעט.")
     try:
         if form is not None:
@@ -210,8 +282,11 @@ def rep_question(conversation_id: str, body: RepQuestionIn, request: Request) ->
     הסיווג (general / copay_verification) מאומת בשרת מול מצב השיחה; תגובה: created / exists עם הנוסח השמור."""
     conversation_id = conversation_id.strip()
     ctx = context(request)
-    if not ctx.message_limiter.allow(conversation_id):
+    client = _authorized(request, conversation_id)
+    if not ctx.message_limiter.allow(conversation_id) or not ctx.address_limiter.allow(client):
         raise HTTPException(429, "יותר מדי בקשות בדקה. נסו שוב עוד מעט.")
+    if body.email and not ctx.email_verify_limiter.allow(client):
+        raise HTTPException(429, "יותר מדי בקשות אימות. נסו שוב מאוחר יותר.")
     token = request.cookies.get(COOKIE, "")
     option_id = (body.option_id or "").strip() or None
     try:
@@ -247,7 +322,9 @@ def resend_email_verification(conversation_id: str, body: EmailVerifyIn, request
     """A new verification link for this conversation's address (the previous one expired or was not delivered).
     Session cookie only; rate-limited; no new link while one is still valid."""
     conversation_id = conversation_id.strip()
-    if not context(request).message_limiter.allow(f"email-verify:{conversation_id}"):
+    client = _authorized(request, conversation_id)
+    if (not context(request).message_limiter.allow(f"email-verify:{conversation_id}")
+            or not context(request).email_verify_limiter.allow(client)):
         raise HTTPException(429, "יותר מדי בקשות בדקה. נסו שוב עוד מעט.")
     try:
         return _service(request).resend_verification(conversation_id, request.cookies.get(COOKIE, ""), body.email)
@@ -294,15 +371,22 @@ async def _read_capped(upload: UploadFile, max_bytes: int) -> bytes:
 
 
 @router.post("/payslip/extract")
-async def payslip_extract(request: Request, file: UploadFile) -> dict[str, Any]:
+async def payslip_extract(request: Request, file: UploadFile, conversation_id: str = Form(""),
+                          consent_version: str = Form("")) -> dict[str, Any]:
     """העלאת תלוש לחילוץ בלבד: מחזיר את השדות הנתמכים שזוהו, לסקירה ואישור בצד הלקוח.
-    הקובץ לא נשמר בשרת. השמירה בפרופיל נעשית אחר כך דרך POST .../messages {fields}, רק אחרי אישור העובד."""
+    הקובץ לא נשמר בשרת. השמירה בפרופיל נעשית אחר כך דרך POST .../messages {fields}, רק אחרי אישור העובד.
+    A conversation's session and the notice accepted for this upload are required: each extraction is a paid call that sends
+    data out, so it is neither open to anyone nor done without the employee's yes."""
     ctx = context(request)
     if not ctx.payslip.enabled:
         raise HTTPException(503, "העלאת תלוש אינה זמינה כרגע. אפשר למלא את הנתונים ידנית.")
-    client = client_address(request, ctx.settings.edge_proxy_secret)
+    client = _authorized(request, conversation_id.strip())
     if not ctx.payslip_limiter.allow(client):
         raise HTTPException(429, "יותר מדי העלאות. נסו שוב בעוד דקה.")
+    try:
+        ctx.service.set_consent(conversation_id.strip(), request.cookies.get(COOKIE, ""), "payslip", True, consent_version)
+    except ConsentInvalid as exc:
+        raise HTTPException(422, str(exc)) from None
     data = await _read_capped(file, ctx.settings.payslip_max_bytes)
     try:
         result = ctx.payslip.extract(data)
@@ -330,7 +414,7 @@ def get_conversation(conversation_id: str, request: Request) -> dict[str, Any]:
                                         if state["current"]["copay"] is None else None),
             "selected": state["selected"], "results": state["results"],
             "facts": facts_view(view.state, context(request).rules.current), "data_version": view.state.data_version,
-            "results_version": view.state.results_version,
+            "results_version": view.state.results_version, "privacy": _service(request).privacy_json(view.state),
             "results_stale": results_stale(view.state), "option_map": map_json(view.state),
             **map_readiness(view.state),
             "pending_rep": state["pending_rep"]["reason"] if state["pending_rep"] else None,

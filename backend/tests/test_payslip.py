@@ -20,7 +20,7 @@ from app.modules.payslip.models import SUPPORTED_FIELDS, ExtractionResult, Paysl
 from app.modules.payslip.public import PayslipService, _first_gemini_model, build_vision
 from app.shared.settings import Settings
 
-from .conftest import build_engine
+from .conftest import build_engine, upload_payslip
 from fastapi.testclient import TestClient
 from app.api.main import create_app
 from app.modules.conversation.public import LLMChain
@@ -238,14 +238,14 @@ def test_endpoint_503_when_disabled():
     engine = build_engine()
     app = create_app(settings, engine=engine, llm=LLMChain())
     client = TestClient(app)
-    r = client.post("/api/payslip/extract", files={"file": ("p.jpg", JPEG, "image/jpeg")})
+    r = upload_payslip(client, files={"file": ("p.jpg", JPEG, "image/jpeg")})
     assert r.status_code == 503
 
 
 def test_endpoint_extracts_supported_fields():
     vision = FakeVision('{"commissions": 1500, "pension_percent": 6}')
     client = _client_with_vision(vision)
-    r = client.post("/api/payslip/extract", files={"file": ("p.jpg", JPEG, "image/jpeg")})
+    r = upload_payslip(client, files={"file": ("p.jpg", JPEG, "image/jpeg")})
     assert r.status_code == 200
     body = r.json()
     assert body["ok"] is True
@@ -257,7 +257,7 @@ def test_endpoint_extracts_supported_fields():
 def test_endpoint_rejects_bad_file_type():
     vision = FakeVision('{"commissions": 1500}')
     client = _client_with_vision(vision)
-    r = client.post("/api/payslip/extract", files={"file": ("p.txt", b"hello world", "text/plain")})
+    r = upload_payslip(client, files={"file": ("p.txt", b"hello world", "text/plain")})
     assert r.status_code == 422
     assert vision.calls == []   # קובץ לא תקין לא מגיע בכלל למודל
 
@@ -269,15 +269,14 @@ def test_endpoint_rejects_oversize():
     app = create_app(settings, engine=engine, llm=LLMChain())
     app.state.ctx.payslip = PayslipService(app.state.ctx.rules, settings, vision=vision)
     client = TestClient(app)
-    r = client.post("/api/payslip/extract",
-                    files={"file": ("p.jpg", JPEG + b"\x00" * 200, "image/jpeg")})
+    r = upload_payslip(client, files={"file": ("p.jpg", JPEG + b"\x00" * 200, "image/jpeg")})
     assert r.status_code == 413
 
 
 def test_endpoint_response_has_no_pii():
     vision = FakeVision('{"name": "ישראל ישראלי", "id_number": "123456789", "commissions": 1000}')
     client = _client_with_vision(vision)
-    r = client.post("/api/payslip/extract", files={"file": ("p.jpg", JPEG, "image/jpeg")})
+    r = upload_payslip(client, files={"file": ("p.jpg", JPEG, "image/jpeg")})
     assert "123456789" not in r.text
     assert "ישראל" not in r.text
 

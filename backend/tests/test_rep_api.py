@@ -125,7 +125,7 @@ def test_answer_values_notes_and_names_are_not_logged(client, caplog):
     import logging
     _, q = noa_to_atto(client)
     with caplog.at_level(logging.DEBUG):
-        client.post(f"/api/rep/questions/{q['id']}/answer", json={"value": "987.65", "note": "SECRET-NOTE"},
+        client.post(f"/api/rep/questions/{q['id']}/answer", json={"value": "987.65", "note": "SECRET-NOTE", "confirm_unusual": True},
                     headers={**AUTH, "X-Rep-Name": "SECRET-NAME"})
     logged = " ".join(r.getMessage() for r in caplog.records)
     assert "rep answered question" in logged

@@ -77,9 +77,30 @@ class Settings(BaseSettings):
     # Off only where a test drives the real mail flow through the fake backend (the test client, the e2e server).
     email_fake_notice: bool = True
 
+    # privacy: how long a conversation is kept after its last activity (0: not purged), and how long a browser session
+    # stays open without activity (0: no lock). After the lock only the mailbox link, or starting anew, opens anything
+    conversation_retention_days: int = 30
+    session_idle_minutes: int = 120
+    # the model is called for a conversation only after the employee accepted the notice about it; until then the rules
+    # and the calculation answer (templates), and the screen says so
+    require_ai_consent: bool = True
+    # a payslip with no text layer (a photo, a scan) would have to go to the provider as a whole: off unless a deployment
+    # turns it on for synthetic files. A PDF with text is sent as its pay lines only (payslip.minimize)
+    payslip_allow_full_file: bool = False
+    payslip_daily_limit: int = 200       # extractions a day, over all employees (each one is a paid call)
+    llm_daily_call_limit: int = 3000     # model calls a day, over all employees; past it the templates answer (0: no limit)
+
     max_message_chars: int = 1000
     rate_limit_per_minute: int = 30      # הודעות לשיחה בדקה
     create_rate_limit_per_minute: int = 20
+    message_address_limit_per_minute: int = 120   # messages per client address, over all its conversations
+    auth_failure_limit_per_minute: int = 60       # requests for a conversation the caller cannot open, per address
+    # verification mail: per address per hour; addresses per conversation; links per recipient per day, over all
+    # conversations (past it nothing is sent and nothing is said, so no one learns about an address); and all mail per day
+    email_verify_address_limit_per_hour: int = 12
+    email_addresses_per_conversation: int = 3
+    email_recipient_daily_limit: int = 5
+    email_daily_send_limit: int = 400
     max_messages_per_conversation: int = 80
 
     # העלאת תלוש (סעיף 11): חילוץ בלבד, בלי שמירה בשרת. הקובץ נמחק מיד אחרי החילוץ.

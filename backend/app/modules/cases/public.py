@@ -14,7 +14,7 @@ from decimal import Decimal, InvalidOperation
 from enum import Enum
 from typing import Any, Callable, Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -252,6 +252,12 @@ class CasesService:
                    RepQuestionRow.status == Status.OPEN.value)
             .values(status=Status.CANCELLED.value, version=RepQuestionRow.version + 1)
             .execution_options(synchronize_session=False))
+        return result.rowcount
+
+    def delete_for_conversation(self, session: Session, conversation_id: str) -> int:
+        """The conversation is deleted: its questions and answers go with it, open or answered."""
+        result = session.execute(delete(RepQuestionRow).where(RepQuestionRow.conversation_id == _uuid(conversation_id))
+                                 .execution_options(synchronize_session=False))
         return result.rowcount
 
     # ---------- קריאה ----------

@@ -49,6 +49,17 @@ def redact_id_numbers(text: str) -> str:
     return ID_NUMBER_RE.sub("[הוסר]", text)
 
 
+_EMAIL_RE = re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+")
+_PHONE_RE = re.compile(r"(?<![\d.,])(?:\+?972[-\s]?|0)\d{1,2}[-\s]?\d{3}[-\s]?\d{4}(?![\d.,])")
+_IBAN_RE = re.compile(r"(?<![A-Za-z0-9])IL\d{2}[\s\d]{10,}", re.I)
+
+
+def redact_contact_details(text: str) -> str:
+    """An email address, a phone number or an account in a free-text message: not needed for anything here, so it is not
+    stored and does not reach the model. (A mail address for updates has its own field, encrypted.)"""
+    return _PHONE_RE.sub("[הוסר]", _IBAN_RE.sub("[הוסר]", _EMAIL_RE.sub("[הוסר]", text)))
+
+
 def parse_decimal(value: object) -> Optional[Decimal]:
     """"18,500" / 18500 / "6%" → Decimal. float עובר דרך str."""
     if value is None or isinstance(value, bool):

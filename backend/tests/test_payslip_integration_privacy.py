@@ -23,7 +23,7 @@ from app.modules.payslip.public import PayslipService
 from app.shared.settings import Settings
 
 from . import reference_oracle as oracle
-from .conftest import build_engine
+from .conftest import build_engine, upload_payslip
 
 PDF = b"%PDF-1.4\n1 0 obj<</Type /Page>>endobj\n%%EOF"
 ID = "312456783"
@@ -118,7 +118,7 @@ def test_the_whole_path_keeps_the_id_out_of_the_api_the_history_and_the_logs(cap
     with caplog.at_level(logging.DEBUG):
         cid = client.post("/api/conversations").json()["conversation_id"]
         client.post(f"/api/conversations/{cid}/messages", json={"text": "מנהלת מוצר, שכר בסיס 15,000"})
-        extracted = client.post("/api/payslip/extract", files={"file": ("p.pdf", PDF, "application/pdf")})
+        extracted = upload_payslip(client, files={"file": ("p.pdf", PDF, "application/pdf")})
         kept = {f["field"]: f["value"] for f in extracted.json()["fields"] if f["status"] == "found"}
         r = client.post(f"/api/conversations/{cid}/messages", json={"fields": kept})
         view = client.get(f"/api/conversations/{cid}").json()
@@ -137,7 +137,7 @@ def test_dropped_values_cannot_be_sent_and_never_reach_the_engine():
         send({"text": text})
     before = client.get(f"/api/conversations/{cid}").json()
 
-    extracted = client.post("/api/payslip/extract", files={"file": ("p.pdf", PDF, "application/pdf")}).json()
+    extracted = upload_payslip(client, files={"file": ("p.pdf", PDF, "application/pdf")}).json()
     fields = {f["field"]: f for f in extracted["fields"]}
     assert fields["bonus"]["value"] is None and fields["children_under_23"]["value"] is None   # the ID: dropped
     # a client cannot send what is not a profile field, nor an implausible value
@@ -156,7 +156,7 @@ def test_a_partial_payslip_lets_the_employee_confirm_the_valid_values():
     cid = client.post("/api/conversations").json()["conversation_id"]
     send = lambda body: client.post(f"/api/conversations/{cid}/messages", json=body)  # noqa: E731
     send({"text": "מנהלת מוצר, שכר בסיס 15,000"})
-    extracted = client.post("/api/payslip/extract", files={"file": ("p.pdf", PDF, "application/pdf")}).json()
+    extracted = upload_payslip(client, files={"file": ("p.pdf", PDF, "application/pdf")}).json()
     assert extracted["status"] == "partial"
     found = {f["field"]: f["value"] for f in extracted["fields"] if f["status"] == "found"}
     assert found == {"base_salary": "16000", "commissions": "2400", "credit_points": "2.25"}

@@ -27,6 +27,8 @@ class GeminiVisionError(VisionError):
 class GeminiVisionAdapter:
     """מודל ראייה לחילוץ בלבד. temperature 0 ו-responseSchema כדי לקבל JSON במבנה קבוע."""
 
+    accepts_text = True      # a provider outside the service: it gets the pay lines, not the file, when it can
+
     def __init__(self, model: str, api_key: str, base_url: str = "", timeout_s: float = 30.0,
                  client: Optional[httpx.Client] = None):
         self.model = model
@@ -41,7 +43,8 @@ class GeminiVisionAdapter:
                 "role": "user",
                 "parts": [
                     {"text": prompt},
-                    {"inlineData": {"mimeType": mime, "data": base64.b64encode(data).decode("ascii")}},
+                    ({"text": data.decode("utf-8")} if mime == "text/plain" else
+                     {"inlineData": {"mimeType": mime, "data": base64.b64encode(data).decode("ascii")}}),
                 ],
             }],
             "generationConfig": {"temperature": 0.0, "responseMimeType": "application/json",

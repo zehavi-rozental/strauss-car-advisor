@@ -247,6 +247,11 @@ def user_message(text: str) -> ChatMessage:
     return ChatMessage("user", f"<<<USER>>>\n{neutralize(text)}\n<<<END>>>")
 
 
+def history_messages(history: Sequence[ChatMessage]) -> list[ChatMessage]:
+    """Earlier messages go as data too: what an employee wrote before cannot become instructions later."""
+    return [user_message(m.content) if m.role == "user" else m for m in history]
+
+
 @dataclass
 class Candidate:
     text: str = ""
