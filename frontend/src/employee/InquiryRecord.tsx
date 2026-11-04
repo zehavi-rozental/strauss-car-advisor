@@ -35,21 +35,26 @@ interface Props {
   onResend?: () => Promise<string>
   /** mail on and no address yet (1/11): an address for this inquiry's answer, verified by its link */
   onAddEmail?: (email: string) => Promise<string>
+  /** the address still waits for its link: a mistyped one can be replaced from here */
+  onCorrectEmail?: (email: string) => Promise<string>
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-export function InquiryRecord({ question, content, answerSeq, onResend, onAddEmail }: Props) {
+export function InquiryRecord({ question, content, answerSeq, onResend, onAddEmail, onCorrectEmail }: Props) {
+  const [correcting, setCorrecting] = useState(false)
   const [resent, setResent] = useState<string | null>(null)
   const [email, setEmail] = useState('')
   const [emailError, setEmailError] = useState<string | null>(null)
   const addEmail = async () => {
-    if (!onAddEmail || sending) return
+    const send = onAddEmail ?? (correcting ? onCorrectEmail : undefined)
+    if (!send || sending) return
     if (!EMAIL_RE.test(email.trim())) { setEmailError('הכתובת לא נראית תקינה. בדקו אותה, למשל name@example.com.'); return }
     setEmailError(null)
     setSending(true)
     try {
-      const res = await onAddEmail(email.trim())
+      const res = await send(email.trim())
+      setCorrecting(false)
       setResent(res === 'queued' || !RESEND_TEXT[res]
         ? 'שלחנו קישור אימות לכתובת. אחרי האימות נעדכן אתכם במייל כשהנציג יענה; התשובה תופיע כאן בכל מקרה.'
         : RESEND_TEXT[res])
@@ -127,6 +132,24 @@ export function InquiryRecord({ question, content, answerSeq, onResend, onAddEma
           <button type="button" className="link-inline" disabled={sending} onClick={() => void resend()}>
             {sending ? 'שולח…' : 'שליחת קישור אימות מחדש'}
           </button>
+          {onCorrectEmail && !correcting && (
+            <button type="button" className="link-inline" disabled={sending} onClick={() => { setCorrecting(true); setResent(null) }}>
+              לתקן את הכתובת
+            </button>
+          )}
+          {correcting && (
+            <div className="rep-inquiry-add-row">
+              <label className="visually-hidden" htmlFor={`correct-email-${question?.id ?? 'x'}`}>הכתובת הנכונה</label>
+              <input id={`correct-email-${question?.id ?? 'x'}`} className="rep-inquiry-email" type="email" dir="ltr"
+                     value={email} placeholder="name@example.com" autoComplete="email" disabled={sending}
+                     aria-invalid={emailError ? true : undefined}
+                     onChange={(e) => { setEmail(e.target.value); setEmailError(null) }} />
+              <button type="button" className="btn btn-sm btn-ghost" disabled={sending} onClick={() => void addEmail()}>
+                {sending ? 'שולח…' : 'שליחת קישור לכתובת הזו'}
+              </button>
+            </div>
+          )}
+          {correcting && emailError && <p className="rep-inquiry-field-error" role="alert">{emailError}</p>}
           {resent && <p className="rep-inquiry-hint" role="status">{resent}</p>}
         </div>
       )}

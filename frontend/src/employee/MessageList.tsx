@@ -27,6 +27,8 @@ interface Props {
   onResendVerification?: () => Promise<string>
   /** mail on and no address in this conversation (an inquiry sent from the chat, 1/11): an address can be added */
   onAddEmail?: (email: string) => Promise<string>
+  /** an address still waiting for its link: a mistyped one can be replaced */
+  onCorrectEmail?: (email: string) => Promise<string>
   /** 360°: the option map's chat card, under the results */
   mapCard?: ReactNode
   /** the current question's widget, drawn under the latest message */
@@ -60,7 +62,7 @@ const isUnusual = (r: OptionResult) => Boolean(r.result.unusual_copay || r.resul
 export const STALE_NOTE = 'לא מעודכן: החישוב הזה נעשה לפני השינוי האחרון, ויחושב מחדש כשכל הפרטים יהיו ידועים.'
 
 export function MessageList({ messages, repQuestions = [], results, resultsStale = false, resultsAnchor, typing,
-                              onOpenTable, onResendVerification, onAddEmail, mapCard, tail,
+                              onOpenTable, onResendVerification, onAddEmail, onCorrectEmail, mapCard, tail,
                               onRetry, onCorrect, busy, repCopayOffer = null, onSend,
                               todayCopay = null, todayCopaySource = null, focusQuestionId = null,
                               todayCard = null, mapAnchor = null, resultsVersion = null }: Props) {
@@ -227,7 +229,8 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
                 <InquiryRecord question={question} content={m.content}
                                answerSeq={m.rep_question_id ? answerMessages.get(m.rep_question_id) : undefined}
                                onResend={m.seq === resendOn ? onResendVerification : undefined}
-                               onAddEmail={m.seq === latestOpen ? onAddEmail : undefined} />
+                               onAddEmail={m.seq === latestOpen ? onAddEmail : undefined}
+                               onCorrectEmail={m.seq === resendOn ? onCorrectEmail : undefined} />
               )}
               {anchored && m.seq === resultsAnchor && cards}
               {mapAnchored && m.seq === mapAnchor && mapCard}

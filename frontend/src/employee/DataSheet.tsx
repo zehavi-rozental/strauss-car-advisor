@@ -43,10 +43,12 @@ interface EditorProps {
   onSave: (fields: ProfileFields, display: string) => Promise<SendResult>
   onCheck: (text: string) => Promise<boolean>
   onDone: () => void
+  /** saved or checked: the sheet closes, so that the card in the chat is seen at once */
+  onSaved: () => void
 }
 
 /** One value, on its own. The server validates and recalculates; here only what was typed is read. */
-function FieldEditor({ item, disabled, onSave, onCheck, onDone }: EditorProps) {
+function FieldEditor({ item, disabled, onSave, onCheck, onDone, onSaved }: EditorProps) {
   const numeric = ['money', 'percent', 'count', 'integer'].includes(item.edit ?? '')
   const [value, setValue] = useState(item.value ?? '')
   const [error, setError] = useState<string | null>(null)
@@ -65,7 +67,7 @@ function FieldEditor({ item, disabled, onSave, onCheck, onDone }: EditorProps) {
   const save = async (raw: string | number, shown: string) => {
     setError(null)
     const sent = await onSave({ [field]: raw } as ProfileFields, shown)
-    if (sent.ok) onDone()
+    if (sent.ok) onSaved()
     else setError(sent.errors[field] ?? sent.errors[item.key] ?? null)
   }
   const number = () => {
@@ -81,7 +83,7 @@ function FieldEditor({ item, disabled, onSave, onCheck, onDone }: EditorProps) {
   }
   const check = async () => {
     if (number() === null) return
-    if (await onCheck(`מה יקרה אם ${item.label} ${value.replace(/,/g, '')}${item.edit === 'percent' ? '%' : ''}?`)) onDone()
+    if (await onCheck(`מה יקרה אם ${item.label} ${value.replace(/,/g, '')}${item.edit === 'percent' ? '%' : ''}?`)) onSaved()
   }
 
   if (item.edit === 'group' || item.edit === 'occupation') {
@@ -192,7 +194,7 @@ export function DataSheet({ facts, privacy, focus, busy, onClose, onSave, onChec
     <div key={item.key} id={`fact-${item.key}`}>
       <Row item={item} editing={editing === item.key} onEdit={() => edit(item)} />
       {editing === item.key && item.edit && item.edit !== 'selection' && (
-        <FieldEditor item={item} disabled={busy} onSave={onSave} onCheck={onCheck} onDone={done} />
+        <FieldEditor item={item} disabled={busy} onSave={onSave} onCheck={onCheck} onDone={done} onSaved={onClose} />
       )}
     </div>
   )

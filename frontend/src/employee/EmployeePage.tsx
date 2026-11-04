@@ -249,7 +249,7 @@ export function EmployeePage() {
     : undefined
   // mail on, and no address in this conversation (an inquiry sent from the chat, 1/11): one can be added on the
   // latest open inquiry, verified by its link; the answer shows here either way
-  const addEmail = c.emailEnabled && !c.emailSimulated && !c.emailPending && !repEmail && c.conversationId
+  const sendToAddress = c.conversationId
     ? async (email: string) => {
         try {
           const res = await api.resendVerification(c.conversationId!, email)
@@ -260,6 +260,9 @@ export function EmployeePage() {
         }
       }
     : undefined
+  const addEmail = c.emailEnabled && !c.emailSimulated && !c.emailPending && !repEmail ? sendToAddress : undefined
+  // an address still waiting for its link: a mistyped one is replaced from the record (the server's limits apply)
+  const correctEmail = c.emailEnabled && !c.emailSimulated && c.emailPending ? sendToAddress : undefined
   const tail = (
     <div className="answer-tail" ref={tailRef}>
       {area}
@@ -337,7 +340,7 @@ export function EmployeePage() {
           <MessageList messages={c.messages} repQuestions={c.repQuestions} results={c.results} resultsStale={c.resultsStale}
                        resultsAnchor={c.resultsAnchor} typing={c.sending}
                        onOpenTable={() => setTableOpen(true)}
-                       onResendVerification={resendVerification} onAddEmail={addEmail}
+                       onResendVerification={resendVerification} onAddEmail={addEmail} onCorrectEmail={correctEmail}
                        mapCard={c.optionMap && <OptionMapSummary map={c.optionMap} onOpen={() => setMapOpen(true)} />}
                        tail={c.loading ? null : tail}
                        onRetry={(seq) => void c.retry(seq)} onCorrect={firstVisit ? undefined : correct} busy={busy}

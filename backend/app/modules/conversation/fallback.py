@@ -48,7 +48,7 @@ from .parsing import (
 from .stage import (ARG_OF, PROFILE_ARGS, Q2_FIELDS, CarClarification, ConversationState, Stage, current_group,
                     next_stage)
 from .templates import group_from_role_text, money, paced, recorded_text   # recorded_text: re-exported (agent, public)
-from .tools import OPT_OUT_WORDS, available_options
+from .tools import OPT_OUT_WORDS, available_options, classify_options
 
 _RANK_RE = re.compile(r"(?:מה\s+)?הכי\s*(?:משתלם|כדאי|טוב)(?:\s+לי)?|תמליץ|המלצ|דרג", re.IGNORECASE)
 _NOT_THIS_CAR_RE = re.compile(r"לא\s+(?:זה\s+)?(?:הרכב|הדגם)|(?:זה|זו)\s+לא\s+(?:נכון|הוא|היא)"
@@ -139,8 +139,14 @@ def fallback_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) 
     group, fields = current_group(state)
     fields = paced(state, fields)        # one-at-a-time: only the field on screen is answered / scoped
     t = text.strip()
+    not_available = _not_available_plan(state, snapshot, t) if t else None
+    if not_available is not None:
+        return not_available
     if not t or not fields:
         return ParserPlan()
+    early_car = _early_car_plan(state, snapshot, t)
+    if early_car is not None:
+        return early_car
     correction = _group_correction_plan(state, snapshot, t)
     if correction is not None:
         return correction
@@ -160,6 +166,36 @@ def fallback_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) 
     if bound is not None:
         return bound
     return _fallback_plan_rest(state, snapshot, group, fields, t)
+
+
+def _not_available_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Optional[ParserPlan]:
+    """A car the employee named that the rules do not offer them: said with its rule, by the same function that decides it. The ones
+    that are available in the same message are still chosen. Only reads the message: eligibility itself is classify_options."""
+    if next_stage(state) not in (Stage.CHOOSE_OPTIONS, Stage.PRESENTED) or state.asked_field is not None or "?" in text:
+        return None
+    named = [c for c in named_cars(text, snapshot.catalog) if c.catalog_code != state.current.catalog_code]
+    if not named:
+        return None
+    options, excluded = classify_options(snapshot, state)
+    allowed = {o.id for o in options}
+    reasons = {x.label: x.reason for x in excluded}
+    refused = [c for c in named if c.catalog_code not in allowed and c.label in reasons]
+    if not refused:
+        return None
+    notice = "\n".join(f"{c.label} לא זמין לכם: {reasons[c.label]}." for c in refused)
+    chosen = [c.catalog_code for c in named if c.catalog_code in allowed]
+    calls = [ToolCall("select_options", {"options": chosen}, "combined")] if chosen else []
+    return ParserPlan(calls, True, notice=notice, direct=True, code_only=True, acked=True)
+
+
+def _early_car_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Optional[ParserPlan]:
+    """The car today said before it was asked ("יש לי קורולה קרוס" as a first message): kept, and the next question follows."""
+    if state.current.source is not None or state.current.choices or next_stage(state) != Stage.COLLECT_PROFILE:
+        return None
+    if len(named_cars(text, snapshot.catalog)) != 1 or not _says_cue(text, snapshot.extensions.car_role_cues.current):
+        return None
+    plan = _car_plan(snapshot, text)
+    return replace(plan, calls=[ToolCall(c.name, c.args, "combined") for c in plan.calls]) if plan.calls else None
 
 
 def selection_change(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Optional[list[str]]:
