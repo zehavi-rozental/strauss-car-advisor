@@ -317,20 +317,21 @@ class EmailNotificationService:
         url = f"{self.settings.email_public_app_url.rstrip('/')}/employee#return_token={quote(raw_token)}"
         asked = ""
         if purpose == "VERIFY":
-            subject = "אימות כתובת האימייל — יועץ הרכב של שטראוס"
+            subject = "STRAUSS DRIVE | אימות כתובת האימייל"
             introduction = "כדי לאמת את כתובת האימייל ולחזור לשיחה, פתחו את הקישור המאובטח."
             button = "פתיחת השיחה המאובטחת"
         else:
-            subject = "תשובה מנציג התחבורה — יועץ הרכב של שטראוס"
+            subject = "STRAUSS DRIVE | התקבלה תשובה מנציג התחבורה"
             introduction = "התקבלה תשובה מנציג התחבורה לפנייה שלכם. הקישור יפתח את השיחה ישירות בתשובה."
             button = "לצפייה בתשובת הנציג"
             asked = self._asked(row_id, question_id)      # the employee's own question (1/11), never the answer
         body = (f"{introduction}\n\n" + (f"השאלה שלכם: {asked}\n\n" if asked else "")
-                + f"{button}: {url}\n\nהקישור תקף ל-24 שעות ופועל פעם אחת.")
+                + f"{button}: {url}\n\nהקישור תקף ל-24 שעות ופועל פעם אחת.\n\nSTRAUSS DRIVE — יועץ הרכב של שטראוס")
         html_body = (
             '<div dir="rtl" style="font-family:Arial,sans-serif;max-width:560px;margin:auto;'
             'padding:24px;color:#18332c">'
-            '<h1 style="font-size:22px">יועץ הרכב של שטראוס</h1>'
+            '<h1 style="font-size:22px;margin:0">STRAUSS DRIVE</h1>'
+            '<p style="margin:4px 0 20px;color:#52615c">יועץ הרכב של שטראוס</p>'
             f'<p style="line-height:1.7">{html.escape(introduction)}</p>'
             + (f'<p style="line-height:1.7;background:#f3f6f5;padding:12px 16px;border-radius:6px">'
                f'<strong>השאלה שלכם:</strong><br>{html.escape(asked)}</p>' if asked else "")

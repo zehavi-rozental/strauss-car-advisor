@@ -3,6 +3,7 @@ settings are loaded, the notifier is built as the app builds it, and the SMTP se
 Prints PASS / FAIL / INFO lines with no address, password or link."""
 import smtplib
 import ssl
+from email.utils import parseaddr
 
 from app.modules.conversation.public import EmailNotificationService, EmailNotConfigured
 from app.shared.settings import get_settings
@@ -20,6 +21,9 @@ print("PASS  mail settings (key, sender, public link)" if on else "FAIL  mail se
 domain = s.email_from.rsplit("@", 1)[-1].strip(" >")
 print(f"INFO  mail sender domain: {domain}" + ("  (Resend test domain: delivers to the account owner only)"
                                              if domain.endswith("resend.dev") else ""))
+if s.email_smtp_host == "smtp.gmail.com":  # Gmail rewrites any other From to the account itself
+    same = parseaddr(s.email_from)[1].lower() == s.email_smtp_username.strip().lower()
+    print("PASS  Gmail: sender is the signed-in account" if same else "FAIL  Gmail: EMAIL_FROM is not the SMTP account")
 print("PASS  public link is https" if s.email_public_app_url.startswith("https://") else "FAIL  public link not https")
 try:
     with smtplib.SMTP(s.email_smtp_host, s.email_smtp_port, timeout=15) as smtp:

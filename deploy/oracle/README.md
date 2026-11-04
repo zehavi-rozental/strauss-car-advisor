@@ -31,16 +31,21 @@ Worker: `cd edge && npx wrangler@4.156.2 deploy --var BACKEND_ORIGIN:https://str
 
 ## Turning mail on (the existing flow: verification link, outbox, the rep's answer with a link to it)
 
-Mail reaches **any** address only from a sending domain verified in Resend. The test sender `@resend.dev` delivers to the Resend account owner only (the local tests of 30/10-1/11 used it; production never sent mail).
+Sender: a dedicated Gmail account over SMTP (free, any recipient, signed by Google; about 500 recipients a day, enough for the demo). Resend's test sender `@resend.dev` delivers to the Resend account owner only; production never sent mail before.
 
-1. Resend → Domains → add a domain you own (e.g. `send.<domain>`) → add its DNS records (DKIM TXT `resend._domainkey`, MX + SPF TXT on `send`) → wait for "Verified". A domain whose DNS is on Cloudflare can do this in one click.
-2. Store the sender: `Add-StraussSecretSecure smtp-from` → `STRAUSS DRIVE <noreply@send.<domain>>`. The other SMTP secrets do not change (Resend: host `smtp.resend.com`, port 587, user `resend`, the API key as password).
-3. Deploy as above with `EMAIL_MODE=smtp`: `VM_NAME=strauss-drive-prod DB_SECRET=neon-database-url EMAIL_MODE=smtp python launch_vm.py`. The VM test must show `PASS  SMTP login (nothing sent)` and the verified domain (no "Resend test domain" note).
-4. One test through the public link: ask the rep a question, enter an approved address, open the verification mail, answer on the rep screen, open the answer mail's link (it must open that answer in the chat).
+1. Secrets (PowerShell, after `. C:\Users\user\strauss-secrets\secrets.ps1`; each value is typed hidden). They replace the Resend values of the same names, so run the secrets backup first and again after:
+   - `Add-StraussSecretSecure smtp-host "Gmail" "SMTP host"` → `smtp.gmail.com`
+   - `Add-StraussSecretSecure smtp-port "Gmail" "SMTP port"` → `587`
+   - `Add-StraussSecretSecure smtp-username "Gmail" "SMTP user"` → the Gmail address
+   - `Add-StraussSecretSecure smtp-password "Gmail" "app password"` → the 16-letter app password, without spaces
+   - `Add-StraussSecretSecure smtp-from "Gmail" "sender"` → the same Gmail address (Gmail rewrites any other sender; the app names it "STRAUSS DRIVE")
+2. Code bundle from `main` as above (it includes `mail_check.py`), then terminate `strauss-drive-prod` and launch with mail: `VM_NAME=strauss-drive-prod DB_SECRET=neon-database-url EMAIL_MODE=smtp python launch_vm.py`.
+3. `results/vm-test.txt` must show `PASS  mail settings`, `PASS  Gmail: sender is the signed-in account`, `PASS  public link is https`, `PASS  SMTP login (nothing sent)`, no `FAIL`, and `== ALL PASS`.
+4. One real test through the public link, to an approved address: ask the rep a question, enter the address, open the verification mail, answer on the rep screen, open the answer mail's link (it must open that answer in the chat).
 
-Rollback (about 5 minutes, nothing is lost): the same deploy without `EMAIL_MODE` (= `EMAIL_BACKEND=disabled`). Inquiries and answers keep working in the chat; mail waiting in the outbox (Neon) stays there unsent. A send error never rolls back a rep answer (the outbox marks it and retries / fails it).
+Rollback (about 5 minutes, nothing is lost): terminate and launch again without `EMAIL_MODE` (= `EMAIL_BACKEND=disabled`). Inquiries and answers keep working in the chat; mail waiting in the outbox (Neon) stays there unsent. A send error never rolls back a rep answer: the outbox retries with back-off (at most 8 attempts), then marks it FAILED. A Gmail block or a revoked app password shows as `FAIL  SMTP login` (the error class only).
 
-Limits (Resend Free): 1 domain, 100 mails a day, 3,000 a month.
+Verification links: one-time, 24 h; a new one on request only after 2 minutes, at most 5 per conversation and address.
 
 ## Network
 
