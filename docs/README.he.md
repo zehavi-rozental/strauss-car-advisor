@@ -4,7 +4,7 @@
 
 🚀 **Live Demo — STRAUSS DRIVE**
 
-**[https://strauss-drive.strauss-drive-edge.workers.dev/employee](https://strauss-drive.strauss-drive-edge.workers.dev/employee)**
+**[https://strauss-drive.strauss-drive-edge.workers.dev/](https://strauss-drive.strauss-drive-edge.workers.dev/)**
 
 **Open Code AI Hackathon 2026 | אתגר שטראוס — אחד הפרויקטים הזוכים**
 

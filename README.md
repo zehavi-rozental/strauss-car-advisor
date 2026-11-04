@@ -4,13 +4,13 @@
 
 🚀 **Live Demo — STRAUSS DRIVE**
 
-**[https://strauss-drive.strauss-drive-edge.workers.dev/employee](https://strauss-drive.strauss-drive-edge.workers.dev/employee)**
+**[https://strauss-drive.strauss-drive-edge.workers.dev/](https://strauss-drive.strauss-drive-edge.workers.dev/)**
 
 **Open Code AI Hackathon 2026 | Strauss Challenge — One of the Winning Projects**
 
 A Hebrew conversational advisor that shows an employee, in shekels, how changing their company car changes their monthly net pay.
 
-[![Live Demo](https://img.shields.io/badge/Live_Demo-Open_STRAUSS_DRIVE-0B5394?style=for-the-badge&logo=cloudflare&logoColor=white)](https://strauss-drive.strauss-drive-edge.workers.dev/employee)
+[![Live Demo](https://img.shields.io/badge/Live_Demo-Open_STRAUSS_DRIVE-0B5394?style=for-the-badge&logo=cloudflare&logoColor=white)](https://strauss-drive.strauss-drive-edge.workers.dev/)
 [![GitHub Repository](https://img.shields.io/badge/GitHub_Repository-strauss--car--advisor-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/zehavi-rozental/strauss-car-advisor)
 [![Representative Portal](https://img.shields.io/badge/Representative_Portal-/rep-E8590C?style=for-the-badge)](https://strauss-drive.strauss-drive-edge.workers.dev/rep)
 
@@ -82,6 +82,7 @@ An employee who is thinking about switching company cars, moving to an electric 
 
 | | |
 | --- | --- |
+| Home | https://strauss-drive.strauss-drive-edge.workers.dev/ — choose the employee advisor or the representative portal |
 | Employee advisor | https://strauss-drive.strauss-drive-edge.workers.dev/employee |
 | Representative portal | https://strauss-drive.strauss-drive-edge.workers.dev/rep — protected by an access code; demo access is available on request |
 | Health endpoint | https://strauss-drive.strauss-drive-edge.workers.dev/api/health |
