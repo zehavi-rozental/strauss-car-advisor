@@ -111,7 +111,10 @@ check(s.status_code == 200 and len(s.json()) >= 1, "catalog search (קורולה
 print("== payslip")
 if PAYSLIP and os.path.exists(PAYSLIP) and h.get("payslip"):
     with open(PAYSLIP, "rb") as f:
-        r, ms = timed("ai", lambda: httpx.post(f"{BASE}/api/payslip/extract", files={"file": ("payslip.pdf", f, "application/pdf")}, timeout=120))
+        upload = Chat()
+        upload_form = {"conversation_id": upload.cid, "consent_version": upload.view()["privacy"]["payslip"]["version"]}
+        r, ms = timed("ai", lambda: upload.c.post("/api/payslip/extract", files={"file": ("payslip.pdf", f, "application/pdf")},
+                                                  data=upload_form, timeout=120))
     j = r.json() if r.status_code == 200 else {}
     found = {x["field"]: x["value"] for x in j.get("fields", []) if x.get("status") == "found"}
     check(r.status_code == 200 and j.get("status") == "found" and len(found) == 7 and "." in str(found.get("credit_points", "")),
@@ -119,7 +122,10 @@ if PAYSLIP and os.path.exists(PAYSLIP) and h.get("payslip"):
           f"status={j.get('status')} found={len(found)} {ms:.0f} ms")
 else:
     check(False, "payslip extraction", "skipped: no file or payslip disabled")
-big = httpx.post(f"{BASE}/api/payslip/extract", files={"file": ("big.pdf", b"0" * (9 * 1024 * 1024), "application/pdf")}, timeout=120)
+big_chat = Chat()
+big = big_chat.c.post("/api/payslip/extract", files={"file": ("big.pdf", b"0" * (9 * 1024 * 1024), "application/pdf")},
+                      data={"conversation_id": big_chat.cid, "consent_version": big_chat.view()["privacy"]["payslip"]["version"]},
+                      timeout=120)
 check(big.status_code == 413, "a payslip over 8 MB is refused (413, no model call)")
 
 print("== errors and missing information")

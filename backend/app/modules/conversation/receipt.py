@@ -87,7 +87,8 @@ def receipt_lines(receipt: dict[str, Any]) -> list[str]:
         lines.append(f"בדקתי שוב את כל {receipt['ranked']} הרכבים שאתם זכאים להם.")
     if receipt["options"]:
         best = receipt["options"][0]
-        lines.append(f"הנטו הגבוה ביותר: {best['label']}, {_delta_words(best['after']['delta'])}.")
+        head = "הנטו הגבוה ביותר" if len(receipt["options"]) > 1 else "הרכב שבדקתם"
+        lines.append(f"{head}: {best['label']}, {_delta_words(best['after']['delta'])}.")
     if len(receipt["options"]) > 1:
         lines.append("הסדר בין הרכבים השתנה." if receipt["order_changed"] else "הסדר בין הרכבים לא השתנה.")
     return lines

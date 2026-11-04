@@ -64,6 +64,7 @@ export async function proxy(request, env, fetchImpl = fetch) {
 
   const response = new Response(upstream.body, upstream)   // status, headers (Set-Cookie included) and body
   response.headers.set('x-edge-proxied', '1')
+  response.headers.set('x-content-type-options', 'nosniff')
   if (!response.headers.has('cache-control')) response.headers.set('cache-control', 'no-store')
   const location = response.headers.get('location')
   if (location && location.startsWith(origin)) {

@@ -101,7 +101,7 @@ export function AnswerForm({ question: q, token, onAnswered, onUnauthorized, onC
           ) : (
             <>
               <label htmlFor={`a-${q.id}`}>
-                {q.answer_type === 'MONEY' ? (newCarCopay ? 'סכום ההשתתפות (₪)' : 'סכום (₪)')
+                {q.answer_type === 'MONEY' ? (newCarCopay ? 'סכום ההשתתפות החודשי (₪)' : 'סכום חודשי (₪)')
                   : q.answer_type === 'DATE' ? 'תאריך' : groups.length > 0 ? 'אות הקבוצה' : 'תשובה'}
               </label>
               {general ? (

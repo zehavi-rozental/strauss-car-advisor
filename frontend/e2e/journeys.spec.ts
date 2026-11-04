@@ -387,7 +387,7 @@ test.describe('merged conversation acceptance', () => {
     const s = await state(page)
     expect(s.profile.base).toBe('16000')
     expect(deltas(s)).toEqual([['CAR-10', 656]])
-    await expect(page.locator(BOT).last()).toContainText('יגדל ב-656 ₪')
+    await expect(page.locator(BOT).last()).toContainText('תוספת של 656 ₪')
   })
 
   test('"יש לי קיה נירו" is the current car, and the family-track alternative stays an alternative', async ({ page }) => {

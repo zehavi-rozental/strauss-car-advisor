@@ -205,6 +205,7 @@ test.describe('rep inquiry card in the conversation', () => {
     const reconnectedEmployee = await answerContext.newPage()
     watchErrors(reconnectedEmployee)
     await reconnectedEmployee.goto('/employee')
+    await reconnectedEmployee.getByRole('button', { name: 'להמשיך את השיחה' }).click()      // another tab asks first (4/11)
     await expect(reconnectedEmployee.locator(BOT, { hasText: answerText })).toHaveCount(1, { timeout: 30_000 })
     await expect(reconnectedEmployee.getByTestId('rep-inquiry-history')).toHaveCount(1)
     expect(browserErrors).toEqual([])

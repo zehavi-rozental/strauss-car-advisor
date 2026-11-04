@@ -163,6 +163,11 @@ jobs:
           PAYSLIP_FAKE_VISION_DIR: ${{ github.workspace }}/frontend/e2e/fixtures/payslips/vision
           PAYSLIP_RATE_LIMIT_PER_MINUTE: "200"
           CREATE_RATE_LIMIT_PER_MINUTE: "500"   # the suite opens ~40 conversations a minute from one address
+          MESSAGE_ADDRESS_LIMIT_PER_MINUTE: "100000"
+          AUTH_FAILURE_LIMIT_PER_MINUTE: "100000"
+          EMAIL_RECIPIENT_DAILY_LIMIT: "100000"
+          EMAIL_ADDRESSES_PER_CONVERSATION: "100000"
+          EMAIL_VERIFY_ADDRESS_LIMIT_PER_HOUR: "100000"
           # representative inquiries with email (29/10): the fake backend, its messages in a temporary folder
           EMAIL_BACKEND: fake
           EMAIL_FAKE_NOTICE: "false"          # the specs drive the real mail flow (verify links)
@@ -190,6 +195,8 @@ jobs:
           REP_ACCESS_TOKEN: ci-only-rep-token
           EMAIL_BACKEND: disabled
           CREATE_RATE_LIMIT_PER_MINUTE: "500"
+          MESSAGE_ADDRESS_LIMIT_PER_MINUTE: "100000"
+          AUTH_FAILURE_LIMIT_PER_MINUTE: "100000"
         run: |
           nohup python deploy/render_start.py > ../server-off.log 2>&1 &
           for i in $(seq 1 180); do

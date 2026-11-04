@@ -423,3 +423,12 @@ def test_removing_the_only_car_asks_again(engine):
     turn = send({"text": "תוריד את MG4"})
     v = view(client, cid)
     assert v["selected"] == [] and v["results"] == [] and turn["expects"]["field"] == "options"
+
+
+def test_one_car_on_screen_is_not_called_the_highest():
+    from app.modules.conversation.receipt import receipt_lines
+    one = {"today_net": {"before": None, "after": None}, "ranked": None, "order_changed": False,
+           "options": [{"label": "ATTO 3", "after": {"delta": "656"}}]}
+    assert receipt_lines(one) == ["הרכב שבדקתם: ATTO 3, תוספת של 656 ₪ בחודש."]
+    two = dict(one, options=one["options"] + [{"label": "MG4", "after": {"delta": "-10"}}])
+    assert receipt_lines(two)[0].startswith("הנטו הגבוה ביותר: ATTO 3")
