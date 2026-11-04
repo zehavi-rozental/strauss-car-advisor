@@ -141,7 +141,7 @@ export function AnswerForm({ question: q, token, onAnswered, onUnauthorized, onC
           </div>
         </div>
       )}
-      {other && (
+      {other && !unusual && (
         <div className="form-actions">
           <button type="submit" className="chip chip-primary" disabled={busy || !value.trim()}>
             {busy ? 'שולח…' : newCarCopay ? 'אישור סכום ושליחת תשובה' : 'שליחת תשובה לעובד'}
