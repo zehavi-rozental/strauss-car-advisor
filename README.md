@@ -2,17 +2,21 @@
 
 # STRAUSS DRIVE | AI-Powered Corporate Car Advisor
 
+### 🚀 Live Demo — STRAUSS DRIVE
+
+**[https://strauss-drive.strauss-drive-edge.workers.dev/employee](https://strauss-drive.strauss-drive-edge.workers.dev/employee)**
+
 **Open Code AI Hackathon 2026 | Strauss Challenge — One of the Winning Projects**
 
 A Hebrew conversational advisor that shows an employee, in shekels, how changing their company car changes their monthly net pay.
 
-[![Live Demo](https://img.shields.io/badge/Live_Demo-strauss--drive.onrender.com-0B5394?style=for-the-badge&logo=render&logoColor=white)](https://strauss-drive.onrender.com/)
+[![Live Demo](https://img.shields.io/badge/Live_Demo-Open_STRAUSS_DRIVE-0B5394?style=for-the-badge&logo=cloudflare&logoColor=white)](https://strauss-drive.strauss-drive-edge.workers.dev/employee)
 [![GitHub Repository](https://img.shields.io/badge/GitHub_Repository-strauss--car--advisor-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/zehavi-rozental/strauss-car-advisor)
-[![Representative Portal](https://img.shields.io/badge/Representative_Portal-/rep-E8590C?style=for-the-badge)](https://strauss-drive.onrender.com/rep)
+[![Representative Portal](https://img.shields.io/badge/Representative_Portal-/rep-E8590C?style=for-the-badge)](https://strauss-drive.strauss-drive-edge.workers.dev/rep)
 
 <br>
 
-<a href="https://strauss-drive.onrender.com/">
+<a href="https://strauss-drive.strauss-drive-edge.workers.dev/employee">
   <img src="docs/images/employee-results.png" alt="STRAUSS DRIVE: the advisor's reply, today's car and the net-pay comparison of each alternative" width="100%">
 </a>
 
@@ -27,6 +31,9 @@ A Hebrew conversational advisor that shows an employee, in shekels, how changing
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)
 ![Google Gemini](https://img.shields.io/badge/Google_Gemini-tool_calling_%2B_vision-8E75B2?logo=googlegemini&logoColor=white)
+![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)
+![Oracle Cloud](https://img.shields.io/badge/Oracle_Cloud-Always_Free-F80000?logo=oracle&logoColor=white)
+![Neon](https://img.shields.io/badge/Neon-PostgreSQL-00E599?logo=postgresql&logoColor=white)
 
 </div>
 
@@ -75,11 +82,11 @@ An employee who is thinking about switching company cars, moving to an electric 
 
 | | |
 | --- | --- |
-| Employee advisor | https://strauss-drive.onrender.com/ |
-| Representative portal | https://strauss-drive.onrender.com/rep — protected by an access code; demo access is available on request |
-| Health endpoint | https://strauss-drive.onrender.com/api/health |
+| Employee advisor | https://strauss-drive.strauss-drive-edge.workers.dev/employee |
+| Representative portal | https://strauss-drive.strauss-drive-edge.workers.dev/rep — protected by an access code; demo access is available on request |
+| Health endpoint | https://strauss-drive.strauss-drive-edge.workers.dev/api/health |
 
-> The demo runs on Render's free tier: after 15 minutes without traffic the service sleeps, and the first request can take about a minute. The interface is in Hebrew (right-to-left).
+> The interface is served from Cloudflare's edge and opens instantly; the API runs on an always-on server (no cold start), so the first answer arrives as fast as the next one. Measured through the public link: page in ~0.1 s, answers computed by code in ~0.2 s, answers written with Gemini in ~2–3 s. The interface is in Hebrew (right-to-left), and the demo uses synthetic data.
 
 ## Product Walkthrough
 
@@ -137,9 +144,9 @@ flowchart LR
 | Backend | Python 3.11+, FastAPI, Pydantic v2, SQLAlchemy 2, Alembic |
 | AI | Google Gemini API (`gemini-3.5-flash-lite`, fallback `gemini-3.6-flash`): tool calling, structured output, vision |
 | Frontend | React 19, TypeScript, Vite |
-| Data | PostgreSQL (production), SQLite (local and tests); tax-authority use-value file, Strauss rules JSON and data workbook |
+| Data | PostgreSQL on Neon (production, Frankfurt), SQLite (local and tests); tax-authority use-value file, Strauss rules JSON and data workbook |
 | Testing | Pytest, Hypothesis, Vitest, Playwright, import-linter |
-| Delivery | Docker, GitHub Actions, Render |
+| Delivery | Cloudflare Workers (edge: static React app + API proxy), Oracle Cloud Always Free (Docker Compose, Caddy HTTPS), Neon PostgreSQL, GitHub Actions |
 | Email | SMTP backend with encrypted addresses and an outbox worker (tested end to end with Resend as the SMTP provider; disabled in production) |
 
 ## System Architecture
@@ -178,6 +185,21 @@ flowchart TB
 - `cases` never imports `conversation`; answers travel as `QuestionAnswered` events that the conversation applies idempotently.
 - Employee screens receive representative answers by polling `GET /api/conversations/{id}/updates?after=<seq>`.
 
+### Production topology
+
+```mermaid
+flowchart LR
+    U[Browser] -->|HTTPS| W[Cloudflare Worker<br/>React app from static assets<br/>/api proxy, same origin]
+    W -->|HTTPS, shared secret| O[Oracle Cloud VM, always on<br/>Caddy TLS → FastAPI in Docker]
+    O --> N[(Neon PostgreSQL)]
+    O --> G[[Google Gemini]]
+```
+
+- **Instant first load:** the React build is served by a Cloudflare Worker from static assets; only `/api/*` runs Worker code, which passes the request to the backend on the same origin (so the session cookie stays first-party and no CORS is needed).
+- **Always-on API:** the FastAPI container runs on an Oracle Cloud Always Free VM behind Caddy (automatic Let's Encrypt certificates). Docker restarts it if it crashes, and a health check restarts it if it stops answering.
+- **Readiness in the client:** one health probe with a timeout and backoff opens the chat only when the server and its database answer, and tells a starting server apart from a real rate limit.
+- **Managed database:** Neon PostgreSQL (Frankfurt, next to the VM); pooled connections are checked before use, since a serverless database closes idle connections.
+
 ## Financial Calculation Engine
 
 - **Money is `Decimal` only.** No floats; rounding happens once, for display.
@@ -212,7 +234,8 @@ Implemented and covered by tests; not a certified or audited security program.
 | Employee sessions | Conversation access by an `HttpOnly`, `SameSite=Lax` session cookie (`Secure` configurable); only a hash of the token is stored and it is compared in constant time. |
 | Representative access | Access code in the `X-Rep-Token` header, compared with `hmac.compare_digest`; 401 without it. |
 | Authorization & data minimization | The representative sees only an allow-listed context (group, car, catalog code, suggested amount) — never salary or profile data. |
-| Rate limiting | Per-address and per-representative-session limits; failed access-code attempts are limited before the code is checked; every 429 carries `Retry-After`. Forwarded addresses are trusted only from private proxies. |
+| Rate limiting | Per-address and per-representative-session limits; failed access-code attempts are limited before the code is checked; every 429 carries `Retry-After`. The edge Worker removes any address header a visitor writes and sends the real address with a shared secret, which the backend checks before trusting it. |
+| Network | The server accepts HTTPS only from Cloudflare's address ranges, so it is reached only through the edge; TLS end to end (Cloudflare, Let's Encrypt on the origin, TLS to the database). |
 | Encryption | Email addresses are encrypted at rest with Fernet; verification links are one-time and expire. |
 | Payslips & personal data | Payslip files are never stored; ID numbers are redacted from messages; salaries and message content are never logged. |
 | Secrets | Keys live only in an ignored `.env` or in the hosting provider's secret settings; CI runs a secret scan on every push. |
@@ -233,14 +256,15 @@ GitHub Actions runs everything on every push and pull request: secret scan → b
 
 ## Deployment
 
-| Step | How |
+| Part | How |
 | --- | --- |
-| Build | Render builds the same `Dockerfile` that CI builds; the container runs migrations, loads the tax file and serves the React build from FastAPI. |
-| Trigger | **Manual and gated** — `autoDeploy` is off. The *Deploy to Render* workflow is started by hand, waits for approval of the `render-demo` environment, and deploys only if the commit is the head of the deploy branch **and** its CI run passed. |
-| Verification | The workflow calls Render's deploy hook and waits until `/api/health` reports healthy. |
-| Data | Managed PostgreSQL; migrations are additive. |
+| Edge | A Cloudflare Worker serves the production React build and proxies `/api` to the backend; deployed with Wrangler. API answers are never cached, and an unreachable or starting backend becomes a structured JSON 503 the client understands. |
+| Backend | The same `Dockerfile` that CI builds, run with Docker Compose next to Caddy on an Oracle Cloud Always Free VM. The VM is provisioned by cloud-init and is stateless, so a deploy or a recovery is a fresh VM: install, start, migrate, self-test. |
+| Data | Neon PostgreSQL; Alembic migrations run at startup and are additive. |
+| Verification | Every new server runs an end-to-end suite on itself at boot, and the same suite runs through the public link before a change goes live: the six reference employees, conversations with Gemini, payslip extraction, the representative flow, errors and security checks. |
+| Secrets | Never in the repository: Worker secrets in Cloudflare, server settings in a root-only file on the VM, and an encrypted local store for operations. |
 
-Email notifications are implemented but not enabled in production (no SMTP settings are configured there); inquiries and answers work in the conversation without them.
+Email notifications are implemented but not enabled in production; inquiries and answers work in the conversation without them.
 
 ## Local Development
 
