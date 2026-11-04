@@ -179,3 +179,41 @@ def test_choosing_a_car_to_calculate_is_not_a_check(ranked, text):
 
     from .conftest import CONFIG
     assert is_hypothetical(text, load_snapshot(CONFIG)) is False
+
+
+# ---------- a named car: the eligibility rules answer, the same function that decides ----------
+
+@pytest.mark.parametrize("text, said", [("MODEL 3", "קבוצה ד, מעל קבוצת הזכאות"), ("טסלה", "קבוצה ד, מעל קבוצת הזכאות"), ("קרניבל", "מ-4 ילדים"),
+                                        ("האם מותר לי MODEL 3?", "קבוצה ד, מעל קבוצת הזכאות"), ("אני זכאי לקרניבל?", "מ-4 ילדים")])
+def test_a_car_that_is_not_available_is_said_with_its_rule_and_nothing_changes(ranked, text, said):
+    view, send = ranked
+    before = view()
+    send({"text": text})
+    after = view()
+    assert "לא זמין לכם" in after["messages"][-1]["content"] and said in after["messages"][-1]["content"]
+    assert after["selected"] == before["selected"] and _figures(after) == _figures(before)
+
+
+def test_asking_about_an_available_car_is_answered_and_chooses_nothing(ranked):
+    view, send = ranked
+    before = view()
+    send({"text": "האם מותר לי NIRO?"})
+    after = view()
+    assert "NIRO (2025) זמין לכם" in after["messages"][-1]["content"] and after["selected"] == before["selected"]
+
+
+def test_the_available_cars_in_the_same_message_are_still_calculated():
+    client = make_client(build_engine(), rep_access_token="t")
+    cid = client.post("/api/conversations").json()["conversation_id"]
+    for body in ({"text": "קבוצה ג"}, {"fields": Q2}, {"text": "קורולה 2026"}, {"choice": "catalog:CAR-07", "field": "copay"}, {"text": "NIRO ו-MODEL 3"}):
+        client.post(f"/api/conversations/{cid}/messages", json=body)
+    v = client.get(f"/api/conversations/{cid}").json()
+    assert [r["option_id"] for r in v["results"]] == ["CAR-05"] and "MODEL 3 (2025) לא זמין לכם" in v["messages"][-1]["content"]
+
+
+def test_the_car_today_said_first_is_kept():
+    client = make_client(build_engine(), rep_access_token="t")
+    cid = client.post("/api/conversations").json()["conversation_id"]
+    client.post(f"/api/conversations/{cid}/messages", json={"text": "יש לי קורולה קרוס, משלמת 300"})
+    v = client.get(f"/api/conversations/{cid}").json()
+    assert v["current_car"]["catalog_code"] == "CAR-09" and str(v["current_car"]["copay"]).startswith("300")

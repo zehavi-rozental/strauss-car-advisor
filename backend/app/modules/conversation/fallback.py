@@ -188,6 +188,23 @@ def _not_available_plan(state: ConversationState, snapshot: RulesSnapshot, text:
     return ParserPlan(calls, True, notice=notice, direct=True, code_only=True, acked=True)
 
 
+def eligibility_answer(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Optional[ParserPlan]:
+    """"האם מותר לי MODEL 3?": the eligibility rules know the answer, once the group is known. Answered, and nothing is chosen."""
+    if next_stage(state) not in (Stage.CHOOSE_OPTIONS, Stage.PRESENTED) or state.asked_field is not None:
+        return None
+    if not _says_cue(text, snapshot.extensions.eligibility_question_cues):
+        return None
+    named = [c for c in named_cars(text, snapshot.catalog) if c.catalog_code != state.current.catalog_code]
+    if not named:
+        return None
+    options, excluded = classify_options(snapshot, state)
+    allowed = {o.id for o in options}
+    reasons = {x.label: x.reason for x in excluded}
+    lines = [f"{c.label} לא זמין לכם: {reasons[c.label]}." for c in named if c.catalog_code not in allowed and c.label in reasons]
+    lines += [f"{c.label} זמין לכם. אפשר לכתוב את שמו כדי לחשב אותו." for c in named if c.catalog_code in allowed]
+    return ParserPlan([], True, notice="\n".join(lines), direct=True, code_only=True, acked=True) if lines else None
+
+
 def _early_car_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Optional[ParserPlan]:
     """The car today said before it was asked ("יש לי קורולה קרוס" as a first message): kept, and the next question follows."""
     if state.current.source is not None or state.current.choices or next_stage(state) != Stage.COLLECT_PROFILE:

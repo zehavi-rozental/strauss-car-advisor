@@ -24,7 +24,7 @@ from app.modules.rules.public import catalog_names as catalog_names_of
 
 from .expects import build_expects, choice_calls
 from .fallback import (selection_change, ZERO_ALLOWED, ParserPlan, _profile_value_correction_plan, asks_base, car_roles, correction_plan,
-                       fallback_plan, named_cars, none_plan, read_value, recorded_text)
+                       eligibility_answer, fallback_plan, named_cars, none_plan, read_value, recorded_text)
 from .free_text import looks_like_title
 from .guard import collect_numbers, violations
 from .llm.port import ChatMessage, LLMChain, LLMError, ToolCall
@@ -1148,6 +1148,9 @@ class Agent:
             return self._finish(ctx, history, text, ParserPlan(complete=True, notice=PRESENTED_UNSURE, direct=True,
                                                                code_only=True, acked=True), before, record_run,
                                 und=Understanding(remainder="", resume=True))
+        answer = eligibility_answer(state, snapshot, text)
+        if answer is not None:
+            return self._finish(ctx, history, text, answer, before, record_run, und=Understanding(remainder="", resume=True))
         if says_phrase(text, faq.delete_terms) and not named_cars(text, snapshot.catalog):
             # "תמחק הכול": never done from a sentence, and never left as "not understood": where it is done, and what it does
             return self._finish(ctx, history, text, ParserPlan(complete=True, notice=DELETE_ANSWER, direct=True,

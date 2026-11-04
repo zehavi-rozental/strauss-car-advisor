@@ -152,6 +152,8 @@ declared_change_cues: [עכשיו, כעת, עלה ל, עלתה ל, ירד ל, י
                        תשנה, תשני, תשנו, לשנות, תקן, תקני, תקנו, תתקן, תתקני, לתקן, ולא, אלא, נולד, נולדה, נולדו,
                        תשנה ל, תשני ל, שנה ל, שני ל, אני מרוויח, אני מרוויחה, אני משתכר, אני משתכרת, מהחודש, החל מהחודש]
 salary_words: [שכר, השכר, משכורת, המשכורת, מרוויח, מרוויחה, ארוויח, נרוויח, תרוויח, אשתכר, משתכר, משתכרת, העלאה, העלו]
+# A question about whether a named car is open to the employee: answered from the eligibility rules, not sent to the representative.
+eligibility_question_cues: [מותר, זכאי, זכאית, זכאים, אפשר לקחת, אפשר לבחור, יכול לקחת, יכולה לקחת, יכולים לקחת, מגיע לי, נכנס לי, נכנס בקבוצה, בקבוצה שלי]
 # Selection changes in words, with a catalog car named: code works out the new list; the eligibility rules apply.
 selection_add_cues: [תוסיף, תוסיפי, תוסיפו, הוסף, הוסיפי, להוסיף, גם את, תכניס, תכניסי, נוסיף]
 selection_remove_cues: [תוריד, תורידי, תורידו, להוריד, תסיר, תסירי, להסיר, תמחק, תמחקי, בלי את, לא רוצה את, נוריד]
