@@ -1,0 +1,33 @@
+# STRAUSS DRIVE backend on the Oracle VM: the app (the repo's Dockerfile, unchanged) behind Caddy (HTTPS).
+# The database is Neon (DATABASE_URL in secrets/app.env, mode 600, never in Git). No local data: stateless.
+name: strauss-edge
+services:
+  app:
+    build: { context: ./src, dockerfile: Dockerfile }
+    image: strauss-app
+    restart: unless-stopped
+    env_file: [ ./secrets/app.env ]
+    environment:
+      PORT: "10000"
+      SESSION_COOKIE_SECURE: "true"
+    expose: [ "10000" ]
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import json,urllib.request as u; d=json.load(u.urlopen('http://127.0.0.1:10000/api/health',timeout=4)); raise SystemExit(0 if d.get('db') else 1)" ]
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 240s
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: { app: { condition: service_healthy } }
+    ports: [ "80:80", "443:443" ]
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:?}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+volumes:
+  caddy_data:
+  caddy_config:

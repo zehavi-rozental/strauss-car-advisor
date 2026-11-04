@@ -13,3 +13,7 @@ backend/config/strauss-rules.json binary
 *.png binary
 *.jpg binary
 *.webp binary
+# deployment scripts run on Linux: always LF
+deploy/** text eol=lf
+edge/** text eol=lf
+.github/workflows/*.yml text eol=lf

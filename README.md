@@ -2,7 +2,7 @@
 
 # STRAUSS DRIVE | AI-Powered Corporate Car Advisor
 
-### 🚀 Live Demo — STRAUSS DRIVE
+🚀 **Live Demo — STRAUSS DRIVE**
 
 **[https://strauss-drive.strauss-drive-edge.workers.dev/employee](https://strauss-drive.strauss-drive-edge.workers.dev/employee)**
 
@@ -266,6 +266,8 @@ GitHub Actions runs everything on every push and pull request: secret scan → b
 
 Email notifications are implemented but not enabled in production; inquiries and answers work in the conversation without them.
 
+Operations (deploy, rollback, network, secrets, backups): [`deploy/oracle/README.md`](deploy/oracle/README.md). A GitHub Actions workflow checks the public link every 15 minutes.
+
 ## Local Development
 
 Requirements: Python 3.11+, Node.js, and optionally a Gemini API key (without one, the advisor runs in template mode).
@@ -311,9 +313,11 @@ strauss-car-advisor/
 │   ├── src/                     # employee/, rep/, api/, format/, ui/
 │   └── e2e/                     # Playwright specs
 ├── docs/                        # Hebrew documentation, screenshots
+├── edge/                        # Cloudflare Worker: static React app + /api proxy
+├── deploy/                      # oracle/ (VM, cloud-init, E2E suite), backup/ (PostgreSQL), secrets/ (encrypted store tools)
 ├── Dockerfile
-├── render.yaml
-└── .github/workflows/           # ci.yml, deploy.yml, live-eval.yml
+├── render.yaml                  # the earlier Render deployment
+└── .github/workflows/           # ci.yml, deploy.yml, live-eval.yml, uptime.yml
 ```
 
 ## Hackathon Recognition
