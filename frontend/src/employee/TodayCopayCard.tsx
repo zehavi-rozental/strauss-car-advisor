@@ -22,6 +22,7 @@ export function todayCopaySourceText(s: TodayCopayState): string {
   if (s.copay == null && s.provisional != null) return 'סכום הקטלוג, עד לתשובת הנציג'
   if (s.source === 'rep_confirmed') return 'לפי תשובת הנציג שאישרתם'
   if (s.source === 'catalog_confirmed') return 'סכום הקטלוג, שאישרתם שהוא הסכום שלכם'
+  if (s.source === 'carried') return 'הסכום מהרכב הקודם. אם הוא שונה ברכב הזה, עדכנו אותו'
   return 'הסכום שמסרתם'
 }
 

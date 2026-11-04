@@ -6,7 +6,8 @@ import { reportBackendLost } from '../shell/backendReady'
 import { normalizeResults } from '../api/normalize'
 import { mapKey } from './optionMap'
 import { placeAnchor, type CardAnchor } from './anchors'
-import type { ConversationView, EngineState, Expects, Message, MessageIn, OptionMap, OptionResult, PendingQuestion, ProfileFields, RepInquiry, Stage } from '../api/types'
+import { writeDraft } from './draft'
+import type { ConversationView, EngineState, Expects, Facts, Message, MessageIn, OptionMap, OptionResult, PendingQuestion, Privacy, ProfileFields, RepInquiry, Stage } from '../api/types'
 
 const STORAGE_KEY = 'sca.conversationId'
 const POLL_MS = 3000
@@ -40,6 +41,40 @@ function storeId(id: string): void {
     localStorage.setItem(STORAGE_KEY, id)
   } catch {
     // private mode: the conversation just won't survive a refresh
+  }
+  unlock(id)
+}
+
+// A saved conversation is not shown by itself to whoever opens this browser: someone has to choose it. This tab remembers the
+// choice, so a reload does not ask again; a new tab, or the browser opened later, does.
+const UNLOCKED_KEY = 'sca.unlocked'
+
+function unlock(id: string): void {
+  try {
+    sessionStorage.setItem(UNLOCKED_KEY, id)
+  } catch {
+    // no storage: the question comes back on the next load
+  }
+}
+
+function isUnlocked(id: string): boolean {
+  try {
+    return sessionStorage.getItem(UNLOCKED_KEY) === id
+  } catch {
+    return false
+  }
+}
+
+/** Nothing of a conversation stays in this browser: its id, where its cards were, an unsent draft. */
+function clearLocal(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEY)
+    localStorage.removeItem('sca.anchors')
+    localStorage.removeItem('sca.mapAnchor')
+    sessionStorage.removeItem(UNLOCKED_KEY)
+    writeDraft('')
+  } catch {
+    // private mode: nothing stored
   }
 }
 
@@ -116,6 +151,12 @@ export function useConversation(ready = true) {
     resultsAnchorRef.current = placeAnchor('results', id, runKey(res), seq, resultsAnchorRef.current)
     setResultsAnchor(resultsAnchorRef.current.seq)
   }, [])
+  const [facts, setFacts] = useState<Facts | null>(null)
+  const [privacy, setPrivacy] = useState<Privacy | null>(null)
+  const [resultsVersion, setResultsVersion] = useState<number | null>(null)
+  const resultsVersionRef = useRef(0)
+  // a conversation saved in this browser, waiting for someone to choose it; or one that locked after a pause
+  const [gate, setGate] = useState<{ id: string; updatedAt?: string; locked: boolean } | null>(null)
   const [pendingQuestions, setPendingQuestions] = useState<PendingQuestion[]>([])
   const [repQuestions, setRepQuestions] = useState<RepInquiry[]>([])
   const [returnTokenPending, setReturnTokenPending] = useState(false)
@@ -169,6 +210,10 @@ export function useConversation(ready = true) {
     setResults(res)
     runKeyRef.current = runKey(res)
     placeResults(res, lastAssistantRef.current, view.conversation_id)
+    if (view.facts) setFacts(view.facts)
+    if (view.privacy) setPrivacy(view.privacy)
+    resultsVersionRef.current = view.results_version ?? 0
+    setResultsVersion(view.results_version ?? null)
   }, [setExpects, setOptionMap, placeMap, placeResults])
 
   /** New messages after the last seq, plus the current stage, expects, results and open questions.
@@ -200,6 +245,15 @@ export function useConversation(ready = true) {
       placeMap(u.option_map, lastAssistantRef.current, id)
       setPendingQuestions(u.pending_questions)
       setRepQuestions(u.rep_questions ?? [])
+      if (u.privacy) setPrivacy(u.privacy)
+      // an answer that left the server before a newer calculation (requests can finish out of order) changes nothing
+      const older = u.results_version !== undefined && u.results_version < resultsVersionRef.current
+      if (older) return fresh
+      if (u.facts) setFacts(u.facts)
+      if (u.results_version !== undefined) {
+        resultsVersionRef.current = u.results_version
+        setResultsVersion(u.results_version)
+      }
       const res = normalizeResults(u.results)
       const key = runKey(res)
       if (key !== runKeyRef.current) {
@@ -249,8 +303,17 @@ export function useConversation(ready = true) {
         let view: ConversationView | null = null
         if (stored) {
           try {
+            const status = await api.conversationStatus(stored)
+            if (status.has_data && !isUnlocked(stored)) {
+              setGate({ id: stored, updatedAt: status.updated_at, locked: false })
+              return
+            }
             view = await api.getConversation(stored)
           } catch (e) {
+            if (e instanceof ApiError && e.code === 'session_locked') {
+              setGate({ id: stored, locked: true })
+              return
+            }
             if (!(e instanceof ApiError && e.status === 404)) throw e
           }
         }
@@ -264,6 +327,8 @@ export function useConversation(ready = true) {
           setStage(turn.stage)
           setRepEmail(null)
           setExpects(turn.expects)
+          if (turn.facts) setFacts(turn.facts)
+          if (turn.privacy) setPrivacy(turn.privacy)
         }
         await sync()
         setError(null)
@@ -275,6 +340,26 @@ export function useConversation(ready = true) {
       }
     })()
   }, [ready, applyView, sync, setExpects])
+
+  /** "להמשיך את השיחה": someone chose the conversation saved in this browser. */
+  const resumeStored = useCallback(async () => {
+    const id = gate?.id
+    if (!id) return
+    setLoading(true)
+    setError(null)
+    try {
+      unlock(id)
+      applyView(await api.getConversation(id))
+      await sync()
+      setGate(null)
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'session_locked') setGate({ id, locked: true })
+      else if (e instanceof ApiError && e.status === 404) setGate(null)
+      else setError(e instanceof ApiError ? e.message_he : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [gate, applyView, sync])
 
   const resumeEmailLink = useCallback(async () => {
     const token = emailReturnToken.current
@@ -289,6 +374,7 @@ export function useConversation(ready = true) {
         storeId(returned.conversation_id)
         idRef.current = returned.conversation_id
         targetQuestionId = returned.question_id
+        setGate(null)
       }
       const id = idRef.current
       if (!id) return
@@ -366,6 +452,21 @@ export function useConversation(ready = true) {
   const sendFields = useCallback((fields: ProfileFields, display: string, source?: 'payslip') =>
     deliver(source ? { fields, source } : { fields }, display), [deliver])
 
+  /** One value edited on its own: it applies only to the data this screen showed (409 and a reload otherwise). */
+  const editField = useCallback((fields: ProfileFields, display: string) =>
+    deliver({ fields, base_version: facts?.version }, display), [deliver, facts])
+
+  /** The answer to the notice about the model: its version and the date are kept, nothing else. */
+  const answerAiNotice = useCallback(async (accepted: boolean) => {
+    const id = idRef.current
+    if (!id || !privacy) return
+    try {
+      setPrivacy(await api.setConsent(id, 'ai_processing', accepted, privacy.ai.version))
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message_he : String(e))
+    }
+  }, [privacy])
+
   /** "לשלוח שוב" for a message that failed on the way. First asks the server what it has: if the message did
    *  arrive (only the answer was lost), nothing is sent twice. */
   const retry = useCallback(async (seq: number): Promise<void> => {
@@ -404,17 +505,21 @@ export function useConversation(ready = true) {
     return id ? (await api.getConversation(id)).profile : {}
   }, [])
 
-  /** "שיחה חדשה": forget the stored id and open a new conversation (the server replaces the cookie). */
+  /** "שיחה חדשה" and "מחיקה": this conversation is erased from the server and from this browser, and a new one opens. A
+   *  conversation nobody can reach any more is not kept: from this browser it would never open again. */
   const newConversation = useCallback(async () => {
-    try {
-      localStorage.removeItem(STORAGE_KEY)
-    } catch {
-      // private mode: nothing stored
-    }
+    const current = idRef.current ?? gate?.id ?? readStoredId()
     setError(null)
     setLoading(true)
     failedRef.current.clear()
     try {
+      if (current) {
+        await api.deleteConversation(current).catch((e) => {
+          if (!(e instanceof ApiError && e.status === 404)) throw e   // already gone: fine; a failure is said, nothing is hidden
+        })
+      }
+      clearLocal()
+      setGate(null)
       const turn = await api.createConversation()
       storeId(turn.conversation_id)
       idRef.current = turn.conversation_id
@@ -435,6 +540,17 @@ export function useConversation(ready = true) {
       setRepQuestions([])
       setStage(turn.stage)
       setExpects(turn.expects)
+      setRepEmail(null)           // the previous conversation's address never stays on screen
+      setEmailPending(false)
+      setFocusQuestionId(null)
+      setTodayCopay(null)
+      setTodayCar(null)
+      setTodayCopaySource(null)
+      setTodayCopayProvisional(null)
+      setFacts(turn.facts ?? null)
+      setPrivacy(turn.privacy ?? null)
+      resultsVersionRef.current = 0
+      setResultsVersion(null)
       emailReturnToken.current = null
       setReturnTokenPending(false)
       setReturnLinkInvalid(false)
@@ -445,7 +561,7 @@ export function useConversation(ready = true) {
     } finally {
       setLoading(false)
     }
-  }, [sync, setExpects, setOptionMap])
+  }, [gate, sync, setExpects, setOptionMap])
 
   // polling: only while a rep question is open and the tab is visible
   const waitingForRep = pendingQuestions.length > 0 || stage === 'WAITING_FOR_REP'
@@ -488,6 +604,7 @@ export function useConversation(ready = true) {
     pendingQuestions,
     repQuestions, returnTokenPending, returnTokenError, returnLinkInvalid, returnStored, resumeEmailLink,
     waitingForRep, sending, loading, error, send, sendFields, retry, reload, loadProfile, newConversation,
+    facts, privacy, resultsVersion, gate, resumeStored, editField, answerAiNotice,
     dismissError: () => setError(null),
   }
 }

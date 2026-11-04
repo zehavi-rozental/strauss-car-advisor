@@ -22,12 +22,16 @@ interface Props {
   onCancel: () => void
   loadProfile: () => Promise<Record<string, unknown>>
   disabled: boolean
+  conversationId: string
+  consentVersion: string
 }
 
 // MIME types the server accepts (it also re-checks by file signature). Guides the file picker.
 const ACCEPT = 'application/pdf,image/jpeg,image/png,image/webp'
-const UPLOAD_HINT = 'מעלים צילום או PDF של התלוש. קוראים ממנו רק נתוני שכר והפרשות — לא שם, לא ת"ז ולא פרטי בנק. ' +
-  'התלוש עצמו לא נשמר.'
+const UPLOAD_HINT = 'מעלים PDF של התלוש. הקובץ לא נשמר, ואפשר לבדוק כל ערך לפני שהוא נרשם.'
+export const PAYSLIP_NOTICE = 'שורות השכר נקראות מהקובץ כאן, ורק הן נשלחות לעיבוד ב-Google Gemini, בלי שורות עם שם, ת"ז, בנק או כתובת. ' +
+  'צילום או סריקה אי אפשר לקרוא כך, ולכן הם לא נשלחים ומומלץ למלא ידנית.'
+export const PAYSLIP_CONSENT = 'הבנתי ומאשר/ת. זו הדגמה, ולכן אעלה רק תלוש לדוגמה ולא תלוש אמיתי.'
 const MANUAL_HINT = 'מלאו את הנתונים ידנית, בחרו מה לעדכן ואשרו. אפשר גם לבטל ולכתוב בצ׳אט.'
 const REVIEW_HINT = 'לכל שורה בחרו אם לעדכן את הפרופיל. כשהתלוש שונה ממה שכתבתם בשיחה, בחרו איזה ערך נכון לחישוב.'
 const ASSIGN_LABEL: Record<string, string> = { commissions: 'לשייך לעמלות', bonus: 'לשייך לבונוס' }
@@ -39,7 +43,8 @@ const infoValue = (i: PayslipInfo) => (i.kind === 'amount'
   ? (i.suspect ? `${Number(i.value)} ₪` : formatMoney(Number(i.value)))
   : i.kind === 'percent' ? `${Number(i.value)}%` : String(Number(i.value)))
 
-export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled }: Props) {
+export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled, conversationId, consentVersion }: Props) {
+  const [consented, setConsented] = useState(false)      // never preselected; nothing leaves without it
   const [step, setStep] = useState<Step>('pick')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -58,10 +63,14 @@ export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled }: Pro
 
   const onFile = async (file: File | undefined) => {
     if (!file || busy || disabled) return
+    if (!consented) {
+      setError('כדי להעלות קובץ צריך לסמן שקראתם את ההסבר. אפשר גם למלא ידנית.')
+      return
+    }
     setBusy(true)
     setError(null)
     try {
-      const [result, profile] = await Promise.all([api.extractPayslip(file), currentProfile()])
+      const [result, profile] = await Promise.all([api.extractPayslip(file, conversationId, consentVersion), currentProfile()])
       const next = payslipOutcome(result)
       setOutcome(next)
       setErrors({})
@@ -140,6 +149,13 @@ export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled }: Pro
           </div>
         </header>
         {fileInput}
+        <div className="payslip-consent">
+          <p>{PAYSLIP_NOTICE}</p>
+          <label>
+            <input type="checkbox" checked={consented} disabled={working} onChange={(e) => setConsented(e.target.checked)} />
+            <span>{PAYSLIP_CONSENT}</span>
+          </label>
+        </div>
         <div className={`dropzone${dragging ? ' is-over' : ''}${busy ? ' is-busy' : ''}`}
              onDragOver={(e) => { e.preventDefault(); if (!working) setDragging(true) }}
              onDragLeave={() => setDragging(false)}

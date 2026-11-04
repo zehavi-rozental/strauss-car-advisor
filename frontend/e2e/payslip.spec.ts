@@ -40,7 +40,8 @@ test.describe('payslip upload (synthetic)', () => {
     await expect(page.getByRole('heading', { name: 'העלאת תלוש' })).toBeVisible()
 
     // upload the synthetic PNG via the (hidden) file input
-    await page.locator('input[type="file"]').setInputFiles(SYNTHETIC)
+    await page.getByRole('checkbox', { name: /הבנתי ומאשר/ }).check()
+    await page.locator('input[type=\"file\"]').setInputFiles(SYNTHETIC)
 
     // the review form appears (even if nothing was extracted, the fields are editable for manual entry)
     await expect(page.getByRole('heading', { name: 'בדיקת הנתונים מהתלוש' })).toBeVisible({ timeout: 45_000 })
@@ -66,7 +67,8 @@ async function uploadWithAnswer(page: Page, answer: object) {
   await openEmployee(page)
   await send(page, 'מנהלת מוצר, שכר בסיס 18500')
   await page.getByRole('button', { name: 'להעלות תלוש' }).click()
-  await page.locator('input[type="file"]').setInputFiles(SYNTHETIC)
+  await page.getByRole('checkbox', { name: /הבנתי ומאשר/ }).check()
+  await page.locator('input[type=\"file\"]').setInputFiles(SYNTHETIC)
 }
 
 test.describe('payslip outcomes (mocked extraction)', () => {

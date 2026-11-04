@@ -3,8 +3,10 @@ import type {
   ApiErrorBody,
   CarSearchItem,
   CatalogItem,
+  ConversationStatus,
   ConversationView,
   EngineState,
+  Privacy,
   ExtractionResult,
   MessageIn,
   QuestionStatus,
@@ -31,9 +33,12 @@ export class ApiError extends Error {
   readonly fromPlatform: boolean
   /** Set only by the edge Worker (edge/src/worker.js): origin_waking | origin_unreachable | not_configured. */
   readonly edge: string | null
+  /** What the server said it is: session_locked, unusual_amount… */
+  readonly code: string | null
 
   constructor(status: number, message_he: string, errors: Record<string, string> = {},
-              retryAfter: number | null = null, fromPlatform = false, edge: string | null = null) {
+              retryAfter: number | null = null, fromPlatform = false, edge: string | null = null,
+              code: string | null = null) {
     super(message_he)
     this.status = status
     this.message_he = message_he
@@ -41,6 +46,7 @@ export class ApiError extends Error {
     this.retryAfter = retryAfter
     this.fromPlatform = fromPlatform
     this.edge = edge
+    this.code = code
   }
 }
 
@@ -70,6 +76,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   } catch {
     throw new ApiError(0, NETWORK_ERROR)
   }
+  if (response.status === 204) return undefined as T
   const body = await response.json().catch(() => null)
   if (body === null || typeof body !== 'object') {
     // every API answer is a JSON object: anything else is the hosting layer (a wake-up page, a platform 429 or
@@ -81,7 +88,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!response.ok) {
     throw new ApiError(response.status, errorMessage(body), body?.errors ?? {},
                        retryAfterSeconds(response.headers.get('Retry-After')), false,
-                       typeof body?.edge === 'string' ? body.edge : null)
+                       typeof body?.edge === 'string' ? body.edge : null,
+                       typeof (body as { code?: unknown })?.code === 'string' ? (body as { code: string }).code : null)
   }
   return body as T
 }
@@ -96,6 +104,12 @@ export const api = {
     request<{ status?: string; db?: boolean; engine?: EngineState }>('/api/health', { signal, cache: 'no-store' }),
   createConversation: () => request<TurnResponse>('/api/conversations', { method: 'POST' }),
   getConversation: (id: string) => request<ConversationView>(conv(id)),
+  /** Whether a saved conversation holds anything, and nothing of what it holds. */
+  conversationStatus: (id: string) => request<ConversationStatus>(`${conv(id)}/status`),
+  /** Everything of this conversation, from the server; the session cookie too. */
+  deleteConversation: (id: string) => request<void>(conv(id), { method: 'DELETE' }),
+  setConsent: (id: string, kind: 'ai_processing' | 'payslip', accepted: boolean, version: string) =>
+    request<Privacy>(`${conv(id)}/consent`, { method: 'POST', body: JSON.stringify({ kind, accepted, version }) }),
   sendMessage: (id: string, body: MessageIn) =>
     request<TurnResponse>(`${conv(id)}/messages`, { method: 'POST', body: JSON.stringify(body) }),
   getUpdates: (id: string, after: number) => request<UpdatesResponse>(`${conv(id)}/updates?after=${after}`),
@@ -117,9 +131,11 @@ export const api = {
   catalog: () => request<CatalogItem[]>('/api/catalog'),
   /** Upload a payslip for extraction only. The file is never stored; the result is reviewed and
    *  confirmed before anything is saved. */
-  extractPayslip: (file: File) => {
+  extractPayslip: (file: File, conversationId: string, consentVersion: string) => {
     const form = new FormData()
     form.append('file', file)
+    form.append('conversation_id', conversationId)
+    form.append('consent_version', consentVersion)
     return request<ExtractionResult>('/api/payslip/extract', { method: 'POST', body: form })
   },
 }

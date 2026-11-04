@@ -138,6 +138,8 @@ export interface ScenarioResult {
   drivers: Driver[]
   electric_refund: Decimal | null
   copay_pending: boolean
+  unusual_copay?: boolean     // a representative's amount that stands out: said, never drawn as a regular result
+  unusual_result?: boolean    // a net of zero or less: the same
   /** where the new car's copay comes from: the catalog default waiting for the representative ("catalog"), the
    *  representative's amount ("representative", from copay_effective_date), no catalog amount ("missing": not
    *  calculated), the catalog as final ("catalog_final") or none (opting out). An older server sends nothing. */
@@ -178,7 +180,59 @@ export interface Message {
   content: string
   created_at: string         // ISO, UTC
   rep_question_id?: string | null
+  results_version?: number | null   // the results this message reported; an older one is "חישוב קודם"
+  card?: MessageCard | null         // what a change did, or a what-if check
 }
+
+export interface FactItem {
+  key: string
+  label: string
+  section: 'eligibility' | 'pay' | 'car' | 'results'
+  value: string | null
+  display: string
+  source: string | null
+  source_label: string
+  status: string
+  status_label: string
+  edit: string | null        // how it can be changed; null: it cannot, on its own
+  used_in_calc: boolean
+  note: string
+  min?: string | null
+  max?: string | null
+  choices?: string[]
+}
+
+export interface Facts {
+  version: number
+  results_version: number
+  ranked?: boolean
+  items: FactItem[]
+  strip: string[]            // what this stage is about, at most four
+  missing: string[]
+  assumptions: string[]
+}
+
+export interface Privacy {
+  ai: { available: boolean; required: boolean; accepted: boolean; version: string }
+  payslip: { accepted: boolean; version: string }
+  retention_days: number
+  idle_minutes: number
+  demo: boolean
+}
+
+export interface ChangeRow { field: string; label: string; before: string; after: string }
+export interface CardOption {
+  option_id: string
+  label: string
+  before: { net: string | null; delta: string | null } | null
+  after: { net: string | null; delta: string | null }
+}
+interface NamedReason { option_id: string; label: string; reason?: string }
+export type MessageCard =
+  | { kind: 'receipt'; changes: ChangeRow[]; today_net: { before: string | null; after: string | null }; options: CardOption[];
+      removed: NamedReason[]; added: NamedReason[]; left: NamedReason[]; order_changed: boolean; ranked: number }
+  | { kind: 'scenario'; values: ChangeRow[]; today_net: { before: string | null; after: string | null }; options: CardOption[];
+      left: NamedReason[]; not_eligible: NamedReason[]; order_changed: boolean; apply: Record<string, unknown> }
 
 export interface RepInquiry {
   id: string
@@ -207,11 +261,26 @@ export interface TurnResponse {
   pending_rep: RepReason | null
   expects: Expects
   results_stale?: boolean     // the results predate the last change: history, not a recommendation
+  facts?: Facts
+  privacy?: Privacy
+  results_version?: number
+  card?: MessageCard | null
+}
+
+export interface ConversationStatus {
+  conversation_id: string
+  has_data: boolean
+  updated_at: string
+  idle_minutes: number
 }
 
 export interface ConversationView {
   conversation_id: string
   stage: Stage
+  facts?: Facts
+  privacy?: Privacy
+  data_version?: number
+  results_version?: number
   profile: Record<string, unknown>
   current_car: Record<string, unknown>
   today_copay?: string | null   // today's copay as the employee gave or confirmed it
@@ -248,6 +317,10 @@ export interface PendingQuestion {
 export interface UpdatesResponse {
   conversation_id: string
   stage: Stage
+  facts?: Facts
+  privacy?: Privacy
+  data_version?: number
+  results_version?: number
   messages: Message[]
   pending_questions: PendingQuestion[]
   rep_questions?: RepInquiry[]
@@ -296,13 +369,20 @@ export interface ProfileFields {
   study_fund_percent?: number
   credit_points?: number
   children_under_23?: number
+  // one value on its own ("הנתונים שלי"), through the same gate
+  eligibility_group?: string
+  occupation?: string
+  current_copay?: number
+  current_use_value?: number
+  current_maintenance?: number
+  current_car?: string
 }
 
 export type MessageIn =
   | { text: string }
   | { choice: string; field?: string }
   | { choices: string[]; field?: string }
-  | { fields: ProfileFields; source?: 'payslip' }     // source: values approved from a reviewed payslip
+  | { fields: ProfileFields; source?: 'payslip'; base_version?: number }     // source: values approved from a reviewed payslip
 
 // ---------- employee-initiated rep question (POST /conversations/{id}/rep-question) ----------
 
@@ -408,6 +488,7 @@ export interface RepAnswerIn {
   value: string
   effective_date?: string
   note?: string
+  confirm_unusual?: boolean
 }
 
 // ---------- errors ----------

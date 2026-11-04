@@ -1,0 +1,216 @@
+/* What the system knows and what a change did: the strip above the composer, the data sheet, the "what changed" card, the
+   privacy notice, the resume screen, and the three ways to see the cars. Only the tokens, like everything else. */
+
+/* ---------- the three ways to see the cars: one control, one clear state ---------- */
+.view-switch {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: var(--s1);
+  padding: var(--s1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--card-2);
+}
+.view-switch-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  min-block-size: 44px;
+  padding: var(--s2) var(--s3);
+  border: 0;
+  border-radius: calc(var(--r-md) - var(--s1));
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: center;
+  cursor: pointer;
+  transition: background-color var(--t-fast) var(--ease-soft), color var(--t-fast) var(--ease-soft),
+              box-shadow var(--t-fast) var(--ease-soft), transform var(--t-fast) var(--ease-soft);
+}
+.view-switch-option .ico { flex: none; color: var(--ink-3); transition: color var(--t-fast) var(--ease-soft); }
+.view-switch-option:hover:not(:disabled) { background: color-mix(in srgb, var(--card) 72%, transparent); color: var(--ink); }
+.view-switch-option:active:not(:disabled) { transform: translateY(1px); }
+.view-switch-option:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.view-switch-option:disabled { opacity: 0.5; cursor: default; }
+.view-switch-option[aria-pressed="true"] {
+  background: var(--card);
+  color: var(--brand-deep);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--ink) 16%, transparent),
+              inset 0 0 0 1px color-mix(in srgb, var(--brand) 32%, transparent);
+}
+.view-switch-option[aria-pressed="true"] .ico { color: var(--brand); }
+@media (max-width: 520px) {
+  .view-switch-option { flex-direction: column; gap: var(--s1); padding: var(--s2) var(--s1); font-size: var(--fs-small); }
+}
+
+/* ---------- the strip above the composer ---------- */
+.context-strip {
+  display: flex;
+  align-items: stretch;
+  gap: var(--s2);
+  margin-block-end: var(--s2);
+  overflow-x: auto;
+  scrollbar-width: none;
+  overscroll-behavior-inline: contain;
+}
+.context-strip::-webkit-scrollbar { display: none; }
+.context-all, .context-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-block-size: 36px;
+  padding: 4px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-pill);
+  background: var(--card);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--fs-small);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease-soft), color var(--t-fast) var(--ease-soft);
+}
+.context-all { color: var(--brand-deep); font-weight: 600; }
+.context-all:hover, .context-chip:hover { border-color: var(--brand); color: var(--ink); }
+.context-all:focus-visible, .context-chip:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.context-chip-label { color: var(--ink-3); }
+.context-chip-value { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.context-missing {
+  padding: 0 8px;
+  border-radius: var(--r-pill);
+  background: var(--pending-tint);
+  color: var(--pending);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+}
+
+/* ---------- the data sheet ---------- */
+.data-sheet { max-inline-size: 560px; }
+.data-section { display: grid; gap: var(--s2); margin-block-end: var(--s5); }
+.data-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px var(--s3);
+  align-items: baseline;
+  padding-block: var(--s2);
+  border-block-end: 1px solid var(--line);
+}
+.data-row-main { display: flex; flex-wrap: wrap; gap: 2px var(--s3); align-items: baseline; justify-content: space-between; }
+.data-row-label { color: var(--ink-2); }
+.data-row-value { font-weight: 700; font-variant-numeric: tabular-nums; }
+.data-row-empty { color: var(--pending); font-weight: 600; }
+.data-row-tags { display: flex; flex-wrap: wrap; gap: 6px; grid-column: 1; align-items: center; }
+.data-source { color: var(--ink-3); font-size: var(--fs-micro); }
+.data-row-note { grid-column: 1 / -1; margin: 0; color: var(--ink-2); font-size: var(--fs-small); }
+.data-row-edit { grid-column: 2; grid-row: 1 / span 2; display: inline-flex; align-items: center; gap: 4px; }
+.tag-held, .tag-provisional, .tag-assumption, .tag-estimated, .tag-unknown { background: var(--pending-tint); color: var(--pending); }
+.tag-calculated { background: var(--brand-tint); color: var(--brand-deep); }
+.data-assumptions { margin: 0; padding-inline-start: var(--s5); color: var(--ink-2); font-size: var(--fs-small); display: grid; gap: var(--s1); }
+.field-editor {
+  display: grid;
+  gap: var(--s2);
+  margin-block-start: var(--s2);
+  padding: var(--s3);
+  border-radius: var(--r-sm);
+  background: var(--card-2);
+}
+.field-editor .form-field { display: grid; gap: var(--s1); }
+.field-editor-hint { margin: 0; color: var(--ink-3); font-size: var(--fs-micro); }
+.field-editor-actions, .field-editor-choices { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+.field-editor-choices .chip[aria-pressed="true"] { --bd: var(--brand); --fg: var(--brand-deep); }
+.chip-danger { --bg: transparent; --fg: var(--down); --bd: color-mix(in srgb, var(--down) 45%, transparent); display: inline-flex; gap: 6px; align-items: center; }
+.chip-danger:hover:not(:disabled) { --bg: var(--down-tint); --fg: var(--down); --bd: var(--down); background: var(--down-tint); }
+
+/* ---------- what changed, and a check ---------- */
+.change-card {
+  display: grid;
+  gap: var(--s2);
+  margin-block-start: var(--s2);
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--surface-up-line);
+  border-radius: var(--r-md);
+  background: var(--card);
+  font-size: var(--fs-small);
+}
+.change-card.is-check { border-style: dashed; border-color: var(--line-2); background: var(--sky-tint); }
+.change-title { display: flex; align-items: center; gap: 6px; margin: 0; font-weight: 700; color: var(--ink); }
+.change-title .ico { color: var(--up); }
+.is-check .change-title .ico { color: var(--brand); }
+.change-values { display: grid; gap: var(--s1); margin: 0; padding: 0; list-style: none; }
+.change-values li, .change-today { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px var(--s3); margin: 0; }
+.change-label, .change-today > span:first-child { color: var(--ink-2); }
+.change-move { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.change-move s { color: var(--ink-3); }
+.change-move .ico { color: var(--ink-3); }
+.change-table { inline-size: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.change-table th, .change-table td { padding: 4px 0; text-align: start; font-weight: 400; border-block-end: 1px solid var(--line); }
+.change-table thead th { color: var(--ink-3); font-size: var(--fs-micro); }
+.change-table tbody th { font-weight: 600; }
+.change-table td { inline-size: 26%; }
+.change-note { margin: 0; color: var(--ink-2); }
+.change-note.is-removed { color: var(--pending); }
+.change-empty { color: var(--ink-3); }
+.superseded-tag {
+  padding: 0 8px;
+  border-radius: var(--r-pill);
+  background: var(--card-2);
+  color: var(--ink-3);
+  font-size: var(--fs-micro);
+}
+.message-group.is-superseded .bubble-text { color: var(--ink-3); }
+.unusual-note {
+  margin: 0;
+  padding: var(--s2) var(--s3);
+  border-radius: var(--r-sm);
+  background: var(--pending-tint);
+  color: var(--pending);
+  font-size: var(--fs-small);
+}
+
+/* ---------- privacy ---------- */
+.privacy-notice {
+  display: grid;
+  gap: var(--s2);
+  margin-block-end: var(--s2);
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--card);
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+}
+.privacy-notice p { margin: 0; }
+.privacy-demo { display: flex; align-items: flex-start; gap: 6px; color: var(--pending); font-weight: 600; }
+.privacy-demo .ico { flex: none; }
+.payslip-consent {
+  display: grid;
+  gap: var(--s2);
+  padding: var(--s3);
+  border-radius: var(--r-sm);
+  background: var(--pending-tint);
+  color: var(--ink);
+  font-size: var(--fs-small);
+}
+.payslip-consent p { margin: 0; }
+.payslip-consent label { display: flex; align-items: flex-start; gap: var(--s2); font-weight: 600; cursor: pointer; }
+.payslip-consent input { flex: none; inline-size: 20px; block-size: 20px; margin-block-start: 1px; accent-color: var(--brand); }
+
+/* ---------- a question that deletes, and the resume screen ---------- */
+.confirm-dialog {
+  display: grid;
+  gap: var(--s3);
+  inline-size: min(440px, calc(100vw - var(--s8, 32px)));
+  margin: auto;
+  padding: var(--s5);
+  border-radius: var(--r-lg);
+  background: var(--card);
+}
+.confirm-dialog h2 { margin: 0; font-size: 1.25rem; font-weight: 800; }
+.confirm-dialog p { margin: 0; color: var(--ink-2); }
+.resume-screen { display: grid; place-items: center; min-block-size: 60vh; padding: var(--s4); }
+.resume-card { display: grid; gap: var(--s3); max-inline-size: 560px; }

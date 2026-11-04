@@ -35,10 +35,12 @@ interface Props {
   onMap: () => void
   /** the data form, to fill in what is missing */
   onCompleteData?: () => void
+  /** how the cars are shown now: the ones chosen, the 3 highest, or every car */
+  active?: 'chosen' | 'top3' | 'all' | null
 }
 
 export function CarActions({ selected, canChoose, canRank, mapReady, mapExists, mapMissing, disabled,
-                             onChoose, onRank, onMap, onCompleteData }: Props) {
+                             onChoose, onRank, onMap, onCompleteData, active = null }: Props) {
   // the map cannot be built yet: the click says what is missing and how to give it, never a dead button
   const [askedMap, setAskedMap] = useState(false)
   const mapOpenable = mapReady || mapExists
@@ -49,23 +51,24 @@ export function CarActions({ selected, canChoose, canRank, mapReady, mapExists, 
           <Icon name="grid" size={16} />בהשוואה בצ'אט: {selected.join(', ')}
         </p>
       )}
-      <div className="car-actions-row">
+      <div className="view-switch" role="group" aria-label="איך להציג את הרכבים">
         {canChoose && (
-          <button type="button" className="chip" disabled={disabled} onClick={onChoose}
-                  title="סמנו עד 3 רכבים, והנטו של כל אחד יחושב כאן בצ'אט">
-            <Icon name={selected.length ? 'swap' : 'grid'} size={16} />{selected.length ? CHANGE_LABEL : CHOOSE_LABEL}
+          <button type="button" className="view-switch-option" disabled={disabled} onClick={onChoose}
+                  aria-pressed={active === 'chosen'} title="סמנו עד 3 רכבים, והנטו של כל אחד יחושב כאן בצ'אט">
+            <Icon name={selected.length ? 'swap' : 'grid'} size={18} />{selected.length ? CHANGE_LABEL : CHOOSE_LABEL}
           </button>
         )}
         {canChoose && canRank && (
-          <button type="button" className="chip" disabled={disabled} onClick={onRank}
-                  title="3 הרכבים שמשאירים לכם את הנטו הגבוה ביותר, כהשוואה כאן בצ'אט">
-            <Icon name="trendUp" size={16} />{RANK_LABEL}
+          <button type="button" className="view-switch-option" disabled={disabled} onClick={onRank}
+                  aria-pressed={active === 'top3'} title="3 הרכבים שמשאירים לכם את הנטו הגבוה ביותר, כהשוואה כאן בצ'אט">
+            <Icon name="trendUp" size={18} />{RANK_LABEL}
           </button>
         )}
-        <button type="button" className="chip" disabled={disabled} aria-expanded={!mapOpenable ? askedMap : undefined}
+        <button type="button" className="view-switch-option" disabled={disabled} aria-pressed={active === 'all'}
+                aria-expanded={!mapOpenable ? askedMap : undefined}
                 onClick={() => (mapOpenable ? onMap() : setAskedMap(true))}
                 title="כל הרכבים שאתם זכאים להם, מדורגים לפי נטו, לעיון. ההשוואה בצ'אט לא משתנה">
-          <Icon name="table" size={16} />{MAP_LABEL}
+          <Icon name="table" size={18} />{MAP_LABEL}
         </button>
       </div>
       {askedMap && !mapOpenable && (

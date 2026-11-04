@@ -20,6 +20,7 @@ import { Progress } from './Progress'
 import { SelectionCard } from './SelectionCard'
 import { payslipFormText, profileFormText } from './formFields'
 import { CarActions } from './CarActions'
+import { ConfirmDialog, ContextStrip, DataSheet, PrivacyNotice, ResumeCard } from './DataSheet'
 import { RepInquiryCard } from './RepInquiryCard'
 import { useCatalog } from './useCatalog'
 import { useConversation } from './useConversation'
@@ -61,6 +62,9 @@ export function EmployeePage() {
   // 360°: options chosen in the map for the side-by-side table (the map itself keeps every option)
   const [mapCompare, setMapCompare] = useState<OptionResult[] | null>(null)
   const [correcting, setCorrecting] = useState(false)
+  const [dataOpen, setDataOpen] = useState<{ focus?: string } | null>(null)
+  const [confirm, setConfirm] = useState<'new' | 'delete' | null>(null)
+  const [noticeHidden, setNoticeHidden] = useState(false)
   // a rep-inquiry card, opened inside the conversation (the advisor's offer, or the pre-results banner link).
   // null = closed. intent/option carry what the advisor proposed; the server re-validates.
   // `opened` counts every opening: the card is remounted each time (its key), so text typed for one car never stays
@@ -113,14 +117,16 @@ export function EmployeePage() {
     }
     if (link) setOpened(link.kind)
   }
-  const newChat = () => {
-    if (window.confirm('להתחיל שיחה חדשה?')) {
-      setTableOpen(false)
-      setCorrecting(false)
-      setOpened(null)
-      void c.newConversation()
-    }
+  const newChat = () => setConfirm('new')
+  const eraseAndStart = () => {
+    setConfirm(null)
+    setDataOpen(null)
+    setTableOpen(false)
+    setCorrecting(false)
+    setOpened(null)
+    void c.newConversation()
   }
+  const openInquiries = c.repQuestions.some((q) => q.status === 'OPEN')
   const correct = () => { setTableOpen(false); setOpened(null); setCorrecting(true) }
   const profileForm = (
     <ProfileForm mode={fixing ? 'correction' : 'q2'} loadProfile={c.loadProfile} disabled={busy}
@@ -133,6 +139,7 @@ export function EmployeePage() {
   )
   const payslipUpload = (
     <PayslipUpload disabled={busy} onCancel={() => setOpened(null)} loadProfile={c.loadProfile}
+                   conversationId={c.conversationId ?? ''} consentVersion={c.privacy?.payslip.version ?? ''}
                    onSubmit={async (fields) => {
                      const sent = await c.sendFields(fields, payslipFormText(fields), 'payslip')
                      if (sent.ok) setOpened(null)
@@ -188,6 +195,7 @@ export function EmployeePage() {
     && (choosing || c.results.length > 0 || c.optionMap != null)
   const carActions = showCarActions && (
     <CarActions selected={c.resultsStale ? [] : c.results.map((r) => r.label)} canChoose={choosing}
+                active={mapOpen ? 'all' : !c.results.length ? null : c.facts?.ranked ? 'top3' : 'chosen'}
                 canRank={rank != null} mapReady={c.mapReady} mapExists={c.optionMap != null} mapMissing={c.mapMissing}
                 disabled={busy} onChoose={() => setOpened('selection')}
                 onRank={() => { if (rank) void c.send({ choice: rank.id, field: 'options' }, rank.label) }}
@@ -277,6 +285,13 @@ export function EmployeePage() {
     </div>
   )
 
+  if (c.gate) {
+    return (
+      <ResumeCard locked={c.gate.locked} updatedAt={c.gate.updatedAt} busy={busy} error={c.error}
+                  onResume={() => void c.resumeStored()} onDelete={() => void c.newConversation()} />
+    )
+  }
+
   if (c.returnTokenPending) {
     return (
       <EmailReturnCard error={c.returnTokenError} invalid={c.returnLinkInvalid} canReturn={c.returnStored}
@@ -292,7 +307,9 @@ export function EmployeePage() {
         <div className="chat-title">
           <h1>יועץ הרכב</h1>
           {(() => {
-            const badge = engineBadge(c.engine)
+            const badge = c.privacy?.ai.required && !c.privacy.ai.accepted
+              ? { text: 'בלי AI', tone: 'pending', title: 'השיחה פועלת לפי הכללים בלבד. שום הודעה לא נשלחת ל-Google Gemini.' }
+              : engineBadge(c.engine)
             return (
               <span className={`status status-${badge.tone}`} title={badge.title} data-engine={c.engine ?? ''}
                     aria-live="polite">
@@ -326,7 +343,7 @@ export function EmployeePage() {
                        onRetry={(seq) => void c.retry(seq)} onCorrect={firstVisit ? undefined : correct} busy={busy}
                        repCopayOffer={repCopayOffer} onSend={c.send} todayCopay={c.todayCopay}
                        todayCopaySource={c.todayCopaySource} focusQuestionId={c.focusQuestionId}
-                       todayCard={todayCard} mapAnchor={c.mapAnchor} />
+                       todayCard={todayCard} mapAnchor={c.mapAnchor} resultsVersion={c.resultsVersion} />
         </div>
       </main>
 
@@ -339,10 +356,29 @@ export function EmployeePage() {
               <button type="button" onClick={c.dismissError} aria-label="סגירה"><Icon name="close" size={16} /></button>
             </div>
           )}
+          {c.privacy?.ai.required && !c.privacy.ai.accepted && !noticeHidden && (
+            <PrivacyNotice privacy={c.privacy} disabled={busy} onAccept={() => void c.answerAiNotice(true)}
+                           onHide={() => setNoticeHidden(true)} />
+          )}
+          {!firstVisit && <ContextStrip facts={c.facts} onOpen={(focus) => setDataOpen({ focus })} />}
           <Composer disabled={busy} placeholder={placeholderFor(c.expects)} autoFocus={!c.loading && firstVisit}
                     onSend={(text) => c.send({ text }, text)} />
         </div>
       </footer>
+      {dataOpen && c.facts && (
+        <DataSheet facts={c.facts} privacy={c.privacy} focus={dataOpen.focus} busy={busy} onClose={() => setDataOpen(null)}
+                   onSave={c.editField} onCheck={(text) => c.send({ text }, text)}
+                   onSelection={() => { setDataOpen(null); if (options) setOpened('selection') }}
+                   onDelete={() => { setDataOpen(null); setConfirm('delete') }}
+                   onWithdrawAi={() => { setNoticeHidden(true); void c.answerAiNotice(false) }} />
+      )}
+      {confirm && (
+        <ConfirmDialog
+          title={confirm === 'new' ? 'להתחיל שיחה חדשה?' : 'למחוק את השיחה?'}
+          text={`השיחה הזו והנתונים שבה יימחקו מהשרת ומהדפדפן הזה, ואי אפשר יהיה לחזור אליה.${openInquiries ? ' פניות פתוחות לנציג יבוטלו.' : ''}`}
+          confirm={confirm === 'new' ? 'למחוק ולהתחיל מחדש' : 'למחוק'} danger busy={busy}
+          onConfirm={eraseAndStart} onCancel={() => setConfirm(null)} />
+      )}
       {tableOpen && c.results.length > 0 && (
         <ComparisonPanel results={c.results} stale={c.resultsStale} expects={c.expects} disabled={busy}
                          onClose={() => setTableOpen(false)} onSend={c.send} onCorrect={correct} details={catalog} />

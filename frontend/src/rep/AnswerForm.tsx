@@ -27,19 +27,24 @@ export function AnswerForm({ question: q, token, onAnswered, onUnauthorized, onC
   const [note, setNote] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // the amount stands out: the server asks to confirm it is the monthly one, and the same answer goes again with the yes
+  const [unusual, setUnusual] = useState<{ value: string; message: string } | null>(null)
 
   // the note is optional everywhere: sent only when written
-  const submit = async (answer: string) => {
+  const submit = async (answer: string, confirmUnusual = false) => {
     setBusy(true)
     setError(null)
+    setUnusual(null)
     try {
       const answered = await repApi.answer(token, q.id, {
         value: answer, ...(!general && note.trim() ? { note: note.trim() } : {}),
+        ...(confirmUnusual ? { confirm_unusual: true } : {}),
       })
       onAnswered(answered)
     } catch (e) {
       if (!(e instanceof ApiError)) setError('משהו השתבש. נסו שוב.')
       else if (e.status === 401) onUnauthorized()
+      else if (e.code === 'unusual_amount') setUnusual({ value: answer, message: e.message_he })
       else if (e.status === 409) { setError('כבר נענתה'); onConflict() }
       else setError(e.message_he)
     } finally {
@@ -125,6 +130,17 @@ export function AnswerForm({ question: q, token, onAnswered, onUnauthorized, onC
       )}
 
       {error && <p className="field-error" role="alert">{error}</p>}
+      {unusual && (
+        <div className="unusual-confirm" role="alert">
+          <p>{unusual.message}</p>
+          <div className="form-actions">
+            <button type="button" className="chip" disabled={busy} onClick={() => void submit(unusual.value, true)}>
+              זה הסכום החודשי, לאשר
+            </button>
+            <button type="button" className="chip chip-quiet" disabled={busy} onClick={() => setUnusual(null)}>לתקן את הסכום</button>
+          </div>
+        </div>
+      )}
       {other && (
         <div className="form-actions">
           <button type="submit" className="chip chip-primary" disabled={busy || !value.trim()}>

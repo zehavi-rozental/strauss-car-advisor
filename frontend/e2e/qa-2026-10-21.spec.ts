@@ -47,7 +47,8 @@ async function payslipEnabled(page: Page) {
 
 async function uploadPayslip(page: Page, file: string) {
   await page.getByRole('button', { name: 'להעלות תלוש' }).click()
-  await page.locator('input[type="file"]').setInputFiles(join(PAYSLIPS, file))
+  await page.getByRole('checkbox', { name: /הבנתי ומאשר/ }).check()
+  await page.locator('input[type=\"file\"]').setInputFiles(join(PAYSLIPS, file))
   await expect(page.getByRole('heading', { name: 'בדיקת הנתונים מהתלוש' })).toBeVisible()
 }
 

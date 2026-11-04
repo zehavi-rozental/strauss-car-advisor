@@ -5,6 +5,7 @@ import { RepCopayUpdate } from './AnswerWidgets'
 import { Money } from '../format/Amount'
 import { formatTime } from '../format/time'
 import { BrandMark } from '../ui/BrandMark'
+import { ChangeCard } from './ChangeCard'
 import { Icon } from '../ui/Icon'
 import { InquiryRecord, parseRecord } from './InquiryRecord'
 import { ResultCard } from './ResultCard'
@@ -47,7 +48,13 @@ interface Props {
   mapAnchor?: number | null
   /** today's car and its copay, once above the comparison (1/11) */
   todayCard?: ReactNode
+  /** the results now: a message that reported older ones is marked, never read as current */
+  resultsVersion?: number | null
 }
+
+export const SUPERSEDED_LABEL = 'חישוב קודם'
+export const UNUSUAL_NOTE = 'ההשתתפות שנמסרה חריגה, ולכן החישוב לא מוצג כתוצאה רגילה ולא נכלל בדירוג.'
+const isUnusual = (r: OptionResult) => Boolean(r.result.unusual_copay || r.result.unusual_result)
 
 export const STALE_NOTE = 'לא מעודכן: החישוב הזה נעשה לפני השינוי האחרון, ויחושב מחדש כשכל הפרטים יהיו ידועים.'
 
@@ -55,7 +62,7 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
                               onOpenTable, onResendVerification, onAddEmail, mapCard, tail,
                               onRetry, onCorrect, busy, repCopayOffer = null, onSend,
                               todayCopay = null, todayCopaySource = null, focusQuestionId = null,
-                              todayCard = null, mapAnchor = null }: Props) {
+                              todayCard = null, mapAnchor = null, resultsVersion = null }: Props) {
   const end = useRef<HTMLDivElement>(null)
   const [copied, setCopied] = useState<number | null>(null)
   useEffect(() => {
@@ -184,13 +191,17 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
     const q = m.source === 'rep' && m.rep_question_id ? inquiries.get(m.rep_question_id) : undefined
     return Boolean(q && q.missing_field === 'CURRENT_COPAY' && q.option_id?.startsWith('today:') && q.answer_value)
   }
+  // an amount that stands out is never drawn as a regular result: only said
+  const regular = results.filter((r) => !isUnusual(r))
+  const unusual = results.filter(isUnusual)
   const cards = results.length > 0 && (
     <div className={resultsStale ? 'result-cards result-stale' : 'result-cards'} data-stale={resultsStale || undefined}>
       {resultsStale && <p className="stale-note" role="status">{STALE_NOTE}</p>}
       {todayCard}
-      {results.length > 1
-        ? <SummaryCard items={results} current={!resultsStale} onOpenTable={onOpenTable} />
-        : results.map((r) => <ResultCard key={`${r.option_id}:${r.run_id}`} item={r} onOpenTable={onOpenTable} />)}
+      {regular.length > 1
+        ? <SummaryCard items={regular} current={!resultsStale} onOpenTable={onOpenTable} />
+        : regular.map((r) => <ResultCard key={`${r.option_id}:${r.run_id}`} item={r} onOpenTable={onOpenTable} />)}
+      {unusual.map((r) => <p key={r.option_id} className="unusual-note" role="status"><bdi>{r.label}</bdi>: {UNUSUAL_NOTE}</p>)}
     </div>
   )
 
@@ -223,8 +234,10 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
             </div>
           )
         }
+        const superseded = bot && m.results_version != null && resultsVersion != null && m.results_version < resultsVersion
         return (
-          <div id={`message-${m.seq}`} key={m.seq} className={`message-group ${bot ? 'from-bot' : 'from-user'}`}>
+          <div id={`message-${m.seq}`} key={m.seq}
+               className={`message-group ${bot ? 'from-bot' : 'from-user'}${superseded ? ' is-superseded' : ''}`}>
             {bot && m.source === 'rep' && (
               <div className="event-pill"><Icon name="rep" size={16} />הנציג ענה · {formatTime(m.created_at)}</div>
             )}
@@ -235,11 +248,13 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
                   {answerCard(m, text) ?? (!copayUnit(m) && <div className="bubble-text"><RichText text={text} /></div>)}
                   <div className="bubble-meta">
                     <span className="bubble-time">{formatTime(m.created_at)}</span>
+                    {superseded && <span className="superseded-tag">{SUPERSEDED_LABEL}</span>}
                     {/* no "Gemini" / "מערכת" label (1/11): who wrote a reply stays in the message's source, for
                         diagnosis, never on the employee's screen */}
                     <span className="msg-actions">{copyButton}</span>
                   </div>
                   {m.source === 'rep' && m.rep_question_id && repAnswerAction(m.rep_question_id)}
+                  {m.card && <ChangeCard card={m.card} />}
                 </div>
               </div>
             ) : (

@@ -43,7 +43,8 @@ async function reviewCopayPayslip(page: Page) {
   await open(page)
   await send(page, 'מנהלת מוצר, שכר בסיס 15,000')
   await page.getByRole('button', { name: 'להעלות תלוש' }).click()
-  await page.locator('input[type="file"]').setInputFiles(join(PAYSLIPS, 'car_copay_payslip.pdf'))
+  await page.getByRole('checkbox', { name: /הבנתי ומאשר/ }).check()
+  await page.locator('input[type=\"file\"]').setInputFiles(join(PAYSLIPS, 'car_copay_payslip.pdf'))
   await expect(page.getByRole('heading', { name: 'בדיקת הנתונים מהתלוש' })).toBeVisible()
 }
 
@@ -110,7 +111,8 @@ async function reviewUnclearPayslip(page: Page) {
   await open(page)
   await send(page, 'מנהלת מוצר, שכר בסיס 15,000')
   await page.getByRole('button', { name: 'להעלות תלוש' }).click()
-  await page.locator('input[type="file"]').setInputFiles(join(PAYSLIPS, 'unclear_labels_payslip.pdf'))
+  await page.getByRole('checkbox', { name: /הבנתי ומאשר/ }).check()
+  await page.locator('input[type=\"file\"]').setInputFiles(join(PAYSLIPS, 'unclear_labels_payslip.pdf'))
   await expect(page.getByRole('heading', { name: 'בדיקת הנתונים מהתלוש' })).toBeVisible()
 }
 

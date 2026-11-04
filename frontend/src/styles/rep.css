@@ -192,3 +192,7 @@
   color: var(--pending);
   font-weight: 600;
 }
+
+/* an amount that stands out: the server asks once whether it is the monthly one */
+.unusual-confirm { display: grid; gap: var(--s2); padding: var(--s3); border-radius: var(--r-sm); background: var(--pending-tint); color: var(--pending); }
+.unusual-confirm p { margin: 0; }
