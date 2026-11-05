@@ -8,7 +8,7 @@
 import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { ApiError, api } from '../api/client'
-import type { PayslipInfo, ProfileFields } from '../api/types'
+import type { PayslipInfo, Privacy, ProfileFields } from '../api/types'
 import { formatMoney } from '../format/money'
 import { Icon } from '../ui/Icon'
 import { payslipOutcome } from './payslipOutcome'
@@ -23,15 +23,14 @@ interface Props {
   loadProfile: () => Promise<Record<string, unknown>>
   disabled: boolean
   conversationId: string
-  consentVersion: string
+  /** the server's processing policy: who reads the payslip, what leaves, the formats, and whether a yes is needed */
+  privacy: Privacy | null
 }
 
 // MIME types the server accepts (it also re-checks by file signature). Guides the file picker.
-const ACCEPT = 'application/pdf,image/jpeg,image/png,image/webp'
-const UPLOAD_HINT = 'מעלים PDF של התלוש. הקובץ לא נשמר, ואפשר לבדוק כל ערך לפני שהוא נרשם.'
-export const PAYSLIP_NOTICE = 'הקובץ נקרא כאן, וממנו נשלחים לעיבוד ב-Google Gemini רק שמות של רכיבי שכר והסכומים שלהם. שם, ת"ז, בנק וכתובת לא נשלחים. ' +
-  'צילום או סריקה אי אפשר לקרוא כך, ולכן הם לא נשלחים ומומלץ למלא ידנית.'
-export const PAYSLIP_CONSENT = 'הבנתי ומאשר/ת. זו הדגמה, ולכן אעלה רק תלוש לדוגמה ולא תלוש אמיתי.'
+const PDF = 'application/pdf'
+const IMAGES = 'image/jpeg,image/png,image/webp'
+const PDF_ONLY = 'כאן אפשר להעלות PDF בלבד. אפשר גם למלא את הנתונים ידנית.'
 const MANUAL_HINT = 'מלאו את הנתונים ידנית, בחרו מה לעדכן ואשרו. אפשר גם לבטל ולכתוב בצ׳אט.'
 const REVIEW_HINT = 'לכל שורה בחרו אם לעדכן את הפרופיל. כשהתלוש שונה ממה שכתבתם בשיחה, בחרו איזה ערך נכון לחישוב.'
 const ASSIGN_LABEL: Record<string, string> = { commissions: 'לשייך לעמלות', bonus: 'לשייך לבונוס' }
@@ -43,8 +42,13 @@ const infoValue = (i: PayslipInfo) => (i.kind === 'amount'
   ? (i.suspect ? `${Number(i.value)} ₪` : formatMoney(Number(i.value)))
   : i.kind === 'percent' ? `${Number(i.value)}%` : String(Number(i.value)))
 
-export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled, conversationId, consentVersion }: Props) {
-  const [consented, setConsented] = useState(false)      // never preselected; nothing leaves without it
+export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled, conversationId, privacy }: Props) {
+  const policy = privacy?.payslip
+  const images = policy?.formats.includes('image') ?? false
+  // asked once per conversation, and only where the policy needs it (a test environment, a reader outside the
+  // organization); never preselected: nothing leaves without it
+  const [ask] = useState(() => (policy?.required ?? true) && !policy?.accepted)   // fixed while the uploader is open
+  const [consented, setConsented] = useState(!ask)
   const [step, setStep] = useState<Step>('pick')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -63,6 +67,10 @@ export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled, conve
 
   const onFile = async (file: File | undefined) => {
     if (!file || busy || disabled) return
+    if (!images && file.type !== PDF && !file.name.toLowerCase().endsWith('.pdf')) {
+      setError(PDF_ONLY)
+      return
+    }
     if (!consented) {
       setError('כדי להעלות קובץ צריך לסמן שקראתם את ההסבר. אפשר גם למלא ידנית.')
       return
@@ -70,7 +78,7 @@ export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled, conve
     setBusy(true)
     setError(null)
     try {
-      const [result, profile] = await Promise.all([api.extractPayslip(file, conversationId, consentVersion), currentProfile()])
+      const [result, profile] = await Promise.all([api.extractPayslip(file, conversationId, policy?.version ?? ''), currentProfile()])
       const next = payslipOutcome(result)
       setOutcome(next)
       setErrors({})
@@ -131,7 +139,7 @@ export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled, conve
 
   const working = busy || disabled
   const fileInput = (
-    <input ref={inputRef} type="file" accept={ACCEPT} className="visually-hidden" tabIndex={-1}
+    <input ref={inputRef} type="file" accept={images ? `${PDF},${IMAGES}` : PDF} className="visually-hidden" tabIndex={-1}
            aria-hidden="true" onChange={(e) => void onFile(e.target.files?.[0])} />
   )
 
@@ -145,23 +153,26 @@ export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled, conve
             <h3>{failed ? outcome.title : 'העלאת תלוש'}</h3>
             {failed
               ? <p className="field-error" role="alert">{outcome.message}</p>
-              : <p className="form-hint">{UPLOAD_HINT}</p>}
+              : <p className="form-hint">{images ? 'מעלים PDF, צילום או סריקה של התלוש.' : 'מעלים את התלוש כקובץ PDF.'}{' '}
+                  אפשר לבדוק כל ערך לפני שהוא נרשם.</p>}
           </div>
         </header>
         {fileInput}
         <div className="payslip-consent">
-          <p>{PAYSLIP_NOTICE}</p>
-          <label>
-            <input type="checkbox" checked={consented} disabled={working} onChange={(e) => setConsented(e.target.checked)} />
-            <span>{PAYSLIP_CONSENT}</span>
-          </label>
+          {policy && <p>{policy.notice}</p>}
+          {ask && policy?.acknowledgement && (
+            <label>
+              <input type="checkbox" checked={consented} disabled={working} onChange={(e) => setConsented(e.target.checked)} />
+              <span>{policy.acknowledgement}</span>
+            </label>
+          )}
         </div>
         <div className={`dropzone${dragging ? ' is-over' : ''}${busy ? ' is-busy' : ''}`}
              onDragOver={(e) => { e.preventDefault(); if (!working) setDragging(true) }}
              onDragLeave={() => setDragging(false)}
              onDrop={(e) => { e.preventDefault(); setDragging(false); void onFile(e.dataTransfer.files?.[0]) }}>
           <span className="dropzone-art" aria-hidden="true">{busy ? <span className="scan" /> : <Icon name="upload" size={26} />}</span>
-          {!busy && <span className="dropzone-text">אפשר לגרור לכאן קובץ PDF או תמונה</span>}
+          {!busy && <span className="dropzone-text">{images ? 'אפשר לגרור לכאן קובץ PDF או תמונה' : 'אפשר לגרור לכאן קובץ PDF'}</span>}
           <span className="dropzone-lock"><Icon name="lock" size={14} />התלוש עצמו לא נשמר</span>
         </div>
         {error && <p className="field-error" role="alert">{error}</p>}

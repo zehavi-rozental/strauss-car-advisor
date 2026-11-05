@@ -2,6 +2,12 @@ import { expect, test, type Page } from '@playwright/test'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
+// the sample-payslip acknowledgement: asked once per conversation in a test environment (ai_policy); later uploads skip it
+async function acknowledgeSample(page: Page) {
+  const box = page.getByRole('checkbox', { name: /הבנתי ומאשר/ })
+  if (await box.count()) await box.check()
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const SYNTHETIC = join(__dirname, 'fixtures', 'synthetic_payslip.png')
 const BOT = '.bubble-bot .bubble-text'
@@ -40,7 +46,7 @@ test.describe('payslip upload (synthetic)', () => {
     await expect(page.getByRole('heading', { name: 'העלאת תלוש' })).toBeVisible()
 
     // upload the synthetic PNG via the (hidden) file input
-    await page.getByRole('checkbox', { name: /הבנתי ומאשר/ }).check()
+    await acknowledgeSample(page)
     await page.locator('input[type=\"file\"]').setInputFiles(SYNTHETIC)
 
     // the review form appears (even if nothing was extracted, the fields are editable for manual entry)
@@ -67,7 +73,7 @@ async function uploadWithAnswer(page: Page, answer: object) {
   await openEmployee(page)
   await send(page, 'מנהלת מוצר, שכר בסיס 18500')
   await page.getByRole('button', { name: 'להעלות תלוש' }).click()
-  await page.getByRole('checkbox', { name: /הבנתי ומאשר/ }).check()
+  await acknowledgeSample(page)
   await page.locator('input[type=\"file\"]').setInputFiles(SYNTHETIC)
 }
 

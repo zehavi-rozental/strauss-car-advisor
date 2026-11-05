@@ -1,4 +1,4 @@
-// What the system knows, in the chat: a thin strip with what this stage is about, and one sheet ("הנתונים שלי") where every value
+// What the system knows, in the chat: one button ("הנתונים שלי", with how many values are missing) and one sheet where every value
 // shows where it came from and can be changed on its own. No page and no dashboard. Everything shown comes from the server's
 // `facts`; a saved change goes through the one {fields} gate, and the server recalculates.
 import { useEffect, useState } from 'react'
@@ -17,22 +17,15 @@ const SECTIONS: [FactItem['section'], string][] = [['eligibility', 'זכאות']
 const UNITS: Record<string, string> = { money: '₪', percent: '%' }
 const FIELD_OF: Record<string, keyof ProfileFields> = { group: 'eligibility_group' }
 
-export function ContextStrip({ facts, onOpen }: { facts: Facts | null; onOpen: (key?: string) => void }) {
+/** One entry point to what is known (5/11: the row of separate value chips is gone); every value is in the sheet. */
+export function MyDataButton({ facts, onOpen }: { facts: Facts | null; onOpen: (key?: string) => void }) {
   if (!facts) return null
-  const items = facts.strip.map((k) => facts.items.find((i) => i.key === k)).filter((i): i is FactItem => Boolean(i))
   return (
-    <div className="context-strip" role="group" aria-label="הנתונים שמשמשים לחישוב">
+    <div className="context-strip">
       <button type="button" className="context-all" onClick={() => onOpen()}>
         <Icon name="form" size={16} />{MY_DATA_LABEL}
         {facts.missing.length > 0 && <span className="context-missing">{facts.missing.length} חסרים</span>}
       </button>
-      {items.map((i) => (
-        <button key={i.key} type="button" className="context-chip" onClick={() => onOpen(i.key)}
-                aria-label={`${i.label}: ${i.display}. לעדכון`}>
-          <span className="context-chip-label">{i.label}</span>
-          <bdi className="context-chip-value">{i.display}</bdi>
-        </button>
-      ))}
     </div>
   )
 }
@@ -264,9 +257,9 @@ export function PrivacyLines({ privacy }: { privacy: Privacy | null }) {
         <li>אחרי {privacy.idle_minutes} דקות ללא פעילות השיחה ננעלת בדפדפן הזה. במחשב משותף כדאי למחוק בסיום.</li>
       )}
       {privacy?.ai.available && (
-        <li>{privacy.ai.accepted
-          ? 'הודעות השיחה והנתונים שמסרתם מעובדים ב-Google Gemini. פרטי קשר ומספרי זהות מוסרים אוטומטית לפני השליחה, אבל עדיף לא לכתוב אותם כאן.'
-          : 'השיחה פועלת בלי AI: שום הודעה לא נשלחת ל-Google Gemini.'}</li>
+        <li>{privacy.ai.accepted || !privacy.ai.required
+          ? privacy.ai.notice
+          : `השיחה פועלת בלי AI: שום הודעה לא נשלחת ל-${privacy.ai.provider}.`}</li>
       )}
       <li>מחיקה מסירה את השיחה מהשרת. עותקי גיבוי ומה שכבר עובד אצל ספק ה-AI נשמרים לפי התקופות שלהם.</li>
     </ul>
@@ -278,11 +271,10 @@ export function PrivacyNotice({ privacy, disabled, onAccept, onHide }:
   { privacy: Privacy; disabled: boolean; onAccept: () => void; onHide: () => void }) {
   return (
     <aside className="privacy-notice" aria-label="פרטיות">
-      {privacy.demo && <p className="privacy-demo"><Icon name="alert" size={16} />זו סביבת הדגמה. אל תזינו כאן נתוני שכר אמיתיים.</p>}
-      <p>
-        כדי להבין כתיבה חופשית, ההודעות שלכם והנתונים שמסרתם נשלחים לעיבוד ב-Google Gemini. פרטי קשר ומספרי זהות מוסרים אוטומטית לפני השליחה, אבל עדיף לא לכתוב אותם כאן.
-        החישובים עצמם נעשים כאן. בלי אישור, השיחה ממשיכה בלי AI.
-      </p>
+      {privacy.environment === 'test' && (
+        <p className="privacy-demo"><Icon name="alert" size={16} />סביבת בדיקות: אין להזין כאן נתוני שכר אמיתיים.</p>
+      )}
+      <p>{privacy.ai.notice} בלי אישור, השיחה ממשיכה בלי AI.</p>
       <div className="field-editor-actions">
         <button type="button" className="chip chip-primary" disabled={disabled} onClick={onAccept}>מאשרים עיבוד ב-AI</button>
         <button type="button" className="chip chip-quiet" onClick={onHide}>להמשיך בלי AI</button>

@@ -2,6 +2,12 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
+// the sample-payslip acknowledgement: asked once per conversation in a test environment (ai_policy); later uploads skip it
+async function acknowledgeSample(page: Page) {
+  const box = page.getByRole('checkbox', { name: /הבנתי ומאשר/ })
+  if (await box.count()) await box.check()
+}
+
 // QA 22/10, ten synthetic payslips through live Gemini: the employee's car copay came back as an "addition to
 // pay" on 7 of 10, and the review offered "לשייך לבונוס" for it when the bonus row was empty. Through the real
 // server path with a recorded answer (PAYSLIP_FAKE_VISION_DIR, no Gemini): the copay is its own information
@@ -43,7 +49,7 @@ async function reviewCopayPayslip(page: Page) {
   await open(page)
   await send(page, 'מנהלת מוצר, שכר בסיס 15,000')
   await page.getByRole('button', { name: 'להעלות תלוש' }).click()
-  await page.getByRole('checkbox', { name: /הבנתי ומאשר/ }).check()
+  await acknowledgeSample(page)
   await page.locator('input[type=\"file\"]').setInputFiles(join(PAYSLIPS, 'car_copay_payslip.pdf'))
   await expect(page.getByRole('heading', { name: 'בדיקת הנתונים מהתלוש' })).toBeVisible()
 }
@@ -111,7 +117,7 @@ async function reviewUnclearPayslip(page: Page) {
   await open(page)
   await send(page, 'מנהלת מוצר, שכר בסיס 15,000')
   await page.getByRole('button', { name: 'להעלות תלוש' }).click()
-  await page.getByRole('checkbox', { name: /הבנתי ומאשר/ }).check()
+  await acknowledgeSample(page)
   await page.locator('input[type=\"file\"]').setInputFiles(join(PAYSLIPS, 'unclear_labels_payslip.pdf'))
   await expect(page.getByRole('heading', { name: 'בדיקת הנתונים מהתלוש' })).toBeVisible()
 }

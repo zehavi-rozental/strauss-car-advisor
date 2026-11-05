@@ -97,7 +97,6 @@ def upload_payslip(client, files=None, **kwargs):
     from sqlalchemy import select
 
     from app.modules.conversation.models import ConversationRow
-    from app.modules.conversation.public import PAYSLIP_NOTICE_VERSION
     from app.modules.conversation.repository import token_hash
 
     token = client.cookies.get("sca_session")
@@ -109,7 +108,7 @@ def upload_payslip(client, files=None, **kwargs):
     if cid is None:
         cid = client.post("/api/conversations").json()["conversation_id"]
     return client.post("/api/payslip/extract", files=files,
-                       data={"conversation_id": cid, "consent_version": PAYSLIP_NOTICE_VERSION}, **kwargs)
+                       data={"conversation_id": cid, "consent_version": client.app.state.ctx.service.notice_versions["payslip"]}, **kwargs)
 
 
 CTA_STARTS = ("כתבו", "בחרו", "אפשר לכתוב")

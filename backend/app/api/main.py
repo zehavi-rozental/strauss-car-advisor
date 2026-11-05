@@ -22,6 +22,7 @@ from app.modules.conversation.public import (
 from app.modules.payslip.public import PayslipService
 from app.modules.rules.public import RulesStore
 from app.shared.db import get_engine, session_factory
+from app.shared.ai_policy import policy_from
 from app.shared.settings import ENV_FILE, Settings, get_settings
 
 from .deps import AppContext
@@ -94,7 +95,8 @@ def create_app(settings: Optional[Settings] = None, *, engine: Optional[Engine] 
 
     cases = CasesService(sessions)
     email_notifications = EmailNotificationService(sessions, settings)
-    payslip = PayslipService(rules, settings)
+    policy = policy_from(settings)      # who processes the data, and what that allows (shared.ai_policy)
+    payslip = PayslipService(rules, settings, policy=policy)
     stop_email_worker = threading.Event()
     email_worker: Optional[threading.Thread] = None
     retention_worker: Optional[threading.Thread] = None
@@ -188,7 +190,7 @@ def create_app(settings: Optional[Settings] = None, *, engine: Optional[Engine] 
                                     settings.llm_mode, email_notifications,
                                     require_ai_consent=settings.require_ai_consent,
                                     session_idle_minutes=settings.session_idle_minutes,
-                                    retention_days=settings.conversation_retention_days),
+                                    retention_days=settings.conversation_retention_days, policy=policy),
         cases=cases,
         payslip=payslip,
         message_limiter=RateLimiter(settings.rate_limit_per_minute),

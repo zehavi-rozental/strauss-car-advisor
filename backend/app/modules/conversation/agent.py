@@ -40,6 +40,7 @@ from .option_map import with_assumptions as _with_assumptions
 from .understanding import (NO_CAR_OR_ZERO, NOT_IN_CATALOG, Understanding, answer_like, asks_attribute, rep_scope_ok,
                             meaningful, says_all_words, says_phrase, understand)
 from .stage import (
+    PendingValueChoice,
     PendingValueIntent,
     allowed_tools,
     current_group,
@@ -128,6 +129,7 @@ from .templates import (
     results_text,
     held_fix_text,
 )
+from . import value_choice
 from .receipt import build_receipt, receipt_lines, snapshot_results, value_changes
 from .whatif import (
     Change,
@@ -1018,6 +1020,10 @@ class Agent:
         field_ = field or build_expects(state, snapshot)["field"]
         asked_intent, state.pending_value_intent = state.pending_value_intent, None
         offered_scenario, state.last_scenario = state.last_scenario, None
+        asked_value, state.pending_value_choice = state.pending_value_choice, None
+        if field_ == "value_choice" and asked_value is not None and (
+                chosen := value_choice.from_button(asked_value, ids)) is not None:
+            return self._value_chosen(ctx, asked_value, chosen, (), label, before, record_run)
         if field_ == "value_intent" and asked_intent is not None:
             return self._value_intent(ctx, asked_intent.values, ids[0], (), label, before, record_run)
         if field_ == "scenario_apply" and offered_scenario is not None:
@@ -1125,6 +1131,23 @@ class Agent:
         offered_scenario, state.last_scenario = state.last_scenario, None
         if asked_intent is not None and (kind := _intent_answer(text)) is not None:
             return self._value_intent(ctx, asked_intent.values, kind, history, text, before, record_run)
+        # one number for several fields ("2" → "גם וגם"): the question held in the state is answered first; a later
+        # "בעצם רק ילדים" re-applies the choice; a bare number for a question about several fields is asked
+        asked_value, state.pending_value_choice = state.pending_value_choice, None
+        chooser = self.llm if self._llm_led() else None
+        if asked_value is not None:
+            chosen = value_choice.resolve(chooser, text, asked_value.fields, asked_value.value,
+                                          deadline=self.llm.turn_deadline(), question=state.asked_line)
+            if chosen is not None:
+                return self._value_chosen(ctx, asked_value, chosen, history, text, before, record_run)
+            if (again_asked := value_choice.ask_again(text, asked_value)) is not None:
+                return self._ask_value_choice(state, again_asked)    # never dropped silently: asked in other words
+            if asked_value.asked >= 2 and not value_choice.is_question(text):
+                state.pace = "one_at_a_time"          # asked twice: from here one field at a time, each unambiguous
+        elif (again := value_choice.correction(state, chooser, text, self.llm.turn_deadline())) is not None:
+            return self._value_rechosen(ctx, again, history, text, before, record_run)
+        if (held := value_choice.open_for_bare_value(state, snapshot, text)) is not None:
+            return self._ask_value_choice(state, held)
         if offered_scenario is not None and (keep := _scenario_answer(text)) is not None:
             return self._scenario_decision(ctx, offered_scenario, keep, history, text, before, record_run)
         change = read_change(state, snapshot, text)
@@ -1310,6 +1333,50 @@ class Agent:
                         and (values := read_loose_change(state, snapshot, text)) is not None):
                     return self._ask_value_intent(state, values)   # a new value with no word for what it is: asked
         return self._finish(ctx, history, text, plan, before, record_run, und=und, extra=[pace] if pace else ())
+
+    # ---------- one number, several fields ----------
+
+    @staticmethod
+    def _ask_value_choice(state: ConversationState, pending: PendingValueChoice) -> TurnOutcome:
+        state.pending_value_choice = pending
+        reply = value_choice.question_text(pending)
+        state.last_ask = state.asked_line = value_choice.question_line(reply)
+        state.asked_field = None
+        state.stage = next_stage(state)
+        return TurnOutcome(reply=reply, source="template", path="value_choice")
+
+    def _value_chosen(self, ctx: ToolContext, pending: PendingValueChoice, chosen: list[str],
+                      history: Sequence[ChatMessage], text: str, before: Stage, record_run: RecordRun) -> TurnOutcome:
+        """The number saved to the field(s) the employee chose, through save_profile's gates; "none of them" saves
+        nothing and the flow asks the fields again."""
+        state = ctx.state
+        if not chosen:
+            plan = ParserPlan(complete=True, direct=True, acked=True, notice=value_choice.NONE_TEXT)
+            return self._finish(ctx, history, text, plan, before, record_run, choice=True, und=Understanding(remainder=""))
+        state.last_value_choice = value_choice.resolved(pending, chosen)
+        plan = ParserPlan([ToolCall("save_profile", value_choice.save_args(pending.value, chosen), "confirmed")], True,
+                          direct=True)
+        return self._finish(ctx, history, text, plan, before, record_run, choice=True, und=Understanding(remainder=""))
+
+    def _value_rechosen(self, ctx: ToolContext, chosen: list[str], history: Sequence[ChatMessage], text: str,
+                        before: Stage, record_run: RecordRun) -> TurnOutcome:
+        """"בעצם רק ילדים": the number goes to the new choice; a field dropped from it is cleared only while it still
+        holds that number (it is asked again, never left with a value the employee withdrew)."""
+        state = ctx.state
+        last = state.last_value_choice
+        assert last is not None
+        cleared = [f for f in last.fields if f not in chosen and getattr(state.profile, PROFILE_ARGS[f]) == last.value]
+        for f in cleared:
+            setattr(state.profile, PROFILE_ARGS[f], None)
+            state.field_sources.pop(f, None)
+        if cleared:
+            invalidate_results(state)
+        state.last_value_choice = last.model_copy(update={"chosen": list(chosen)})
+        todo = [f for f in chosen if getattr(state.profile, PROFILE_ARGS[f]) != last.value]
+        calls = [ToolCall("save_profile", value_choice.save_args(last.value, todo), "combined")] if todo else []
+        plan = ParserPlan(calls, True, direct=True, acked=True,
+                          notice=value_choice.cleared_text(last.value, chosen, cleared))
+        return self._finish(ctx, history, text, plan, before, record_run, choice=True, und=Understanding(remainder="", resume=True))
 
     # ---------- a change, or a check ----------
 

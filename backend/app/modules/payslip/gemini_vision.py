@@ -27,7 +27,7 @@ class GeminiVisionError(VisionError):
 class GeminiVisionAdapter:
     """מודל ראייה לחילוץ בלבד. temperature 0 ו-responseSchema כדי לקבל JSON במבנה קבוע."""
 
-    accepts_text = True      # a provider outside the service: it gets the pay lines, not the file, when it can
+    accepts_text = True      # it can read the pay lines as text, instead of the file (payslip.minimize)
 
     def __init__(self, model: str, api_key: str, base_url: str = "", timeout_s: float = 30.0,
                  client: Optional[httpx.Client] = None):

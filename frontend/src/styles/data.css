@@ -47,22 +47,12 @@
   .view-switch-option { flex-direction: column; gap: var(--s1); padding: var(--s2) var(--s1); font-size: var(--fs-small); }
 }
 
-/* ---------- the strip above the composer ---------- */
+/* ---------- "הנתונים שלי" above the composer: one button ---------- */
 .context-strip {
   display: flex;
-  align-items: stretch;
-  gap: var(--s2);
   margin-block-end: var(--s2);
-  overflow-x: auto;
-  scrollbar-width: none;
-  overscroll-behavior-inline: contain;
 }
-.context-strip::-webkit-scrollbar { display: none; }
-/* a mouse has no way to scroll a row with no scrollbar: on a wide screen the values wrap instead */
-@media (min-width: 721px) { .context-strip { flex-wrap: wrap; overflow-x: visible; } }
-/* on a phone the row fades at its end, so that more is seen to be there */
-@media (max-width: 720px) { .context-strip { mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent); padding-inline-end: 28px; } }
-.context-all, .context-chip {
+.context-all {
   display: inline-flex;
   flex: none;
   align-items: center;
@@ -80,10 +70,8 @@
   transition: border-color var(--t-fast) var(--ease-soft), color var(--t-fast) var(--ease-soft);
 }
 .context-all { color: var(--brand-deep); font-weight: 600; }
-.context-all:hover, .context-chip:hover { border-color: var(--brand); color: var(--ink); }
-.context-all:focus-visible, .context-chip:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
-.context-chip-label { color: var(--ink-3); }
-.context-chip-value { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.context-all:hover { border-color: var(--brand); color: var(--ink); }
+.context-all:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
 .context-missing {
   padding: 0 8px;
   border-radius: var(--r-pill);

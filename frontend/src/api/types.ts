@@ -212,9 +212,15 @@ export interface Facts {
   assumptions: string[]
 }
 
+// Who processes the data and what the notices say: decided on the server (shared/ai_policy.py); the screens never write
+// a provider name or an environment of their own
+export type Hosting = 'external' | 'organization' | 'local'
 export interface Privacy {
-  ai: { available: boolean; required: boolean; accepted: boolean; version: string }
-  payslip: { accepted: boolean; version: string }
+  environment: 'production' | 'test'
+  ai: { available: boolean; required: boolean; accepted: boolean; version: string; notice: string; provider: string
+        hosting: Hosting }
+  payslip: { accepted: boolean; version: string; required: boolean; notice: string; acknowledgement: string
+             formats: ('pdf' | 'image')[]; provider: string; hosting: Hosting }
   retention_days: number
   idle_minutes: number
   demo: boolean

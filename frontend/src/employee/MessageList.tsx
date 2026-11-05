@@ -61,19 +61,38 @@ const isUnusual = (r: OptionResult) => Boolean(r.result.unusual_copay || r.resul
 
 export const STALE_NOTE = 'לא מעודכן: החישוב הזה נעשה לפני השינוי האחרון, ויחושב מחדש כשכל הפרטים יהיו ידועים.'
 
+/** New results: their reply from its top when the cars follow within the screen; when the reply is taller (a phone), the
+ *  cars themselves, so the three cars are seen at once (5/11) and the reply is one scroll up. */
+function resultsIntoView(group: HTMLElement) {
+  const cars = group.querySelector<HTMLElement>('.summary-card, .result-card')
+  const box = group.closest<HTMLElement>('.chat-body')?.clientHeight ?? window.innerHeight
+  const gap = cars ? cars.getBoundingClientRect().top - group.getBoundingClientRect().top : 0
+  ;(cars && gap > box * 0.4 ? cars : group).scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
 export function MessageList({ messages, repQuestions = [], results, resultsStale = false, resultsAnchor, typing,
                               onOpenTable, onResendVerification, onAddEmail, onCorrectEmail, mapCard, tail,
                               onRetry, onCorrect, busy, repCopayOffer = null, onSend,
                               todayCopay = null, todayCopaySource = null, focusQuestionId = null,
                               todayCard = null, mapAnchor = null, resultsVersion = null }: Props) {
   const end = useRef<HTMLDivElement>(null)
+  const shownResults = useRef<string | null>(null)    // the results whose top was already brought into view
+  const pinnedAt = useRef<number | null>(null)        // ... at this many messages: kept there until a new message
   const [copied, setCopied] = useState<number | null>(null)
   useEffect(() => {
     if (focusQuestionId) return                 // an answer is being shown: never pulled to the bottom
     const last = messages[messages.length - 1]
     const card = last?.card ? document.getElementById(`message-${last.seq}`) : null
+    // new results (3 cars chosen, a ranking): their reply and the first car are read from the top, never from the bottom
+    // of the last card (5/11: the bottom was shown and the first car was out of view)
+    const key = results.length && !resultsStale && resultsAnchor != null ? `${resultsAnchor}:${resultsVersion ?? ''}` : null
+    const top = key && key !== shownResults.current && !typing ? document.getElementById(`message-${resultsAnchor}`) : null
     if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' })   // "what changed": read from its top, the cards follow it
-    else end.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    else if (top) resultsIntoView(top)
+    // what renders under the results a moment later (the car actions) never pulls the page back to the bottom
+    else if (pinnedAt.current !== messages.length || typing) end.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    if (top || card) { shownResults.current = key; pinnedAt.current = messages.length }
+    else if (pinnedAt.current !== messages.length) pinnedAt.current = null
   }, [messages.length, results, typing, tail != null, focusQuestionId])
   useEffect(() => {
     if (!focusQuestionId) return

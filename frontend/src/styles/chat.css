@@ -795,3 +795,4 @@
 .rep-inquiry-add-email { display: grid; gap: 6px; }
 .rep-inquiry-add-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .rep-inquiry-add-row .rep-inquiry-email { flex: 1 1 200px; min-width: 0; }
+.summary-card, .result-card { scroll-margin-block-start: var(--s3); }

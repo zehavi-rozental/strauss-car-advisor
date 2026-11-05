@@ -429,19 +429,25 @@ def failed(reason: str) -> ExtractionResult:
 
 
 def extract(data: bytes, mime: str, vision: Optional[VisionPort], snapshot: RulesSnapshot,
-            timeout_s: float, allow_full_file: bool = True) -> ExtractionResult:
+            timeout_s: float, allow_full_file: bool = True, minimize: Optional[bool] = None) -> ExtractionResult:
     """מריץ חילוץ על קובץ שכבר עבר validate_file. אף פעם לא זורק — מחזיר ExtractionResult עם status,
-    כדי שה-API תמיד יחזיר תשובה ברורה ולעולם לא יציג כשל כהצלחה."""
+    כדי שה-API תמיד יחזיר תשובה ברורה ולעולם לא יציג כשל כהצלחה.
+    minimize (the processing policy: an external reader): a PDF's pay lines instead of the file, when the reader can take
+    text; otherwise the file goes only where allow_full_file says so. None: as the reader declares (older callers)."""
     if vision is None:
         return failed("not_configured")
     prompt = _SYSTEM_PROMPT
-    if getattr(vision, "accepts_text", False):
-        # a provider outside: its pay lines instead of the file, when the file has a text layer
-        text = minimized_payslip_text(data, mime)
+    takes_text = getattr(vision, "accepts_text", False)
+    if minimize is None:
+        minimize = takes_text
+    if minimize:
+        text = minimized_payslip_text(data, mime) if takes_text else None
         if text:
             data, mime, prompt = text.encode("utf-8"), TEXT_MIME, _SYSTEM_PROMPT + _TEXT_NOTE
         elif not allow_full_file:
             return failed("needs_full_file")
+    elif not allow_full_file:
+        return failed("needs_full_file")
     try:
         raw = vision.extract(data, mime, prompt, timeout_s)
     except VisionError as exc:

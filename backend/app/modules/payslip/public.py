@@ -11,6 +11,7 @@ from datetime import date, datetime, timezone
 from typing import Optional
 
 from app.modules.rules.public import RulesSnapshot, RulesStore
+from app.shared.ai_policy import ProcessingPolicy, policy_from
 from app.shared.settings import Settings
 
 from .extract import VisionPort, extract, failed, validate_file
@@ -66,12 +67,16 @@ class PayslipService:
     enabled=False כשהתכונה סגורה — ה-API מחזיר 503 בעברית במקום לנסות לחלץ.
     """
 
-    def __init__(self, rules: RulesStore, settings: Settings, vision: Optional[VisionPort] = None):
+    def __init__(self, rules: RulesStore, settings: Settings, vision: Optional[VisionPort] = None,
+                 policy: Optional[ProcessingPolicy] = None):
         self.rules = rules
         self.max_bytes = settings.payslip_max_bytes
         self.max_pages = settings.payslip_max_pages
         self.timeout_s = settings.payslip_timeout_s
-        self.allow_full_file = settings.payslip_allow_full_file
+        self.policy = policy or policy_from(settings)
+        # an external reader gets a PDF's pay lines only; a whole file (a photo, a scan) only where the policy allows it
+        self.minimize = self.policy.payslip_minimized
+        self.allow_full_file = self.policy.payslip_full_file
         self.daily_limit = settings.payslip_daily_limit
         self._day: Optional[date] = None
         self._today = 0
@@ -92,7 +97,7 @@ class PayslipService:
         if self.daily_limit and self._today > self.daily_limit:
             log.warning("payslip daily limit reached")
             return failed("daily_limit")
-        return extract(data, mime, self._vision, snapshot, self.timeout_s, self.allow_full_file)
+        return extract(data, mime, self._vision, snapshot, self.timeout_s, self.allow_full_file, self.minimize)
 
 
 __all__ = [

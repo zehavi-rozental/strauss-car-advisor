@@ -20,7 +20,7 @@ import { Progress } from './Progress'
 import { SelectionCard } from './SelectionCard'
 import { payslipFormText, profileFormText } from './formFields'
 import { CarActions } from './CarActions'
-import { ConfirmDialog, ContextStrip, DataSheet, PrivacyNotice, ResumeCard } from './DataSheet'
+import { ConfirmDialog, DataSheet, MyDataButton, PrivacyNotice, ResumeCard } from './DataSheet'
 import { RepInquiryCard } from './RepInquiryCard'
 import { useCatalog } from './useCatalog'
 import { useConversation } from './useConversation'
@@ -139,7 +139,7 @@ export function EmployeePage() {
   )
   const payslipUpload = (
     <PayslipUpload disabled={busy} onCancel={() => setOpened(null)} loadProfile={c.loadProfile}
-                   conversationId={c.conversationId ?? ''} consentVersion={c.privacy?.payslip.version ?? ''}
+                   conversationId={c.conversationId ?? ''} privacy={c.privacy ?? null}
                    onSubmit={async (fields) => {
                      const sent = await c.sendFields(fields, payslipFormText(fields), 'payslip')
                      if (sent.ok) setOpened(null)
@@ -311,8 +311,9 @@ export function EmployeePage() {
           <h1>יועץ הרכב</h1>
           {(() => {
             const badge = c.privacy?.ai.required && !c.privacy.ai.accepted
-              ? { text: 'בלי AI', tone: 'pending', title: 'השיחה פועלת לפי הכללים בלבד. שום הודעה לא נשלחת ל-Google Gemini.' }
-              : engineBadge(c.engine)
+              ? { text: 'בלי AI', tone: 'pending',
+                  title: `השיחה פועלת לפי הכללים בלבד. שום הודעה לא נשלחת ל-${c.privacy.ai.provider}.` }
+              : engineBadge(c.engine, c.privacy?.ai.provider || undefined)
             return (
               <span className={`status status-${badge.tone}`} title={badge.title} data-engine={c.engine ?? ''}
                     aria-live="polite">
@@ -363,7 +364,7 @@ export function EmployeePage() {
             <PrivacyNotice privacy={c.privacy} disabled={busy} onAccept={() => void c.answerAiNotice(true)}
                            onHide={() => setNoticeHidden(true)} />
           )}
-          {!firstVisit && <ContextStrip facts={c.facts} onOpen={(focus) => setDataOpen({ focus })} />}
+          {!firstVisit && <MyDataButton facts={c.facts} onOpen={(focus) => setDataOpen({ focus })} />}
           <Composer disabled={busy} placeholder={placeholderFor(c.expects)} autoFocus={!c.loading && firstVisit}
                     onSend={(text) => c.send({ text }, text)} />
         </div>

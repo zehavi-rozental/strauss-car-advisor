@@ -85,7 +85,8 @@ def test_without_the_model_the_engine_question_says_this_reply_is_a_template(eng
     client = make_client(engine)                           # no model configured
     _, send = start(client)
     reply = send({"text": "אתה באמת משתמש בג'מיני?"})["reply"]
-    assert ENGINE_OFFLINE in reply and "Gemini" in reply
+    # the provider is the deployment's (5/11: shared.ai_policy), never a name fixed in the answer; the badge names it
+    assert ENGINE_OFFLINE in reply and "מודל שפה" in reply and "Gemini" not in reply
 
 
 # ---------- today's copay: the catalog amount, unverified until confirmed ----------

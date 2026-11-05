@@ -2,6 +2,12 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
+// the sample-payslip acknowledgement: asked once per conversation in a test environment (ai_policy); later uploads skip it
+async function acknowledgeSample(page: Page) {
+  const box = page.getByRole('checkbox', { name: /הבנתי ומאשר/ })
+  if (await box.count()) await box.check()
+}
+
 // End-to-end journeys against the real server: conversation, payslip review, calculation engine and the
 // representative. Every journey checks the server's state through the API (same browser session), not only
 // the screen. Expected amounts are the engine's reference results (Strauss's six sample employees) or are
@@ -69,7 +75,7 @@ async function payslipEnabled(request: APIRequestContext) {
 async function uploadPayslip(page: Page, file: string) {
   await page.getByRole('button', { name: 'להעלות תלוש' }).click()
   await expect(page.getByRole('heading', { name: 'העלאת תלוש' })).toBeVisible()
-  await page.getByRole('checkbox', { name: /הבנתי ומאשר/ }).check()
+  await acknowledgeSample(page)
   await page.locator('input[type=\"file\"]').setInputFiles(join(PAYSLIPS, file))
 }
 
@@ -301,7 +307,7 @@ test.describe('payslip journeys', () => {
     await expect(page.getByRole('heading', { name: 'לא הצלחנו לקרוא את התלוש' })).toBeVisible()
     await expect(page.getByRole('alert')).toContainText('עמוס')
     await expect(page.getByRole('heading', { name: 'בדיקת הנתונים מהתלוש' })).toHaveCount(0)
-    await page.getByRole('checkbox', { name: /הבנתי ומאשר/ }).check()
+    await acknowledgeSample(page)
     await page.locator('input[type=\"file\"]').setInputFiles(join(PAYSLIPS, 'full_payslip.pdf'))   // "לנסות שוב"
     await expect(page.getByRole('heading', { name: 'בדיקת הנתונים מהתלוש' })).toBeVisible()
     expect((await state(page)).profile.pension_percent).toBeNull()  // nothing saved before the confirm
@@ -324,7 +330,7 @@ test.describe('payslip journeys', () => {
     await send(page, 'מנהלת מוצר, שכר בסיס 18,500')
     await uploadPayslip(page, 'unreadable_payslip.pdf')
     await expect(page.getByRole('heading', { name: 'לא הצלחנו לקרוא את הכתוב בקובץ' })).toBeVisible()
-    await page.getByRole('checkbox', { name: /הבנתי ומאשר/ }).check()
+    await acknowledgeSample(page)
     await page.locator('input[type=\"file\"]').setInputFiles(join(PAYSLIPS, 'invalid_answer_payslip.pdf'))
     await expect(page.getByRole('heading', { name: 'לא הצלחנו לקרוא את התלוש' })).toBeVisible()
     await expect(page.getByRole('alert')).toContainText('תשובה לא תקינה')
@@ -335,7 +341,7 @@ test.describe('payslip journeys', () => {
     await open(page)
     await send(page, 'מנהלת מוצר, שכר בסיס 18,500')
     await page.getByRole('button', { name: 'להעלות תלוש' }).click()
-    await page.getByRole('checkbox', { name: /הבנתי ומאשר/ }).check()
+    await acknowledgeSample(page)
     await page.locator('input[type=\"file\"]').setInputFiles({ name: 'payslip.txt', mimeType: 'text/plain',
       buffer: Buffer.from('not a payslip') })
     await expect(page.getByRole('alert')).toContainText('אפשר להעלות רק קובץ PDF או תמונה')

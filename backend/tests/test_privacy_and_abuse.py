@@ -15,7 +15,7 @@ from app.api.ratelimit import RateLimiter
 from app.modules.cases.models import RepQuestionRow
 from app.modules.conversation.llm.fake import FakeLLM, call
 from app.modules.conversation.models import (CalculationRunRow, ConversationRow, EmailLinkRow, EmailOutboxRow, MessageRow)
-from app.modules.conversation.public import AI_NOTICE_VERSION, PAYSLIP_NOTICE_VERSION, LLMChain
+from app.modules.conversation.public import LLMChain
 from app.modules.conversation.turn import user_message
 from app.modules.payslip.extract import extract as run_extract
 from app.modules.payslip.gemini_vision import GeminiVisionAdapter
@@ -27,6 +27,16 @@ from .conftest import build_engine, make_client, upload_payslip
 Q2 = {"base_salary": 18000, "commissions": 0, "bonus": 0, "pension_percent": 6, "study_fund_percent": 2.5,
       "credit_points": 2.25, "children_under_23": 2}
 
+
+
+
+def AI_NOTICE_VERSION(client) -> str:
+    """The version the server shows now (the processing policy names the provider in it)."""
+    return client.app.state.ctx.service.notice_versions["ai_processing"]
+
+
+def PAYSLIP_NOTICE_VERSION(client) -> str:
+    return client.app.state.ctx.service.notice_versions["payslip"]
 
 def start(client):
     cid = client.post("/api/conversations").json()["conversation_id"]
@@ -166,11 +176,12 @@ def test_without_the_notice_the_model_is_not_called_and_the_conversation_works(e
     client = make_client(engine, llm=LLMChain([fake]), require_ai_consent=True)
     cid, send = start(client)
     privacy = client.get(f"/api/conversations/{cid}").json()["privacy"]
-    assert privacy["ai"] == {"available": True, "required": True, "accepted": False, "version": AI_NOTICE_VERSION}
+    assert {k: privacy["ai"][k] for k in ("available", "required", "accepted", "version")} == {
+        "available": True, "required": True, "accepted": False, "version": AI_NOTICE_VERSION(client)}
     send({"text": "אני בקבוצה ג ומרוויחה בערך שמונה עשר אלף בחודש"})
     assert fake.calls == []
     assert client.post(f"/api/conversations/{cid}/consent",
-                       json={"kind": "ai_processing", "accepted": True, "version": AI_NOTICE_VERSION}).json()["ai"]["accepted"]
+                       json={"kind": "ai_processing", "accepted": True, "version": AI_NOTICE_VERSION(client)}).json()["ai"]["accepted"]
     send({"text": "אני בקבוצה ג ומרוויחה בערך שמונה עשר אלף בחודש"})
     assert fake.calls
 
@@ -180,7 +191,7 @@ def test_a_withdrawn_notice_stops_the_model_and_keeps_only_its_version_and_date(
     client = make_client(engine, llm=LLMChain([fake]), require_ai_consent=True)
     cid, send = start(client)
     client.post(f"/api/conversations/{cid}/consent",
-                json={"kind": "ai_processing", "accepted": True, "version": AI_NOTICE_VERSION})
+                json={"kind": "ai_processing", "accepted": True, "version": AI_NOTICE_VERSION(client)})
     state = client.app.state.ctx.service.view(cid, client.cookies.get("sca_session")).state
     assert set(state.consents["ai_processing"].model_dump()) == {"version", "at"}
     client.post(f"/api/conversations/{cid}/consent", json={"kind": "ai_processing", "accepted": False})
@@ -337,11 +348,11 @@ def test_the_upload_needs_a_session_and_the_notice(engine):
     assert client.post("/api/payslip/extract", files=files, data={"conversation_id": cid}).status_code == 422
     assert vision.received == []
     r = client.post("/api/payslip/extract", files=files,
-                    data={"conversation_id": cid, "consent_version": PAYSLIP_NOTICE_VERSION})
+                    data={"conversation_id": cid, "consent_version": PAYSLIP_NOTICE_VERSION(client)})
     assert r.status_code == 200 and len(vision.received) == 1
     stranger = TestClient(client.app)
     assert stranger.post("/api/payslip/extract", files=files,
-                         data={"conversation_id": cid, "consent_version": PAYSLIP_NOTICE_VERSION}).status_code == 404
+                         data={"conversation_id": cid, "consent_version": PAYSLIP_NOTICE_VERSION(client)}).status_code == 404
     assert len(vision.received) == 1
 
 
@@ -353,7 +364,7 @@ def test_the_payslip_daily_limit(engine):
     ctx.payslip = PayslipService(ctx.rules, ctx.settings, vision=_Outside())
     pdf = _with_text_layer() or b"%PDF-1.4\n%%EOF"
     cid, _ = start(client)
-    data = {"conversation_id": cid, "consent_version": PAYSLIP_NOTICE_VERSION}
+    data = {"conversation_id": cid, "consent_version": PAYSLIP_NOTICE_VERSION(client)}
     client.post("/api/payslip/extract", files={"file": ("p.pdf", pdf, "application/pdf")}, data=data)
     second = client.post("/api/payslip/extract", files={"file": ("p.pdf", pdf, "application/pdf")}, data=data).json()
     assert second["reason"] == "daily_limit"

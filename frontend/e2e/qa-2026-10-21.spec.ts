@@ -2,6 +2,12 @@ import { expect, test, type Page } from '@playwright/test'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
+// the sample-payslip acknowledgement: asked once per conversation in a test environment (ai_policy); later uploads skip it
+async function acknowledgeSample(page: Page) {
+  const box = page.getByRole('checkbox', { name: /הבנתי ומאשר/ })
+  if (await box.count()) await box.check()
+}
+
 // QA round 21/10: the two cloud conversations and the syncing between chat, form, payslip review, profile,
 // results and the representative, in a real browser against the real server.
 //
@@ -47,7 +53,7 @@ async function payslipEnabled(page: Page) {
 
 async function uploadPayslip(page: Page, file: string) {
   await page.getByRole('button', { name: 'להעלות תלוש' }).click()
-  await page.getByRole('checkbox', { name: /הבנתי ומאשר/ }).check()
+  await acknowledgeSample(page)
   await page.locator('input[type=\"file\"]').setInputFiles(join(PAYSLIPS, file))
   await expect(page.getByRole('heading', { name: 'בדיקת הנתונים מהתלוש' })).toBeVisible()
 }

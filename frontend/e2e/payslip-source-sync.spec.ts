@@ -2,6 +2,12 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
+// the sample-payslip acknowledgement: asked once per conversation in a test environment (ai_policy); later uploads skip it
+async function acknowledgeSample(page: Page) {
+  const box = page.getByRole('checkbox', { name: /הבנתי ומאשר/ })
+  if (await box.count()) await box.check()
+}
+
 // QA 22/10: in the payslip review the employee chose "מהשיחה: 15,000 ₪" and the field still showed the payslip's
 // 18000. The field must always show the value of the source chosen, and that value — and only it — is what is
 // saved and what the engine calculates. Checked through the real server (recorded payslip answer, no Gemini):
@@ -58,7 +64,7 @@ async function review(page: Page) {
   await open(page)
   await send(page, 'מנהלת מוצר, שכר בסיס 15,000')
   await page.getByRole('button', { name: 'להעלות תלוש' }).click()
-  await page.getByRole('checkbox', { name: /הבנתי ומאשר/ }).check()
+  await acknowledgeSample(page)
   await page.locator('input[type=\"file\"]').setInputFiles(join(PAYSLIPS, 'synthetic_payslip.pdf'))
   await expect(page.getByRole('heading', { name: 'בדיקת הנתונים מהתלוש' })).toBeVisible()
 }

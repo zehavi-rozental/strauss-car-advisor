@@ -1136,7 +1136,7 @@ def copay_with_rep_text(provisional: Optional[Decimal]) -> str:
         return COPAY_WITH_REP
     return ("רשמתי: את ההשתתפות ברכב שלכם היום נברר מול נציג התחבורה, והתשובה תגיע לכאן. "
             f"החישוב כרגע מבוסס על השתתפות של {money(provisional)} לפי הקטלוג, עד לאימות מול נציג.")
-ENGINE_OFFLINE = "התשובה הזו לא נכתבה על ידי Gemini: כרגע מנוע השפה לא זמין, והיא מגיעה מתבנית קבועה."
+ENGINE_OFFLINE = "התשובה הזו לא נכתבה על ידי מודל השפה: הוא לא זמין כרגע, והיא מגיעה מתבנית קבועה."
 
 ADVICE_FIRST = ("זה תלוי ברכב שלכם היום, ברכבים שאתם זכאים להם ובנטו שיישאר לכם אחרי ההחלפה. "
                 "כדי לבדוק, אצטרך כמה פרטים, ונתחיל באחד.")
@@ -1192,6 +1192,8 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
         return "בחרו \"לשלוח\" או \"לבטל\".", None
     if state.unanswered_question is not None:
         return REP_OFFER_CTA, None
+    if state.pending_value_choice is not None:
+        return "בחרו אחת מהאפשרויות, או כתבו במילים.", None
     if state.pending_ambiguity is not None:
         return "בחרו אחת מהאפשרויות, או כתבו \"אין רכב\" או את דגם הרכב.", None
     if state.pending_confirmation is not None:
@@ -1267,6 +1269,8 @@ def placeholder_text(state: ConversationState, snapshot: RulesSnapshot) -> str:
         return "למשל: לשלוח"
     if state.unanswered_question is not None:
         return "למשל: לשאול את הנציג"
+    if state.pending_value_choice is not None:
+        return "למשל: לשניהם"
     if state.pending_ambiguity is not None:
         return "למשל: אין רכב"
     if state.pending_confirmation is not None or state.pending_clarification is not None:

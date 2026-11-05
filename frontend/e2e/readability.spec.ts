@@ -2,6 +2,12 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
+// the sample-payslip acknowledgement: asked once per conversation in a test environment (ai_policy); later uploads skip it
+async function acknowledgeSample(page: Page) {
+  const box = page.getByRole('checkbox', { name: /הבנתי ומאשר/ })
+  if (await box.count()) await box.check()
+}
+
 // Every field the employee or the representative types into stays readable while typing: the text colour against
 // the background actually behind it has a WCAG AA contrast of at least 4.5:1, in every state of the screen.
 // Found 22/10: on the opening screen the composer inherited the hero's white text on its own white box (1:1).
@@ -77,7 +83,7 @@ test('the payslip review fields are readable', async ({ page, request }) => {
   await open(page)
   await send(page, 'מנהלת מוצר, שכר בסיס 15,000')
   await page.getByRole('button', { name: 'להעלות תלוש' }).click()
-  await page.getByRole('checkbox', { name: /הבנתי ומאשר/ }).check()
+  await acknowledgeSample(page)
   await page.locator('input[type=\"file\"]').setInputFiles(join(PAYSLIPS, 'synthetic_payslip.pdf'))
   await expect(page.getByRole('heading', { name: 'בדיקת הנתונים מהתלוש' })).toBeVisible()
   expect(await contrastWhileTyping(page.locator('#ps-base_salary'), '18000')).toBeGreaterThanOrEqual(MIN_CONTRAST)

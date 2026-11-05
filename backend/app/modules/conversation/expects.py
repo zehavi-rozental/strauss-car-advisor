@@ -17,6 +17,7 @@ from .stage import MAX_OPTIONS, ConversationState, Stage, next_stage, question_f
 from .templates import (DRIVE_HE, LINK_LABELS, call_to_action, catalog_copay_hint, copay_choices_offered, money,
                         placeholder_text)
 from .tools import available_options
+from .value_choice import buttons as value_choice_buttons
 
 VehicleGetter = Callable[[VehicleKey], Optional[VehicleInfo]]
 
@@ -179,7 +180,7 @@ SCENARIO_APPLY = [{"id": "apply", "label": "לעדכן כנתון שלי"}, {"id
 SCENARIO_ADD = [{"id": "apply", "label": "להוסיף להשוואה"}, {"id": "dismiss", "label": "להשאיר כבדיקה"}]
 
 CLOSED = {"confirmation", "occupation_confirmation", "clarification", "car_choice", "drive", "rep_question",
-          "ambiguity", "ask_rep", "value_intent", "scenario_apply"}
+          "ambiguity", "ask_rep", "value_intent", "scenario_apply", "value_choice"}
 
 
 def build_expects(state: ConversationState, snapshot: RulesSnapshot) -> dict[str, Any]:
@@ -217,6 +218,8 @@ def build_expects(state: ConversationState, snapshot: RulesSnapshot) -> dict[str
 
 def _build(state: ConversationState, snapshot: RulesSnapshot) -> dict[str, Any]:
     stage = next_stage(state)
+    if state.pending_value_choice is not None:
+        return _expects("value_choice", "choice", value_choice_buttons(state.pending_value_choice))
     if state.pending_value_intent is not None:
         return _expects("value_intent", "choice", VALUE_INTENT)
     if state.last_scenario is not None:

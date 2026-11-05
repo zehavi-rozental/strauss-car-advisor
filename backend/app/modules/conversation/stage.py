@@ -230,6 +230,23 @@ class PendingValueIntent(BaseModel):
     label: str = ""
 
 
+class PendingValueChoice(BaseModel):
+    """One number answering a question about several fields ("2" to "כמה נקודות זיכוי? וכמה ילדים?"): which field(s)?
+    Asked with a button per field and "both"; nothing is saved before the answer (conversation.value_choice)."""
+
+    value: Decimal
+    fields: list[str] = Field(default_factory=list)     # save_profile arguments, in the order asked
+    asked: int = 1                                       # asked again in other words once; then one field at a time
+
+
+class ResolvedValueChoice(BaseModel):
+    """The answer to a PendingValueChoice, kept so a later "בעצם רק ילדים" re-applies it."""
+
+    value: Decimal
+    fields: list[str] = Field(default_factory=list)
+    chosen: list[str] = Field(default_factory=list)
+
+
 class ConsentRecord(BaseModel):
     """What the employee accepted and when: the notice's version and the date, nothing else."""
 
@@ -324,6 +341,11 @@ class ConversationState(BaseModel):
     # save_profile argument -> where the value came from: chat / form / payslip / representative
     field_sources: dict[str, str] = Field(default_factory=dict)
     pending_value_intent: Optional[PendingValueIntent] = None
+    # one number, several fields named by the question: which one(s)? (value_choice); and the last answer to it
+    pending_value_choice: Optional[PendingValueChoice] = None
+    last_value_choice: Optional[ResolvedValueChoice] = None
+    # the question line of the reply on screen, as the employee saw it (the model's words, or the template's)
+    asked_line: str = ""
     # the last "what if" (a check on a copy of the data, never saved): what its buttons apply, until the next message
     last_scenario: Optional[dict[str, Any]] = None
     # the employee's acceptance of a notice, by kind ("ai_processing", "payslip"): version and date only

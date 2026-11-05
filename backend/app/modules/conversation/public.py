@@ -37,6 +37,10 @@ from app.shared.db import new_id, utcnow
 
 from app.modules.cases.public import CasesService, MissingField, Mode, QuestionAnswered, Status as QuestionStatus
 
+from app.shared.ai_policy import ProcessingPolicy, policy_from
+from app.shared.settings import Settings
+
+from . import value_choice
 from .expects import (ChoiceInvalid, FieldsInvalid, build_expects, parse_vehicle_id, tax_label, validate_choice,
                       validate_fields, vehicle_id)
 from .facts import facts_view
@@ -93,10 +97,8 @@ class ConsentInvalid(ValueError):
     """A notice accepted in another version than the one on the server, or an unknown one."""
 
 
-# the notices the employee accepts; a new wording gets a new version, and is shown again
-AI_NOTICE_VERSION = "2026-11-demo-1"
-PAYSLIP_NOTICE_VERSION = "2026-11-demo-1"
-NOTICE_VERSIONS = {"ai_processing": AI_NOTICE_VERSION, "payslip": PAYSLIP_NOTICE_VERSION}
+# the notices the employee accepts come from the processing policy (app.shared.ai_policy): each version names the
+# environment and the provider, so a new provider or wording is shown again
 
 
 class StaleEdit(ConversationConflict):
@@ -188,12 +190,16 @@ class ConversationService:
     def __init__(self, sessions: sessionmaker, rules: RulesStore, llm: LLMChain,
                  cases: Optional[CasesService] = None, max_messages: int = 80, llm_mode: str = "llm_first",
                  email_notifications: Optional[EmailNotificationService] = None, *, require_ai_consent: bool = False,
-                 session_idle_minutes: int = 0, retention_days: int = 0):
+                 session_idle_minutes: int = 0, retention_days: int = 0, policy: Optional[ProcessingPolicy] = None):
         self.sessions = sessions
         self.rules = rules
         self.llm = llm
         self.agent = Agent(llm, llm_mode)
-        self.require_ai_consent = require_ai_consent
+        self.policy = policy or policy_from(Settings(_env_file=None, require_ai_consent=require_ai_consent))
+        # the notice is asked for an external provider only (an approved organization model is the organization's own)
+        self.require_ai_consent = require_ai_consent and self.policy.chat.external
+        self.notice_versions = {"ai_processing": self.policy.ai_notice_version,
+                                "payslip": self.policy.payslip_notice_version}
         self.session_idle_minutes = session_idle_minutes
         self.retention_days = retention_days
         # no notice accepted yet: the same conversation, with the rules and the calculation only
@@ -351,6 +357,10 @@ class ConversationService:
                                             _collector(pending), field)
         else:
             outcome = agent.run_turn(snapshot, self._find_vehicle, state, history, text, _collector(pending))
+        # the question the employee now sees; a model's "2 זה נקודות זיכוי או ילדים?" is held as code's question
+        state.asked_line = value_choice.question_line(outcome.reply)
+        if fields is None and choice is None and outcome.source == "llm":
+            value_choice.note_question(state, snapshot, outcome.reply, text)
 
         # (ג) כתיבה — רק אם הגרסה לא השתנתה מאז (א); אחרת התור כולו מבוטל
         with self.sessions() as session, session.begin():
@@ -640,23 +650,35 @@ class ConversationService:
 
     def _agent_for(self, state: ConversationState) -> Agent:
         """The model only after the employee accepted the notice about it; otherwise the rules and the calculation."""
-        if self.require_ai_consent and "ai_processing" not in state.consents:
+        if self.require_ai_consent and not self._accepted(state, "ai_processing"):
             return self.no_model_agent
         return self.agent
 
+    def _accepted(self, state: ConversationState, kind: str) -> bool:
+        """Accepted in the version on screen now: a notice accepted for another provider is asked again."""
+        record = state.consents.get(kind)
+        return record is not None and record.version == self.notice_versions[kind]
+
     def privacy_json(self, state: ConversationState) -> dict[str, Any]:
-        """What the screen needs to say about the data: the notices and whether they were accepted, the periods."""
+        """What the screen needs to say about the data, from the processing policy: who processes it, the notices and
+        whether they were accepted, the periods. The screens write no provider name and no environment of their own."""
         ai_on = self.llm.available
-        return {"ai": {"available": ai_on, "required": self.require_ai_consent and ai_on,
-                       "accepted": "ai_processing" in state.consents, "version": AI_NOTICE_VERSION},
-                "payslip": {"accepted": "payslip" in state.consents, "version": PAYSLIP_NOTICE_VERSION},
+        policy = self.policy
+        return {**policy.privacy_json(),
+                "ai": {"available": ai_on, "required": self.require_ai_consent and ai_on,
+                       "accepted": self._accepted(state, "ai_processing"), "version": self.notice_versions["ai_processing"],
+                       "notice": policy.ai_notice(), "provider": policy.chat.short, "hosting": policy.chat.hosting},
+                "payslip": {"accepted": self._accepted(state, "payslip"), "version": self.notice_versions["payslip"],
+                            "required": policy.payslip_consent_required, "notice": policy.payslip_notice(),
+                            "acknowledgement": policy.payslip_acknowledgement(), "formats": policy.payslip_formats,
+                            "provider": policy.payslip.short, "hosting": policy.payslip.hosting},
                 "retention_days": self.retention_days, "idle_minutes": self.session_idle_minutes,
-                "demo": "mock" in self.rules.current.calc.rules_version}
+                "demo": policy.environment == "test"}
 
     def set_consent(self, conversation_id: str, token: str, kind: str, accepted: bool, version: str = "") -> dict[str, Any]:
         """The notice accepted, or withdrawn: only its version and the date are kept. Withdrawn, the model stops being
         called for this conversation."""
-        expected = NOTICE_VERSIONS.get(kind)
+        expected = self.notice_versions.get(kind)
         if expected is None or (accepted and version != expected):
             raise ConsentInvalid("האישור אינו תקף. רעננו את העמוד ונסו שוב.")
         for _ in range(self.APPLY_RETRIES):

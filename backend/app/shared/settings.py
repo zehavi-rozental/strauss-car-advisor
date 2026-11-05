@@ -84,6 +84,16 @@ class Settings(BaseSettings):
     # the model is called for a conversation only after the employee accepted the notice about it; until then the rules
     # and the calculation answer (templates), and the screen says so
     require_ai_consent: bool = True
+    # who processes the data (shared.ai_policy): the provider's name on the screens (empty: from LLM_CHAIN), and where it
+    # runs: "external" (a service outside the organization) or "organization" (the organization's own model; never for
+    # an adapter that calls a public service, such as Gemini). The payslip reader may be named and placed apart.
+    ai_provider_name: str = ""
+    ai_provider_hosting: str = "external"
+    payslip_provider_name: str = ""
+    payslip_provider_hosting: str = ""
+    # the organization approved this deployment and its providers for real employee data, payslips included. Off: a
+    # test environment, and the screens say that only sample payslips are uploaded
+    real_data_approved: bool = False
     # a payslip with no text layer (a photo, a scan) would have to go to the provider as a whole: off unless a deployment
     # turns it on for synthetic files. A PDF with text is sent as its pay lines only (payslip.minimize)
     payslip_allow_full_file: bool = False

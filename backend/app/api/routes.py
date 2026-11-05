@@ -420,10 +420,14 @@ async def payslip_extract(request: Request, file: UploadFile, conversation_id: s
     client = _authorized(request, conversation_id.strip())
     if not ctx.payslip_limiter.allow(client):
         raise HTTPException(429, "יותר מדי העלאות. נסו שוב בעוד דקה.")
-    try:
-        ctx.service.set_consent(conversation_id.strip(), request.cookies.get(COOKIE, ""), "payslip", True, consent_version)
-    except ConsentInvalid as exc:
-        raise HTTPException(422, str(exc)) from None
+    if ctx.service.policy.payslip_consent_required:
+        # a test environment (sample payslips only) or a reader outside the organization: the employee's explicit yes,
+        # in the version on screen; an approved organization reader needs none (the screen still says who reads it)
+        try:
+            ctx.service.set_consent(conversation_id.strip(), request.cookies.get(COOKIE, ""), "payslip", True,
+                                    consent_version)
+        except ConsentInvalid as exc:
+            raise HTTPException(422, str(exc)) from None
     data = await _read_capped(file, ctx.settings.payslip_max_bytes)
     try:
         # reading a file and asking the model take seconds: never on the loop that serves every other visitor

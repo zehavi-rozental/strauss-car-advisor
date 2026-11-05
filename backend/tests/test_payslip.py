@@ -207,12 +207,24 @@ def test_service_disabled_when_no_vision(snapshot):
 def test_service_extracts_with_injected_vision():
     rules = _rules_store()
     vision = FakeVision('{"commissions": 1200}')
-    svc = PayslipService(rules, Settings(_env_file=None, payslip_enabled=True), vision=vision)
+    # a photo goes whole to an external reader only where the deployment allows it (synthetic files)
+    svc = PayslipService(rules, Settings(_env_file=None, payslip_enabled=True, payslip_allow_full_file=True),
+                         vision=vision)
     assert svc.enabled is True
     result = svc.extract(JPEG)
     assert result.ok is True
     comm = next(f for f in result.fields if f.field == "commissions")
     assert comm.value == Decimal("1200")
+
+
+def test_a_photo_never_goes_whole_to_an_external_reader_by_default():
+    """5/11: the processing policy, not the adapter, decides what leaves. Before, a reader that takes no text got the
+    whole photo; now the employee is asked to fill the values in by hand, and nothing is sent."""
+    vision = FakeVision('{"commissions": 1200}')
+    svc = PayslipService(_rules_store(), Settings(_env_file=None, payslip_enabled=True), vision=vision)
+    result = svc.extract(JPEG)
+    assert (result.ok, result.reason) == (False, "needs_full_file")
+    assert vision.calls == []
 
 
 def _rules_store():
@@ -225,7 +237,8 @@ def _rules_store():
 # ---------- נקודת הקצה ----------
 
 def _client_with_vision(vision) -> TestClient:
-    settings = Settings(_env_file=None, llm_provider="none", payslip_enabled=True)
+    settings = Settings(_env_file=None, llm_provider="none", payslip_enabled=True,
+                        payslip_allow_full_file=True)   # the test double stands for a reader that takes a file
     engine = build_engine()
     app = create_app(settings, engine=engine, llm=LLMChain())
     svc = PayslipService(app.state.ctx.rules, settings, vision=vision)

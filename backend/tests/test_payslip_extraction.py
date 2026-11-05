@@ -278,7 +278,8 @@ def test_the_schema_lists_every_key_the_code_understands():
 # ---------- the endpoint and the hand-off to the conversation ----------
 
 def client_with(vision) -> TestClient:
-    settings = Settings(_env_file=None, llm_provider="none", payslip_enabled=True)
+    settings = Settings(_env_file=None, llm_provider="none", payslip_enabled=True,
+                        payslip_allow_full_file=True)   # the test double stands for a reader that takes a file
     app = create_app(settings, engine=build_engine(), llm=LLMChain())
     app.state.ctx.payslip = PayslipService(app.state.ctx.rules, settings, vision=vision)
     return TestClient(app)

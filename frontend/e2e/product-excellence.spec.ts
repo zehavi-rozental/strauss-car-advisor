@@ -40,19 +40,30 @@ async function state(page: Page) {
 }
 
 const shown = (n: string | number) => Math.abs(Math.round(Number(n))).toLocaleString('en-US')
-const salaryChip = (page: Page, value: string) => page.getByRole('button', { name: new RegExp(`שכר בסיס: ${value}`) })
+// "הנתונים שלי" is one button (5/11: no row of value chips); a value is edited from its row in the sheet
+async function editSalary(page: Page) {
+  await page.getByRole('button', { name: /הנתונים שלי/ }).click()
+  await page.getByRole('dialog', { name: 'הנתונים שלי' }).getByRole('button', { name: 'לעדכן: שכר בסיס' }).click()
+}
+async function sheetShows(page: Page, value: string) {
+  await page.getByRole('button', { name: /הנתונים שלי/ }).click({ timeout: 30_000 })
+  const sheet = page.getByRole('dialog', { name: 'הנתונים שלי' })
+  await expect(sheet).toContainText(`${value} ₪`)
+  await sheet.getByRole('button', { name: 'סגירה' }).click()
+  await expect(sheet).toHaveCount(0)
+}
 const SHEET = { name: 'הנתונים שלי' }
 
 test.describe('one value, on its own', () => {
   test('the salary changes: the figures before and after are the engine\'s, the rest of the data stays', async ({ page }) => {
     await toResults(page)
     const before = await state(page)
-    await salaryChip(page, '18,500').click()
+    await editSalary(page)
     const sheet = page.getByRole('dialog', SHEET)
     await sheet.getByRole('textbox').fill('20000')
     await sheet.getByRole('button', { name: 'לעדכן', exact: true }).click()
     await expect(sheet).toHaveCount(0)
-    await expect(salaryChip(page, '20,000')).toBeVisible()
+    await sheetShows(page, '20,000')
 
     const card = page.getByRole('region', { name: 'מה השתנה' }).last()
     await expect(card).toContainText('18,500')
@@ -74,7 +85,7 @@ test.describe('one value, on its own', () => {
 
   test('out of range: said at the field, nothing saved, what was typed stays', async ({ page }) => {
     await toResults(page)
-    await salaryChip(page, '18,500').click()
+    await editSalary(page)
     const sheet = page.getByRole('dialog', SHEET)
     await sheet.getByRole('textbox').fill('99999999')
     await sheet.getByRole('button', { name: 'לעדכן', exact: true }).click()
@@ -101,7 +112,7 @@ test.describe('a real change or only a check', () => {
     const before = await state(page)
     await send(page, 'מה יקרה אם ארוויח 20,000?')
     await expect(page.getByRole('region', { name: 'בדיקה בלבד' }).last()).toContainText('הנתונים שלכם לא השתנו')
-    await expect(salaryChip(page, '18,500')).toBeVisible()
+    await sheetShows(page, '18,500')
     let now = await state(page)
     expect(now.profile.base).toBe('18500')
     expect(now.results.map((r: { result: unknown }) => r.result)).toEqual(before.results.map((r: { result: unknown }) => r.result))
@@ -112,7 +123,7 @@ test.describe('a real change or only a check', () => {
 
     await send(page, 'ואם הייתי מרוויח 21,000?')
     await page.getByRole('button', { name: 'לעדכן כנתון שלי' }).click()
-    await expect(salaryChip(page, '21,000')).toBeVisible()
+    await sheetShows(page, '21,000')
     now = await state(page)
     expect(now.profile.base).toBe('21000')
   })
@@ -131,7 +142,7 @@ test.describe('a shared computer', () => {
   test('a reload keeps the tab; another tab asks before showing anything, and can erase', async ({ page, context }) => {
     await toResults(page)
     await page.reload()
-    await expect(salaryChip(page, '18,500')).toBeVisible({ timeout: 30_000 })
+    await sheetShows(page, '18,500')
 
     const other = await context.newPage()
     await other.goto('/employee')
@@ -153,7 +164,7 @@ test.describe('a shared computer', () => {
     const other = await context.newPage()
     await other.goto('/employee')
     await other.getByRole('button', { name: 'להמשיך את השיחה' }).click()
-    await expect(salaryChip(other, '18,500')).toBeVisible({ timeout: 30_000 })
+    await sheetShows(other, '18,500')
     await other.close()
   })
 
@@ -164,11 +175,11 @@ test.describe('a shared computer', () => {
     const dialog = page.getByRole('alertdialog')
     await expect(dialog).toContainText('יימחקו')
     await dialog.getByRole('button', { name: 'ביטול' }).click()
-    await expect(salaryChip(page, '18,500')).toBeVisible()
+    await sheetShows(page, '18,500')
 
     await page.getByRole('button', { name: 'שיחה חדשה' }).click()
     await page.getByRole('alertdialog').getByRole('button').first().click()      // the first is the action, the last cancels
-    await expect(salaryChip(page, '18,500')).toHaveCount(0, { timeout: 30_000 })
+    await expect(page.locator('body')).not.toContainText('18,500', { timeout: 30_000 })
     expect((await page.request.get(`/api/conversations/${id}`)).status()).toBeGreaterThanOrEqual(400)
     await page.reload()
     await expect(page.locator(BOT).first()).toBeVisible({ timeout: 30_000 })
@@ -181,7 +192,7 @@ test.describe('a shared computer', () => {
     await page.getByRole('button', { name: /הנתונים שלי/ }).click()
     await page.getByRole('dialog', SHEET).getByRole('button', { name: /מחיקת השיחה/ }).click()
     await page.getByRole('alertdialog').getByRole('button').first().click()
-    await expect(salaryChip(page, '18,500')).toHaveCount(0, { timeout: 30_000 })
+    await expect(page.locator('body')).not.toContainText('18,500', { timeout: 30_000 })
     expect((await page.request.get(`/api/conversations/${id}`)).status()).toBeGreaterThanOrEqual(400)
   })
 })

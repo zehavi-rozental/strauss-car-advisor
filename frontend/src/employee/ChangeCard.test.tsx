@@ -1,9 +1,9 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import type { Facts, MessageCard, OptionResult } from '../api/types'
+import type { Facts, MessageCard, OptionResult, Privacy } from '../api/types'
 import { CarActions } from './CarActions'
 import { ChangeCard } from './ChangeCard'
-import { ContextStrip, PrivacyLines, PrivacyNotice, ResumeCard } from './DataSheet'
+import { MyDataButton, PrivacyLines, PrivacyNotice, ResumeCard } from './DataSheet'
 import { MessageList, SUPERSEDED_LABEL, UNUSUAL_NOTE } from './MessageList'
 
 const option = (id: string, label: string, before: string | null, after: string) => ({
@@ -45,26 +45,34 @@ const facts: Facts = {
 }
 
 describe('what is known, in the chat', () => {
-  it('the strip names what this stage is about and what is missing, each one a button', () => {
-    const html = renderToStaticMarkup(<ContextStrip facts={facts} onOpen={() => {}} />)
+  it('one button, with how many values are missing; no separate value chips (5/11)', () => {
+    const html = renderToStaticMarkup(<MyDataButton facts={facts} onOpen={() => {}} />)
     expect(html).toContain('הנתונים שלי')
     expect(html).toContain('1 חסרים')
-    expect(html).toContain('18,000 ₪')
-    expect(html).toContain('aria-label="שכר בסיס: 18,000 ₪. לעדכון"')
+    expect(html).not.toContain('18,000 ₪')
+    expect(html.match(/<button/g)).toHaveLength(1)
   })
 
   it('the strip draws nothing before the server said anything', () => {
-    expect(renderToStaticMarkup(<ContextStrip facts={null} onOpen={() => {}} />)).toBe('')
+    expect(renderToStaticMarkup(<MyDataButton facts={null} onOpen={() => {}} />)).toBe('')
   })
 })
 
-const privacy = { ai: { available: true, required: true, accepted: false, version: 'v' }, payslip: { accepted: false, version: 'v' },
-                  retention_days: 30, idle_minutes: 120, demo: true }
+const privacy: Privacy = {
+  environment: 'test',
+  ai: { available: true, required: true, accepted: false, version: 'v', provider: 'Gemini', hosting: 'external',
+        notice: 'כדי להבין כתיבה חופשית, ההודעות נשלחות לעיבוד ב-Google Gemini, שירות מחוץ לארגון.' },
+  payslip: { accepted: false, version: 'v', required: true, notice: '', acknowledgement: '', formats: ['pdf'],
+             provider: 'Gemini', hosting: 'external' },
+  retention_days: 30, idle_minutes: 120, demo: true }
 
 describe('privacy on the screen', () => {
-  it('the notice says where the data goes, that this is a demo, and that the conversation works without the model', () => {
+  it('the notice comes from the server (provider and environment), and the conversation works without the model', () => {
     const html = renderToStaticMarkup(<PrivacyNotice privacy={privacy} disabled={false} onAccept={() => {}} onHide={() => {}} />)
-    for (const text of ['Google Gemini', 'הדגמה', 'אל תזינו', 'בלי אישור', 'להמשיך בלי AI']) expect(html).toContain(text)
+    for (const text of ['Google Gemini', 'סביבת בדיקות', 'אין להזין', 'בלי אישור', 'להמשיך בלי AI']) expect(html).toContain(text)
+    const live = renderToStaticMarkup(<PrivacyNotice privacy={{ ...privacy, environment: 'production', demo: false }}
+                                                     disabled={false} onAccept={() => {}} onHide={() => {}} />)
+    expect(live).not.toContain('סביבת בדיקות')
     expect(html).not.toContain('checked')
   })
 

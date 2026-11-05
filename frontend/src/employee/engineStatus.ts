@@ -8,16 +8,17 @@ export interface EngineBadge {
   title: string
 }
 
-export function engineBadge(state: EngineState | null): EngineBadge {
+/** provider: the short name the server's processing policy gives (privacy.ai.provider), never one written here */
+export function engineBadge(state: EngineState | null, provider = 'מודל השפה'): EngineBadge {
   switch (state) {
     case 'ai':
-      return { text: 'Gemini פעיל', tone: 'live', title: 'התשובות נכתבות בעזרת Gemini; החישובים נעשים במנוע החישוב.' }
+      return { text: `${provider} פעיל`, tone: 'live', title: `התשובות נכתבות בעזרת ${provider}; החישובים נעשים במנוע החישוב.` }
     case 'untried':
-      return { text: 'Gemini מוגדר · ממתין להודעה', tone: 'pending',
-               title: 'Gemini יופעל בהודעה הבאה שצריכה הבנה של טקסט חופשי.' }
+      return { text: `${provider} מוגדר · ממתין להודעה`, tone: 'pending',
+               title: `${provider} יופעל בהודעה הבאה שצריכה הבנה של טקסט חופשי.` }
     case 'limited':
       return { text: 'שירות מוגבל · מצב תבניות', tone: 'limited',
-               title: 'Gemini לא ענה (תקלה או מכסה). התשובות מגיעות מתבניות קבועות, והחישובים לא נפגעים.' }
+               title: `${provider} לא ענה (תקלה או מכסה). התשובות מגיעות מתבניות קבועות, והחישובים לא נפגעים.` }
     case 'none':
       return { text: 'סביבת בדיקות ללא AI', tone: 'off', title: 'אין מנוע שפה בסביבה הזו: תבניות קבועות בלבד.' }
     default:
