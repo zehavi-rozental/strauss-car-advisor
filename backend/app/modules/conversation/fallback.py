@@ -46,7 +46,7 @@ from .parsing import (
     year_spans,
 )
 from .stage import ARG_OF, PROFILE_ARGS, Q2_FIELDS, CarClarification, ConversationState, current_group
-from .templates import money, paced, recorded_text   # recorded_text: re-exported (agent, public)
+from .templates import ask_fields, paced, recorded_text   # recorded_text: re-exported (agent, public)
 from .tools import OPT_OUT_WORDS, available_options
 
 _RANK_RE = re.compile(r"(?:מה\s+)?הכי\s*(?:משתלם|כדאי|טוב)(?:\s+לי)?|תמליץ|המלצ|דרג", re.IGNORECASE)
@@ -132,10 +132,35 @@ def named_cars(text: str, cars: Iterable[CatalogCar]) -> list[CatalogCar]:
     return [car for _, car in sorted(keep, key=lambda x: -len(x[0]))]
 
 
+# "אני משלמת 400 ולא 300": the new value, then the one it replaces (15/11: the second number made the whole message
+# "not understood"). Only at the end of the message, only "לא"/"ולא" + one number.
+_NOT_OLD_RE = re.compile(r"[\s,]*ו?לא\s+(\d[\d,]*(?:\.\d+)?)\s*(?:₪|ש\"ח|שח|שקל(?:ים)?|%|אחוז(?:ים)?)?\s*[.!]?\s*$")
+
+
+def _saved_numbers(state: ConversationState) -> set[Decimal]:
+    p, c = state.profile, state.current
+    values = [p.base, p.commissions, p.bonus, p.pension_percent, p.study_fund_percent, p.credit_points, p.children,
+              c.copay, c.maintenance, c.use_value if c.source == "stated" else None]
+    return {Decimal(str(v)) for v in values if v is not None}
+
+
+def drop_replaced_value(state: ConversationState, text: str) -> str:
+    """"…400 ולא 300" → "…400" when 300 is exactly a value already saved: the employee names the value being
+    replaced. Anything else (a number never saved, no number before it) is left as it is, and read as usual."""
+    m = _NOT_OLD_RE.search(text)
+    if m is None or not re.search(r"\d", text[:m.start()]):
+        return text
+    try:
+        old = Decimal(m.group(1).replace(",", ""))
+    except ArithmeticError:
+        return text
+    return text[:m.start()] if old in _saved_numbers(state) else text
+
+
 def fallback_plan(state: ConversationState, snapshot: RulesSnapshot, text: str) -> ParserPlan:
     group, fields = current_group(state)
     fields = paced(state, fields)        # one-at-a-time: only the field on screen is answered / scoped
-    t = text.strip()
+    t = drop_replaced_value(state, text.strip())
     if not t or not fields:
         return ParserPlan()
     correction = _group_correction_plan(state, snapshot, t)
@@ -263,8 +288,10 @@ def _group_correction_plan(state: ConversationState, snapshot: RulesSnapshot, te
     fillers = [*ext.answer_fillers, *ext.correction_cues, "אני", "אבל", "זה", "למעשה", "בעצם"]
     if unread_words(text, [span], (), fillers):
         return None
-    return ParserPlan(_call("save_profile", eligibility_group=new_group), True, direct=True,
-                      notice=f"עדכנתי: קבוצה {new_group}.")
+    # tagged "combined" like a value correction: a correction is valid at any stage (15/11: after the copay it was
+    # refused by the stage gate while a ready-made "עדכנתי: קבוצה ג." was still said, and the group stayed ב). No
+    # notice of its own: the acknowledgement is built from what was saved ("עדכנתי: קבוצה ג במקום ב."), never before.
+    return ParserPlan([ToolCall("save_profile", {"eligibility_group": new_group}, "combined")], True, direct=True)
 
 
 # save_profile arg name → the Profile attribute it corrects (for a value correction after it was set)
@@ -301,19 +328,11 @@ def _profile_value_correction_plan(state: ConversationState, snapshot: RulesSnap
                "למעשה", "בעצם", "זה", "הם"]
     if unread_words(text, reading.spans, reading.phrases, fillers):
         return None
-    def _label(arg: str, v: object) -> str:
-        names = {"base_salary": "שכר בסיס", "commissions": "עמלות", "bonus": "בונוס",
-                 "pension_percent": "פנסיה", "study_fund_percent": "קרן השתלמות",
-                 "credit_points": "נקודות זיכוי", "children_under_23": "ילדים"}
-        pct = arg in ("pension_percent", "study_fund_percent")
-        return f"{names[arg]} {v}%" if pct else f"{names[arg]} {money(Decimal(str(v)))}" if arg == "base_salary" else f"{names[arg]} {v}"
-    notice = "עדכנתי: " + ", ".join(_label(a, v) for a, v in changes.items()) + "."
     # tagged "combined" so the stage gate is relaxed: a correction is a valid fact at any stage, including
     # after a result is on screen (save_profile then clears calculated_for and the net is recomputed).
-    # fallback_notice (not notice) so the generic "רשמתי" acknowledgement built from the saved state is not
-    # duplicated — the state-based confirmation line is the single source of truth for what changed.
-    return ParserPlan([ToolCall("save_profile", changes, "combined")], True, direct=True,
-                      fallback_notice=notice)
+    # No notice of its own: the state-based confirmation line is the single source of truth for what changed,
+    # with the value it replaced ("עדכנתי: שכר בסיס 20,000 ₪ במקום 18,500 ₪.", 15/11), on every path.
+    return ParserPlan([ToolCall("save_profile", changes, "combined")], True, direct=True)
 
 
 def _says_mine(text: str, cues: Iterable[str]) -> bool:
@@ -434,9 +453,27 @@ def _grouped_plan(state: ConversationState, snapshot: RulesSnapshot, group: Opti
         # several fields. Save nothing; ask them one at a time.
         if len([f for f in fields if f in Q2_FIELDS]) > 1 and has_all_scope(t):
             return ParserPlan([], True, direct=True, clarify_scope=True, notice=SCOPE_CLARIFY)
-        plan = _bare_none_plan(snapshot, fields, t)
+        # a bare "אין" answers the question on screen only (16/11: "אין" to "פנסיה, קרן השתלמות?" also set children 0,
+        # a field that was not asked); a labelled value ("2 ילדים") is still read for any field below
+        plan = _bare_none_plan(snapshot, ask_fields(state, group, fields), t)
         if plan is not None:
             return plan
+    if "car" not in fields and state.current.source is None and not state.current.choices:
+        # today's car said before it is asked ("קורולה 2026, משלמת 300" at the contributions question, 15/11): read
+        # with the car's fields when the message itself makes it today's car (a copay said for it, or "יש לי…");
+        # a car named alone may be an alternative, so it waits for its question (the model reads it either way)
+        cars = named_cars(t, snapshot.catalog)
+        roles = car_roles(t, cars, snapshot.extensions.car_role_cues) if cars else {}
+        if cars and (parse_copay(t) is not None or "current" in roles.values()):
+            # with the alternatives the same message asks for ("…ורוצה לבדוק ATTO 3"): said early, never dropped (16/11)
+            early = [*fields, "car", "copay"] + ([] if state.selected or state.rank_requested else ["options"])
+            plan = _q3_car_plan(state, snapshot, early, cars, t)
+            if plan.calls and not plan.clarify:
+                # an explicit fact said early: "combined" relaxes the stage gate for every call, so the car and its
+                # copay are saved together (the Q2 gate alone saved the copay without its car)
+                # (the alternatives are recorded as a choice, as for the model: the calculation waits for the data)
+                return replace(plan, calls=[ToolCall("select_options" if c.name == "calculate" else c.name, c.args,
+                                                     "combined") for c in plan.calls])
     car_guess = None
     if "car" in fields:
         cars = named_cars(t, snapshot.catalog)
@@ -799,7 +836,9 @@ def _car_detail_plan(snapshot: RulesSnapshot, question: str, text: str) -> Parse
         if hit and only(hit[1]):
             return ParserPlan(_call("save_profile", current_drive=hit[0].value), True)
         return ParserPlan()
-    if question in ("use_value", "copay", "maintenance") and only(unknown_span(text)):
+    if question in ("use_value", "copay", "maintenance") and (
+            only(unknown_span(text)) or (question == "copay" and only(copay_unknown_span(text)))):
+        # "לא יודעת", or for the copay "לא יודעת כמה אני משלמת" (manual QA 9/11: it was "not understood")
         flag = {"use_value": "current_use_value_unknown", "copay": "current_copay_unknown",
                 "maintenance": "current_maintenance_unknown"}[question]
         return ParserPlan(_call("save_profile", **{flag: True}), True)

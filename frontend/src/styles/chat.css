@@ -7,8 +7,8 @@
   isolation: isolate;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: calc(var(--band-h) + var(--frame-gap)) minmax(0, 1fr) auto;
-  grid-template-areas: 'head' 'body' 'foot';
+  grid-template-rows: calc(var(--band-h) + var(--frame-gap)) auto minmax(0, 1fr) auto;
+  grid-template-areas: 'head' 'tools' 'body' 'foot';
   block-size: calc(100dvh - var(--topbar-h));
   background: var(--paper);
 }
@@ -757,6 +757,8 @@
   color: var(--ink-2);
 }
 .car-actions-current { display: flex; align-items: center; gap: 6px; margin: 0; }
+/* a car name never breaks inside: it moves to the next line whole (a name wider than the line still wraps) */
+.car-actions-current .car-name { display: inline-block; max-inline-size: 100%; white-space: nowrap; }
 .car-actions-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .car-actions-row .chip { display: inline-flex; align-items: center; gap: 6px; }
 .car-actions-missing { margin: 0; color: var(--ink-2); }

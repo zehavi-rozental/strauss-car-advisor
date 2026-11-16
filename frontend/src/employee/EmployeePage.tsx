@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { DataSheet, MyDataButton } from './DataSheet'
 import { ApiError, api } from '../api/client'
 import type { OptionResult } from '../api/types'
 import { FlowCar } from '../art/FlowCar'
@@ -61,6 +62,7 @@ export function EmployeePage() {
   // 360°: options chosen in the map for the side-by-side table (the map itself keeps every option)
   const [mapCompare, setMapCompare] = useState<OptionResult[] | null>(null)
   const [correcting, setCorrecting] = useState(false)
+  const [dataOpen, setDataOpen] = useState<{ focus?: string } | null>(null)     // "הנתונים שלי"
   // a rep-inquiry card, opened inside the conversation (the advisor's offer, or the pre-results banner link).
   // null = closed. intent/option carry what the advisor proposed; the server re-validates.
   // `opened` counts every opening: the card is remounted each time (its key), so text typed for one car never stays
@@ -79,6 +81,19 @@ export function EmployeePage() {
     question: `אני מבקש/ת לברר מה סכום ההשתתפות החודשי שלי ברכב הנוכחי${car ? ` (${car})` : ''}. ` +
       'האם הסכום שבקטלוג הוא הסכום שחל עליי?',
   })
+  // "בירור אישי מול הנציג" on a new car's copay (restored 9/11): the car is the inquiry's option, never its text; the
+  // server checks it against the results on screen (copay_verification → NEW_CAR_COPAY)
+  const openCopayInquiry = (car: OptionResult) => {
+    const catalogSource = car.result.copay_source === 'catalog' || car.result.copay_source === 'catalog_final'
+    setInquiry({
+      intent: 'copay_verification',
+      question: `אני מבקש/ת לברר את סכום ההשתתפות החודשי האישי שלי עבור ${car.label}. האם הסכום שבקטלוג הוא הסכום שיחול עליי?`,
+      optionId: car.option_id,
+      carLabel: car.label,
+      // the amount on the card is the catalog's only while its source is the catalog
+      catalogAmount: catalogSource ? car.result.alternative?.copay ?? undefined : undefined,
+    })
+  }
   const repEmail = c.repEmail ?? undefined
   // the selection card, the profile form, and the payslip upload open only from the reply's link
   // What a link opened belongs to the question it was opened for: a new question closes it. Only a new
@@ -118,6 +133,7 @@ export function EmployeePage() {
       setTableOpen(false)
       setCorrecting(false)
       setOpened(null)
+      setDataOpen(null)                 // the data of the conversation left behind is never shown in the new one
       void c.newConversation()
     }
   }
@@ -239,9 +255,10 @@ export function EmployeePage() {
         }
       }
     : undefined
-  // mail on, and no address in this conversation (an inquiry sent from the chat, 1/11): one can be added on the
-  // latest open inquiry, verified by its link; the answer shows here either way
-  const addEmail = c.emailEnabled && !c.emailSimulated && !c.emailPending && !repEmail && c.conversationId
+  // mail on: an address can be given on the latest open inquiry whatever opened it (a card, a typed "לשלוח"), another
+  // one while the first waits for its verification, or a change of the verified one (10/11: the field was hidden for
+  // simulated mail and while an address waited, so it "did not always appear"); the answer shows here either way
+  const addEmail = c.emailEnabled && c.conversationId
     ? async (email: string) => {
         try {
           const res = await api.resendVerification(c.conversationId!, email)
@@ -269,6 +286,7 @@ export function EmployeePage() {
           knownEmail={repEmail}
           emailEnabled={c.emailEnabled}
           emailSimulated={c.emailSimulated}
+          emailPending={c.emailPending}
           disabled={busy}
           onCancel={() => setInquiry(null)}
           onSaved={(res) => { onInquirySaved(res); }}
@@ -303,12 +321,22 @@ export function EmployeePage() {
         </div>
         <Progress stage={c.stage} hasResults={c.results.length > 0} />
         <div className="chat-actions">
-          {c.waitingForRep && <span className="tag tag-pending header-tag">ממתין לתשובת נציג</span>}
           <button type="button" className="new-chat" onClick={newChat} disabled={c.sending}>
             <Icon name="retry" size={16} />שיחה חדשה
           </button>
         </div>
       </header>
+
+      {/* under the blue band, no bar of its own: the representative's status (only while an inquiry is open) on the start
+          side, "עריכת הנתונים שלי" on the end side. A row of the page's grid, so it never covers the conversation. */}
+      <div className="chat-tools">
+        {c.waitingForRep && (
+          <p className="rep-waiting" role="status" aria-live="polite">
+            <i className="rep-waiting-dot" aria-hidden="true" />ממתין לתשובת הנציג
+          </p>
+        )}
+        <MyDataButton facts={c.facts} onOpen={(focus) => setDataOpen({ focus })} />
+      </div>
 
       <main className="chat-body">
         <div className="chat-column">
@@ -320,13 +348,13 @@ export function EmployeePage() {
           <MessageList messages={c.messages} repQuestions={c.repQuestions} results={c.results} resultsStale={c.resultsStale}
                        resultsAnchor={c.resultsAnchor} typing={c.sending}
                        onOpenTable={() => setTableOpen(true)}
-                       onResendVerification={resendVerification} onAddEmail={addEmail}
+                       onResendVerification={resendVerification} onAddEmail={addEmail} verifiedEmail={repEmail}
                        mapCard={c.optionMap && <OptionMapSummary map={c.optionMap} onOpen={() => setMapOpen(true)} />}
                        tail={c.loading ? null : tail}
                        onRetry={(seq) => void c.retry(seq)} onCorrect={firstVisit ? undefined : correct} busy={busy}
                        repCopayOffer={repCopayOffer} onSend={c.send} todayCopay={c.todayCopay}
                        todayCopaySource={c.todayCopaySource} focusQuestionId={c.focusQuestionId}
-                       todayCard={todayCard} mapAnchor={c.mapAnchor} />
+                       todayCard={todayCard} mapAnchor={c.mapAnchor} onAskCopay={openCopayInquiry} />
         </div>
       </main>
 
@@ -343,6 +371,10 @@ export function EmployeePage() {
                     onSend={(text) => c.send({ text }, text)} />
         </div>
       </footer>
+      {dataOpen && c.facts?.items && (
+        <DataSheet facts={c.facts} focus={dataOpen.focus} busy={busy} onClose={() => setDataOpen(null)}
+                   onSave={c.editField} onSelection={() => { setDataOpen(null); if (options) setOpened('selection') }} />
+      )}
       {tableOpen && c.results.length > 0 && (
         <ComparisonPanel results={c.results} stale={c.resultsStale} expects={c.expects} disabled={busy}
                          onClose={() => setTableOpen(false)} onSend={c.send} onCorrect={correct} details={catalog} />

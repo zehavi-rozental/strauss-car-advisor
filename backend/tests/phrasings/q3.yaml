@@ -16,13 +16,15 @@ cases:
   - {text: "אין לי רכב", allowed: [{car: none}]}
   - text: "אין בונוס, 2 ילדים, ואין לי רכב"
     allowed: [{bonus: 0, children: 2, car: none}, {bonus: 0, children: 2}]
-  - {text: "אין בונוס, 2 ילדים, יש לי קורולה קרוס הלבנה", allowed: []}       # "הלבנה" — לא נקרא במלואו
-  - {text: "אין בונוס, 2 ילדים, זה לא קורולה קרוס", allowed: []}
+  # 16/11: the salary leftovers are asked before the car, so what is said clearly about them is saved; the car words
+  # that are not read in full are never saved (the car question follows)
+  - {text: "אין בונוס, 2 ילדים, יש לי קורולה קרוס הלבנה", allowed: [{bonus: 0, children: 2}]}   # "הלבנה" — הרכב לא נקרא במלואו
+  - {text: "אין בונוס, 2 ילדים, זה לא קורולה קרוס", allowed: [{bonus: 0, children: 2}]}
   - {text: "בונוס בערך 2,000, יש לי קורולה קרוס", allowed: [{bonus: 2000, approximate: [bonus, commissions], car: CAR-09}]}
   - {text: "יש לי קורולה קרוס או קורולה, לא זוכרת", allowed: []}
   - {text: "אין בונוס, 2 ילדים, הרכב של אשתי קורולה קרוס", allowed: [{bonus: 0, children: 2}]}
   - {text: "קורולה קרוס ו-ATTO 3, אין בונוס", allowed: []}
-  - {text: "300", allowed: [{copay: 300}]}
+  - {text: "300", allowed: [{copay: 300}, {bonus: 300}]}     # 16/11: the bonus is the question on screen here
   # הרכב של היום או חלופה: נקבע לפי מילים (car_role_cues); שם רכב לבד — שואלים
   - {text: "ATTO 3", allowed: [{car: CAR-10}, {clarify: CAR-10}]}
   - {text: "אטו 3", allowed: [{car: CAR-10}, {clarify: CAR-10}]}

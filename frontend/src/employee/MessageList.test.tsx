@@ -89,13 +89,21 @@ describe('inquiry record in the chat', () => {
     expect(count(html, 'data-testid="rep-inquiry-history"')).toBe(1)
   })
 
-  it('the car cards carry no inquiry link: the one place is the card above the comparison (1/11)', () => {
+  it('a new car\'s copay can be asked about from its card, once per car (restored 9/11; removed on 1/11)', () => {
     for (const results of [[copayResult('CAR-05')], [copayResult('CAR-05'), copayResult('CAR-06')]]) {
-      const out = render({ results, todayCard: <button type="button">בירור השתתפות מול נציג</button> })
-      expect(out).not.toContain('בירור אישי')
-      expect(count(out, 'בירור השתתפות מול נציג')).toBe(1)
+      const out = render({ results, onAskCopay: () => {}, todayCard: <button type="button">בירור השתתפות מול נציג</button> })
+      expect(count(out, 'בירור אישי מול הנציג')).toBe(results.length)
+      expect(count(out, 'בירור השתתפות מול נציג')).toBe(1)                            // today's car keeps its own
       expect(count(out, 'השתתפות ברכב החדש')).toBeGreaterThanOrEqual(results.length)   // the amount stays on each car
     }
+  })
+
+  it('a car with an open copay inquiry gets no second link, and stale cards none', () => {
+    const results = [copayResult('CAR-05'), copayResult('CAR-06')]
+    const open = inquiry('OPEN', { id: 'q9', missing_field: 'NEW_CAR_COPAY', option_id: 'CAR-05' })
+    expect(count(render({ results, onAskCopay: () => {}, repQuestions: [open] }), 'בירור אישי מול הנציג')).toBe(1)
+    expect(render({ results, onAskCopay: () => {}, resultsStale: true })).not.toContain('בירור אישי')
+    expect(render({ results })).not.toContain('בירור אישי')                            // nothing to open: no link
   })
 })
 

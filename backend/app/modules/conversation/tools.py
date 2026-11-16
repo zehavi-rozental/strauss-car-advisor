@@ -51,9 +51,11 @@ from .stage import (
     PendingConfirmation,
     PendingOccupation,
     Stage,
+    current_unknown,
     missing_current_car,
     missing_profile,
     next_stage,
+    profile_args,
 )
 
 OPT_OUT_WORDS = ("ויתור", "לוותר", "opt out", "opt_out", "בלי רכב", "ללא רכב")
@@ -89,11 +91,16 @@ class ToolContext:
     # the profile form / a reviewed payslip: each amount sits in its own shekel field, so a small amount is
     # what it says (never "3 ₪ or 3,000 ₪?"); unusual values are still confirmed
     exact_amounts: bool = False
+    value_source: str = "chat"      # where a saved value came from: chat / form / payslip ("הנתונים שלי")
     # the employee chose "יש רכב, ההשתתפות 0" (the answer to the ambiguity question): copay 0 with the model still
     # unknown is what they said — only code sets this, never the model
     allow_zero_copay: bool = False
+    copay_rep_chosen: bool = False     # "לברר מול נציג" chosen: today's copay stays unknown until the rep answers
+    copay_choice_needed: bool = False  # a typed "לא ידוע" while the copay choices are open: they are asked again
     # the model called show_cars (1/11): code puts the real list of cars above the model's reply
     cars_shown: bool = False
+    eligible_requested: bool = False
+    eligible_drive: str = ""
     # where a today's copay saved in this turn comes from ("rep_confirmed": the representative's answer the employee
     # applied); None: the employee's own. Set before the save, so the reply built in the same turn says it (1/11)
     copay_source: Optional[str] = None
@@ -136,6 +143,11 @@ def rep_car_label(c: Any, snapshot: RulesSnapshot) -> Optional[str]:
     if not text:
         return None
     return safe_car_label(text) if looks_like_car(snapshot, text) else GENERIC_CAR_LABEL
+
+
+def _copay_car_key(c: Any) -> str:
+    """Today's car as the key of `copay_unknown_told`: another car gets the ways to go on again."""
+    return f"{c.source}:{c.catalog_code or ''}:{c.label or c.query or ''}"
 
 
 # ---------- ארגומנטים ----------
@@ -264,8 +276,15 @@ def _check_ranges(ctx: ToolContext, args: SaveProfileArgs) -> tuple[SaveProfileA
     return (args.model_copy(update=drop) if drop else args), rejected
 
 
+def given_values(state: ConversationState) -> dict[str, Any]:
+    """The employee's own values by save_profile argument: the salary fields, the group and today's copay."""
+    return {**profile_args(state.profile), "eligibility_group": state.profile.group,
+            "current_copay": state.current.copay}
+
+
 def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
     p, c, snap = ctx.state.profile, ctx.state.current, ctx.snapshot
+    before = given_values(ctx.state)
     saved: list[str] = []
     held = ctx.state.pending_confirmation
     question_about_held = held is not None and ctx.question_message and getattr(args, held.field, None) is not None
@@ -361,6 +380,18 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
         c.copay_source = ctx.copay_source  # the rep's answer applied by the employee, or (None) the employee's own
         c.copay_provisional = None       # a real amount replaces the provisional catalog one
         saved.append("current_copay")
+    elif args.current_copay_unknown and c.copay is None and c.source in ("catalog", "tax", "stated") \
+            and not c.copay_unknown and c.copay_provisional is None and not ctx.copay_rep_chosen \
+            and (ctx.state.copay_unknown_told != _copay_car_key(c) or ctx.copay_choice_needed):
+        # today's car is known, so its copay is a closed question (templates.copay_choices_offered, 16/11): the catalog
+        # amount, another amount or the representative. The first typed "לא ידוע" for this car saves nothing and
+        # answers with the ways to go on (agent.COPAY_UNKNOWN_CHOOSE); the next one, in a later turn, is recorded
+        # below as unknown, so the choices are never asked over and over. A second call in the same turn (the parser,
+        # then the model) is still the first "לא ידוע".
+        ignored.append({"field": "current_copay", "reason": "today's car is known: confirm the catalog amount, "
+                                                           "write another amount, or ask the representative"})
+        ctx.copay_choice_needed = True
+        ctx.state.copay_unknown_told = _copay_car_key(c)
     elif args.current_copay_unknown and c.copay is None:
         c.copay_unknown = True
         saved.append("current_copay_unknown")
@@ -415,6 +446,13 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
                 p.approximate_fields.append(arg)
             elif arg not in args.approximate_fields and arg in p.approximate_fields:
                 p.approximate_fields.remove(arg)
+    for name in saved:
+        if not name.startswith(("unknown:", "defer:")):
+            ctx.state.field_sources[name] = ctx.value_source
+    after = given_values(ctx.state)
+    for name, old in before.items():
+        if old is not None and after.get(name) is not None and str(after[name]) != str(old):
+            ctx.state.previous_values[name] = str(old)      # what it replaced: the employee's own earlier value
     if saved:
         # only a real change makes the results out of date: a value held or refused changes nothing, and a
         # needless recalculation re-showed the old result and hid the confirmation question (QA 22/10)
@@ -434,6 +472,8 @@ def _invalidate_results(state: ConversationState, data: bool = True) -> None:
     """נתון השתנה → התוצאות הקודמות כבר לא תקפות; יחושבו מחדש לאותן חלופות. data=False: only the
     selection changed (the option map, which covers every option, is still valid)."""
     state.calculated_for = []
+    if data:
+        state.data_version += 1
     if data and state.option_map is not None:
         state.option_map.fresh = False
 
@@ -464,6 +504,15 @@ def match_current_car(ctx: ToolContext, args: MatchCarArgs) -> dict[str, Any]:
             new.copay_provisional = old.copay_provisional
         if new.copay == old.copay:
             new.copay_source = old.copay_source
+    named = ("catalog", "tax", "stated")
+    if new.source in named and old.source in named and old.label and new.label and new.label != old.label:
+        # another car than the one on record (chat, form or model, 15/11): what it replaced is said, and a copay
+        # that stayed from it is marked as carried — said, never taken silently as the new car's own
+        ctx.state.previous_values["current_car"] = old.label
+        if new.copay is not None and new.copay == old.copay:
+            new.copay_source = "carried"
+    elif new.source in named and new.label != old.label:
+        ctx.state.previous_values.pop("current_car", None)     # a first car (or after "no car"): nothing replaced
     return out
 
 
@@ -691,15 +740,21 @@ def calculate(ctx: ToolContext, args: CalculateArgs) -> dict[str, Any]:
     ctx.state.selected = chosen[:MAX_OPTIONS]
     ctx.state.rank_requested = False
     ctx.state.ranked_count = 0
+    ctx.state.ranked_other_labels = []
     _invalidate_results(ctx.state, data=False)
     return {"selected": ctx.state.selected, "not_recognized": unknown, "ambiguous": ambiguous,
             "note": "the system calculates now; do not compute anything yourself"}
 
 
 def rank_options(ctx: ToolContext, args: NoArgs) -> dict[str, Any]:
-    # the ranking needs every value it ranks on: a field the employee does not know yet defers it too
+    # the ranking needs every value it ranks on: a field the employee does not know yet defers it too, also one the
+    # stage hides while the cars are chosen ("לא יודעת" for maintenance with no car, deferred_fields). Before (22/10,
+    # 0e83851 on), the ranking ran without it, failed, and the request was dropped: "3 המשתלמים ביותר" alternated
+    # between "עדיין חסר לי: הרכבים להשוואה" and the cars question (manual QA 9/11). Deferred, the request is kept and
+    # the stage asks the missing value.
     if (next_stage(ctx.state) in (Stage.COLLECT_PROFILE, Stage.COLLECT_CURRENT_CAR)
-            or missing_profile(ctx.state.profile)):
+            or missing_profile(ctx.state.profile) or missing_current_car(ctx.state.current)
+            or current_unknown(ctx.state.current)):
         # הדירוג צריך את הפרופיל ואת הרכב של היום: הבקשה נרשמת, והבחירה נעשית ברגע שהם ידועים
         ctx.state.rank_requested = True
         return {"deferred": True, "note": "ranked as soon as the profile and the current car are known"}
@@ -712,11 +767,15 @@ def rank_options(ctx: ToolContext, args: NoArgs) -> dict[str, Any]:
     states = {o.id: option_state(o, policy, confirmed[o.id].value if o.id in confirmed else None) for o in options}
     ranked = engine_rank_options(employee, current, list(states.values()), ctx.snapshot.calc, occupation)
     by_label = {s.label: oid for oid, s in states.items()}
-    top = [by_label[r.alternative.label] for r in ranked if r.alternative is not None][:MAX_OPTIONS]
+    options_by_id = {option.id: option for option in options}
+    ranked_options = [r for r in ranked if r.alternative is not None]
+    top = [by_label[r.alternative.label] for r in ranked_options][:MAX_OPTIONS]
     if not top:
         raise ToolError("אין חלופות זכאיות לדירוג")
     ctx.state.selected = top
-    ctx.state.ranked_count = len([r for r in ranked if r.alternative is not None])
+    ctx.state.ranked_count = len(ranked_options)
+    ctx.state.ranked_other_labels = [r.alternative.label for r in ranked_options
+                                     if options_by_id[by_label[r.alternative.label]].car is None]
     _invalidate_results(ctx.state, data=False)
     return {"selected": top, "note": "the system calculates the top options now"}
 
@@ -787,6 +846,14 @@ class RepQuestionArgs(_Args):
     question: str
 
 
+class EligibleCarsArgs(_Args):
+    drive: Optional[Drive] = None
+    drives: list[Drive] = Field(default_factory=list)     # several drives the question means ("חוסך דלק, עם מנוע")
+
+    def wanted(self) -> list[Drive]:
+        return list(dict.fromkeys([*self.drives, *([self.drive] if self.drive is not None else [])]))
+
+
 def propose_rep_question(ctx: ToolContext, args: RepQuestionArgs) -> dict[str, Any]:
     """Only the offer: the employee chooses "לשאול את הנציג" (then a privacy-checked preview) or "להמשיך בלי"."""
     question = " ".join(args.question.split())[:300]
@@ -795,6 +862,24 @@ def propose_rep_question(ctx: ToolContext, args: RepQuestionArgs) -> dict[str, A
     ctx.state.unanswered_question = question
     return {"offered": True, "note": "end your reply by offering to ask the representative; buttons are shown"}
 
+
+def answer_eligible_cars(ctx: ToolContext, args: EligibleCarsArgs) -> dict[str, Any]:
+    """Filter eligible catalog cars; the language model chooses the intent, code supplies all facts."""
+    if not ctx.state.profile.group:
+        raise ToolError("the eligibility group is not known")
+    cars = [option for option in available_options(ctx.snapshot, ctx.state) if option.car is not None]
+    wanted = args.wanted()
+    matched = [option for option in cars if not wanted or option.drive in wanted]
+    ctx.eligible_requested = True
+    ctx.eligible_drive = ",".join(d.value for d in wanted)
+    return {
+        "count": len(matched),
+        "eligible_count": len(cars),
+        "drives": [d.value for d in wanted] or None,
+        "cars": [{"id": option.id, "label": option.label} for option in matched],
+        "note": "These are the exact catalog options open to the employee; answer from this list, never offer a "
+                "representative for an eligibility or catalog fact.",
+    }
 
 
 def show_cars(ctx: ToolContext, args: "NoArgs") -> dict[str, Any]:
@@ -875,6 +960,15 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         "The employee asks to see the cars or the options, or cannot name today's car and wants help finding it "
         "(any wording). The system shows the real list from the catalog (today's car: the whole catalog; the "
         "alternatives: the eligible ones, numbered). Nothing is saved.", _obj({})),
+    "answer_eligible_cars": ToolSpec(
+        "answer_eligible_cars",
+        "Answer a question about which cars are eligible/open to this employee, including a natural follow-up "
+        "about a drive type in any wording. drives: every drive the question means (\"שלא צריך לתדלק\" = [ELECTRIC]; "
+        "\"חוסך דלק אבל עדיין עם מנוע\" = [HYBRID, PLUG_IN]); empty for all the cars. The system filters the real "
+        "catalog by the employee's group and current-car context and returns exact cars and counts; never "
+        "calculate or offer the representative for this verified information.",
+        _obj({"drives": {"type": "array", "items": {"type": "string", "enum": [drive.value for drive in Drive]}},
+              "drive": {"type": "string", "enum": [drive.value for drive in Drive]}})),
     "propose_rep_question": ToolSpec(
         "propose_rep_question",
         "The employee asked something the FAQ and STATE do not answer. Offer to ask the transport "
@@ -891,6 +985,7 @@ TOOLS: dict[str, tuple[type[_Args], Callable[[ToolContext, Any], dict[str, Any]]
     "rank_options": (NoArgs, rank_options),
     "select_options": (CalculateArgs, calculate),
     "propose_rep_question": (RepQuestionArgs, propose_rep_question),
+    "answer_eligible_cars": (EligibleCarsArgs, answer_eligible_cars),
     "show_cars": (NoArgs, show_cars),
 }
 
@@ -906,4 +1001,3 @@ def run_tool(ctx: ToolContext, name: str, raw_args: dict[str, Any]) -> dict[str,
         return {"ok": False, "error": "invalid arguments", "fields": fields}
     except ToolError as exc:
         return {"ok": False, "error": str(exc)}
-

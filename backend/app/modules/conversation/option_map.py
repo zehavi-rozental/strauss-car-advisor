@@ -14,7 +14,7 @@ from app.modules.calculation.public import CarState, CopayStatus, Employee, Occu
 from app.modules.calculation.public import Status as CalcStatus
 from app.modules.rules.public import RulesSnapshot
 
-from .stage import ConversationState, MapEntry, OptionMap
+from .stage import OPT_OUT_ID, ConversationState, MapEntry, OptionMap
 from .templates import (OPT_OUT_DENIED, approximate_assumptions, confirmed_assumption, map_copay_line, net_change,
                         rep_amount_assumption, to_plural, why_sentence)
 from .tools import Option, classify_options, engine_inputs, option_state
@@ -109,6 +109,11 @@ def build_option_map(snapshot: RulesSnapshot, state: ConversationState) -> Optio
     return OptionMap(entries=entries, excluded=excluded, fresh=True)
 
 
+def is_car(entry: MapEntry) -> bool:
+    """A catalog car, not an option without a car ("ויתור על רכב")."""
+    return entry.option_id != OPT_OUT_ID
+
+
 def calculated(option_map: OptionMap) -> list[MapEntry]:
     """The options the engine calculated (with the final or the catalog copay): the only ones ranked."""
     return [e for e in option_map.entries if e.status in ("full", "catalog_copay")]
@@ -133,11 +138,18 @@ def map_json(state: ConversationState) -> Optional[dict[str, Any]]:
     ranked = sorted(calculated(m), key=lambda e: Decimal(str(e.result["delta_display"])), reverse=True)
     waiting = [e for e in m.entries if e.status == "incomplete"]
     not_eligible = [e for e in m.entries if e.status == "not_eligible"]
+    eligible = [e for e in m.entries if e.status != "not_eligible"]
+    cars = [e for e in eligible if is_car(e)]
     return {
         "entries": [e.model_dump(mode="json") for e in [*ranked, *waiting, *not_eligible]],
         "excluded": [x.model_dump(mode="json") for x in m.excluded],
-        "counts": {"eligible": len(m.entries) - len(not_eligible), "calculated": len(ranked),
-                   "waiting": len(waiting), "catalog_copay": len([e for e in ranked if e.status == "catalog_copay"])},
+        # eligible / calculated / waiting count every option; cars and others tell the catalog cars from the options
+        # that are not a car ("ויתור על רכב"), so "12 רכבים" in the chat never reads against "13 חלופות" (15/11)
+        "counts": {"eligible": len(eligible), "calculated": len(ranked),
+                   "waiting": len(waiting), "catalog_copay": len([e for e in ranked if e.status == "catalog_copay"]),
+                   "cars": len(cars), "cars_calculated": len([e for e in cars if e in ranked]),
+                   "others": [{"option_id": e.option_id, "label": e.label, "status": e.status}
+                              for e in eligible if not is_car(e)]},
         "leaders": [e.option_id for e in leaders(m)],
         "stale": not m.fresh,
         "group": state.profile.group,
@@ -155,7 +167,15 @@ def map_reply(state: ConversationState) -> str:
         return ""
     data = map_json(state)
     counts = data["counts"]
-    lines = [f"מיפיתי את כל {counts['eligible']} החלופות שאתם זכאים להן, וחישבתי {counts['calculated']} מהן."]
+    cars, done = counts["cars"], counts["cars_calculated"]
+    head = (f"מיפיתי את כל {cars} הרכבים שאתם זכאים להם" if cars != 1 else "מיפיתי את הרכב היחיד שאתם זכאים לו")
+    lines = [head + (", וחישבתי את כולם." if done == cars and cars > 1 else ", וחישבתי אותו." if done == cars
+                     else f", וחישבתי {done} מהם.")]
+    for other in counts["others"]:
+        # an option that is not a car is named as itself, never counted as one more car
+        lines.append(f"בדקתי גם {other['label']}." if other["status"] in ("full", "catalog_copay")
+                     else f"{other['label']}: ממתין למידע, ולכן לא נכלל בדירוג.")
+    cars_waiting = cars - done
     top = leaders(m)
     if len(top) == 1:
         lines.append(f"הנטו החודשי הגבוה ביותר: {top[0].label}. {net_change(top[0].result['delta_display'])}.")
@@ -164,8 +184,9 @@ def map_reply(state: ConversationState) -> str:
         lines.append(f"שוויון בנטו המשוער בין {names}. {net_change(top[0].result['delta_display'])}.")
     else:
         lines.append("אין עדיין חלופה שחושבה במלואה, ולכן אין דירוג.")
-    if counts["waiting"]:
-        lines.append(f"{counts['waiting']} חלופות ממתינות למידע ולא נכללו בדירוג.")
+    if cars_waiting > 0:
+        lines.append("רכב אחד ממתין למידע ולא נכלל בדירוג." if cars_waiting == 1
+                     else f"{cars_waiting} רכבים ממתינים למידע ולא נכללו בדירוג.")
     if counts["catalog_copay"]:
         # only the cars compared have a question to the representative (C1); the map never claims one it did not send
         asked = [r for r in state.results if r.result.get("copay_source") == "catalog"]

@@ -17,9 +17,12 @@ from app.modules.conversation.grounding import bare_zero_answer, zero_grounded
 
 from .conftest import make_client
 
-PACE = ["תשאל אותי שאלה אחר שאלה", "קבוצה ב", "18000", "אין", "אין רכב", "1500", "אין"]   # → the pension, alone
-GROUPED = ["קבוצה ב", "שכר בסיס 18000", "אין עמלות ואין בונוס, 2.75 נקודות זיכוי, 2 ילדים", "אין רכב", "אין",
-           "1, 2"]                                                     # → "אילו הפרשות יורדות לכם: פנסיה, קרן השתלמות?"
+# 16/11: each salary field is asked before the car (never moved behind it), so the setups reach the same questions
+# without the car steps; the car comes after the contributions (CAR_STEPS)
+PACE = ["תשאל אותי שאלה אחר שאלה", "קבוצה ב", "18000", "אין", "אין"]   # commissions, bonus → the pension, alone
+GROUPED = ["קבוצה ב", "שכר בסיס 18000", "אין עמלות ואין בונוס, 2.75 נקודות זיכוי, 2 ילדים"]
+#                                                                      # → "אילו הפרשות יורדות לכם: פנסיה, קרן השתלמות?"
+CAR_STEPS = ["אין רכב", "אין", "1, 2"]                                  # no car, no maintenance, PICANTO + YARIS
 HOLD_PENSION = "לאשר פנסיה של 0%?"
 HOLD_BOTH = "כדי לוודא שהבנתי: לרשום פנסיה 0% וקרן השתלמות 0%?"
 NEG = ["לא", "אין", "אפס", "0", "בלי", "ללא"]
@@ -158,9 +161,10 @@ def test_a_short_no_to_both_contributions_is_one_confirmation_then_the_results(e
     assert "פנסיה" in ask_line(asked) and "קרן השתלמות" in ask_line(asked)
     held = say(no)
     assert HOLD_BOTH in held["reply"]
-    done = say("מאשר")
+    say("מאשר")
     v = view(c, cid)
     assert (v["profile"]["pension_percent"], v["profile"]["study_fund_percent"]) == ("0", "0")
+    done = run(say, CAR_STEPS)
     assert done["results"] and "PICANTO" in done["reply"]
 
 
@@ -168,7 +172,8 @@ def test_corrections_after_the_results_are_saved_recalculated_and_keep_the_other
     c, cid, say = start(engine)
     run(say, GROUPED)
     say("לא מופרש")
-    first = say("מאשר")["results"]
+    say("מאשר")
+    first = run(say, CAR_STEPS)["results"]
     today0 = first[0]["today"]["net_display"]
     # a labelled value that replaces a saved one, with or without "טעיתי"
     second = say("הפנסיה שלי 6%")

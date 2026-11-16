@@ -352,11 +352,10 @@ def test_an_llm_that_saves_base_18_is_caught_by_the_range_check(sessions):
 def test_pension_60_is_rejected_and_the_problem_is_named(sessions, llm):
     fake = FakeLLM()
     svc = service(sessions, LLMChain([fake]) if llm else LLMChain())
-    # כל השאר כבר נמסר — הפנסיה לבד חסרה, ונשאלת כשאלה בודדת
+    # כל השאר מהשכר כבר נמסר — הפנסיה לבד חסרה, ונשאלת מיד כשאלה בודדת (16/11: כל שדה בנפרד, לפני הרכב)
     turn, token = _send_all(svc, ["מנהלת מוצר, שכר בסיס 18,500",
-                                  "אין עמלות ואין בונוס, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים",
-                                  "יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש", "אטו 3"])
-    assert without_cta(turn.reply) == "בחרתם להשוות: ATTO 3 (2025).\n\nכמה אחוזים מהשכר מופרשים מכם לפנסיה (חלק העובד)?"
+                                  "אין עמלות ואין בונוס, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים"])
+    assert without_cta(turn.reply).endswith("\n\nכמה אחוזים מהשכר מופרשים מכם לפנסיה (חלק העובד)?")
     if llm:
         fake.turn(call("save_profile", pension_percent=60))
         text = "ההפרשה שלי לפנסיה היא שישים"                       # הקורא לא מבין → המודל

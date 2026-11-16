@@ -53,8 +53,8 @@ def test_the_notice_names_the_question_and_opens_the_conversation_at_that_answer
     [notice] = [m for m in _mail(c) if "תשובה" in m["subject"]]
     assert notice["to"] == EMAIL
     assert "השאלה שלכם: האם יש רכב עם גג נפתח?" in notice["body"]
-    assert "לצפייה בתשובת הנציג" in notice["body"] and "לצפייה בתשובת הנציג" in notice["html"]
-    assert "התוספת מטופלת" not in notice["body"] + notice["html"]            # the answer is read in the conversation
+    assert "לצפייה בתשובה בצ'אט" in notice["body"] and "לצפייה בתשובה בצ&#x27;אט" in notice["html"]
+    assert "התוספת מטופלת" in notice["body"] and "התוספת מטופלת" in notice["html"]   # the answer, with its lines (10/11)
     assert "18500" not in notice["body"] and "18,500" not in notice["body"]   # never pay data
     token = re.search(r"return_token=([A-Za-z0-9_-]+)", notice["body"]).group(1)
     fresh = _device(engine)                                                 # another device: no cookie of its own
@@ -162,11 +162,14 @@ def test_the_smtp_message_has_a_named_sender_a_date_and_a_message_id_on_the_send
     service.settings = settings
     service._send("abc123", "employee@example.test", "נושא", "גוף", "<p>גוף</p>")
     m = sent[0]
-    assert m["From"] == "STRAUSS DRIVE <noreply@mail.example.test>"
+    assert m["From"] == "STRAUSS DRIVE | יועץ הרכב של שטראוס <noreply@mail.example.test>"
+    raw = m.as_bytes()
+    assert b"From: STRAUSS DRIVE | =?utf-8?" in raw and b"<noreply@mail.example.test>" in raw     # the Hebrew name encoded (RFC 2047)
     assert m["Message-ID"] == "<abc123@mail.example.test>" and m["Date"]
     settings.email_from = "Strauss Car Advisor <noreply@mail.example.test>"
     service._send("abc124", "employee@example.test", "נושא", "גוף", "<p>גוף</p>")
-    assert sent[1]["From"] == "Strauss Car Advisor <noreply@mail.example.test>"           # a name given is kept
+    # one name on every email (10/11): a name in EMAIL_FROM is replaced, its verified address is kept
+    assert sent[1]["From"] == "STRAUSS DRIVE | יועץ הרכב של שטראוס <noreply@mail.example.test>"
 
 
 def test_both_mails_carry_the_strauss_drive_brand_and_the_public_link(engine, snapshot):
@@ -202,4 +205,4 @@ def test_gmail_smtp_signs_in_with_the_account_and_sends_to_any_address(monkeypat
                                        email_smtp_username="strauss.drive@gmail.com", email_smtp_password="app-pass")
     service._send("m1", "someone@outlook.co.il", "נושא", "גוף", "<p>גוף</p>")
     assert calls == [("connect", "smtp.gmail.com", 587), ("starttls",), ("login", "strauss.drive@gmail.com"),
-                     ("send", "someone@outlook.co.il", "STRAUSS DRIVE <strauss.drive@gmail.com>")]
+                     ("send", "someone@outlook.co.il", "STRAUSS DRIVE | יועץ הרכב של שטראוס <strauss.drive@gmail.com>")]

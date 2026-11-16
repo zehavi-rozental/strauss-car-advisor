@@ -135,7 +135,8 @@ def test_two_cars_compared_get_catalog_facts_and_no_copay_moves(engine, snapshot
 
     turn = _say(c, cid, "מה ההבדל בין NIRO ל-DOLPHIN?")
 
-    assert "לפי הקטלוג:" in turn["reply"] and "NIRO" in turn["reply"] and "DOLPHIN" in turn["reply"]
+    # both cars are calculated and on screen: the engine's comparison answers it (stage 2, 16/11), not the catalog
+    assert "ההפרש ביניהם" in turn["reply"] and "NIRO" in turn["reply"] and "DOLPHIN" in turn["reply"]
     assert "ההשתתפות היא" not in turn["reply"]
     assert _results(c, cid) == before
     assert c.get("/api/rep/questions", headers=AUTH).json() == []   # nothing opened

@@ -46,23 +46,27 @@ export function CarActions({ selected, canChoose, canRank, mapReady, mapExists, 
     <section className="car-actions" aria-label="הרכבים שלכם">
       {selected.length > 0 && (
         <p className="car-actions-current">
-          <Icon name="grid" size={16} />בהשוואה בצ'אט: {selected.join(', ')}
+          <Icon name="grid" size={16} />
+          {/* each name whole, in its own direction (9/11: "BYD" ended a line and "DOLPHIN (2025)" began the next) */}
+          <span>בהשוואה בצ'אט:{' '}
+            {selected.map((name, i) => <span key={name}><bdi className="car-name">{name}</bdi>{i < selected.length - 1 ? ', ' : ''}</span>)}
+          </span>
         </p>
       )}
       <div className="car-actions-row">
         {canChoose && (
-          <button type="button" className="chip" disabled={disabled} onClick={onChoose}
+          <button type="button" className="chip car-action is-choose" disabled={disabled} onClick={onChoose}
                   title="סמנו עד 3 רכבים, והנטו של כל אחד יחושב כאן בצ'אט">
             <Icon name={selected.length ? 'swap' : 'grid'} size={16} />{selected.length ? CHANGE_LABEL : CHOOSE_LABEL}
           </button>
         )}
         {canChoose && canRank && (
-          <button type="button" className="chip" disabled={disabled} onClick={onRank}
+          <button type="button" className="chip car-action is-rank" disabled={disabled} onClick={onRank}
                   title="3 הרכבים שמשאירים לכם את הנטו הגבוה ביותר, כהשוואה כאן בצ'אט">
             <Icon name="trendUp" size={16} />{RANK_LABEL}
           </button>
         )}
-        <button type="button" className="chip" disabled={disabled} aria-expanded={!mapOpenable ? askedMap : undefined}
+        <button type="button" className="chip car-action is-map" disabled={disabled} aria-expanded={!mapOpenable ? askedMap : undefined}
                 onClick={() => (mapOpenable ? onMap() : setAskedMap(true))}
                 title="כל הרכבים שאתם זכאים להם, מדורגים לפי נטו, לעיון. ההשוואה בצ'אט לא משתנה">
           <Icon name="table" size={16} />{MAP_LABEL}

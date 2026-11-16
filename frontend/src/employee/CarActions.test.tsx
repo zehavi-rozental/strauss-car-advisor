@@ -20,7 +20,9 @@ describe('the cars, one compact place (1/11)', () => {
 
   it("after results: the chat's comparison is named, and choosing says it changes it", () => {
     const out = text(actions({ selected: ['NIRO (2025)', 'BYD DOLPHIN (2025)'] }))
-    expect(out).toContain("בהשוואה בצ'אט: NIRO (2025), BYD DOLPHIN (2025)")
+    expect(out.replace(/<[^>]+>/g, '')).toContain("בהשוואה בצ'אט: NIRO (2025), BYD DOLPHIN (2025)")
+    // each name is one unit that never breaks inside (9/11: "BYD" ended a line, "DOLPHIN (2025)" began the next)
+    expect(out).toContain('<bdi class="car-name">BYD DOLPHIN (2025)</bdi>')
     expect(out).toContain(CHANGE_LABEL)
     expect(out).not.toContain(CHOOSE_LABEL)
   })

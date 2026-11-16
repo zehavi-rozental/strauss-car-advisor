@@ -228,6 +228,23 @@ class RepCopayOffer(BaseModel):
     car_label: str = ""
 
 
+class PendingValueChoice(BaseModel):
+    """One number answering a question about several fields ("2" to "כמה נקודות זיכוי? וכמה ילדים?"): which field(s)?
+    Asked with a button per field and "both"; nothing is saved before the answer (conversation.value_choice)."""
+
+    value: Decimal
+    fields: list[str] = Field(default_factory=list)     # save_profile arguments, in the order asked
+    asked: int = 1                                       # asked again in other words once; then one field at a time
+
+
+class ResolvedValueChoice(BaseModel):
+    """The answer to a PendingValueChoice, kept so a later "בעצם רק ילדים" re-applies it."""
+
+    value: Decimal
+    fields: list[str] = Field(default_factory=list)
+    chosen: list[str] = Field(default_factory=list)
+
+
 class ConversationState(BaseModel):
     stage: Stage = Stage.COLLECT_PROFILE
     profile: Profile = Field(default_factory=Profile)
@@ -255,12 +272,18 @@ class ConversationState(BaseModel):
     # "הכי משתלם" לפני שהרכב של היום והפרופיל ידועים: נבחר ומחושב ברגע שכל הפרטים ידועים
     rank_requested: bool = False
     last_asked: list[str] = Field(default_factory=list)         # שדות השאלה האחרונה שהוצגה (לזיהוי שאלה חוזרת)
-    # Q2 was answered in part (a later turn saved a Q2 field): only then its leftovers move to Q3.
-    # A turn that only asked a question ("מה זה נקודות זיכוי?") does not move on.
-    q2_answered: bool = False
-    ranked_count: int = 0    # "הכי משתלם": how many eligible cars were ranked (0 = the employee chose)
+    q2_answered: bool = False    # no longer read (16/11: each field has its own status); kept for stored states
+    # a missing field named in the question on screen while the answer gave other values: how many times (16/11). The
+    # second time it is postponed (deferred_fields) until the calculation needs it, never asked over and over
+    passed_over: dict[str, int] = Field(default_factory=dict)
+    ranked_count: int = 0    # "הכי משתלם": how many eligible options were ranked (0 = the employee chose)
+    # the ranked options that are not a car ("ויתור על רכב"): named as themselves, never counted as cars (15/11)
+    ranked_other_labels: list[str] = Field(default_factory=list)
     last_ask: str = ""       # the last question asked (never repeated verbatim twice in a row)
     unknown_told: int = 0    # replies about fields the employee does not know (the wording alternates)
+    # today's car whose copay choices already answered a typed "לא ידוע" with the ways to go on (16/11): a second
+    # "לא ידוע" for the same car is recorded as unknown and the flow goes on, never the same choices again (no loop)
+    copay_unknown_told: str = ""
     misses: int = 0          # answers in a row that were not understood (never the same reply twice)
     unanswered_question: Optional[str] = None    # a question the FAQ does not cover: "לשאול את נציג התחבורה"
     # the employee's latest question nothing here answered, kept after its turn: "היית צריך לשאול את הנציג" offers
@@ -269,13 +292,23 @@ class ConversationState(BaseModel):
     pending_rep_question: Optional[str] = None   # the privacy-checked text shown before sending to the rep
     pending_rep_key: Optional[str] = None        # its option_id, from the employee's own words (dedup)
     general_questions: dict[str, GeneralQuestion] = Field(default_factory=dict)   # sent to the rep, by option_id
+    # the FAQ term this turn explains (10/11): the next message's "זה" / "לא הבנתי" / "איפה זה בתלוש?" is about it
+    last_topic: Optional[str] = None
+    # turns since the last answer about the cars open to the employee (16/11): a follow-up ("ואילו היברידיים?") is about
+    # that list for a few turns, even with another question between; None: no such answer, or too long ago
+    eligible_turns: Optional[int] = None
+    # the family-track note was said once: it is not repeated on every list (16/11)
+    family_note_told: bool = False
+    # the last reply asked "the cars, or the net?": an answer naming the cars is about the open cars (16/11)
+    eligible_unclear_asked: bool = False
     offered_rank: bool = False   # the results reply offered "הכי משתלם": "כן" ranks
     rep_skipped: bool = False    # "להמשיך בלי" this turn: the representative is not offered again
     pending_ambiguity: Optional[str] = None      # "no_car_or_zero_copay": asked with two buttons, never guessed
     # the one save_profile field the last reply asked for (None: several or none). A bare value ("34") may
     # only be saved to it, never remapped to another field.
     asked_field: Optional[str] = None
-    pace: Literal["normal", "one_at_a_time"] = "normal"   # "שאלה אחת כל פעם": kept until the employee changes it
+    # "שאלה אחת כל פעם" / "הכל ביחד" (all_at_once, 16/11: no one-at-a-time follow-ups): kept until the employee changes it
+    pace: Literal["normal", "one_at_a_time", "all_at_once"] = "normal"
     brief: bool = False      # "יותר קצר" / "בלי הסברים": short, plain wording, kept for the conversation
     social_told: int = 0     # small-talk replies so far (the wording turns, never the same line twice in a row)
     feedback_told: int = 0   # acknowledgements of feedback about a previous reply (the wording turns)
@@ -288,6 +321,19 @@ class ConversationState(BaseModel):
     # question while any other field can still be asked, and come back when nothing else is askable or a
     # calculation needs them. Never a default, never dropped — just postponed. A value given later clears it.
     deferred_fields: list[str] = Field(default_factory=list)
+    # one number, several fields named by the question: which one(s)? (value_choice); and the last answer to it
+    pending_value_choice: Optional["PendingValueChoice"] = None
+    last_value_choice: Optional["ResolvedValueChoice"] = None
+    # the question line of the reply on screen, as the employee saw it (the model's words, or the template's)
+    asked_line: str = ""
+    # "הנתונים שלי": save_profile argument -> where the value came from (chat / form / payslip); the data's version
+    # (a real change of a value) and the results' version (a calculation): an edit from an older screen is refused
+    field_sources: dict[str, str] = Field(default_factory=dict)
+    # the value each field held before its last change, by save_profile argument ("eligibility_group": "ב"): a value the
+    # employee gave in this conversation, so "התכוונתי לקבוצה הקודמת" is grounded in it (15/11), never invented
+    previous_values: dict[str, str] = Field(default_factory=dict)
+    data_version: int = 0
+    results_version: int = 0
     # STRAUSS DRIVE 360°: "השווה את כל האפשרויות שלי". Kept once asked; recalculated whenever it is out of date
     # and every value it needs is known. Never changes the selection.
     map_requested: bool = False
@@ -368,11 +414,12 @@ Q2_FIELDS = ("commissions", "bonus", "pension_percent", "study_fund_percent", "c
 CAR_DETAILS = ("car_choice", "use_value", "drive", "maintenance")   # שאלות המשך על הרכב — אחת בכל פעם
 
 
-def _q2_deferred(state: ConversationState) -> bool:
-    """Q2 נשאלה ונענתה בחלקה: מה שחסר ממנה עובר ל-Q3 (לא שואלים את Q2 שוב)."""
-    p = state.profile
-    return "Q2" in state.asked_groups and (bool(p.unknown_fields) or (
-        state.q2_answered and any(getattr(p, f) is not None for f in Q2_FIELDS)))
+def _q2_now(state: ConversationState, q2: Sequence[str]) -> list[str]:
+    """The Q2 fields to ask now: every one still missing (16/11). Each field has its own status, never decided for the
+    group or by how much of it was answered: missing fields are asked next (only those); a field said to be unknown
+    waits in unknown_fields and one postponed ("אבדוק אחר כך", or passed over twice) in deferred_fields — both are
+    already left out of `q2`, and come back when the calculation needs them."""
+    return list(q2)
 
 
 def unknown_missing(p: Profile) -> list[str]:
@@ -424,7 +471,7 @@ def next_stage(state: ConversationState) -> Stage:
     q1 = [f for f in missing if f in Q1_FIELDS]
     q2 = [f for f in missing if f in Q2_FIELDS]
     car_missing = _visible(missing_current_car(state.current), hidden)
-    if q1 or (q2 and not _q2_deferred(state)):
+    if q1 or _q2_now(state, q2):
         return Stage.COLLECT_PROFILE
     if car_missing:
         return Stage.COLLECT_CURRENT_CAR
@@ -464,8 +511,8 @@ def current_group(state: ConversationState) -> tuple[Optional[str], list[str]]:
     if stage == Stage.COLLECT_PROFILE:
         if q1:
             return "Q1", q1
-        if q2 and not _q2_deferred(state):
-            return "Q2", q2
+        if _q2_now(state, q2):
+            return "Q2", _q2_now(state, q2)
         rest = q2 + (["opt_out_occupation"] if needs_opt_out_occupation(state) else []) + options
         return ("Q3", rest) if rest else ("unknown", unknown_missing(p) + current_unknown(c))
     if stage == Stage.COLLECT_CURRENT_CAR:
@@ -473,7 +520,9 @@ def current_group(state: ConversationState) -> tuple[Optional[str], list[str]]:
         if car and car[0] in CAR_DETAILS:
             return "car_detail", [car[0]]
         if car and car[0] == "car":
-            car = ["car"] + ([] if c.copay is not None or c.copay_unknown else ["copay"])
+            # the car first, alone (16/11): its copay is asked once the exact model is known — with the catalog amount
+            # and the three choices (confirm / another amount / the representative), never in the same question
+            car = ["car"]
         return "Q3", car + options + q2
     if stage in (Stage.CHOOSE_OPTIONS, Stage.PRESENTED):
         return "Q3", ["options"]

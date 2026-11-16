@@ -214,7 +214,7 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 375, height: 740 
     await open(page)
     // a real reason to ask the representative (22/10: a catalog copay alone opens no question): the employee asks
     for (const m of [NOA, 'יש לי קורולה קרוס', '300', 'אטו 3', 'אני רוצה שנציג התחבורה יאשר את ההשתתפות']) await send(page, m)
-    await expect(page.locator('.header-tag')).toContainText('ממתין לתשובת נציג')   // polling every 3 s
+    await expect(page.locator('.rep-waiting')).toContainText('ממתין לתשובת הנציג')   // polling every 3 s (under the band, 10/11)
     await page.getByRole('button', { name: 'לשנות בחירה' }).click()
     const cards = page.locator('.car-card')
     await expect(cards.first()).toBeVisible()

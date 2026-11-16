@@ -1,13 +1,14 @@
 // The payslip review, as pure functions: one row per profile field, what the payslip says, what the
 // conversation already knows, and what the employee decided. Only rows chosen "from the payslip" are sent,
 // through the same {fields} message as the manual form (source "payslip").
+import type { FormKey } from './formFields'
 import type { ExtractedField, PayslipInfo, ProfileFields } from '../api/types'
 import { formatMoney } from '../format/money'
 import { BASE_SALARY_FIELD, FORM_FIELDS, parseNumber } from './formFields'
 import type { FormFieldSpec } from './formFields'
 import { NOT_ON_PAYSLIP } from './payslipOutcome'
 
-type Key = keyof ProfileFields
+type Key = FormKey
 
 export const PAYSLIP_FIELDS: FormFieldSpec[] = [BASE_SALARY_FIELD, ...FORM_FIELDS]
 

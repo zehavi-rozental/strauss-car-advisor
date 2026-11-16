@@ -71,7 +71,7 @@ def test_this_is_my_car_rematches_and_cancels(sessions):
     s = state(svc, cid, token)
     assert s.current.catalog_code == "CAR-10" and s.pending_clarification is None and s.pending_rep is None
     assert svc.cases.get(old.id).status == Status.CANCELLED
-    assert turn.reply.startswith("זיהיתי: ATTO 3 (2025)") and "ההשתתפות החודשית ב-" in turn.reply
+    assert turn.reply.startswith("עדכנתי: הרכב של היום ATTO 3 (2025)") and "במקום COROLLA (2026)" in turn.reply and "ההשתתפות החודשית ב-" in turn.reply
 
 
 def test_an_alternative_is_calculated_after_the_rep_answers(engine):
@@ -101,7 +101,7 @@ def test_llm_recognises_a_free_worded_correction(sessions):
     assert ["match_current_car"] in [c.tools for c in fake.calls]           # the waiting-correction call
     assert state(svc, cid, token).current.catalog_code == "CAR-09"
     assert svc.cases.get(old.id).status == Status.CANCELLED
-    assert turn.reply.startswith("זיהיתי: COROLLA CROSS (2025)")
+    assert turn.reply.startswith("עדכנתי: הרכב של היום COROLLA CROSS (2025)") and "במקום COROLLA (2026)" in turn.reply
 
 
 def test_llm_without_a_call_falls_back_to_the_question(sessions):

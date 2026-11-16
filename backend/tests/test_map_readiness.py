@@ -37,10 +37,10 @@ def test_the_map_is_not_ready_until_every_value_and_todays_car_are_known(engine)
     assert v["map_ready"] is False and "שכר בסיס" in v["map_missing"]            # the greeting
     say(client, cid, "מנהלת מוצר, שכר בסיס 18,500")
     assert view(client, cid)["map_ready"] is False                               # Q2
-    say(client, cid, "אין עמלות, בונוס 2,000, פנסיה 6%")                        # the screenshot: Q3 opens
+    say(client, cid, "אין עמלות, בונוס 2,000, פנסיה 6%")                        # 3 of 6: Q2 stays (16/11)
     v = view(client, cid)
-    assert any(f["field"] == "options" for f in v["expects"]["fields"])           # a choice of cars is open…
-    assert v["map_ready"] is False                                               # …but the map cannot be built
+    assert not any(f["field"] == "options" for f in v["expects"]["fields"])       # no choice of cars yet…
+    assert v["map_ready"] is False                                               # …and no map
     assert {"קרן השתלמות", "נקודות זיכוי", "ילדים"} <= set(v["map_missing"])
     say(client, cid, "קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים")
     assert view(client, cid)["map_ready"] is False                               # today's car is still missing

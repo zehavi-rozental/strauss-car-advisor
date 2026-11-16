@@ -304,9 +304,11 @@ def test_catalog_answer_is_restored_end_to_end_when_a_guard_trims_the_llm_senten
     fake = FakeLLM().turn(reply="שאלה טובה. COROLLA (2026) עולה 150,000 ₪. [[catalog]]\nמה קבוצת הזכאות שלכם?")
     svc = service(sessions, fake)
     turn, _ = start(svc, "יש לכם קורולה?")
-    assert (turn.source, turn.say) == ("llm", "llm:trimmed")
+    # the reply contract (16/11): the catalog answer is code's fact, first; the model's price never reaches the reply,
+    # and the question is code's own
     assert turn.reply.startswith("כן, בקטלוג יש: COROLLA (2026), קבוצה ב, בנזין; COROLLA CROSS (2025)")
-    assert "150,000" not in turn.reply and turn.reply.endswith("מה קבוצת הזכאות שלכם?")
+    assert "150,000" not in turn.reply and "catalog" in turn.decision["intent"]
+    assert turn.decision["ask"] in turn.reply and "מה קבוצת הזכאות שלכם?" not in turn.reply.splitlines()
 
 
 # ---------- manual-test bugs: a question mid-collection, a request about the conversation, a looping question ----------
@@ -389,7 +391,7 @@ def test_bug2_all_at_once_cancels_a_one_at_a_time_pace(sessions):
     turn, token = start(svc, "שאלה אחת כל פעם", HALF)
     assert state(svc, turn, token).pace == "one_at_a_time"
     turn = svc.send(turn.conversation_id, token, "תן לי את כל השאלות בפעם אחת")
-    assert state(svc, turn, token).pace == "normal"
+    assert state(svc, turn, token).pace == "all_at_once"          # 16/11: an explicit pace of its own
 
 
 def test_bug3_a_retry_of_the_compound_question_says_what_is_saved_and_what_is_missing(sessions):
@@ -410,7 +412,8 @@ def test_bug3_an_llm_that_repeats_the_compound_question_word_for_word_is_replace
     for text in ("בלה בלה", "משהו אחר"):
         fake.turn(reply=Q2_FULL, retry=Q2_FULL)
         turn = svc.send(turn.conversation_id, token, text)
-        assert (turn.source, turn.say) == ("template", "guard:repeat")
+        # the model's question is never taken (the reply contract, 16/11): code says what is saved and missing
+        assert turn.source == "template"
         assert f"{SAVED_LINE} {MISSING_LINE}" in turn.reply and Q2_FULL not in turn.reply
 
 
@@ -420,4 +423,4 @@ def test_bug3_a_new_question_after_an_answer_is_not_a_repeat(sessions):
               reply="רשמתי: אין עמלות, אין בונוס.\nואילו הפרשות יורדות לכם: קרן השתלמות? כמה נקודות זיכוי יש לכם? "
                     "וכמה ילדים עד גיל 23?")
     turn = svc.send(turn.conversation_id, token, "אין עמלות ואין בונוס")
-    assert turn.say == "llm" and "אין עמלות, אין בונוס" in turn.reply
+    assert turn.say.startswith("llm") and "אין עמלות, אין בונוס" in turn.reply

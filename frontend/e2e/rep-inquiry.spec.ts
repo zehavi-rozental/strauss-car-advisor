@@ -125,7 +125,7 @@ test.describe('rep inquiry card in the conversation', () => {
     const verificationMail = await fakeEmailAfter(emailsBeforeVerification)
     expect(verificationMail.to).toBe('e2e.employee@example.test')
     expect(verificationMail.subject).toContain('אימות')
-    expect(verificationMail.html).toContain('פתיחת השיחה המאובטחת')
+    expect(verificationMail.html).toContain('אימות הכתובת')
     const verificationToken = verificationMail.body.match(/return_token=([A-Za-z0-9_-]+)/)?.[1]
     expect(verificationToken).toBeTruthy()
 
@@ -167,9 +167,9 @@ test.describe('rep inquiry card in the conversation', () => {
     await close()
 
     const answerMail = await answerMailPromise
-    expect(answerMail.body).not.toContain('כן, הרכב זמין עם גג נפתח בתוספת תשלום.')
+    expect(answerMail.body).toContain('כן, הרכב זמין עם גג נפתח בתוספת תשלום.')   // the answer is in the mail since 10/11
     expect(answerMail.to).toBe('e2e.employee@example.test')
-    expect(answerMail.html).toContain('לצפייה בתשובת הנציג')               // the answer notice's own button (1/11)
+    expect(answerMail.body).toContain("לצפייה בתשובה בצ'אט")               // the answer notice's own button (10/11)
     const answerToken = answerMail.body.match(/return_token=([A-Za-z0-9_-]+)/)?.[1]
     expect(answerToken).toBeTruthy()
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from decimal import Decimal
 from typing import Any, Optional, Sequence
@@ -115,6 +115,14 @@ def question(field: str, state: ConversationState, snapshot: RulesSnapshot) -> s
                 "קוד הדגם מופיע ברישיון הרכב.\n" + "\n".join(lines))
     if field == "options":
         return options_ask(state, snapshot)
+    if field == "maintenance" and "maintenance" in state.deferred_fields:
+        # not known earlier and kept for the end: asked again with why it is needed and where it is, never the
+        # first wording again with "אפשר גם לבדוק בהמשך" (manual QA 9/11: the same question came back after the
+        # cars were chosen)
+        entry = snapshot.faq.get("maintenance")
+        where = f" {entry.where}" if entry is not None and entry.where else ""
+        return ("כדי לחשב את הנטו שלכם היום, חסר לי עוד סכום אחזקת הרכב."
+                f"{where} אם אין בתלוש שורה כזו, כתבו \"אין\".")
     if field == "copay" and (hint := catalog_copay_hint(state, snapshot)) is not None:
         return (f"לפי הקטלוג, ההשתתפות החודשית ב-{c.label} היא {money(hint)}. זה סכום כללי, ובהסכם האישי שלכם "
                 "הוא עשוי להיות שונה. מה נכון אצלכם?")
@@ -228,6 +236,26 @@ _ASK_ORDER = ("occupation", "group", "base", "commissions", "bonus", "pension_pe
               "opt_out_occupation", "options")
 
 
+def q2_started(state: ConversationState) -> bool:
+    """The salary question was asked, and the employee already answered part of it (a value, or "לא יודע"): what is
+    left is asked one item at a time. The first time it is asked it stays one question, naming only what is missing."""
+    p = state.profile
+    return "Q2" in state.asked_groups and any(getattr(p, f) is not None or f in p.unknown_fields for f in Q2_FIELDS)
+
+
+def ask_fields(state: ConversationState, group: Optional[str], fields: Sequence[str]) -> list[str]:
+    """The fields the question on screen asks — its words and its inputs (expects) alike. After a partial answer to
+    the salary questions, what is left is asked one item at a time, in the usual order (16/11). The two contributions
+    are one item ("אילו הפרשות יורדות לכם: פנסיה, קרן השתלמות?"), as they always were: "אין הפרשות" / a short "לא"
+    to it is one confirmation for both (1/11). "הכל ביחד" (pace all_at_once) keeps the whole question."""
+    fields = list(fields)
+    if group != "Q2" or len(fields) <= 1 or not q2_started(state) or state.pace == "all_at_once":
+        return fields
+    first = min(fields, key=lambda f: _ASK_ORDER.index(f) if f in _ASK_ORDER else len(_ASK_ORDER))
+    pair = [f for f in ("pension_percent", "study_fund_percent") if f in fields]
+    return pair if first in pair else [first]
+
+
 def paced(state: ConversationState, fields: Sequence[str]) -> list[str]:
     """The employee asked for one question at a time ("שאלה אחת כל פעם"): only the next field is asked."""
     fields = list(fields)
@@ -250,11 +278,15 @@ def group_question(state: ConversationState, snapshot: RulesSnapshot, skip: Sequ
     alternatives, then what is left of Q2. A message may still answer more (the parser reads every
     open field); the text asks only the next item. skip: fields asked separately (a follow-up)."""
     group, fields = current_group(state)
+    if group == "unknown":
+        # what the calculation waits for is said in full, whatever the pace (16/11: "החישוב מחכה רק לקרן השתלמות"
+        # while the credit points were missing too)
+        unknown = [f for f in fields if f not in skip]
+        return unknown_text(state, snapshot, unknown) if unknown else ""
     fields = paced(state, [f for f in fields if f not in skip])
     if not fields:
         return ""
-    if group == "unknown":
-        return unknown_text(state, snapshot, fields)
+    fields = ask_fields(state, group, fields)
     if len(fields) == 1:
         return question(fields[0], state, snapshot)
     if group == "Q1":
@@ -390,6 +422,29 @@ def map_copay_line(asked: int, total: int) -> str:
             " ההשתתפות בהם.")
 
 
+def results_reason_text(state: ConversationState, focus: Sequence[str] = ()) -> str:
+    """"ולמה דווקא הראשון?" / "למה ה-NIRO פחות משתלם?" with results on screen (15/11: answered with every car's copay
+    instead): the car(s) asked about — named, by their place on the list, or else the one with the highest estimated
+    net — with the engine's net, change and main reason. Only figures from the results, never a new calculation."""
+    ok = [i for i in state.results if i.result.get("status") == "OK" and i.result.get("delta_display") is not None
+          and (i.result.get("alternative") or {}).get("net_display") is not None]
+    if not ok:
+        return ""
+    leader = max(ok, key=lambda i: Decimal(str(i.result["delta_display"])))
+    items = [i for i in ok if i.option_id in focus] or [leader]
+    lines = []
+    for item in items:
+        r = item.result
+        line = (f"{item.label}: נטו חודשי משוער {money(to_shekel(Decimal(str(r['alternative']['net_display']))))}"
+                f" ({_change(Decimal(str(r['delta_display'])))} בחודש).")
+        if r.get("why"):
+            line += f" הסיבה העיקרית: {r['why']}"
+        lines.append(line)
+    if leader in items and len(ok) > 1:
+        lines.append(f"זה הנטו המשוער הגבוה ביותר מבין {len(ok)} הרכבים שמוצגים.")
+    return "\n".join(lines)
+
+
 def results_explain_text(state: ConversationState, focus: Sequence[str] = ()) -> str:
     """"למה ההערכה זמנית?" / "זה סופי?" with results on screen: answered from the results themselves (each copay, its
     source, whether the representative was asked or answered), never by sending the employee back to choosing cars
@@ -463,9 +518,24 @@ def _best_line(best: Any) -> str:
     return f"הנטו הגבוה ביותר: {best.label}, בלי שינוי בנטו."
 
 
+def _change(delta: Decimal) -> str:
+    d = to_shekel(delta)
+    return f"תוספת של {money(d)}" if d > 0 else f"{money(-d)} פחות" if d < 0 else "בלי שינוי"
+
+
+def nets_line(items: list[Any]) -> str:
+    """"הנטו החודשי המשוער: MG4 (2025) 12,045 ₪ (תוספת של 1,013 ₪), NIRO (2025) 11,571 ₪ (תוספת של 539 ₪)." — the
+    direct answer to "מה יהיה הנטו שלי עם…" (15/11), in the cards' order, from the same engine result the cards show."""
+    parts = [f"{i.label} {money(to_shekel(Decimal(str(i.result['alternative']['net_display']))))} "
+             f"({_change(Decimal(str(i.result['delta_display'])))})"
+             for i in items if (i.result.get("alternative") or {}).get("net_display") is not None]
+    return f"הנטו החודשי המשוער: {', '.join(parts)}." if len(parts) == len(items) and parts else ""
+
+
 def results_text(state: ConversationState) -> str:
-    """At most two short lines for a plain comparison: a summary, then what is waiting. The detail
-    lives only in the structured results (the summary card and the comparison panel)."""
+    """At most three short lines for a plain comparison: a summary, each car's estimated net (the direct answer, the
+    same figures as the cards), then what is waiting. The rest of the detail lives in the structured results (the
+    summary card and the comparison panel)."""
     ok, bad = [], []
     for item in state.results:
         r = item.result
@@ -476,7 +546,11 @@ def results_text(state: ConversationState) -> str:
         # "הכי משתלם": how many were ranked, and that only the top ones are shown
         top = (f"אלה {len(ok)} החלופות עם הנטו המשוער הגבוה ביותר:" if len(ok) > 1
                else "זו החלופה עם הנטו המשוער הגבוה ביותר:")
-        lines.append(f"בדקתי את כל {state.ranked_count} הרכבים שאתם זכאים להם. {top}")
+        # the cars ranked, and an option without a car by its own name ("ויתור על רכב"), never as one more car
+        others = state.ranked_other_labels
+        cars = state.ranked_count - len(others)
+        also = f", וגם {' ו'.join(others)}" if others else ""
+        lines.append(f"בדקתי את כל {cars} הרכבים שאתם זכאים להם{also}. {top}")
         lines.append(_best_line(best))
     elif len(ok) == 1:
         lines.append(f"בדקתי את {ok[0].label}. {net_change(ok[0].result['delta_display'])}.")
@@ -491,6 +565,8 @@ def results_text(state: ConversationState) -> str:
             lines.append(f"{head}, ו{_among(len(ok))} הנטו שלכם לא ישתנה.")
         else:
             lines.append(f"{head}. {_best_line(best)}")
+    if len(ok) >= 2 and (nets := nets_line(ok)):
+        lines.append(nets)
     for item in bad:
         r = item.result
         if r["status"] == "NOT_ELIGIBLE":
@@ -846,6 +922,10 @@ def chosen_options_text(labels: list[str]) -> str:
     return f"בחרתם להשוות: {', '.join(labels)}."
 
 
+# cars chosen while a value the calculation needs is still missing (16/11: the choice got no cards and no word why)
+COMPARE_WAITS = "את ההשוואה אחשב ברגע שיהיו לי הפרטים שחסרים עדיין."
+
+
 # דוגמה מדויקת לכל שדה — מצורפת כשאותה שאלה נשאלת פעם שנייה ברצף (במקום אותו ניסוח)
 EXAMPLES = {
     "occupation": "מנהלת מוצר, או: קבוצה ג", "group": "ג", "opt_out_occupation": "מנהלת מוצר",
@@ -887,6 +967,12 @@ def confirm_car_text(state: ConversationState) -> str:
     own = state.profile.group
     whose = (f" זו הקבוצה של הרכב בקטלוג; את החלופות אבדוק לפי קבוצת הזכאות שלכם, {own}."
              if c.group and own and c.group != own and c.group != FAMILY_GROUP else "")
+    replaced = state.previous_values.get("current_car")
+    if replaced and replaced != c.label:
+        # another car than the one on record: the old and the new one, once (15/11), and a copay that stayed from it
+        carried = (f" ההשתתפות {money(c.copay)} נשארה מהרכב הקודם; אם היא שונה ברכב הזה, עדכנו אותה."
+                   if c.copay_source == "carried" and c.copay is not None else "")
+        return f"עדכנתי: הרכב של היום {', '.join(details)} במקום {replaced}.{whose}{carried}"
     return f"זיהיתי: {', '.join(details)}.{whose} אם זה לא הרכב שלכם, אפשר לתקן."
 
 
@@ -907,9 +993,39 @@ class ReplyPlan:
     ask: list[str] = field(default_factory=list)         # one clarifying question, or the next question
     cta: str = ""                                        # exactly one call to action, the last line
     fixed: bool = False                                  # results / waiting: final text, never rephrased
+    saved_first: bool = False                            # the answers are computed from what this turn saved
+    # ---- the turn decision (reply contract, 16/11): what the turn understood, changed and owes, decided in code ----
+    intent: list[str] = field(default_factory=list)      # what the message was read as (values, explain:<id>, …)
+    changes: dict[str, str] = field(default_factory=dict)   # the values saved this turn (state diff)
+    missing: list[str] = field(default_factory=list)     # what a calculation still needs (fields)
+    results: bool = False                                # this turn calculated: the cards show its results
+    explainable: list[str] = field(default_factory=list)  # the verified answers the model's explanation may replace
+    answer_source: Optional[str] = None                  # "model" / "template" (an explanation was owed), else None
+
+    def with_explanation(self, text: str) -> "ReplyPlan":
+        """The same decision, with the model's verified explanation in place of the template's own explanation
+        (the FAQ answers / the results' reason it was asked for). Every other part stays code's."""
+        if not self.explainable:
+            return self
+        at = next((i for i, a in enumerate(self.answers) if a in self.explainable), len(self.answers))
+        kept = [a for a in self.answers if a not in self.explainable]
+        return replace(self, answers=[*kept[:at], text, *kept[at:]], answer_source="model")
+
+    def decision(self) -> dict[str, Any]:
+        """The turn decision, for the record and the tests (no salary values in logs)."""
+        return {"intent": list(self.intent), "changes": dict(self.changes), "acks": list(self.ack),
+                "answer_source": self.answer_source, "missing_fields": list(self.missing), "results": self.results,
+                "ask": self.ask[-1] if self.ask else "", "cta": self.cta, "fixed": self.fixed}
 
     def text(self) -> str:
-        parts = [x for x in [*self.answers, *self.ack, *self.follow_up, *self.ask, self.cta] if x]
+        # a question is answered first; but when the answer is computed from what this turn saved (saved_first: "בעצם
+        # אני בקבוצה ג. ועכשיו כמה?", 16/11), the change is said first, once, and the answer that reflects it follows
+        if self.saved_first:
+            saved = [a for a in self.ack if a.startswith(SAVED_STARTS)]
+            rest = [a for a in self.ack if not a.startswith(SAVED_STARTS)]
+            parts = [x for x in [*saved, *self.answers, *rest, *self.follow_up, *self.ask, self.cta] if x]
+        else:
+            parts = [x for x in [*self.answers, *self.ack, *self.follow_up, *self.ask, self.cta] if x]
         # safety net only (the root cause is handled where the parts are built): never emit the same line
         # twice in one reply. Dedup at the line level across the whole reply, but keep each block's own
         # multi-line structure (so a list or a two-line question is preserved). First occurrence wins.
@@ -934,6 +1050,8 @@ class ReplyPlan:
 
 
 CTA_STARTS = ("כתבו", "בחרו", "אפשר לכתוב")
+# a line that says what this turn saved or identified: it opens the reply
+SAVED_STARTS = ("רשמתי", "עדכנתי", "זיהיתי")
 NEXT_AFTER_RESULTS = "רוצים לראות אילו רכבים משאירים לכם את הנטו הגבוה ביותר?"
 NEXT_AFTER_RANK = "רוצים להשוות רכבים אחרים? כתבו את השמות שלהם."
 LINK_LABELS = {"profile_form": "למלא בטופס", "selection": "לבחור רכבים להשוואה",
@@ -970,10 +1088,16 @@ def unknown_text(state: ConversationState, snapshot: RulesSnapshot, fields: Sequ
     where to find each value; asked again ("לא יודע") in other words, never the same text twice in a row."""
     names = _names(fields)
     if state.unknown_told % 2:
+        # still unknown (16/11): no reliable net yet, said briefly; everything else goes on, and a value the employee
+        # knows roughly is welcome, marked as an estimate. Never a value of the system's own, never 0.
         to = names[1:] if names.startswith("ה") else names        # ל + ההשתתפות = להשתתפות
-        return f"בסדר. החישוב מחכה רק ל{to}, בלי ערך משוער. אפשר לחזור לכאן בכל זמן ולכתוב את הערך."
+        return (f"בסדר. החישוב מחכה רק ל{to}: בלעדיו אין נטו אמין, ולכן לא אנחש ולא אציב 0. "
+                "אם אתם יודעים בערך, כתבו את הערך ואסמן את התוצאה כהערכה. "
+                "בינתיים אפשר לשאול על הרכבים, הזכאות וההשתתפות בכל רכב.")
     these = "הערך הזה" if len(fields) == 1 else "הערכים האלה"
-    lines = [f"כדי לחשב חסר לי: {names}. בלי {these} אין חישוב, וגם לא חישוב עם ערך משוער."]
+    # the calculation needs them now: asked again gently, once, with where to find them (16/11)
+    lines = [f"כדי לחשב את הנטו אני צריך עכשיו את {names}. אולי כבר מצאתם {these}? "
+             "אם אתם יודעים רק בערך, אפשר לכתוב הערכה ואסמן אותה בתוצאות."]
     where = [f for f in fields if (e := snapshot.faq.get(f)) is not None and e.where]
     if len(where) <= 2:           # where on the payslip, field by field — short
         lines += [f"{_UNKNOWN_NAMES[f]}: {snapshot.faq.get(f).where}" for f in where]
@@ -1052,7 +1176,8 @@ PAYSLIP_UNAVAILABLE = ("העלאת תלוש לא זמינה כרגע. אפשר �
 
 # today's copay sent to the representative (31/10): no amount is assumed until the answer
 COPAY_WITH_REP = ("רשמתי: את ההשתתפות ברכב שלכם היום נברר מול נציג התחבורה, והתשובה תגיע לכאן. "
-                  "עד אז לא אחשב את השינוי בנטו לעומת היום, ולא אשתמש בסכום משוער.")
+                  "עד אז לא אחשב נטו ולא אציב סכום משלי. אם אתם יודעים בערך, אפשר לכתוב הערכה ואסמן את "
+                  "התוצאות כמשוערות.")
 
 
 def copay_with_rep_text(provisional: Optional[Decimal]) -> str:
@@ -1118,6 +1243,8 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
         return "בחרו \"לשלוח\" או \"לבטל\".", None
     if state.unanswered_question is not None:
         return REP_OFFER_CTA, None
+    if state.pending_value_choice is not None:
+        return "בחרו אחת מהאפשרויות, או כתבו במילים.", None
     if state.pending_ambiguity is not None:
         return "בחרו אחת מהאפשרויות, או כתבו \"אין רכב\" או את דגם הרכב.", None
     if state.pending_confirmation is not None:
@@ -1178,6 +1305,8 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
     if first == "drive":
         return "בחרו או כתבו, למשל: היברידי.", None
     if first == "maintenance":
+        if "maintenance" in state.deferred_fields:       # already put off once: the end is now, nothing to put off again
+            return "כתבו את הסכום, למשל: 1,500, או \"אין\".", None
         return "כתבו את הסכום, למשל: 1,500, או \"אין\", או \"לא ידוע\" כדי לבדוק בהמשך.", None
     if first == "car_choice":
         return "בחרו גרסה, או כתבו את המספר שלה.", None
@@ -1193,6 +1322,8 @@ def placeholder_text(state: ConversationState, snapshot: RulesSnapshot) -> str:
         return "למשל: לשלוח"
     if state.unanswered_question is not None:
         return "למשל: לשאול את הנציג"
+    if state.pending_value_choice is not None:
+        return "למשל: לשניהם"
     if state.pending_ambiguity is not None:
         return "למשל: אין רכב"
     if state.pending_confirmation is not None or state.pending_clarification is not None:
@@ -1246,6 +1377,43 @@ def follow_up_text(fields: Sequence[str], snapshot: RulesSnapshot) -> str:
     else:
         ask = "מה הסכום או האחוז של כל אחד?"
     return f"כתבתם שיש לכם {said}. {ask}"
+
+
+_DRIVE_PLURAL = {"PETROL": "רכבי בנזין", "HYBRID": "היברידיים", "PLUG_IN": "פלאג-אין", "ELECTRIC": "חשמליים"}
+
+
+def eligible_text(state: ConversationState, snapshot: RulesSnapshot, drive: str = "", note: bool = False) -> str:
+    """The cars open to the employee, from the eligibility rules after this turn's saves (15/11): the count and the
+    names (the same list the alternatives question offers), or those of one drive. Never a guess: no group, no list.
+    note: the family-track line, only when it may change the answer (children unknown) and said once (16/11)."""
+    group = state.profile.group
+    if not group:
+        return "כדי לדעת אילו רכבים פתוחים לכם, צריך את קבוצת הזכאות שלכם."
+    cars = [o for o in available_options(snapshot, state) if o.car is not None]
+    today = " (בלי הרכב שלכם היום)" if state.current.catalog_code else ""
+    names = lambda options: ", ".join(o.label for o in options)       # noqa: E731
+    # one drive, or several ("HYBRID,PLUG_IN": "חוסך דלק אבל עדיין עם מנוע", 15/11): the reply names each drive it
+    # filtered by, so the employee sees how the question was read
+    drives = [d for d in drive.split(",") if d in DRIVE_HE] if drive else []
+    if not drives:
+        lines = [f"בקבוצה {group} ומטה פתוחים לכם {len(cars)} רכבים{today}:", f"{names(cars)}."]
+    else:
+        picked = [o for o in cars if o.drive is not None and o.drive.value in drives]
+        single = " או ".join(DRIVE_HE[d] for d in drives)
+        plural = " או ".join(_DRIVE_PLURAL[d] for d in drives)
+        head = f"מתוך {len(cars)} הרכבים שפתוחים לכם בקבוצה {group} ומטה"
+        if not picked:
+            lines = [f"{head}, אין רכב {single}."]
+        elif len(picked) == 1:
+            kind = DRIVE_HE[picked[0].drive.value] if len(drives) > 1 else single
+            lines = [f"{head}, רכב {kind} אחד: {picked[0].label}."]
+        else:
+            lines = [f"{head}, {len(picked)} {plural}:", f"{names(picked)}."]
+    family = [c for c in snapshot.catalog if c.group == FAMILY_GROUP]
+    if (note and family and not drive and state.profile.children is None
+            and not any(o.group == FAMILY_GROUP for o in cars)):
+        lines.append(f"אם יש לכם {snapshot.calc.family_min_children} ילדים ומעלה, נפתחים גם רכבי המסלול המשפחתי.")
+    return "\n".join(lines)
 
 
 def options_ask(state: ConversationState, snapshot: RulesSnapshot) -> str:
@@ -1348,13 +1516,19 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
     rest = [f for f in fields if f not in present]
     # a turn that gave no data: answered first, then a light question. A compound question is narrowed to its first
     # field; a question about one field keeps its own wording (it may carry context: an unknown value, the payslip)
-    focus = _first_field(paced(state, rest)) if light and len(paced(state, rest)) > 1 else None
+    # The field the employee was asked before this turn comes first (16/11: after "מה זה קרן השתלמות?" the pension
+    # question that was waiting became a study-fund question, and the next "5" went to the study fund).
+    pending = _ASKED_FIELD.get(state.asked_field or "")
+    focus = ((pending if pending in paced(state, rest) else _first_field(paced(state, rest)))
+             if light and len(paced(state, rest)) > 1 else None)
     if open_help:
         plan.ask.append(OPEN_HELP)                     # small talk at the very start: an open question, not a form
         plan.cta = OPEN_HELP_CTA
     elif explain or repeat:
         compound = len(paced(state, fields)) > 1 and _is_q2(fields)
-        line = (progress_text(state, fields) if repeat and not explain and compound
+        acked = any(a.startswith(SAVED_STARTS) for a in plan.ack)
+        line = ((still_missing_text(paced(state, fields)) if acked else progress_text(state, fields))
+                if repeat and not explain and compound
                 else explain_text(state, snapshot, [focus] if focus else fields))
         # root cause of the duplicate bubble: the parser's notice (already in plan.ack) can be the same
         # progress line; do not add it a second time to plan.ask
@@ -1372,6 +1546,20 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
     _vary_repeat(plan, state, snapshot, [focus] if focus else fields, resume=resume)
     return plan
 
+
+# state.asked_field (a save_profile argument) → the missing item it asks
+_ASKED_FIELD = {**PROFILE_ARGS, "current_copay": "copay", "current_use_value": "use_value",
+                "current_maintenance": "maintenance", "car": "car"}
+
+
+def resume_question(state: ConversationState, snapshot: RulesSnapshot, asked: Optional[str]) -> str:
+    """"נמשיך מאיפה שעצרנו: <the question>" for the field that was waiting (state.asked_field), while it is still
+    missing; "" otherwise. After an explanation the conversation returns exactly to it (16/11)."""
+    field = _ASKED_FIELD.get(asked or "")
+    p = state.profile
+    still = (field in open_profile(p) if field in PROFILE_ARGS.values()
+             else field in missing_current_car(state.current))
+    return RESUME + question(field, state, snapshot) if field and still else ""
 
 UNSURE = "לא בטוח שהבנתי למה התכוונתם."
 OPEN_HELP = "איך אפשר לעזור לכם היום עם רכב החברה?"
@@ -1405,7 +1593,11 @@ def _vary_repeat(plan: ReplyPlan, state: ConversationState, snapshot: RulesSnaps
     if resume and not plan.ask[-1].startswith(RESUME):
         plan.ask[-1] = RESUME + plan.ask[-1]
         return
-    first = progress_text(state, fields) if len(paced(state, fields)) > 1 else still_missing_text(paced(state, fields))
+    # what was saved is said once: after this turn's own "רשמתי"/"עדכנתי" line, only what is still missing (15/11:
+    # "עדכנתי: שכר בסיס 19,000 ₪ במקום 18,500 ₪." was followed by "רשמתי: שכר בסיס 19,000 ₪. עדיין חסרים לי…")
+    acked = any(line.startswith(SAVED_STARTS) for line in plan.ack)
+    first = (progress_text(state, fields) if len(paced(state, fields)) > 1 and not acked
+             else still_missing_text(paced(state, fields)))
     for other in (first, explain_text(state, snapshot, fields)):
         if other and other != state.last_ask:
             plan.ask[-1] = other

@@ -66,10 +66,14 @@ def test_disallowed_tool_is_ignored(sessions):
 
 
 def test_unknown_copay_is_recorded_and_never_sent_to_the_rep(sessions):
-    """Rule A (22/10): today's copay is the employee's own figure. "לא יודעת" is recorded and the flow goes on; no
-    calculation and no question to the representative until the employee gives it."""
+    """Today's copay (16/11): the first typed "לא יודעת" at the copay choices saves nothing and gives the ways to go
+    on; the second is recorded and the flow goes on. No calculation and no question to the representative until the
+    employee gives it."""
     svc = service(sessions)
     turn, token = talk(svc, profile() + ["יש לי COROLLA CROSS", "לא יודעת"])
+    assert turn.stage == Stage.COLLECT_CURRENT_CAR and "לברר מול נציג" in turn.reply and open_questions(svc) == []
+    assert not svc.view(turn.conversation_id, token).state.current.copay_unknown
+    turn, _ = talk(svc, ["לא יודעת"], start=(turn, token))
     assert turn.stage == Stage.CHOOSE_OPTIONS and turn.pending_rep is None and open_questions(svc) == []
     assert "רשמתי שזה לא ידוע" in turn.reply and "איזה רכבים להשוות" in turn.reply
     assert svc.view(turn.conversation_id, token).state.current.copay_unknown
@@ -235,7 +239,7 @@ def test_correction_at_the_copay_question_rematches_the_car(sessions):
     turn = svc.send(turn.conversation_id, token, "לא, זו קורולה קרוס")
     current = svc.view(turn.conversation_id, token).state.current
     assert current.catalog_code == "CAR-09" and current.copay is None
-    assert turn.reply.startswith("זיהיתי: COROLLA CROSS (2025), קבוצה ג, היברידי.")
+    assert turn.reply.startswith("עדכנתי: הרכב של היום COROLLA CROSS (2025), קבוצה ג, היברידי במקום COROLLA (2026).")
     assert "ההשתתפות החודשית ב-COROLLA CROSS" in turn.reply and turn.stage == Stage.COLLECT_CURRENT_CAR
 
 
@@ -282,5 +286,7 @@ def test_unknown_reply_suggested_by_the_bot_is_understood(sessions):
     """הבוט מציע לכתוב "לא ידוע" — והקורא מבין אותו כ"לא יודע/ת"."""
     svc = service(sessions)
     turn, token = talk(svc, profile() + ["יש לי COROLLA CROSS", "לא ידוע"])
+    assert "לא הצלחתי" not in turn.reply and 'לכתוב שוב "לא ידוע"' in turn.reply     # 16/11: the ways to go on
+    turn, _ = talk(svc, ["לא ידוע"], start=(turn, token))
     assert "רשמתי שזה לא ידוע" in turn.reply and "לא הצלחתי" not in turn.reply
     assert svc.view(turn.conversation_id, token).state.current.copay_unknown

@@ -138,7 +138,8 @@ def test_with_the_model_the_model_decides_and_code_shows_the_real_catalog(engine
     assert fake.calls                                                   # free text goes to the model, not to a word list
     shown = {ln[2:] for ln in turn["reply"].splitlines() if ln.startswith("- ")}
     assert shown == catalog_labels(c)                                   # code's list: every real car, nothing invented
-    assert turn["reply"].rstrip().endswith("?")                        # the model's question closes the reply
+    # the reply contract (16/11): the list's own question is code's, and the model's is never added to it
+    assert "איזה מהם הרכב הצמוד שלכם היום?" in turn["reply"] and turn["reply"].count("?") == 1
     assert_nothing_assumed(c, cid, turn)
 
 

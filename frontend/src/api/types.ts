@@ -207,6 +207,8 @@ export interface TurnResponse {
   pending_rep: RepReason | null
   expects: Expects
   results_stale?: boolean     // the results predate the last change: history, not a recommendation
+  facts?: Facts               // "הנתונים שלי"
+  data_version?: number
 }
 
 export interface ConversationView {
@@ -225,6 +227,8 @@ export interface ConversationView {
   messages: Message[]
   rep_questions?: RepInquiry[]
   results_stale?: boolean     // the results predate the last change: history, not a recommendation
+  facts?: Facts               // "הנתונים שלי"
+  data_version?: number
   option_map?: OptionMap | null      // 360°: null until the employee asks for it
   map_ready?: boolean         // the option map can be built now (an older server does not say: not offered)
   map_missing?: string[]      // what the map still needs, in Hebrew
@@ -258,6 +262,8 @@ export interface UpdatesResponse {
   today_copay_provisional?: string | null   // pending with the rep: the catalog amount used meanwhile
   today_copay_source?: string | null   // rep_confirmed / catalog_confirmed / null (typed by the employee)
   results_stale?: boolean     // the results predate the last change: history, not a recommendation
+  facts?: Facts               // "הנתונים שלי"
+  data_version?: number
   option_map?: OptionMap | null      // 360°: null until the employee asks for it
   map_ready?: boolean         // the option map can be built now (an older server does not say: not offered)
   map_missing?: string[]      // what the map still needs, in Hebrew
@@ -288,6 +294,35 @@ export interface CatalogItem {
 
 /** The structured profile form (Q2 / "תיקון נתונים"). Only the fields that are sent are saved;
  *  the server checks the ranges (422) and saves without the LLM. Keys are the server's names. */
+// "הנתונים שלי": every value the system holds, where it came from, its status, and how it can be changed (server's facts_view)
+export interface FactItem {
+  key: string
+  label: string
+  section: 'eligibility' | 'pay' | 'car' | 'results'
+  value: string | null
+  display: string
+  source: string | null
+  source_label: string
+  status: string
+  status_label: string
+  edit: string | null        // how it can be changed; null: it cannot, on its own
+  used_in_calc: boolean
+  note: string
+  min?: string | null
+  max?: string | null
+  choices?: string[]
+}
+
+export interface Facts {
+  version: number
+  results_version: number
+  ranked?: boolean
+  items: FactItem[]
+  strip: string[]
+  missing: string[]
+  assumptions: string[]
+}
+
 export interface ProfileFields {
   base_salary?: number       // from a reviewed payslip
   commissions?: number
@@ -296,13 +331,20 @@ export interface ProfileFields {
   study_fund_percent?: number
   credit_points?: number
   children_under_23?: number
+  // one value on its own ("הנתונים שלי"), through the same gate
+  eligibility_group?: string
+  occupation?: string
+  current_copay?: number
+  current_use_value?: number
+  current_maintenance?: number
+  current_car?: string
 }
 
 export type MessageIn =
   | { text: string }
   | { choice: string; field?: string }
   | { choices: string[]; field?: string }
-  | { fields: ProfileFields; source?: 'payslip' }     // source: values approved from a reviewed payslip
+  | { fields: ProfileFields; source?: 'payslip'; base_version?: number }     // source: values approved from a reviewed payslip
 
 // ---------- employee-initiated rep question (POST /conversations/{id}/rep-question) ----------
 
@@ -440,7 +482,14 @@ export interface MapEntry {
 export interface OptionMap {
   entries: MapEntry[]               // calculated (net, high to low), then waiting, then not eligible
   excluded: { label: string; group: string | null; reason: string }[]
-  counts: { eligible: number; calculated: number; waiting: number; catalog_copay: number }
+  // eligible / calculated / waiting count every option; cars and others tell the catalog cars from an option that is
+  // not a car ("ויתור על רכב"), so the map says "12 רכבים + ויתור על רכב" like the chat, never "13 חלופות" (15/11).
+  // cars / others are optional: a map stored before them still renders with the counts it had.
+  counts: {
+    eligible: number; calculated: number; waiting: number; catalog_copay: number
+    cars?: number; cars_calculated?: number
+    others?: { option_id: string; label: string; status: MapStatus }[]
+  }
   leaders: string[]                 // highest estimated net among the calculated; several = a tie; [] = none
   stale: boolean                    // built before the last change: history, never a current ranking
   group: string | null

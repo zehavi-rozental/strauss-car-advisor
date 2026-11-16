@@ -1,10 +1,10 @@
-"""Today's copay asked from the representative: the comparison goes on with the catalog amount, provisionally (1/11).
+"""Today's copay asked from the representative: no net on an unverified amount (16/11, replaces the provisional
+catalog amount of 1/11).
 
-Same employee, same salary, same cars throughout: (1) the inquiry is sent; (2) every result is calculated at once with
-the catalog amount, marked provisional, never stored as the employee's own; (3) the representative answers another
-amount; (4) the results stay as they were until the employee confirms; (5-7) confirming recalculates: today's net
-moves by exactly the difference, as the independent oracle computes it; (8) each alternative's own net does not move;
-(9) a reload shows no button and nothing is applied twice.
+Same employee, same salary, same cars throughout: (1) the inquiry is sent; (2) the copay stays unknown: no catalog
+amount is used or shown as the employee's, and nothing is calculated; (3) the representative answers an amount;
+(4) it is offered, never applied by itself; (5-7) confirming calculates: today's net is the independent oracle's for
+that amount; (8) a reload shows no button and nothing is applied twice.
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def nets(results):
                              int(r["delta_display"])) for r in results}
 
 
-def test_the_comparison_runs_on_the_catalog_amount_until_the_rep_answers_and_the_employee_confirms(engine):
+def test_no_net_until_the_rep_answers_and_the_employee_confirms(engine):
     client = make_client(engine, rep_access_token=TOKEN)
     cid, send, _ = at_copay(client)                              # COROLLA (2026): catalog copay 250
     view = lambda: client.get(f"/api/conversations/{cid}").json()
@@ -39,20 +39,16 @@ def test_the_comparison_runs_on_the_catalog_amount_until_the_rep_answers_and_the
                     json={"question": "מה סכום ההשתתפות שלי ברכב הנוכחי?", "intent": "current_copay"})
     assert r.status_code == 200 and r.json()["status"] == "created"
     turn = send({"choice": "rep", "field": "copay"})
-    assert "החישוב כרגע מבוסס על השתתפות של 250 ₪ לפי הקטלוג, עד לאימות מול נציג" in turn["reply"]
+    assert "לא אחשב נטו ולא אציב סכום משלי" in turn["reply"] and "250" not in turn["reply"]
     car = view()["current_car"]
-    assert car["copay"] is None and car["copay_source"] is None          # never the employee's own amount
-    assert car["copay_provisional"] == "250" and view()["today_copay_provisional"] == "250"
+    assert car["copay"] is None and car["copay_source"] is None and car["copay_unknown"] is True
+    assert car["copay_provisional"] is None and view()["today_copay_provisional"] is None
 
-    # 2. the comparison runs now, on the provisional amount, and says so
+    # 2. a ranking request waits: nothing is calculated on an unverified amount
     first = send({"text": "הכי משתלם"})
-    assert first["results"], first["reply"]
-    assert all(r["today_copay_provisional"] == "250" for r in first["results"])
-    assert "לפי הקטלוג ברכב שלכם היום, עד לאימות מול נציג" in first["reply"]
-    before = nets(first["results"])
-    assert {t for t, _, _ in before.values()} == {oracle_today(250)}
+    assert first["results"] == [] and "250" not in first["reply"]
 
-    # 3-4. the representative answers 300: offered; the results stay as they were
+    # 3-4. the representative answers 300: offered; nothing applied by itself
     rep = {"X-Rep-Token": TOKEN}
     [q] = [q for q in client.get("/api/rep/questions?status=OPEN", headers=rep).json()
            if q["missing_field"] == "CURRENT_COPAY"]
@@ -60,37 +56,31 @@ def test_the_comparison_runs_on_the_catalog_amount_until_the_rep_answers_and_the
     v = view()
     offer = next(f for f in v["expects"]["fields"] if f["field"] == "rep_copay")
     assert offer["choices"][0]["label"] == "עדכון הסכום וחישוב מחדש"
-    assert offer["context"] == {"car": "COROLLA (2026)", "amount": "300", "previous": None, "provisional": "250"}
-    assert any("החישוב הנוכחי מבוסס על 250 ₪ לפי הקטלוג" in m["content"] and "300 ₪" in m["content"]
-               for m in v["messages"])
-    assert v["current_car"]["copay"] is None                               # nothing applied by itself
+    assert offer["context"] == {"car": "COROLLA (2026)", "amount": "300", "previous": None, "provisional": None}
+    assert v["current_car"]["copay"] is None and v["results"] == []          # nothing applied by itself
 
-    # 5-8. confirm: recalculated exactly as the oracle says; the alternatives do not move
+    # 5-7. confirm: the ranking asked for earlier is calculated, today's net exactly as the oracle says
     turn = send({"choice": offer["choices"][0]["id"], "field": "rep_copay"})
     after = nets(turn["results"])
-    assert set(after) == set(before)
-    for oid, (today, alt, delta) in before.items():
-        t2, a2, d2 = after[oid]
-        assert t2 == oracle_today(300) == today - 50                       # 300 - 250, a net deduction
-        assert a2 == alt                                                   # the new car's own net: unchanged
-        assert d2 == delta + 50
-    assert all("today_copay_provisional" not in r for r in turn["results"])   # the provisional mark is gone
+    assert after and {t for t, _, _ in after.values()} == {oracle_today(300)}
+    assert all("today_copay_provisional" not in r for r in turn["results"])
     car = view()["current_car"]
     assert car["copay"] == "300" and car["copay_source"] == "rep_confirmed" and car["copay_provisional"] is None
 
-    # 9. a reload: no button; a second click applies nothing
+    # 8. a reload: no button; a second click applies nothing
     assert all(f["field"] != "rep_copay" for f in view()["expects"]["fields"])
     again = client.post(f"/api/conversations/{cid}/messages",
                         json={"choice": offer["choices"][0]["id"], "field": "rep_copay"})
     assert again.status_code == 422 and view()["current_car"]["copay"] == "300"
 
 
-def test_without_a_catalog_amount_nothing_is_assumed():
+def test_the_rep_text_assumes_nothing():
     from app.modules.conversation.templates import COPAY_WITH_REP, copay_with_rep_text
-    assert copay_with_rep_text(None) == COPAY_WITH_REP and "לא אשתמש בסכום משוער" in COPAY_WITH_REP
+    assert copay_with_rep_text(None) == COPAY_WITH_REP and "לא אציב סכום משלי" in COPAY_WITH_REP
+    assert not any(ch.isdigit() for ch in COPAY_WITH_REP)
 
 
-def test_the_same_car_matched_again_keeps_the_provisional_amount_another_car_drops_it(engine):
+def test_the_same_car_matched_again_keeps_the_inquiry_state_and_never_an_amount(engine):
     """Found in the browser on 8795 (1/11): the model matched today's car again on "2.75 נקודות זיכוי", the car was
     rebuilt, the provisional amount was lost and the comparison was blocked again."""
     from app.modules.conversation.llm.fake import FakeLLM, call
@@ -100,13 +90,14 @@ def test_the_same_car_matched_again_keeps_the_provisional_amount_another_car_dro
     cid, send, _ = at_copay(client)
     send({"choice": "rep", "field": "copay"})
     car = lambda: client.get(f"/api/conversations/{cid}").json()["current_car"]
-    assert car()["copay_provisional"] == "250"
+    assert car()["copay_unknown"] and car()["copay_provisional"] is None
     fake.turn(call("match_current_car", model="קורולה 2026"), reply="רשמתי.")
     send({"text": "2.75 נקודות זיכוי, והרכב שלי הוא קורולה 2026"})
-    assert car()["catalog_code"] == "CAR-07" and car()["copay_provisional"] == "250"     # the same car: kept
+    assert car()["catalog_code"] == "CAR-07" and car()["copay_unknown"]                    # the same car: kept
+    assert car()["copay"] is None and car()["copay_provisional"] is None                   # never an amount
     fake.turn(call("match_current_car", model="מאזדה 3", reset=True), reply="רשמתי.")
     send({"text": "טעיתי, הרכב שלי הוא מאזדה 3"})
-    assert car()["catalog_code"] != "CAR-07" and car()["copay_provisional"] is None        # another car: dropped
+    assert car()["catalog_code"] != "CAR-07" and car()["copay"] is None and car()["copay_provisional"] is None
 
 
 def test_after_confirming_the_results_say_the_amount_is_the_representative_s(engine):

@@ -55,6 +55,20 @@ describe('360° option map', () => {
   })
 })
 
+import { eligibleText } from './optionMap'
+describe('the map counts cars, and names an option that is not a car (15/11)', () => {
+  const base = map([entry('A', '900'), entry('OPT_OUT', null, 'incomplete')])
+  it('"12 רכבים + ויתור על רכב", never "13 חלופות"', () => {
+    const split = { ...base, counts: { ...base.counts, cars: 12, cars_calculated: 12,
+                                       others: [{ option_id: 'OPT_OUT', label: 'ויתור על רכב', status: 'incomplete' as const }] } }
+    expect(eligibleText(split)).toBe('12 רכבים זכאים + ויתור על רכב')
+    expect(eligibleText({ ...split, counts: { ...split.counts, cars: 1, others: [] } })).toBe('רכב זכאי אחד')
+  })
+  it('a map without the split keeps its own count', () => {
+    expect(eligibleText(base)).toBe('2 חלופות זכאיות')
+  })
+})
+
 import { mapKey } from './optionMap'
 describe('the map card moves only when the map is rebuilt (1/11)', () => {
   const entry = (delta: string) => ({ option_id: 'CAR-03', label: 'BYD DOLPHIN (2025)', group: 'א', drive: 'ELECTRIC',

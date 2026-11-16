@@ -183,6 +183,8 @@ def test_the_model_is_told_the_preferences(engine):
     svc.send(start.conversation_id, token, "תשאל כל פעם שאלה אחת")
     svc.send(start.conversation_id, token, "תכתוב יותר קצר")
     svc.send(start.conversation_id, token, "קבוצה ג")
+    # a message code reads in full needs no model call (the reply contract, 16/11): a question does
+    svc.send(start.conversation_id, token, "מה זה נקודות זיכוי?")
     system = [c.messages[0].content for c in fake.calls if c.messages and c.messages[0].role == "system"]
     last = next(s for s in reversed(system) if "STATE" in s or "pace:" in s or "style:" in s)
     assert "pace: the employee asked for ONE question at a time" in last

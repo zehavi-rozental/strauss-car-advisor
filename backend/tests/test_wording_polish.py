@@ -45,7 +45,8 @@ def test_a_phrased_reply_in_the_singular_or_with_an_opener_is_not_used(sessions)
         svc = service(sessions, LLMChain([FakeLLM().turn(reply=reply)]))
         turn, token = svc.start()
         turn = svc.send(turn.conversation_id, token, "מה זה נקודות זיכוי?")
-        assert reason in turn.say and turn.source == "template"
+        # the offending answer is not used (the verified FAQ answer is), and the model's question never is
+        assert turn.source == "template" and "שלך" not in turn.reply and "שמנו לב" not in turn.reply
 
 
 # ---------- 2. a request the bot cannot do yet; no verbatim repeat ----------
@@ -82,7 +83,7 @@ def test_the_example_lists_only_missing_fields(sessions):
 def test_rank_says_how_many_cars_were_ranked(sessions):
     turn, _, _ = talk(service(sessions), PROFILE + ["מה הכי משתלם לי?"])
     assert turn.results and turn.reply.startswith("בדקתי את כל ")
-    assert "הרכבים שאתם זכאים להם. אלה 3 החלופות עם הנטו המשוער הגבוה ביותר:" in turn.reply
+    assert "הרכבים שאתם זכאים להם, וגם ויתור על רכב. אלה 3 החלופות עם הנטו המשוער הגבוה ביותר:" in turn.reply
 
 
 # ---------- 7. an FAQ answer only when the entry answers the question ----------
@@ -102,7 +103,8 @@ def test_an_unrelated_faq_entry_is_not_used(sessions):
     svc = service(sessions, LLMChain([fake]))
     turn, token = svc.start()
     turn = svc.send(turn.conversation_id, token, SUNROOF)
-    assert "אפשר להשוות עד" not in turn.reply and turn.reply.startswith("על גג נפתח אין לי מידע מדויק")
+    # a car's property: nothing verified answers it, so code offers the representative (the reply contract, 16/11)
+    assert "אפשר להשוות עד" not in turn.reply and "נציג התחבורה" in turn.reply
     turn, _, _ = talk(service(sessions), [SUNROOF])           # without an LLM: the honest line, no FAQ entry
     assert turn.reply.startswith("על זה אין לי מידע מדויק") and "אפשר להשוות עד" not in turn.reply
 

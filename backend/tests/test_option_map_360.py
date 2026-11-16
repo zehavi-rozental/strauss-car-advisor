@@ -104,7 +104,7 @@ def test_the_request_needs_no_chosen_car_and_lists_every_eligible_option(session
     s, m = mapped(svc, turn, token)
     assert s.selected == [] and s.ranked_count == 0                      # nothing chosen for the employee
     assert len(m["entries"]) == len(available_options(SNAP, s)) == 13 > 3
-    assert "מיפיתי את כל 13 החלופות" in turn.reply and NET_ONLY in turn.reply
+    assert "מיפיתי את כל 12 הרכבים שאתם זכאים להם" in turn.reply and NET_ONLY in turn.reply
     assert "הכי משתלם" not in turn.reply.split("\n\n")[0]
 
 
@@ -129,7 +129,7 @@ def test_the_request_asked_first_waits_for_the_data_and_asks_only_what_is_missin
     turn = svc.send(turn.conversation_id, token, profile("מנהלת מוצר"))
     assert mapped(svc, turn, token)[1] is None                            # no car yet: nothing calculated
     turn = svc.send(turn.conversation_id, token, CAR)
-    assert "מיפיתי את כל 13 החלופות" in turn.reply                         # shown as soon as it is ready
+    assert "מיפיתי את כל 12 הרכבים שאתם זכאים להם" in turn.reply                         # shown as soon as it is ready
 
 
 # ---------- 9, 14, 19, 20: only what was calculated is ranked; ties; nothing to rank ----------
@@ -142,7 +142,7 @@ def test_an_option_missing_a_value_is_listed_but_never_ranked(sessions):
     opt_out = next(e for e in m["entries"] if e["option_id"] == "OPT_OUT")
     assert opt_out["status"] == "incomplete" and "OPT_OUT" not in m["leaders"]
     assert m["counts"]["waiting"] == 1 and m["entries"][-1]["option_id"] == "OPT_OUT"   # listed after the ranked
-    assert "1 חלופות ממתינות למידע ולא נכללו בדירוג" in turn.reply
+    assert "ויתור על רכב: ממתין למידע, ולכן לא נכלל בדירוג." in turn.reply
 
 
 def _entry(code: str, delta: str, status: str = "catalog_copay") -> MapEntry:
@@ -231,7 +231,7 @@ def test_with_a_model_the_request_still_maps_and_chooses_nothing(sessions):
     turn = svc.send(turn.conversation_id, token, ASK)
     s, m = mapped(svc, turn, token)
     assert s.selected == [] and m["counts"]["eligible"] == 13             # refused: the employee named no car
-    assert turn.reply.startswith("מיפיתי את כל 13 החלופות")               # the code's summary, not the model's
+    assert turn.reply.startswith("מיפיתי את כל 12 הרכבים שאתם זכאים להם")               # the code's summary, not the model's
 
 
 def test_unknown_inputs_never_build_a_map():
@@ -256,7 +256,7 @@ def test_a_request_while_waiting_for_the_rep_is_kept(sessions):
 def test_a_request_with_todays_copay_unknown_names_what_is_missing(sessions):
     """Rule A: today's copay is asked from the employee, so the map waits for it and the reply says so."""
     svc = service(sessions)
-    turn, token = talk(svc, profile("מנהלת מוצר"), "יש לי קורולה קרוס", "לא יודעת")
+    turn, token = talk(svc, profile("מנהלת מוצר"), "יש לי קורולה קרוס", "לא יודעת", "לא יודעת")   # recorded (16/11)
     turn = svc.send(turn.conversation_id, token, ASK)
     s = svc.view(turn.conversation_id, token).state
     assert s.map_requested and s.option_map is None and svc.cases.list_open() == []

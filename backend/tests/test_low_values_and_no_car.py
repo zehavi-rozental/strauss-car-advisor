@@ -197,7 +197,8 @@ def test_the_model_cannot_go_back_to_a_field_the_employee_already_answered(sessi
     stale = "כמה עמלות יש לכם בחודש?"                           # commissions were answered ("בלי עמלות")
     fake.turn(reply=stale, retry=stale)
     turn = svc.send(turn.conversation_id, token, "כתבתי שאין לי רכב")
-    assert turn.source == "template" and "stale" in turn.say
+    # the model's question is never taken (the reply contract, 16/11): the answered field is never asked again
+    assert turn.source == "template"
     assert turn.reply.startswith("רשמתי: אין לכם רכב צמוד היום.") and "עמלות" not in turn.reply
     assert "אחזקת רכב" in turn.reply
 

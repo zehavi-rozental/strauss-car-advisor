@@ -9,7 +9,7 @@ import itertools
 import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 from app.modules.calculation.public import Drive
 from app.modules.rules.public import words
@@ -42,6 +42,9 @@ _DRIVE_WORDS = {
     Drive.HYBRID: ("היברי", "hybrid"),
     Drive.PETROL: ("בנזין", "petrol", "gasoline", "דלק"),
 }
+# "דלק" says the message is about fuel, not which drive: "חוסך דלק", "לא צריך לתדלק" mean the opposite of petrol
+# (15/11: petrol cars were listed for "משהו שחוסך דלק אבל עדיין עם מנוע"). A drive is *named* only by the others.
+_FUEL_ONLY = ("דלק",)
 
 
 def redact_id_numbers(text: str) -> str:
@@ -263,6 +266,27 @@ def read_number(text: str, match: "re.Match[str]", group: int = 0) -> ReadNumber
     return ReadNumber(value, (match.start(group), end), approximate)
 
 
+_ANY_NUMBER_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+
+def said_approximately(text: str, value: Any) -> bool:
+    """The employee said this value as an estimate ("בערך 2.5%", "כ-1,000", "קרן השתלמות בערך 2.5"): the same number,
+    read with the same rule as every parsed number (read_number), carries an estimate marker (16/11: a value the model
+    saved from "בערך 2.5%" was recorded as exact)."""
+    try:
+        target = Decimal(str(value))
+    except Exception:  # noqa: BLE001 — not a number
+        return False
+    for m in _ANY_NUMBER_RE.finditer(text):
+        try:
+            number = read_number(text, m)
+        except Exception:  # noqa: BLE001 — "1,2,3" and the like
+            continue
+        if number.value == target and number.approximate:
+            return True
+    return False
+
+
 def approx_spans(text: str) -> list[Span]:
     return [m.span() for m in _APPROX_MARKER_RE.finditer(text)]
 
@@ -298,9 +322,12 @@ def negates(text: str) -> bool:
                for i, w in enumerate(ws) if i > 0)
 
 
-# "משלמת עליו אני לא זוכרת כמה": the copay exists but its amount is not known (never 0, never guessed)
-_COPAY_UNKNOWN_RE = re.compile(r"(?:משלמ(?:ת|ים|ות)?|משלם|משתתפ(?:ת|ים|ות)?|משתתף|השתתפות)[^\d,;\n]{0,15}?"
-                               r"לא\s+(?:זוכר|יודע|בטוח)(?:ת|ה)?(?:\s+כמה)?")
+# "משלמת עליו אני לא זוכרת כמה": the copay exists but its amount is not known (never 0, never guessed). Also the other
+# order, "לא יודעת כמה אני משלמת" / "לא זוכרת כמה ההשתתפות" (manual QA 9/11: "not understood" while the copay was asked)
+_PAYING = r"(?:משלמ(?:ת|ים|ות)?|משלם|משתתפ(?:ת|ים|ות)?|משתתף|השתתפות)"
+_NOT_KNOWING_COPAY = r"לא\s+(?:זוכר|יודע|בטוח)(?:ת|ה)?"
+_COPAY_UNKNOWN_RE = re.compile(rf"{_PAYING}[^\d,;\n]{{0,15}}?{_NOT_KNOWING_COPAY}(?:\s+כמה)?"
+                               rf"|{_NOT_KNOWING_COPAY}\s+כמה[^\d,;\n]{{0,15}}?{_PAYING}")
 
 
 def copay_unknown_span(text: str) -> Optional[Span]:
@@ -481,17 +508,90 @@ def parse_profile_fields(text: str, occupations: Iterable[str]) -> dict[str, obj
 
 
 def match_group(groups: Iterable[str], text: str) -> Optional[str]:
-    """"קבוצה ג" / "ג" → "ג"."""
-    cleaned = re.sub(r"קבוצ(?:ה|ת)|זכאות|[^א-ת ]", " ", text)
+    """"קבוצה ג" / "ג" → "ג". The word's prefix letters go with it: "אני **ב**קבוצה ג" left a lone "ב" next to the "ג"
+    (two groups, so none: 15/11)."""
+    cleaned = re.sub(r"(?<![א-ת])[והבלמשכ]{0,2}(?:קבוצ(?:ה|ת)|זכאות)|[^א-ת ]", " ", text)
     found = [g for g in groups if re.search(rf"(?<![א-ת]){re.escape(g)}(?![א-ת])", cleaned)]
     return found[0] if len(found) == 1 else None
 
 
-def match_drive(text: str) -> Optional[Drive]:
-    t = text.lower()
-    for drive, words in _DRIVE_WORDS.items():
-        if any(re.search(rf"(?<![a-zא-ת]){re.escape(w)}", t) for w in words):
-            return drive
+# A car name written in Hebrew letters ("מג 4", "לנירו", "טוסון") against the catalog's Latin name (MG4, NIRO, TUCSON):
+# both reduced to one rough sound form, letter by letter (15/11). An algorithm, not a list of spellings: it only
+# confirms that the car the model picked is the one the employee referred to, never picks a car itself.
+_HEB_SOUND = {"א": "a", "ב": "b", "ג": "g", "ד": "d", "ה": "", "ו": "o", "ז": "z", "ח": "", "ט": "t", "י": "i",
+              "כ": "k", "ך": "k", "ל": "l", "מ": "m", "ם": "m", "נ": "n", "ן": "n", "ס": "s", "ע": "a", "פ": "p",
+              "ף": "p", "צ": "ts", "ץ": "ts", "ק": "k", "ר": "r", "ש": "s", "ת": "t"}
+_LAT_PAIRS = (("sh", "s"), ("ch", "k"), ("ph", "p"), ("ck", "k"))
+_LAT_SOUND = str.maketrans({"c": "k", "q": "k", "w": "b", "v": "b", "f": "p", "j": "g", "x": "ks", "y": "i",
+                            "e": "i", "u": "o", "h": ""})
+
+
+def _sound(token: str) -> str:
+    if re.fullmatch(r"[א-ת]+", token):
+        # א / ע sound only at the start ("אטו" = ato); inside a word they are silent ("ליאון" = lion)
+        out = "".join("" if ch in "אע" and k else _HEB_SOUND[ch] for k, ch in enumerate(token[:-1]))
+        out += "a" if token[-1] == "ה" else _HEB_SOUND[token[-1]]
+    else:
+        out = token.lower()
+        for pair, one in _LAT_PAIRS:
+            out = out.replace(pair, one)
+        out = out.translate(_LAT_SOUND)
+    return re.sub(r"(.)\1+", r"\1", out)          # "atto" = "ato", "corolla" = "korola"
+
+
+def _distance_at_most_one(a: str, b: str) -> bool:
+    if abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        return sum(x != y for x, y in zip(a, b)) <= 1
+    short, long_ = (a, b) if len(a) < len(b) else (b, a)
+    return any(long_[:i] + long_[i + 1:] == short for i in range(len(long_)))
+
+
+def sounds_like(text: str, name: str) -> bool:
+    """The message refers to this catalog name in other letters: "מג 4" → MG4, "לנירו" → NIRO, "טוסון" → TUCSON.
+    Short forms must match exactly, long ones within one letter; digits always exactly."""
+    target = _sound("".join(re.findall(r"[a-z]+|[א-ת]+|\d+", re.sub(r"\(\d{4}\)", "", name.lower()))))
+    if len(target) < 2:
+        return False
+    tokens = re.findall(r"[a-z]+|[א-ת]+|\d+", text.lower())
+    for i in range(len(tokens)):
+        firsts = [tokens[i]] + ([tokens[i][k:] for k in (1, 2) if len(tokens[i]) > k + 1
+                                 and all(c in "והבלמשכ" for c in tokens[i][:k])] if re.fullmatch(r"[א-ת]+", tokens[i])
+                                else [])
+        for first in firsts:
+            for j in range(i + 1, min(i + 3, len(tokens)) + 1):
+                parts = [first, *tokens[i + 1:j]]
+                said = "".join(_sound(p) if not p.isdigit() else p for p in parts)
+                if re.sub(r"\D", "", said) != re.sub(r"\D", "", target):
+                    continue
+                if said == target or (len(target) >= 5 and _distance_at_most_one(said, target)):
+                    return True
+                # long names: the consonants alone (Hebrew writes vowels loosely: "יאריס" / YARIS)
+                bare_said, bare_target = re.sub(r"[aio]", "", said), re.sub(r"[aio]", "", target)
+                if len(bare_target) >= 4 and _distance_at_most_one(bare_said, bare_target):
+                    return True
+    return False
+
+
+def match_drive(text: str, named_only: bool = False) -> Optional[Drive]:
+    """The drive a message names. Hebrew: the word's stem after up to two prefix letters, so "ומה הם **ה**חשמליים?"
+    is read (15/11: it went to the representative); English: the whole word ("ev", never "every" or "event").
+    named_only: a drive's own name only, never "דלק" (fuel is not a drive: "חוסך דלק")."""
+    tokens = re.findall(r"[a-z]+|[א-ת]+", text.lower())
+    for token in tokens:
+        hebrew = "א" <= token[0] <= "ת"
+        forms = [token]
+        stem = token
+        for _ in range(2 if hebrew else 0):
+            if stem and stem[0] in "והבלכמ":
+                stem = stem[1:]
+                forms.append(stem)
+        for drive, words in _DRIVE_WORDS.items():
+            words = tuple(w for w in words if not (named_only and w in _FUEL_ONLY))
+            if any((form.startswith(word) if hebrew else form == word or (len(word) > 3 and form.startswith(word)))
+                   for form in forms for word in words):
+                return drive
     return None
 
 

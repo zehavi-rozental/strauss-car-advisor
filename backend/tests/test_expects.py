@@ -54,7 +54,7 @@ def test_expects_follows_the_state_machine(engine):
                                                   "credit_points", "children"]
     assert ids(e["fields"][0], "quick_replies") == ["none"]
     e = say(client, cid, "אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים")["expects"]
-    assert [f["field"] for f in e["fields"]] == ["car", "copay", "options"]          # Q3
+    assert [f["field"] for f in e["fields"]] == ["car", "options"]       # Q3: the car alone, then its copay (16/11)
     assert (e["field"], e["type"], ids(e, "quick_replies")) == ("car", "car_search", ["no_car"])
     e = say(client, cid, "יש לי קורולה קרוס")["expects"]
     assert [f["field"] for f in e["fields"]] == ["copay", "options"]
@@ -156,12 +156,13 @@ def test_quick_replies_and_confirmation_buttons(engine):
     assert r.status_code == 422 and r.json()["detail"] == "יש לציין לאיזה שדה הבחירה"
     body = post(client, cid, choice="none", field="commissions").json()
     assert client.get(f"/api/conversations/{cid}").json()["profile"]["commissions"] == "0"
-    fields = [f["field"] for f in body["expects"]["fields"]]       # Q2 נענתה בחלקה: מה שנשאר עובר ל-Q3
-    assert fields[:3] == ["car", "copay", "options"] and "bonus" in fields
+    fields = [f["field"] for f in body["expects"]["fields"]]       # 16/11: מה שנשאר מ-Q2 נשאל לפני הרכב
+    assert "bonus" in fields and "car" not in fields and body["expects"]["field"] == "bonus"
 
 
 def test_unknown_copay_quick_reply_is_recorded_and_the_flow_goes_on(engine):
-    """Rule A (22/10): today's copay is the employee's; "לא ידוע" is recorded, never sent to the representative."""
+    """Today's copay is the employee's: a typed "לא ידוע" first gets the ways to go on, the second is recorded (16/11);
+    never sent to the representative."""
     client = make_client(engine)
     cid, _ = new(client)
     say(client, cid, PROFILE)
@@ -169,6 +170,8 @@ def test_unknown_copay_quick_reply_is_recorded_and_the_flow_goes_on(engine):
     body = post(client, cid, choice="CAR-09", field="car").json()
     assert body["expects"]["field"] == "copay"
     body = say(client, cid, "לא ידוע")         # a catalog car: three choices on screen; "לא ידוע" is typed
+    assert body["stage"] == "COLLECT_CURRENT_CAR" and body["expects"]["field"] == "copay"   # nothing saved
+    body = say(client, cid, "לא ידוע")         # again: recorded as unknown, the flow goes on
     assert body["stage"] == "CHOOSE_OPTIONS" and body["results"] == []
     assert client.app.state.ctx.service.cases.list_open() == []
 

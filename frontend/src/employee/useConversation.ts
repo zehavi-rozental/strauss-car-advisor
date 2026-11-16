@@ -6,9 +6,24 @@ import { reportBackendLost } from '../shell/backendReady'
 import { normalizeResults } from '../api/normalize'
 import { mapKey } from './optionMap'
 import { placeAnchor, type CardAnchor } from './anchors'
-import type { ConversationView, EngineState, Expects, Message, MessageIn, OptionMap, OptionResult, PendingQuestion, ProfileFields, RepInquiry, Stage } from '../api/types'
+import type { ConversationView, EngineState, Expects, Facts, Message, MessageIn, OptionMap, OptionResult, PendingQuestion, ProfileFields, RepInquiry, Stage } from '../api/types'
 
 const STORAGE_KEY = 'sca.conversationId'
+
+// the answer an email link opened (10/11): kept in the address as #answer=<question id>, so a reload (also on a phone,
+// where the browser may reload a background tab) shows that answer again, highlighted. It names a question only; the
+// conversation itself is still opened by this browser's own session, so the id gives nobody else anything.
+function answerInAddress(): string | null {
+  const id = new URLSearchParams(window.location.hash.slice(1)).get('answer')
+  return id && /^[0-9a-f-]{8,64}$/i.test(id) ? id : null
+}
+
+function keepAnswerInAddress(questionId: string | null): void {
+  const url = new URL(window.location.href)
+  const hash = questionId ? `#answer=${encodeURIComponent(questionId)}` : ''
+  if (url.hash === hash || (!questionId && !answerInAddress())) return
+  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${hash}`)
+}
 const POLL_MS = 3000
 
 export interface ChatMessage extends Message {
@@ -78,6 +93,7 @@ export function useConversation(ready = true) {
   }, [])
   const [results, setResults] = useState<OptionResult[]>([])
   const [resultsStale, setResultsStale] = useState(false)
+  const [facts, setFacts] = useState<Facts | null>(null)     // "הנתונים שלי"
   const [todayCopayProvisional, setTodayCopayProvisional] = useState<string | null>(null)
   const [todayCopay, setTodayCopay] = useState<string | null>(null)
   const [todayCar, setTodayCar] = useState<string | null>(null)
@@ -158,6 +174,7 @@ export function useConversation(ready = true) {
     if (offer?.startsWith('apply:')) setFocusQuestionId(offer.slice('apply:'.length))
     setLastAssistant(lastAssistantRef.current)
     setResultsStale(Boolean(view.results_stale))
+    if (view.facts) setFacts(view.facts)
     setTodayCopay(view.today_copay ?? null)
     setTodayCar(view.today_car ?? null)
     setTodayCopaySource(view.today_copay_source ?? null)
@@ -183,13 +200,15 @@ export function useConversation(ready = true) {
       lastAssistantRef.current = lastAssistantSeq(fresh) ?? lastAssistantRef.current
       setMessages((prev) => [...prev.filter((m) => !m.pending), ...fresh])
       setStage(u.stage)
-      if (u.rep_email_verified) setRepEmail(u.rep_email ?? null)
+      // a changed address is not verified any more: the old one is no longer named (10/11)
+      if (u.rep_email_verified !== undefined) setRepEmail(u.rep_email_verified ? u.rep_email ?? null : null)
       if (u.rep_email_delivery) setEmailEnabled(u.rep_email_delivery !== 'disabled')
       if (u.rep_email_pending !== undefined) setEmailPending(u.rep_email_pending)
       if (u.rep_email_simulated !== undefined) setEmailSimulated(u.rep_email_simulated)
       setExpects(u.expects)
       setLastAssistant(lastAssistantRef.current)
       setResultsStale(Boolean(u.results_stale))
+      if (u.facts) setFacts(u.facts)
       if (u.today_copay !== undefined) setTodayCopay(u.today_copay)
       if (u.today_car !== undefined) setTodayCar(u.today_car)
       if (u.today_copay_source !== undefined) setTodayCopaySource(u.today_copay_source)
@@ -256,6 +275,8 @@ export function useConversation(ready = true) {
         }
         if (view) {
           applyView(view)
+          const answer = answerInAddress()
+          if (answer) setFocusQuestionId(answer)     // reloaded at an answer an email link opened
         } else {
           const turn = await api.createConversation()
           storeId(turn.conversation_id)
@@ -264,6 +285,7 @@ export function useConversation(ready = true) {
           setStage(turn.stage)
           setRepEmail(null)
           setExpects(turn.expects)
+          if (turn.facts) setFacts(turn.facts)
         }
         await sync()
         setError(null)
@@ -298,7 +320,10 @@ export function useConversation(ready = true) {
       setReturnTokenPending(false)
       // the answer the email is about: the list keeps it in view (a one-off scroll was overridden by the list's
       // own scroll to the bottom), until the employee sends the next message
-      if (targetQuestionId) setFocusQuestionId(targetQuestionId)
+      if (targetQuestionId) {
+        setFocusQuestionId(targetQuestionId)
+        keepAnswerInAddress(targetQuestionId)
+      }
     } catch (e) {
       if (!returnLinkRetryable(e)) {
         if (token) {
@@ -321,6 +346,7 @@ export function useConversation(ready = true) {
    *  the way stays on screen as "not sent" with "לשלוח שוב", and counts as handled. */
   const deliver = useCallback(async (body: MessageIn, display: string): Promise<SendResult> => {
     setFocusQuestionId(null)
+    keepAnswerInAddress(null)                     // the conversation moved on: a reload goes to its end again
     const id = idRef.current
     if (!id || sending) return { ok: false, errors: {} }
     setError(null)
@@ -332,6 +358,7 @@ export function useConversation(ready = true) {
       if (turn.engine) setEngine(turn.engine)
       setStage(turn.stage)
       setExpects(turn.expects)
+      if (turn.facts) setFacts(turn.facts)
       await sync()
       return { ok: true }
     } catch (e) {
@@ -366,6 +393,10 @@ export function useConversation(ready = true) {
   const sendFields = useCallback((fields: ProfileFields, display: string, source?: 'payslip') =>
     deliver(source ? { fields, source } : { fields }, display), [deliver])
 
+  /** One value edited on its own ("הנתונים שלי"): it applies only to the data this screen showed (409 and a reload otherwise). */
+  const editField = useCallback((fields: ProfileFields, display: string) =>
+    deliver({ fields, base_version: facts?.version }, display), [deliver, facts])
+
   /** "לשלוח שוב" for a message that failed on the way. First asks the server what it has: if the message did
    *  arrive (only the answer was lost), nothing is sent twice. */
   const retry = useCallback(async (seq: number): Promise<void> => {
@@ -388,6 +419,7 @@ export function useConversation(ready = true) {
       if (turn.engine) setEngine(turn.engine)
       setStage(turn.stage)
       setExpects(turn.expects)
+      if (turn.facts) setFacts(turn.facts)
       drop()
       await sync()
     } catch (e) {
@@ -435,6 +467,7 @@ export function useConversation(ready = true) {
       setRepQuestions([])
       setStage(turn.stage)
       setExpects(turn.expects)
+      if (turn.facts) setFacts(turn.facts)
       emailReturnToken.current = null
       setReturnTokenPending(false)
       setReturnLinkInvalid(false)
@@ -484,6 +517,7 @@ export function useConversation(ready = true) {
   return {
     engine, focusQuestionId, focusQuestion: setFocusQuestionId, todayCopay, todayCar, todayCopaySource, todayCopayProvisional,
     conversationId, repEmail, emailEnabled, emailSimulated, emailPending,
+    facts, editField,
     messages, stage, expects, questionKey, results, resultsStale, mapReady, mapMissing, optionMap: optionMapState, mapAnchor, resultsAnchor,
     pendingQuestions,
     repQuestions, returnTokenPending, returnTokenError, returnLinkInvalid, returnStored, resumeEmailLink,

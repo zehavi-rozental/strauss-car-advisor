@@ -3,6 +3,7 @@
 // status tag. The same record for an inquiry opened from a car card, from the chat, or by the system.
 import { useState } from 'react'
 import type { RepInquiry } from '../api/types'
+import { EMAIL_HINT, validEmail } from '../format/email'
 import { inquiryNumber } from '../format/inquiry'
 import { Icon } from '../ui/Icon'
 
@@ -33,19 +34,21 @@ interface Props {
   answerSeq?: number
   /** a new verification link, offered on the latest open inquiry only while the address waits for it */
   onResend?: () => Promise<string>
-  /** mail on and no address yet (1/11): an address for this inquiry's answer, verified by its link */
+  /** mail on (1/11, 10/11): an address for this inquiry's answer, verified by its link — the first one, another one
+   *  while the first waits (a typo), or a change of the verified one */
   onAddEmail?: (email: string) => Promise<string>
+  /** the address verified in this conversation: named, with "שינוי כתובת" */
+  verifiedEmail?: string | null
 }
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
-export function InquiryRecord({ question, content, answerSeq, onResend, onAddEmail }: Props) {
+export function InquiryRecord({ question, content, answerSeq, onResend, onAddEmail, verifiedEmail }: Props) {
   const [resent, setResent] = useState<string | null>(null)
   const [email, setEmail] = useState('')
   const [emailError, setEmailError] = useState<string | null>(null)
+  const [changing, setChanging] = useState(false)
   const addEmail = async () => {
     if (!onAddEmail || sending) return
-    if (!EMAIL_RE.test(email.trim())) { setEmailError('הכתובת לא נראית תקינה. בדקו אותה, למשל name@example.com.'); return }
+    if (!validEmail(email)) { setEmailError(EMAIL_HINT); return }
     setEmailError(null)
     setSending(true)
     try {
@@ -105,9 +108,19 @@ export function InquiryRecord({ question, content, answerSeq, onResend, onAddEma
         </dl>
       )}
       {answerSeq != null && <a href={`#message-${answerSeq}`}>לתשובת הנציג</a>}
-      {open && onAddEmail && !resent && (
+      {open && onAddEmail && verifiedEmail && !changing && !resent && (
+        <p className="rep-inquiry-hint rep-inquiry-known-email" role="status">
+          עדכון במייל יישלח ל־<bdi dir="ltr">{verifiedEmail}</bdi> כשהנציג יענה.{' '}
+          <button type="button" className="link-inline" onClick={() => setChanging(true)}>שינוי כתובת</button>
+        </p>
+      )}
+      {open && onAddEmail && (!verifiedEmail || changing) && !resent && (
         <div className="rep-inquiry-resend rep-inquiry-add-email">
-          <label htmlFor={`add-email-${question?.id ?? 'x'}`}>רוצים עדכון גם במייל כשהנציג יענה?</label>
+          <label htmlFor={`add-email-${question?.id ?? 'x'}`}>
+            {changing ? 'כתובת חדשה לעדכון (תאומת בקישור חד־פעמי):'
+              : onResend ? 'הכתובת שמסרתם ממתינה לאימות. אפשר להזין כתובת אחרת:'
+                : 'רוצים עדכון גם במייל כשהנציג יענה?'}
+          </label>
           <div className="rep-inquiry-add-row">
             <input id={`add-email-${question?.id ?? 'x'}`} className="rep-inquiry-email" type="email" dir="ltr"
                    value={email} placeholder="name@example.com" autoComplete="email" disabled={sending}

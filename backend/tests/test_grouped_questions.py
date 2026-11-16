@@ -18,11 +18,14 @@ SCENARIO_2 = "עמלות משתנות כ-1,000 ₪, פנסיה 6%, קרן השת
 Q1 = "מה קבוצת הזכאות שלכם (א-ד), או מה התפקיד שלכם? ומה שכר הבסיס החודשי שלכם?"
 Q2 = ("יש רכיבי שכר נוספים — עמלות, בונוסים? ואילו הפרשות יורדות לכם: פנסיה, קרן השתלמות? "
       "כמה נקודות זיכוי יש לכם? וכמה ילדים עד גיל 23?")
-Q3 = "איזה רכב צמוד יש לכם היום, וכמה משלמים עליו בחודש?"
+Q3 = "איזה רכב צמוד יש לכם היום?"     # 16/11: the car alone; its copay is a closed question once the car is known
 
 
 def service(sessions, llm=None):
     return ConversationService(sessions, RulesStore(CONFIG), llm or LLMChain())
+
+
+LEFTOVERS = "אין בונוס, 2 ילדים"     # 16/11: the fields left out are asked next, before the car
 
 
 def scenario_llm():
@@ -30,29 +33,36 @@ def scenario_llm():
     fake.turn(call("save_profile", eligibility_group="ג", base_salary=14200))
     fake.turn(call("save_profile", commissions=1000, pension_percent=6, study_fund_percent=2.5,
                    credit_points=2.25, approximate_fields=["commissions"]))
+    fake.turn(call("save_profile", bonus=0, children_under_23=2))
     return LLMChain([fake])
 
 
 @pytest.mark.parametrize("llm", ["templates", "llm_first"])
-def test_official_scenario_reaches_the_car_question_in_three_bot_turns(sessions, llm):
+def test_official_scenario_asks_what_was_left_out_and_then_the_car(sessions, llm):
+    """16/11: each salary field on its own — what the employee left out is asked next (one item, never skipped to the
+    car), then the car question (it used to come in the third turn, with "חסר עוד: בונוס, ילדים")."""
     svc = service(sessions, scenario_llm() if llm == "llm_first" else None)
     first, token = svc.start()                                            # תור 1
     assert "קבוצת הזכאות שלכם" in first.reply                             # the greeting invites the group
     second = svc.send(first.conversation_id, token, SCENARIO_1)           # תור 2
     assert without_cta(second.reply).endswith(Q2)
-    third = svc.send(first.conversation_id, token, SCENARIO_2)            # תור 3: שאלת הרכב
-    assert third.stage == Stage.COLLECT_CURRENT_CAR
-    assert without_cta(third.reply).endswith(Q3 + "\nחסר עוד: בונוס, ילדים.")   # מה שנשאר מ-Q2: נאמר, לא נשמט
+    third = svc.send(first.conversation_id, token, SCENARIO_2)            # תור 3: מה שנשאר, לא הרכב
+    assert third.stage == Stage.COLLECT_PROFILE and "חסר עוד" not in third.reply
+    if llm == "templates":
+        assert without_cta(third.reply).endswith("יש לכם בונוס חודשי? אם כן, כמה?")
     p = svc.view(first.conversation_id, token).state.profile
     assert (p.group, p.base, p.commissions, p.pension_percent, p.study_fund_percent, p.credit_points) == (
         "ג", 14200, 1000, 6, Decimal("2.5"), Decimal("2.25"))
     assert p.approximate_fields == ["commissions"] and p.bonus is None and p.children is None
+    fourth = svc.send(first.conversation_id, token, LEFTOVERS)            # תור 4: שאלת הרכב
+    assert fourth.stage == Stage.COLLECT_CURRENT_CAR
+    assert without_cta(fourth.reply).endswith(Q3)
 
 
 def test_scenario_continues_with_the_leftovers_and_the_car(sessions):
     svc = service(sessions)
     turn, token = svc.start()
-    for m in (SCENARIO_1, SCENARIO_2, "אין בונוס, 2 ילדים", "יש לי קורולה קרוס", "300", "אטו 3"):
+    for m in (SCENARIO_1, SCENARIO_2, LEFTOVERS, "יש לי קורולה קרוס", "300", "אטו 3"):
         turn = svc.send(turn.conversation_id, token, m)
     assert turn.stage == Stage.PRESENTED and turn.results[0].label == "ATTO 3 (2025)"
 
@@ -114,7 +124,7 @@ ASK_ATTO = "ATTO 3 (2025) הוא הרכב שלכם היום, או חלופה ש�
 
 def at_q3(svc):
     turn, token = svc.start()
-    for m in (SCENARIO_1, SCENARIO_2):
+    for m in (SCENARIO_1, SCENARIO_2, LEFTOVERS):
         turn = svc.send(turn.conversation_id, token, m)
     return turn, token
 
@@ -135,6 +145,7 @@ def conflict(sessions):
     fake.turn(call("save_profile", eligibility_group="ג", base_salary=14200))
     fake.turn(call("save_profile", commissions=1000, pension_percent=6, study_fund_percent=2.5,
                    credit_points=2.25, approximate_fields=["commissions"]))
+    fake.turn(call("save_profile", bonus=0, children_under_23=2))
     fake.turn(call("match_current_car", model="ATTO 3"))
     svc = service(sessions, LLMChain([fake]))
     turn, token = at_q3(svc)
@@ -149,7 +160,8 @@ def test_the_alternative_button_selects_the_car(sessions):
     turn = svc.send_choice(turn.conversation_id, token, ["alternative"])
     s = svc.view(turn.conversation_id, token).state
     assert s.selected == ["CAR-10"] and s.current.source is None and s.pending_clarification is None
-    assert turn.reply.startswith("בחרתם להשוות: ATTO 3 (2025).\n\nאיזה רכב צמוד יש לכם היום")   # עכשיו רק הרכב של היום
+    assert turn.reply.startswith("בחרתם להשוות: ATTO 3 (2025).\n\nאת ההשוואה אחשב ברגע שיהיו לי הפרטים שחסרים עדיין."
+                                 "\n\nאיזה רכב צמוד יש לכם היום")   # עכשיו רק הרכב של היום
 
 def test_an_alternative_cue_selects_the_car_as_an_alternative(sessions):
     svc = service(sessions)
@@ -174,6 +186,7 @@ def test_an_llm_call_against_the_cue_is_blocked_and_the_bot_asks(sessions):
     fake.turn(call("save_profile", eligibility_group="ג", base_salary=14200))
     fake.turn(call("save_profile", commissions=1000, pension_percent=6, study_fund_percent=2.5,
                    credit_points=2.25, approximate_fields=["commissions"]))
+    fake.turn(call("save_profile", bonus=0, children_under_23=2))
     fake.turn(call("match_current_car", model="ATTO 3"))                       # "רוצה לבדוק" = חלופה
     svc = service(sessions, LLMChain([fake]))
     turn, token = at_q3(svc)
@@ -189,6 +202,7 @@ def test_an_llm_calculate_for_the_current_car_is_blocked(sessions):
     fake.turn(call("save_profile", eligibility_group="ג", base_salary=14200))
     fake.turn(call("save_profile", commissions=1000, pension_percent=6, study_fund_percent=2.5,
                    credit_points=2.25, approximate_fields=["commissions"]))
+    fake.turn(call("save_profile", bonus=0, children_under_23=2))
     fake.turn(call("calculate", options=["ATTO 3"]))                           # "יש לי" = הרכב של היום
     svc = service(sessions, LLMChain([fake]))
     turn, token = at_q3(svc)

@@ -20,9 +20,10 @@ from typing import Iterable, Optional
 
 from app.modules.rules.public import FAMILY_GROUP, CatalogCar, Faq, FaqEntry, RulesSnapshot, matched_name, related_cars, words
 
+from . import data_facts
 from .fallback import _RANK_RE, named_cars
 from .grounding import CONTRIBUTION_FIELDS, bare_zero_answer, contributions_zero_said, word_numbers
-from .parsing import _NO_COPAY_RE, COMPANY_CAR, match_occupation, no_car_span
+from .parsing import _NO_COPAY_RE, COMPANY_CAR, match_drive, match_group, match_occupation, no_car_span
 from .stage import NO_CAR_OR_ZERO, ConversationState, Stage, results_stale  # noqa: F401  (NO_CAR_OR_ZERO: re-exported)
 
 _QUESTION_WORDS = ("מה", "מהו", "מהי", "מהם", "למה", "איך", "איפה", "האם", "מתי", "מי", "מאיפה", "ממה", "כמה זה",
@@ -57,12 +58,14 @@ _PRESENCE_WORDS = {"עמלות": "commissions", "עמלה": "commissions", "בו
 _PRESENCE_CUES = {"יש", "קצת", "מקבל", "מקבלת", "מקבלים", "גם", "לפעמים", "משתנות", "משתנים", "משתנה"}
 _NEGATIONS = {"אין", "בלי", "ללא", "לא", "אינני", "איני"}
 _PREFIX = "והבלמשכ"
+_ELIGIBLE_REFERENTS = {"הם", "הן", "אותם", "אותן", "מהם", "מהן", "מתוכם", "מתוכן"}
 
 
 @dataclass
 class Understanding:
     faq_ids: list[str] = field(default_factory=list)       # questions answered from faq.yaml, in order
     unanswered: list[str] = field(default_factory=list)    # questions no FAQ entry covers
+    missing_data: bool = False                              # a question about a value the calculation still needs
     presence: list[str] = field(default_factory=list)      # fields said to exist without an amount
     help: bool = False                                      # "מה?" / "לא הבנתי": explain the question again
     redirect: bool = False                                  # off-topic or an attempt to change the rules
@@ -80,6 +83,15 @@ class Understanding:
     # results on screen and the question is about them ("למה ההערכה זמנית?", "זה סופי?"): answered from them (C5)
     about_results: bool = False
     result_focus: list[str] = field(default_factory=list)  # the options the question names ("ולמה דווקא אטו?")
+    # a term explained this turn (an FAQ id): the next message's "זה" / "לא הבנתי" / "איפה זה בתלוש?" is about it
+    topic: Optional[str] = None
+    # answers about the term a question points back to ("איפה זה בתלוש?"): (line, the entry's term)
+    topic_lines: list[tuple[str, str]] = field(default_factory=list)
+    # the cars open to the employee asked about (15/11): "" all of them, or a drive ("ELECTRIC"); answered by code after
+    # this turn's saves (a group corrected in the same message counts), never sent to the representative
+    eligible: Optional[str] = None
+    # the family-track note goes with this answer: said once, while the number of children is unknown (16/11)
+    family_note: bool = False
     # "אני רוצה לדבר עם נציג", "היית צריך לשאול את הנציג": the offer to ask, at once (29/10)
     rep_request: bool = False
     # "אני רוצה להעלות תלוש" (1/11): the uploader is opened at once, at any stage
@@ -106,7 +118,9 @@ class Understanding:
 
     @property
     def anything(self) -> bool:
-        return bool(self.audit or self.all_at_once or self.faq_ids or self.catalog or self.unanswered or self.presence or self.help or self.redirect
+        return bool(self.audit or self.all_at_once or self.faq_ids or self.topic_lines or self.catalog or self.unanswered
+                    or self.eligible is not None
+                    or self.presence or self.help or self.redirect
                     or self.ambiguity or self.compare or self.complaint or self.clarify or self.about_results
                     or self.rep_request or self.social or self.correction is not None
                     or bool(self.zero_contributions))
@@ -167,13 +181,17 @@ def _word_match(alias_word: str, word: str) -> bool:
     return False
 
 
-def _alias_hits(text: str, alias: str) -> bool:
+def _alias_hits(text: str, alias: str, typos: bool = False) -> bool:
     """Every word of the alias is in the text. Typos are tolerated only in a phrase ("סכם מדויק"); a single
-    word must be the word itself ("אפשרות" is not "אפשרויות")."""
+    word must be the word itself ("אפשרות" is not "אפשרויות"), unless the term was asked to be explained (`typos`:
+    "מה זה הפרשוצ?"), where a long word may differ by one letter."""
     ws, aw = words(text), words(alias)
     if len(aw) == 1:
         a = aw[0]
-        return any(w == a or (len(w) > 1 and w[0] in _PREFIX and w[1:] == a) for w in ws)
+        if any(w == a or (len(w) > 1 and w[0] in _PREFIX and w[1:] == a) for w in ws):
+            return True
+        return typos and len(a) >= 5 and any(
+            SequenceMatcher(None, _spelling(a), _spelling(w)).ratio() >= 0.8 for w in ws if len(w) >= 5)
     return all(any(_word_match(a, w) for w in ws) for a in aw)
 
 
@@ -183,20 +201,115 @@ def entry_answers(entry: FaqEntry, text: str) -> bool:
     return any(_alias_hits(text, a) for a in (*entry.aliases, entry.term))
 
 
-def match_faq(faq: Faq, text: str) -> Optional[str]:
-    """The FAQ entry a question is about: the entry with the longest alias it contains (typos allowed)."""
+def match_faq(faq: Faq, text: str, explain: bool = False) -> Optional[str]:
+    """The FAQ entry a question is about: the entry with the longest alias it contains (typos allowed). A request to
+    explain (`explain`: "מה ההבדל בין ברוטו לנטו?") names its term, so a one-word alias counts in a long one too."""
     best: tuple[int, int, str] | None = None
-    long_question = len(words(text)) > 4
+    long_question = len(words(text)) > 4 and not explain
     for entry in faq.entries:
         for alias in entry.aliases:
             # one word ("שכר") names the topic only in a short question; a long one needs a phrase
             if long_question and len(words(alias)) == 1:
                 continue
-            if _alias_hits(text, alias):
+            if _alias_hits(text, alias, typos=explain):
                 score = (len(words(alias)), len(alias), entry.id)
                 if best is None or score[:2] > best[:2]:
                     best = score
     return best[2] if best else None
+
+
+def asks_explanation(faq: Faq, clause: str) -> bool:
+    """A request to explain a term ("מה זה אומר הפרשות?", "תסביר לי שווי שימוש", "מה ההבדל בין ברוטו לנטו?", 10/11):
+    answered first from what it names, never read as "why do you ask", a net request or an answer."""
+    return bool(faq.explain_cues) and says_phrase(clause, faq.explain_cues)
+
+
+def without_requery(faq: Faq, text: str) -> str:
+    """"שאלתי מה זה הפרשות": the question said again, without its opening words (10/11), so it is read as the question
+    it is, never as an answer to the question on screen. The text as it was when nothing else follows a cue."""
+    ws = words(text)
+    for cue in sorted(faq.requery_cues, key=lambda c: -len(words(c))):
+        cw = words(cue)
+        if [_spelling(w) for w in ws[:len(cw)]] == [_spelling(w) for w in cw] and len(ws) > len(cw):
+            rest = text.strip()
+            for w in cw:                       # drop the cue's words with what separates them (",", ":")
+                rest = rest[rest.index(w) + len(w):].lstrip(" ,:-–")
+            if _is_question(rest) or asks_explanation(faq, rest):
+                return rest
+    return text
+
+
+_BARE_NO_RE = re.compile(r"\s*(?:אין|לא|אין\s+לי)\s*[.!]*\s*")
+
+
+def _explain_topic_again(snapshot: RulesSnapshot, state: ConversationState, u: "Understanding") -> bool:
+    """"לא הבנתי" / "מה זה אומר?" right after a term was explained: the term in simpler words (the question on screen
+    follows), never the question alone as if nothing was explained. False when the last reply explained nothing."""
+    entry = snapshot.faq.get(state.last_topic) if state.last_topic else None
+    if entry is None or not entry.simple:
+        return False
+    u.topic_lines.append((f"במילים פשוטות: {entry.simple}", entry.term))
+    u.topic = entry.id
+    return True
+
+
+# the FAQ entry about the cars on offer: the topic kept after an answer about the open cars, so "ומה מהם חשמליים?" follows
+ELIGIBLE_TOPIC = "options"
+# how many turns after an answer about the open cars a follow-up still refers to it (a question between included)
+ELIGIBLE_CONTEXT_TURNS = 3
+# a bare follow-up that may be about the cars or about the net on screen: one short question instead of a guess
+ELIGIBLE_UNCLEAR = "?"
+
+
+def asks_eligible(snapshot: RulesSnapshot, state: ConversationState, clause: str) -> Optional[str]:
+    """The cars open to this employee asked about (15/11): "" for all of them, a drive's name for those of one drive
+    ("ומה מהם חשמליים?"), None when the clause is about something else. An object word with an eligibility, count or
+    list word, or a follow-up right after such an answer; never a question about one named car (the catalog's own
+    facts) or a property the catalog does not hold. Needs the group: saved, or said in the same message."""
+    faq = snapshot.faq
+    if not faq.eligible_objects or asks_attribute(snapshot, clause) or named_cars(clause, snapshot.catalog):
+        return None
+    if "קטלוג" in clause:
+        return None          # "אילו רכבים היברידיים יש בקטלוג?": the whole catalog, answered from it as before
+    ws = [_spelling(w) for w in words(clause)]
+    drive = match_drive(clause, named_only=True)   # "חוסך דלק" names no drive: the list, never petrol (15/11)
+    about_list = (_names_any(faq.eligible_objects, ws, starts=False)
+                  and _names_any(faq.eligible_cues, ws, starts=False))
+    # a follow-up while the open-cars context lasts (16/11: not only the very next turn)
+    recent = state.eligible_turns is not None
+    # without a drive, only a clause made of follow-up words ("ועכשיו כמה?", "ומתוכם?"): "כמה אחוז פנסיה?" or "כמה זה
+    # עולה?" ask something else
+    only_follow = bool(ws) and all(_names_any(faq.eligible_follow_up, [w], starts=False) for w in ws)
+    refers_to_eligible = (drive is not None and bool(state.profile.group)
+                          and any(w in _ELIGIBLE_REFERENTS for w in ws))
+    follow = (recent and (drive is not None or only_follow)) or refers_to_eligible
+    if not (about_list or follow):
+        return None
+    if not about_list and drive is None and state.eligible_turns and state.results and not results_stale(state):
+        # "ועכשיו כמה?" a turn or more later, with net figures on screen: the cars, or the net? asked, never guessed
+        return ELIGIBLE_UNCLEAR
+    return drive.value if drive is not None else ""
+
+
+def refers_back(faq: Faq, clause: str) -> bool:
+    """"איפה זה בתלוש?", "למה צריך את זה?": the question points back to the conversation."""
+    return bool(faq.reference_words) and _names_any(faq.reference_words, [_spelling(w) for w in words(clause)],
+                                                    starts=False)
+
+
+_FAQ_OF_FIELD = {"base_salary": "base", "children_under_23": "children", "pension": "pension_percent"}
+
+
+def referent(snapshot: RulesSnapshot, state: ConversationState) -> Optional[FaqEntry]:
+    """What "זה" is about: the term the last reply explained, else the one field the last reply asked (both
+    contributions asked together: "הפרשות")."""
+    faq = snapshot.faq
+    if state.last_topic and (entry := faq.get(state.last_topic)) is not None:
+        return entry
+    if set(state.last_asked) == set(CONTRIBUTION_FIELDS) and state.asked_field is None:
+        return faq.get("contributions")
+    field_name = state.asked_field or (state.last_asked[0] if len(state.last_asked) == 1 else None)
+    return faq.get(_FAQ_OF_FIELD.get(field_name, field_name)) if field_name else None
 
 
 def _is_question(clause: str) -> bool:
@@ -479,15 +592,24 @@ def _about_results(snapshot: RulesSnapshot, state: ConversationState, clause: st
     """With results on screen: the options the question is about — the ones it names, or all of them when it names
     what a result is made of ("הערכה", "ממתינה לאישור", "השתתפות"); [] when it is about something else."""
     ws = [_spelling(w) for w in words(clause)]
-    if asks_attribute(snapshot, clause) or _compares(snapshot, clause) or (ws and ws[0] == "מתי"):
-        return []        # a colour / sunroof / stock / "when" question, or two cars compared: not about the calculation
     named = {c.catalog_code for c in named_cars(clause, snapshot.catalog)}
     focus = [r.option_id for r in state.results if r.option_id in named]
+    if _compares(snapshot, clause) and len(focus) >= 2 and len(focus) == len(named):
+        return focus     # two results on screen compared: the engine's comparison facts answer it (stage 2, 16/11)
+    if asks_attribute(snapshot, clause) or _compares(snapshot, clause) or (ws and ws[0] == "מתי"):
+        return []        # a colour / sunroof / stock / "when" question, or cars compared from the catalog: not results
     if focus:
         return focus
     if snapshot.faq.result_terms and _names_any(snapshot.faq.result_terms, ws):
         return [r.option_id for r in state.results]
     return []
+
+
+def asks_estimate(snapshot: RulesSnapshot, text: str) -> bool:
+    """A question about the estimate's status or its copay ("למה ההערכה זמנית?", "זה סופי?", "מאיפה ההשתתפות?"),
+    not about why a car leads (15/11). Without estimate_terms configured: every result question, as before."""
+    terms = snapshot.faq.estimate_terms
+    return not terms or _names_any(terms, [_spelling(w) for w in words(text)])
 
 
 def in_scope(snapshot: RulesSnapshot, text: str) -> bool:
@@ -658,6 +780,12 @@ _CORRECTION_FIELDS = (("base_salary", ("שכר", "משכורת")), ("commissions
 # a correction of today's car
 _CHANGE_ONLY = {"לשנות", "להחליף", "לעדכן", "שינוי", "עדכון"}
 _GROUP_SAID_RE = re.compile(r"קבוצ[הת]\s*['\"]?[א-ד](?![א-ת])")
+# "הקבוצה שלי היא ג" (15/11): the group's letter as a word of its own, in a message about the group, is a value
+_GROUP_LETTER_RE = re.compile(r"(?<![א-ת])[א-ד]['׳\"]?(?![א-ת])")
+
+
+def _group_said(text: str) -> bool:
+    return bool(_GROUP_SAID_RE.search(text) or ("קבוצ" in text and _GROUP_LETTER_RE.search(text)))
 
 
 def _names_stem(ws: list[str], stems: Iterable[str]) -> bool:
@@ -680,7 +808,7 @@ def correction_request(snapshot: RulesSnapshot, text: str) -> Optional[list[str]
         return None
     if ws[0] in ("למה", "מדוע", "איך", "כיצד"):
         return None                       # "למה ההשתתפות לא נכונה?": a question about the result, answered from it
-    if (any(w in _NEGATIONS - {"לא"} for w in ws) or _GROUP_SAID_RE.search(text) or named_cars(text, snapshot.catalog)
+    if (any(w in _NEGATIONS - {"לא"} for w in ws) or _group_said(text) or named_cars(text, snapshot.catalog)
             or any(_contains_any(text, names) for names in snapshot.extensions.manufacturer_brands.values())):
         return None
     fields = [arg for arg, stems in _CORRECTION_FIELDS if _names_stem(ws, stems)]
@@ -701,6 +829,7 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
     u = Understanding(complaint=not audit and (any(cue in text for cue in _COMPLAINT_CUES) or gives_feedback(faq, text)),
                       audit=audit, has_car=bool(_HAS_CAR_RE.search(text)) and not no_car_span(text),
                       map_all=any(cue in text for cue in snapshot.extensions.option_map_cues))
+    text = without_requery(faq, text)      # "שאלתי מה זה הפרשות": the question again, read as one (10/11)
     kind = social_kind(faq, text)
     if kind is not None:
         u.social, u.remainder, u.resume = kind, "", True
@@ -716,7 +845,8 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
         return u              # never act on a manipulative or off-topic message (one with values goes on below:
                               # its off-topic question is redirected by in_scope, its values are read)
     if _is_help(text):
-        u.help = True
+        if not _explain_topic_again(snapshot, state, u):
+            u.help = True         # no term explained last: the question on screen, in simpler words
         return u
     ext = snapshot.extensions
     if (len(words(text)) <= 6 and not any(ch.isdigit() for ch in text) and not named_cars(text, snapshot.catalog)
@@ -730,6 +860,11 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
         missing = [f for f in CONTRIBUTION_FIELDS if getattr(p, f) is None]
         u.zero_contributions, u.remainder = missing or list(CONTRIBUTION_FIELDS), ""
         return u
+    if (state.eligible_unclear_asked and state.profile.group and len(words(text)) <= 4
+            and _names_any((*faq.eligible_objects, "רכב"), [_spelling(w) for w in words(text)], starts=False)):
+        # the answer to "the cars, or the net?" (16/11): the cars, counted by code
+        u.eligible, u.topic, u.remainder = "", ELIGIBLE_TOPIC, ""
+        return u
     fix = correction_request(snapshot, text)
     if fix is not None:
         # a correction of the employee's own data: code asks what (or the new value) and saves it like the form; it
@@ -738,7 +873,9 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
         return u
     kept: list[str] = []
     faq_clauses: list[tuple[str, str]] = []      # (entry, the clause it answered)
+    catalog_clauses: list[tuple[str, str]] = []  # (catalog answer, the clause it answered)
     net_question = False
+    net_clauses: list[str] = []                  # questions about the net no FAQ entry answers
     for clause in _CLAUSE_RE.split(text):
         if clause is None or not clause.strip():
             continue
@@ -757,38 +894,72 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
                 and _names_any(faq.show_list_objects, clause_words, starts=False)):
             u.show_list = True                    # "תציג לי אפשרויות": the catalog's cars (agent decides where)
             continue
+        if ("?" in clause or _is_question(clause)) and not _RANK_RE.search(clause):
+            eligible = asks_eligible(snapshot, state, clause)
+            if eligible is not None and (state.profile.group or match_group(snapshot.calc.group_order, text)):
+                # the cars open to the employee: code counts them after this turn's saves (the eligibility rules);
+                # before the short follow-up reading, so "ועכשיו כמה?" after such an answer is counted again
+                u.eligible, u.topic = eligible, ELIGIBLE_TOPIC
+                continue
         short = [_spelling(w) for w in words(clause)]
+        explain = asks_explanation(faq, clause)
         if "?" in clause and len(short) <= 3 and _names_any(faq.context_markers, short, starts=False) \
                 and not any(ch.isdigit() for ch in clause) and not off_topic(snapshot, clause) \
-                and match_faq(faq, clause) is None and not _strong(snapshot, clause, short) \
+                and match_faq(faq, clause, explain=explain) is None and not _strong(snapshot, clause, short) \
                 and not _about_bot(faq, short):   # "מה זה השתתפות?": FAQ; "איך אתה יודע?": about the advisor
             u.help = True                     # "ולמה?", "כלומר?", "והשני?": a follow-up to the bot's last message
             continue
         # "מה הכי משתלם לי?" is a request; "על מה מבוססות ההמלצות שלך?" is a question about the advisor
-        if _is_question(clause) and (not _RANK_RE.search(clause) or asks_basis(faq, clause)):
+        if (_is_question(clause) or explain) and (not _RANK_RE.search(clause) or asks_basis(faq, clause)):
             if off_topic(snapshot, clause):
                 u.redirect = True     # plainly not about this service: one redirect line, never the FAQ or the rep
                 continue
             # the engine's figures for two calculated cars, and a fact the catalog holds (1/11): answered from them,
             # in both modes, before a general definition (the FAQ) or the representative
-            known = results_difference(state, snapshot, clause) or catalog_fact(snapshot, clause)
+            if results_difference(state, snapshot, clause):
+                # two calculated cars compared on the net: one mechanism answers it — the engine's comparison facts
+                # for this pair (stage 2, 16/11), never a second, shorter answer next to them
+                named = {c.catalog_code for c in named_cars(clause, snapshot.catalog)}
+                u.about_results = True
+                u.result_focus += [r.option_id for r in state.results if r.option_id in named
+                                   and r.option_id not in u.result_focus]
+                continue
+            known = catalog_fact(snapshot, clause)
             if known:
                 u.catalog.append(known)
-                u.about_results = u.about_results or bool(results_difference(state, snapshot, clause))
                 continue
-            entry = match_faq(faq, clause)
+            entry = match_faq(faq, clause, explain=explain)
+            back = referent(snapshot, state) if refers_back(faq, clause) else None
+            if back is not None and entry == "payslip" and back.where:
+                # "איפה זה בתלוש?": where THAT value is, not where the payslip's data is in general (10/11)
+                u.topic_lines.append((back.where, back.term))
+                u.topic = back.id
+                continue
+            if back is not None and entry in faq.meta_entries:
+                u.topic = back.id                     # "למה צריך את זה?": answered; "זה" stays the same term
             catalog = (catalog_answer(snapshot, clause, [r.option_id for r in state.results])
                        if entry is None else None)
             if entry is None and _is_help(clause):
                 u.help = True
             elif catalog:
                 u.catalog.append(catalog)
+                catalog_clauses.append((catalog, clause))
             elif entry is None and (u.audit or u.map_all):    # a request ("מה כל האפשרויות שלי?"), not for the rep
                 pass          # "כתבתי לך שיש לי רכב, למה אתה שואל שוב?": rhetorical; answered from the state
             elif entry is None:
                 scope = question_scope(snapshot, clause)
-                if scope == "net":
+                if explain and scope in ("net", "self", "unclear"):
+                    # a term no entry covers, asked to be explained: never "why we ask" or the calculation (10/11);
+                    # the term explained last, or the question on screen, in simpler words
+                    u.help = True
+                elif scope == "net" and u.faq_ids:
+                    # "מה זה שווי שימוש ואיך הוא משפיע על הנטו שלי?": the effect of the term explained in this message
+                    # is part of its explanation (the FAQ says what it means for the net), never a request to calculate
+                    # or compare (RCA S1, 16/11)
+                    pass
+                elif scope == "net":
                     net_question = True               # "אני מרוויחה יותר?": the calculation answers it
+                    net_clauses.append(clause)
                 elif scope == "self":
                     if "why_ask" not in u.faq_ids and snapshot.faq.get("why_ask") is not None:
                         u.faq_ids.append("why_ask")   # about the employee's own data: why we ask, never the rep
@@ -808,6 +979,21 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
                 faq_clauses.append((entry, clause))
             continue
         kept.append(clause)
+    # a question naming a value the calculation still needs ("איך אתה מחשב את הנטו בלי ההשתתפות?", 16/11) is about that
+    # value: the missing-data facts answer it (data_facts), never the general entry its verb phrase matched ("איך אתה
+    # מחשב" = how the advisor works; in a long question a one-word alias such as "השתתפות" is not matched). A question
+    # that is only the field's own definition ("מה זה נקודות זיכוי?") keeps its entry
+    about_missing = [(e, c) for e, c in faq_clauses
+                     if (named := data_facts.named_missing(state, c)) and e not in named]
+    if about_missing:
+        u.missing_data = True
+        gone = {e for e, _ in about_missing} - {e for e, c in faq_clauses if (e, c) not in about_missing}
+        u.faq_ids = [e for e in u.faq_ids if e not in gone]
+        faq_clauses = [(e, c) for e, c in faq_clauses if (e, c) not in about_missing]
+    if u.help and _explain_topic_again(snapshot, state, u):
+        u.help = False            # "מה זה אומר?" right after an explanation: that term again, in simpler words
+    if u.topic is None:
+        u.topic = next((i for i in u.faq_ids if i not in faq.meta_entries and i != "payslip"), None)
     if state.results and state.stage == Stage.PRESENTED:
         # results on screen: a follow-up, an unclear question or one about what a result is made of is about them
         # (answered from them, C5), never "choose cars" again and never the representative
@@ -820,10 +1006,22 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
             gone = {e for e, _ in moved}
             u.faq_ids = [e for e in u.faq_ids if e not in gone]
             about += [c for _, c in moved]
+        # two results on screen compared ("מה ההבדל בין הדולפין לקונה?"): the engine's comparison, not the catalog's
+        compared = [(a, c) for a, c in catalog_clauses if len(_about_results(snapshot, state, c)) >= 2]
+        if compared:
+            u.catalog = [a for a in u.catalog if a not in {a for a, _ in compared}]
+            about += [c for _, c in compared]
+        # a question about the net of a result on screen ("למה ב-MG4 יוצא לי יותר נטו?", 16/11): about that result,
+        # answered from it — never a request to choose cars and calculate again
+        on_screen = [c for c in net_clauses if _about_results(snapshot, state, c)]
+        if on_screen:
+            about += on_screen
+            net_question = len(on_screen) < len(net_clauses)
         if about or u.help or u.clarify:
             u.about_results = True
-            u.result_focus = [o for q in about for o in _about_results(snapshot, state, q)
-                              if o != "" and len(_about_results(snapshot, state, q)) < len(state.results)]
+            focus = [o for q in about for o in _about_results(snapshot, state, q)
+                     if o != "" and len(_about_results(snapshot, state, q)) < len(state.results)]
+            u.result_focus = list(dict.fromkeys([*u.result_focus, *focus]))   # added to, never replaced
             u.unanswered = [q for q in u.unanswered if q not in about]
             u.help = u.clarify = False
     remainder = "\n".join(c.strip() for c in kept).strip()      # clause boundaries stay (a first-line value)
@@ -841,8 +1039,12 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
     if u.presence:
         # the presence clauses carry nothing else to save
         remainder = ", ".join(p for p in re.split(r"[,;]", remainder) if not _presence(p)).strip()
-    if (_NO_COPAY_RE.search(remainder) and state.current.source is None and not state.current.query
-            and not state.current.has_car and not u.has_car
+    # a bare "אין" / "לא" / "אין לי" to the car question (16/11: the car is asked alone): "no car", or a car with no
+    # copay? Asked, never guessed — and never matched to a car name ("לא" is not LEON)
+    bare_no_to_car = (bool(_BARE_NO_RE.fullmatch(remainder)) and state.stage == Stage.COLLECT_CURRENT_CAR
+                      and state.pending_confirmation is None and state.pending_clarification is None)
+    if ((_NO_COPAY_RE.search(remainder) or bare_no_to_car) and state.current.source is None
+            and not state.current.query and not state.current.has_car and not u.has_car
             and not named_cars(remainder, snapshot.catalog) and not no_car_span(remainder)):
         u.ambiguity = NO_CAR_OR_ZERO
         remainder = ""

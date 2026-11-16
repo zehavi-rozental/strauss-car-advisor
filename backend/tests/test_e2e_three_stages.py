@@ -110,11 +110,12 @@ def test_missing_copay_goes_to_rep_then_result_updates(client):
 
 
 def test_an_unknown_copay_today_is_asked_from_the_employee_not_the_rep(client):
-    """Rule A (22/10): today's copay is the employee's own figure. "לא יודעת" is recorded, nothing goes to the
-    representative and nothing is calculated until the employee gives it."""
+    """Today's copay is the employee's own figure. A typed "לא יודעת" first gets the ways to go on, the second is
+    recorded (16/11); nothing goes to the representative and nothing is calculated until the employee gives it."""
     cid = start(client)
     say(client, cid, PROFILE)
     say(client, cid, "יש לי קורולה קרוס")
+    say(client, cid, "לא יודעת")
     say(client, cid, "לא יודעת")
     body = say(client, cid, ALT)
     assert body["results"] == [] and open_questions(client) == []

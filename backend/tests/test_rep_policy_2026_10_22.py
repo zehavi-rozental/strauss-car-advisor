@@ -327,7 +327,7 @@ def test_c5_a_question_about_the_employees_own_data_is_answered_not_sent(session
 def test_a_why_question_while_todays_copay_is_unknown_reads_well(sessions):
     """Rule A wording: "החישוב מחכה רק להשתתפות…" (ל + ה), never "לההשתתפות"."""
     chat = Chat(sessions)
-    for m in [PROFILE_B[0], *PROFILE_B[1:], "יש לי קורולה קרוס", "לא יודעת", "PICANTO"]:
+    for m in [PROFILE_B[0], *PROFILE_B[1:], "יש לי קורולה קרוס", "לא יודעת", "לא יודעת", "PICANTO"]:  # recorded
         chat.say(m)
     turn = chat.say("למה צריך את הנתון הזה?")
     assert "לההשתתפות" not in turn.reply and chat.open() == []

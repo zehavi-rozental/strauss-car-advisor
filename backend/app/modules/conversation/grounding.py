@@ -203,8 +203,13 @@ def contributions_zero_said(text: str, cues: Sequence[str], terms: Sequence[str]
     both ("אין הפרשות", "אפס הפרשות", "בלי הפרשות בכלל"), or a phrase that says nothing is deducted ("לא יורד לי
     כלום"). Never from a number: "0" alone says nothing about which field."""
     toks = words(text)
-    if any(any(s in t for s in ZERO_WORDS[f]) for f in CONTRIBUTION_FIELDS for t in toks):
-        return False                       # "אין הפרשה לפנסיה": that field alone, read as before
+    named = [f for f in CONTRIBUTION_FIELDS if any(any(s in t for s in ZERO_WORDS[f]) for t in toks)]
+    if named:
+        # both named under a zero word, with no figure but 0 and no "יש" ("אין הפרשות לפנסיה ולקרן השתלמות", manual QA
+        # 9/11: read as a car model while the car was asked, and lost): none for both. One named alone ("אין הפרשה
+        # לפנסיה") is that field only, read as before.
+        return (len(named) == len(CONTRIBUTION_FIELDS) and has_zero_cue(text, cues)
+                and not any(ch.isdigit() and ch != "0" for ch in text) and "יש" not in toks)
     joined = f" {' '.join(toks)} "
     if any(f" {' '.join(words(p))} " in joined for p in nothing if words(p)):
         return True

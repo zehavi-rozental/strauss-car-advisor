@@ -105,7 +105,9 @@ _TAG_AFTER_RE = re.compile(r"([.?!])([ \t]*)((?:\[\[[^\]]*\]\][ \t]*)+)")
 
 def _attach_tags(text: str) -> str:
     """"…בחודש. [[faq:x]]" → "…בחודש [[faq:x]]." so a tag stays with its sentence."""
-    return _TAG_AFTER_RE.sub(lambda m: " " + m.group(3).strip() + m.group(1), text)
+    # the whitespace after the tags is kept: "שהזנתם.[[faq:x]] השכר" must stay two sentences (16/11: "שהזנתם.השכר")
+    return _TAG_AFTER_RE.sub(lambda m: " " + m.group(3).strip() + m.group(1) + m.group(3)[len(m.group(3).rstrip()):],
+                             text)
 
 
 def sentences(text: str) -> list[str]:
@@ -204,6 +206,64 @@ def check(raw: str, *, snapshot: RulesSnapshot, allowed: set[Decimal], tools_cal
         # a question / "מה?" / a complaint gets an answer or an acknowledgement: the flow question alone
         # (even a compound one, with several "?" sentences) is not one
         out.violations.append(Violation("unanswered"))
+    return out
+
+
+ANSWER_MAX_LINES = MAX_LINES - 1     # the model's answer; code adds the question / call to action after it
+# the opening words of what code says itself (the reply contract, 16/11): an acknowledgement of a saved value
+ACK_STARTS = ("רשמתי", "עדכנתי", "סימנתי", "זיהיתי")
+
+
+def answer_part(raw: str) -> str:
+    """The reply contract (16/11): the model contributes the answer/explanation only. Its sentences that ask (a
+    question, a call to action) or acknowledge a saved value are code's part of the turn decision and are not
+    taken from the model; the rest is kept with its source tags, for the facts guards. "" when nothing is left."""
+    kept = []
+    for s in sentences(raw):
+        clean = TAG_RE.sub("", s).strip()
+        if not clean or _is_question(clean) or clean.startswith(ACK_STARTS):
+            continue
+        kept.append(s.strip())
+    return "\n".join(kept).strip()          # a sentence per line: the length guard counts them
+
+
+def check_answer(raw: str, *, snapshot: RulesSnapshot, allowed: set[Decimal], tools_called: Iterable[str]) -> Check:
+    """The facts and style guards on the model's answer part: every source tag valid, a rule or a benefit only with
+    a source, numbers only from STATE / the tools / the FAQ / the employee, plural address, no opener, emoji or
+    banned phrase, short. The question and the call to action are code's (the turn decision), so `check`'s format
+    rules (one call to action, progress, one field) do not apply here."""
+    tools = set(tools_called)
+    out = Check(strip_tags(raw))
+    for s in sentences(raw):
+        tags = _tag_refs(s)
+        clean = TAG_RE.sub("", s).strip()
+        for tag in tags:
+            kind, ref = tag if tag is not None else ("", "")
+            if tag is None or (kind == "faq" and ref not in snapshot.faq.ids) or (
+                    kind == "tool" and ref not in tools) or (
+                    kind == "catalog" and not _catalog_supported(clean, snapshot)):
+                out.violations.append(Violation("source", clean))
+        if not tags and not any(b in clean for b in BOUNDARY_CUES) and any(w in clean for w in POLICY_WORDS):
+            out.violations.append(Violation("source", clean))
+        if [n for n in numbers_in(clean) if abs(n) not in allowed]:
+            out.violations.append(Violation("number", clean))
+    text = out.text
+    if not text.strip():
+        out.violations.append(Violation("empty"))
+        return out
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if len(lines) > ANSWER_MAX_LINES or len(set(lines)) < len(lines):
+        out.violations.append(Violation("length"))     # too long, or a sentence said twice
+    if SINGULAR_RE.search(text):
+        out.violations.append(Violation("address"))
+    if "!" in text:
+        out.violations.append(Violation("exclamation"))
+    if EMOJI_RE.search(text):
+        out.violations.append(Violation("emoji"))
+    if any(b in text for b in BANNED):
+        out.violations.append(Violation("banned"))
+    if text.strip().startswith(OPENERS):
+        out.violations.append(Violation("opener"))
     return out
 
 

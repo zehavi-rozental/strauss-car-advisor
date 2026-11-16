@@ -29,7 +29,12 @@ from .repository import token_hash
 
 log = logging.getLogger(__name__)
 
-EMAIL_RE = r"^[^\s@]+@[^\s@]+\.[^\s@]+$"
+# a plain address only: "x<victim@example.com>" or "victim@example.com(c)" would reach the same mailbox under another name
+# (the same rule as feature/integration-to-main)
+EMAIL_RE = r"^[a-z0-9._%+'-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}$"
+# different addresses one conversation may ask to verify (a typo corrected, a change): never a way to mail many
+# mailboxes from one conversation (the same ceiling as feature/integration-to-main)
+MAX_ADDRESSES = 3
 MAX_ATTEMPTS = 8
 LINK_TTL = timedelta(hours=24)
 MAX_VERIFY_SENDS = 5          # verification links per conversation and address (a new one only when none is valid)
@@ -45,14 +50,15 @@ class EmailNotConfigured(Exception):
     pass
 
 
-SENDER_NAME = "STRAUSS DRIVE"
+SENDER_NAME = "STRAUSS DRIVE | יועץ הרכב של שטראוס"
 
 
 def sender_header(email_from: str) -> str:
-    """The From header with a display name (1/11): a bare address reads as an anonymous sender to the receiving
-    side; a name given in EMAIL_FROM ("Name <address>") is kept as it is."""
-    name, address = parseaddr(email_from)
-    return email_from if name or not address else formataddr((SENDER_NAME, address))
+    """The From header: one display name for every email (verification and the representative's answer, 10/11),
+    whatever name EMAIL_FROM carries; the address is EMAIL_FROM's own (a sender the provider verified). A Hebrew name
+    is encoded (RFC 2047), so the receiving side shows it as written."""
+    _, address = parseaddr(email_from)
+    return formataddr((SENDER_NAME, address), charset="utf-8") if address else email_from
 
 
 def local_url(url: str) -> bool:
@@ -143,16 +149,33 @@ class EmailNotificationService:
                              question_id: str | None = None) -> str:
         """A verification link for this address, unless one is still valid (never two at once). An expired or
         undeliverable one is replaced, at most MAX_VERIFY_SENDS times per conversation and address. An address
-        verified for this conversation is not verified again. Returns what happened: "queued" (a new link),
-        "valid" (the previous link still works), "limit" (no more links), "verified" (nothing to do)."""
+        verified for this conversation is not verified again. Another address (a typo corrected, a change, 10/11)
+        replaces it and must be verified itself: until then nothing is mailed, and answers waiting to be mailed wait
+        for the new address. Returns what happened: "queued" (a new link), "valid" (the previous link still works),
+        "limit" (no more links, or too many addresses), "verified" (nothing to do)."""
         email = self.normalize_email(email)
         digest = hashlib.sha256(email.encode("utf-8")).hexdigest()
-        if conversation.email_verified_at:
-            if not conversation.email_ciphertext or self._decrypt(conversation.email_ciphertext) != email:
-                raise ValueError("כתובת האימייל כבר אומתה ואי אפשר להחליף אותה דרך הפנייה.")
+        current = self._decrypt(conversation.email_ciphertext) if conversation.email_ciphertext else None
+        if current == email and conversation.email_verified_at:
             return "verified"
-        conversation.email_ciphertext = self._encrypt(email)
         now = utcnow()
+        if current != email:
+            tried = set(session.scalars(select(EmailLinkRow.email_hash).where(
+                EmailLinkRow.conversation_id == conversation.id, EmailLinkRow.purpose == "VERIFY")))
+            if digest not in tried and len(tried) >= MAX_ADDRESSES:
+                log.warning("verification mail not sent: addresses per conversation")
+                return "limit"
+            if current is not None:
+                # the old address gets nothing more: its open links stop working, unsent answer notices wait for
+                # the new address's verification (redeem points them at it)
+                conversation.email_verified_at = None
+                session.execute(update(EmailLinkRow).where(
+                    EmailLinkRow.conversation_id == conversation.id, EmailLinkRow.consumed_at.is_(None),
+                    EmailLinkRow.purpose == "VERIFY").values(expires_at=now))
+                session.execute(update(EmailOutboxRow).where(
+                    EmailOutboxRow.conversation_id == conversation.id, EmailOutboxRow.purpose == "ANSWER",
+                    EmailOutboxRow.status.in_(("PENDING", "RETRY"))).values(status=AWAITING))
+        conversation.email_ciphertext = self._encrypt(email)
         sent = list(session.scalars(select(EmailOutboxRow).where(
             EmailOutboxRow.conversation_id == conversation.id, EmailOutboxRow.purpose == "VERIFY",
             EmailOutboxRow.dedupe_key.startswith(f"verify:{conversation.id}:{digest}"))))
@@ -226,11 +249,16 @@ class EmailNotificationService:
                 raise InvalidEmailLink()
             if link.purpose == "VERIFY":
                 conversation.email_verified_at = now
-                # answer notices that waited for this verification join the queue now
-                session.execute(
-                    update(EmailOutboxRow)
-                    .where(EmailOutboxRow.conversation_id == conversation.id, EmailOutboxRow.status == AWAITING)
-                    .values(status="PENDING", next_attempt_at=now))
+                # answer notices that waited for this verification join the queue now, to this address only: one
+                # written while another address was on record (a typo, corrected since) never goes to that one
+                for waiting in session.scalars(select(EmailOutboxRow).where(
+                        EmailOutboxRow.conversation_id == conversation.id, EmailOutboxRow.status == AWAITING)):
+                    waiting.recipient_ciphertext = self._encrypt(email)
+                    waiting.status, waiting.next_attempt_at = "PENDING", now
+                    session.execute(update(EmailLinkRow).where(
+                        EmailLinkRow.conversation_id == conversation.id, EmailLinkRow.purpose == waiting.purpose,
+                        EmailLinkRow.question_id == waiting.question_id,
+                        EmailLinkRow.consumed_at.is_(None)).values(email_hash=link.email_hash))
             elif not conversation.email_verified_at:
                 raise InvalidEmailLink()
             consumed = session.execute(
@@ -315,26 +343,32 @@ class EmailNotificationService:
                 return False
         message_id, purpose, question_id, recipient, raw_token, attempt = values
         url = f"{self.settings.email_public_app_url.rstrip('/')}/employee#return_token={quote(raw_token)}"
-        asked = ""
+        asked = answer = ""
         if purpose == "VERIFY":
             subject = "STRAUSS DRIVE | אימות כתובת האימייל"
-            introduction = "כדי לאמת את כתובת האימייל ולחזור לשיחה, פתחו את הקישור המאובטח."
-            button = "פתיחת השיחה המאובטחת"
+            introduction = ("כדי לקבל עדכון במייל כשנציג התחבורה יענה, אמתו את הכתובת בקישור המאובטח. "
+                            "אפשר להמשיך בשיחה גם בלי לאמת.")
+            button = "אימות הכתובת"
         else:
             subject = "STRAUSS DRIVE | התקבלה תשובה מנציג התחבורה"
-            introduction = "התקבלה תשובה מנציג התחבורה לפנייה שלכם. הקישור יפתח את השיחה ישירות בתשובה."
-            button = "לצפייה בתשובת הנציג"
-            asked = self._asked(row_id, question_id)      # the employee's own question (1/11), never the answer
+            introduction = "נציג התחבורה ענה על הפנייה שלכם. הקישור יפתח את השיחה ישירות בתשובה."
+            button = "לצפייה בתשובה בצ'אט"
+            asked = self._asked(row_id, question_id)      # the employee's own question (1/11)
+            # the representative's answer (10/11): the rep never sees the employee's pay, so the answer carries none
+            answer = self._answer(row_id, question_id)
         body = (f"{introduction}\n\n" + (f"השאלה שלכם: {asked}\n\n" if asked else "")
-                + f"{button}: {url}\n\nהקישור תקף ל-24 שעות ופועל פעם אחת.\n\nSTRAUSS DRIVE — יועץ הרכב של שטראוס")
+                + (f"תשובת נציג התחבורה:\n{answer}\n\n" if answer else "")
+                + f"{button}: {url}\n\nהקישור תקף ל-24 שעות ופועל פעם אחת.\n\n{SENDER_NAME}")
+        quote_style = 'line-height:1.7;background:#f3f6f5;padding:12px 16px;border-radius:6px'
         html_body = (
             '<div dir="rtl" style="font-family:Arial,sans-serif;max-width:560px;margin:auto;'
             'padding:24px;color:#18332c">'
             '<h1 style="font-size:22px;margin:0">STRAUSS DRIVE</h1>'
             '<p style="margin:4px 0 20px;color:#52615c">יועץ הרכב של שטראוס</p>'
             f'<p style="line-height:1.7">{html.escape(introduction)}</p>'
-            + (f'<p style="line-height:1.7;background:#f3f6f5;padding:12px 16px;border-radius:6px">'
-               f'<strong>השאלה שלכם:</strong><br>{html.escape(asked)}</p>' if asked else "")
+            + (f'<p style="{quote_style}"><strong>השאלה שלכם:</strong><br>{html.escape(asked)}</p>' if asked else "")
+            + (f'<p style="{quote_style}"><strong>תשובת נציג התחבורה:</strong><br>'
+               f'{html.escape(answer).replace(chr(10), "<br>")}</p>' if answer else "")
             + f'<p style="margin:28px 0"><a href="{html.escape(url, quote=True)}" '
             'style="background:#126b50;color:#fff;padding:12px 20px;border-radius:6px;'
             f'text-decoration:none;display:inline-block">{html.escape(button)}</a></p>'
@@ -381,6 +415,28 @@ class EmailNotificationService:
             return ""
         head = content.split("\n\n")[0]
         return question_for_email("\n".join(head.split("\n")[1:]))
+
+    def _answer(self, row_id: uuid.UUID, question_id: str | None) -> str:
+        """The representative's answer as the employee's chat shows it (its own message, lines kept, at most 1,000
+        characters); empty when the conversation holds none."""
+        if not question_id:
+            return ""
+        with self.sessions() as session:
+            row = session.get(EmailOutboxRow, row_id)
+            if row is None:
+                return ""
+            content = session.scalar(
+                select(MessageRow.content).where(MessageRow.conversation_id == row.conversation_id,
+                                                 MessageRow.rep_question_id == question_id,
+                                                 MessageRow.source == "rep")
+                .order_by(MessageRow.seq).limit(1))
+        if not content:
+            return ""
+        lines = [" ".join(line.split()) for line in content.split("\n")]
+        # the chat's own heading ("נציג התחבורה ענה על השאלה שלכם:") is the email's heading already
+        lines = [line for line in lines if line and not line.startswith("נציג התחבורה ענה")]
+        text = "\n".join(lines).strip()
+        return text[:1000] + ("…" if len(text) > 1000 else "")
 
     def _send(self, message_id: str, recipient: str, subject: str, body: str, html_body: str) -> None:
         backend = self.settings.email_backend

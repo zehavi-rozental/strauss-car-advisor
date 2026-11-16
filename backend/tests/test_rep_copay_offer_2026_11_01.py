@@ -44,8 +44,9 @@ def test_the_answer_is_offered_not_applied(engine):
     assert offer is not None and offer["context"]["amount"] == "230" and offer["context"]["car"] == "COROLLA (2026)"
     assert [c["label"] for c in offer["choices"]] == ["עדכון הסכום וחישוב מחדש"]
     assert view["current_car"]["copay"] is None                           # nothing applied by itself
-    # the catalog amount the calculation used, and the representative's amount, both said (1/11)
-    assert any("230 ₪" in m["content"] and "250 ₪ לפי הקטלוג" in m["content"] for m in view["messages"])
+    # the representative's amount is said; nothing was calculated on the catalog amount in the meantime (16/11)
+    [said] = [m["content"] for m in view["messages"] if "230 ₪" in m["content"]]
+    assert "נציג התחבורה" in said and "250" not in said and offer["context"]["provisional"] is None
 
 
 def test_confirming_applies_once_marks_the_source_and_recalculates(engine):

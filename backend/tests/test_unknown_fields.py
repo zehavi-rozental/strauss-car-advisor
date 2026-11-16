@@ -64,7 +64,9 @@ def test_unknown_twice_never_repeats_and_never_calculates(sessions):
     svc = service(sessions)
     turn, token = talk(svc, [PROFILE_Q1, "אני לא יודע אף אחד מהם", CAR, "אטו 3"])
     assert turn.results == [] and turn.stage == Stage.COLLECT_PROFILE         # no calculation without them
-    assert "בלי הערכים האלה אין חישוב" in turn.reply and "כולם מופיעים בתלוש השכר החודשי." in turn.reply
+    # 16/11: asked again gently, with an estimate offered; never a default
+    assert "כדי לחשב את הנטו אני צריך עכשיו את" in turn.reply and "הערכה" in turn.reply
+    assert "כולם מופיעים בתלוש השכר החודשי." in turn.reply
     replies = [turn.reply]
     for _ in range(2):
         turn = svc.send(turn.conversation_id, token, "עדיין לא יודע אף אחד מהם")
@@ -126,7 +128,9 @@ def test_the_builtin_upload_link_is_offered_without_a_url(sessions, tmp_path):
 def test_say_reasons(sessions):
     svc = service(sessions, LLMChain([FakeLLM().turn(reply='כתבו כאן, למשל: "קבוצה ג, שכר בסיס 18,500".')]))
     turn, token = svc.start()
-    assert svc.send(turn.conversation_id, token, "מה?").say == "guard:unanswered"     # only the CTA line
+    # "מה?": the question on screen in simpler words is code's (the reply contract, 16/11); the model's CTA is not taken
+    turn = svc.send(turn.conversation_id, token, "מה?")
+    assert turn.source == "template" and turn.reply.startswith("במילים פשוטות")
     svc = service(sessions, LLMChain([FailingLLM()]))
     turn, token = svc.start()
     assert svc.send(turn.conversation_id, token, "מה?").say == "outage"

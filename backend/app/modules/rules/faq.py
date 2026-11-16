@@ -56,12 +56,19 @@ class Faq(BaseModel):
     # entries about the conversation itself (the representative, privacy, starting over): an answer, never a
     # reason to send a question to the representative
     meta_entries: tuple[str, ...] = ()
+    # entries about the calculation itself ("איך אתה מחשב…", "מה זה נטו"): asked while values are still missing, the
+    # answer says what is missing and what can and cannot be calculated without it (conversation.data_facts, 16/11)
+    calculation_entries: tuple[str, ...] = ()
     # the employee's own data (rule A, 22/10): a question that names only these ("חייבים לכתוב עמלות?", "למה אתה
     # שואל על ילדים?") is about why the bot asks, answered here — the representative never knows the employee's pay
     employee_data_terms: tuple[str, ...] = ()
     # what a result on screen is made of ("הערכה זמנית", "ממתינה לאישור", "השתתפות"): with results shown, a question
     # naming one is about those results and is answered from them (C5, 22/10), never sent to the representative
     result_terms: tuple[str, ...] = ()
+    # of result_terms, the ones about the estimate's status and its copay ("זמנית", "סופי", "השתתפות"): such a question
+    # is answered with each car's copay and its source; any other question about a result ("ולמה דווקא הראשון?") with
+    # the engine's reason for that car (15/11)
+    estimate_terms: tuple[str, ...] = ()
     # a reason to ask the representative about a new car's copay, said by the employee with the copay on screen
     # ("שהנציג יאשר", "סוכם אחרת", "לברר"): with no amount given, a question is opened for that car
     copay_rep_terms: tuple[str, ...] = ()
@@ -102,6 +109,19 @@ class Faq(BaseModel):
     bot_reference_terms: tuple[str, ...] = ()
     # ... and what makes it a question about the basis of the advice, which a ranking word never overrides
     bot_basis_terms: tuple[str, ...] = ()
+    # a request to explain a term ("מה זה אומר הפרשות?"): answered first, from the entry it names (10/11)
+    explain_cues: tuple[str, ...] = ()
+    # a question said again ("שאלתי מה זה הפרשות"): the rest is the question, never an answer to the one on screen
+    requery_cues: tuple[str, ...] = ()
+    # words that point back ("איפה זה בתלוש?"): to the term the last reply explained, else the field it asked
+    reference_words: tuple[str, ...] = ()
+    # the cars open to the employee ("בין כמה רכבים אני יכולה לבחור?", 15/11): answered by code from the eligibility rules
+    eligible_objects: tuple[str, ...] = ()
+    eligible_cues: tuple[str, ...] = ()
+    # a follow-up about the same list right after that answer ("ומה מהם חשמליים?", "ועכשיו כמה?")
+    eligible_follow_up: tuple[str, ...] = ()
+    # "ועכשיו כמה?" with both the open cars and net figures in the conversation: asked, never guessed (16/11)
+    eligible_clarify: str = "התכוונתם לכמה רכבים פתוחים לכם, או לנטו שלכם?"
 
     def get(self, entry_id: str) -> Optional[FaqEntry]:
         return next((e for e in self.entries if e.id == entry_id), None)
@@ -118,7 +138,18 @@ def _plain(value: Decimal) -> str:
 
 def faq_values(strauss: Any, max_options: int) -> dict[str, str]:
     ft = strauss.family_track
+    nm = strauss.net_method
+    credit = nm.pension_credit
+    # how the engine treats contributions and the copay, in words, from the same rules it calculates with
+    base_text = "מהשכר (בסיס, עמלות ובונוס)" if nm.contributions_base == "gross" else "משכר הבסיס"
+    copay_text = ("יורדת מהנטו ומקטינה את שווי השימוש החייב במס" if nm.participation.reduces_value_of_use
+                  else "יורדת מהנטו, ואינה מקטינה את שווי השימוש")
     return {
+        "contributions_base": base_text,
+        "pension_credit_percent": _plain(Decimal(str(credit.rate)) * 100),
+        "pension_credit_max": _plain(Decimal(str(credit.rate)) * Decimal(str(credit.max_contribution_rate))
+                                     * Decimal(str(credit.income_ceiling))),
+        "copay_use_value": copay_text,
         "electric_net_bonus": _plain(Decimal(str(strauss.electric.net_bonus))),
         "credit_point_value": _plain(Decimal(str(strauss.net_method.credit_point_value))),
         "family_min_children": str(ft.min_children),

@@ -3,7 +3,9 @@
 # and the button "לשאול את נציג התחבורה".
 # Numbers are never written here: {placeholders} are filled from strauss-rules.json when loading,
 # so a rules change updates the answers too. Placeholders: electric_net_bonus, credit_point_value,
-# family_min_children, child_max_age, family_gap_percent, groups, max_options.
+# family_min_children, child_max_age, family_gap_percent, groups, max_options, contributions_base,
+# pension_credit_percent, pension_credit_max, copay_use_value (16/11: what a term means for the calculation,
+# in the engine's own terms — the explanations the model may give are grounded in these lines).
 # Fields: id, term (the words a reply must contain), aliases (how employees ask; typos are tolerated),
 # answer (1-2 short lines), simple (re-explaining the question), example (what to type).
 version: "faq-2026-10-18.1"
@@ -38,17 +40,24 @@ entries:
   - id: pension_percent
     term: פנסיה
     aliases: [פנסיה, הפרשה לפנסיה, אחוז פנסיה]
-    answer: "זה האחוז שיורד לכם מהשכר לפנסיה, חלק העובד. בדרך כלל הוא מופיע בתלוש ליד ניכוי קרן הפנסיה."
+    answer: "פנסיה היא חיסכון לגיל פרישה, שמפרישים אליו מהשכר בכל חודש. אני שואל על חלק העובד: האחוז שיורד לכם {contributions_base}. הסכום הזה יורד מהנטו, ומקבלים עליו זיכוי ממס של {pension_credit_percent}% ממנו, עד {pension_credit_max} ₪ בחודש. ההפרשה לא משתנה כשמחליפים רכב, אבל בלעדיה אי אפשר לחשב את הנטו נכון."
     simple: "כמה אחוזים יורדים מהשכר שלכם לפנסיה."
     example: "פנסיה 6%"
     where: "בתלוש, בניכויים: קרן פנסיה, חלק העובד באחוזים."
   - id: study_fund_percent
     term: קרן השתלמות
     aliases: [קרן השתלמות, השתלמות, קה"ש]
-    answer: "זה האחוז שיורד לכם מהשכר לקרן השתלמות, חלק העובד. אם אין לכם קרן, כתבו אין."
+    answer: "קרן השתלמות היא חיסכון נפרד מהפנסיה, שמפרישים אליו מהשכר בכל חודש. אני שואל על חלק העובד: האחוז שיורד לכם {contributions_base}. הסכום הזה יורד מהנטו, ובחישוב אין עליו זיכוי ממס. ההפרשה לא משתנה כשמחליפים רכב, אבל בלעדיה אי אפשר לחשב את הנטו נכון. אם אין לכם קרן השתלמות, כתבו אין."
     simple: "כמה אחוזים יורדים מהשכר שלכם לקרן השתלמות. אם אין, כתבו אין."
     example: "קרן השתלמות 2.5%, או: אין"
     where: "בתלוש, בניכויים: קרן השתלמות, חלק העובד באחוזים."
+  - id: contributions
+    term: הפרשות
+    aliases: [הפרשות, הפרשה, הפקדות, הפקדה, הפרשות סוציאליות, הפרשות לפנסיה, הפרשות לקרן]
+    answer: "הפרשות הן האחוזים שיורדים לכם מהשכר לחיסכון: לקרן הפנסיה ולקרן השתלמות, חלק העובד. הן מחושבות {contributions_base} ויורדות מהשכר לפני שהוא מגיע לחשבון, ולכן מקטינות את הנטו. על הפרשת הפנסיה מקבלים זיכוי ממס של {pension_credit_percent}% ממנה, עד {pension_credit_max} ₪ בחודש. ההפרשות לא משתנות כשמחליפים רכב."
+    simple: "כמה אחוזים יורדים מהשכר שלכם לפנסיה ולקרן השתלמות. אם אין, כתבו אין."
+    example: "פנסיה 6%, קרן השתלמות 2.5%"
+    where: "בתלוש, בניכויים: קרן פנסיה וקרן השתלמות, חלק העובד באחוזים."
   - id: credit_points
     term: נקודות זיכוי
     aliases: [נקודות זיכוי, נקודות, נקודת זיכוי, זיכוי]
@@ -78,14 +87,14 @@ entries:
   - id: copay
     term: השתתפות
     aliases: [השתתפות, השתתפות עצמית, משתתף, משלם על הרכב]
-    answer: "השתתפות היא הסכום שיורד לכם מהנטו בכל חודש עבור הרכב. ברכב שלכם היום היא מופיעה בתלוש השכר; ברכב חדש, הסכום לפי הקטלוג ונציג התחבורה מאשר אותו."
+    answer: "השתתפות היא הסכום שיורד לכם מהנטו בכל חודש עבור הרכב. בחישוב היא {copay_use_value}. ברכב שלכם היום היא מופיעה בתלוש השכר; ברכב חדש, הסכום לפי הקטלוג ונציג התחבורה מאשר אותו. בלי ההשתתפות ברכב של היום אין חישוב נטו: אפשר לכתוב אותה מהתלוש, או הערכה שתסומן בתוצאות כהערכה."
     where: "מופיעה בתלוש השכר החודשי."
     simple: "כמה יורד לכם מהמשכורת בכל חודש עבור הרכב. אם לא ידוע, כתבו לא ידוע."
     example: "300, או: לא ידוע"
   - id: use_value
     term: שווי שימוש
     aliases: [שווי שימוש, שווי, שווי רכב]
-    answer: "שווי שימוש הוא סכום שמתווסף לשכר לצורך מס, כי הרכב הוא הטבה. הוא לא כסף שמקבלים, אבל מגדיל את המס."
+    answer: "שווי שימוש הוא סכום שמתווסף לשכר לצורך מס, כי הרכב הוא הטבה. הוא לא כסף שמקבלים, אבל מגדיל את מס ההכנסה, את ביטוח הלאומי ואת מס הבריאות. הוא נקבע לפי הרכב, ולכן רכב אחר משנה את הנטו. ההשתתפות שלכם ברכב {copay_use_value}."
     simple: "כמה שווי שימוש מופיע בתלוש שלכם. אם לא ידוע, כתבו לא ידוע."
     where: "מופיע בתלוש השכר החודשי."
     example: "4000, או: לא ידוע"
@@ -100,6 +109,7 @@ entries:
     aliases: [אחזקת רכב, אחזקה, החזר הוצאות רכב]
     answer: "אחזקת רכב היא תשלום חודשי בתלוש למי שאין לו רכב צמוד. היא חייבת במס."
     simple: "כמה אחזקת רכב מופיעה בתלוש שלכם בכל חודש."
+    where: "בתלוש, ברכיבי השכר: שורת אחזקת רכב, אם יש כזו."
     example: "1500"
   - id: options
     term: רכבים
@@ -138,7 +148,11 @@ entries:
   - id: net
     term: נטו
     aliases: [נטו, מה זה נטו, כמה אקבל, כמה ארוויח, כמה ירד לי, איך מחשבים]
-    answer: "אני מחשב כמה הנטו החודשי שלכם ישתנה כשמחליפים רכב, לפי כללי החברה. החישוב נעשה בקוד, לא בהערכה."
+    answer: "נטו הוא מה שנכנס לחשבון בכל חודש: הברוטו פחות מס הכנסה, ביטוח לאומי, מס בריאות, ההפרשות לפנסיה ולקרן השתלמות וההשתתפות ברכב. אני מחשב כמה הנטו החודשי שלכם ישתנה כשמחליפים רכב, לפי כללי החברה. החישוב נעשה בקוד, לא בהערכה."
+  - id: gross_net
+    term: ברוטו ונטו
+    aliases: [ברוטו לנטו, ברוטו ונטו, ברוטו או נטו, ברוטו מול נטו, נטו לברוטו]
+    answer: "ברוטו הוא השכר לפני ניכויים. נטו הוא מה שנכנס לחשבון אחרי מס הכנסה, ביטוח לאומי והפרשות לפנסיה ולקרן השתלמות. רכב צמוד משנה את הנטו: שווי השימוש מגדיל את המס, וההשתתפות יורדת מהנטו."
   - id: capabilities
     term: לעזור
     aliases: [מה אתה יודע, מה אפשר, מה אתה עושה, במה אתה עוזר, מי אתה]
@@ -175,6 +189,27 @@ injection_patterns: [התעלם, תתעלם, שכח את ההוראות, הור�
                      תעמיד פנים, jailbreak, תגיד לי את הפרומפט, פרומפט, prompt, ההוראות שלך, ההנחיות שלך,
                      הנחיות המערכת, תחשוף]
 off_topic_patterns: [מזג אוויר, בדיחה, מתכון, כדורגל, פוליטיקה, שיר, מניות, ביטקוין, ראש הממשלה, קורות חיים]
+# a request to explain a term (10/11): "מה זה אומר הפרשות?", "מה ההבדל בין ברוטו לנטו?". Whole words. It is answered
+# first, from the entry it names (a one-word alias counts in a long question too), never read as "why do you ask" or
+# as a request for the calculation; with no entry named, the question on screen is explained
+explain_cues: [מה זה, מה זו, מה זאת, מהו, מהי, מה זה אומר, מה זאת אומרת, מה הכוונה, מה פירוש, מה המשמעות, מה משמעות,
+               תסביר, תסבירי, תסבירו, הסבר, להסביר, תפרט מה, מה ההבדל, ההבדל בין, הבדל בין]
+# a question said again ("שאלתי מה זה הפרשות", "התכוונתי לשאול…"): the rest of the message is the question, read as
+# one; never an answer to the question on screen
+requery_cues: [שאלתי, שאלתי אותך, אני שואל, אני שואלת, השאלה שלי, התכוונתי לשאול, רציתי לשאול, רק שאלתי]
+# a question about the payslip or a reason that points back ("איפה זה בתלוש?", "למה צריך את זה?", "תן דוגמה"): about
+# the term explained in the last reply, else the field the last reply asked
+reference_words: [זה, זו, זאת, הזה, הזאת, אותו, אותה, אותם, אלה, האלה]
+# the cars open to the employee (15/11): "בין כמה רכבים אני יכולה לבחור?", "אילו רכבים מגיעים לי?", "ומה מהם
+# חשמליים?". An object word and an eligibility (or count / list) word, no single car named: answered by code from the
+# eligibility rules (the group saved, the family track, the car today excluded), after this turn's saves, never the rep.
+# A follow-up ("ומה מהם חשמליים?", "ועכשיו כמה?") right after such an answer is about the same list.
+eligible_objects: [רכבים, אפשרויות, אופציות, דגמים, מכוניות, חלופות]
+eligible_cues: [לבחור, בחירה, זכאי, זכאית, זכאים, מגיע, מגיעים, יכול, יכולה, יכולים, פתוחים, פתוח, זמינים, עומדים,
+                אפשר, כמה, אילו, איזה, רשימה, רשימת]
+eligible_follow_up: [מהם, מהן, מתוכם, מתוכן, מביניהם, מביניהן, ביניהם, כמה, ועכשיו, עכשיו]
+# a bare follow-up ("ועכשיו כמה?") a turn or more after the list, with net figures on screen: one short question
+eligible_clarify: "התכוונתם לכמה רכבים פתוחים לכם, או לנטו שלכם?"
 # a question whose intent is truly unclear: one line, no buttons; the employee says it again
 clarify: "לא בטוח שהבנתי את השאלה. כתבו אותה במילים אחרות, למשל על הרכב, הזכאות או הנטו."
 # Small talk that says nothing else (30/10): answered in a few words, then the open question. Never "not understood".
@@ -250,6 +285,9 @@ foreign_context_terms: [דירה, דירת, משכנתא, יד שנייה, יד 
 company_anchor_terms: [רכב צמוד, הרכב הצמוד, רכב החברה, רכבי החברה, רכב העבודה, רכב חברה, שימוש פרטי,
                        לצרכים פרטיים]
 meta_entries: [rep, waiting, capabilities, privacy, new_chat, why_ask]
+# entries about the calculation itself: asked while values are missing, the answer says what is missing and what can and
+# cannot be calculated without it, from the state and the engine (conversation.data_facts, 16/11)
+calculation_entries: [net, gross_net]     # not how_it_works: that one is about the advisor's sources
 # the employee's own data (rule A): a question naming only these is about why the bot asks; answered here (why_ask),
 # never sent to the representative, who never sees the employee's pay
 employee_data_terms: [שכר, משכורת, ברוטו, בסיס, עמלות, עמלה, בונוס, בונוסים, פרמיה, פנסיה, פנסיונית, השתלמות,
@@ -257,6 +295,10 @@ employee_data_terms: [שכר, משכורת, ברוטו, בסיס, עמלות, ע
 # what a result on screen is made of: with results shown, a question naming one is about them (answered from them)
 result_terms: [הערכה, זמני, זמנית, סופי, סופית, מאושר, מאושרת, אושר, אושרה, אישור, ממתין, ממתינה, השתתפות, קטלוג,
                מדויק, מדויקת, חישוב, החישוב, מחושב, הפרש, הנטו]
+# of result_terms, those about the estimate's status and its copay: answered with each car's copay and its source.
+# Any other question about a result ("ולמה דווקא הראשון?") gets the engine's reason for that car (15/11)
+estimate_terms: [הערכה, זמני, זמנית, סופי, סופית, מאושר, מאושרת, אושר, אושרה, אישור, ממתין, ממתינה, השתתפות, קטלוג,
+                 מדויק, מדויקת]
 # a property the catalog does not hold (29/10): never a model name, never "כן, בקטלוג יש"; with a car named (or
 # "רכב", "הרכב") it is a question for the representative. Whole words, a prefix letter allowed.
 attribute_terms: [צבע, צבעים, בצבע, אדום, אדומה, לבן, לבנה, שחור, שחורה, כחול, כחולה, אפור, אפורה, כסוף, כסופה,

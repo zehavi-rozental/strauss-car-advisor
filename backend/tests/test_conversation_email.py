@@ -169,9 +169,10 @@ def test_answer_email_failure_does_not_undo_answer_and_retry_sends_once(engine, 
     assert len(service.fake_messages) == 2
     notice = service.fake_messages[1]
     assert notice["to"] == EMAIL
-    assert answer_text not in notice["body"] and "18500" not in notice["body"]
-    # the employee's own question is named since 1/11 (the product owner's request); the answer and pay data never are
-    assert "השאלה שלכם:" in notice["body"] and "לצפייה בתשובת הנציג" in notice["body"]
+    # the employee's own question since 1/11, and the representative's answer since 10/11 (the product owner's
+    # requests; the rep never sees pay, so the answer carries none); a question with pay data in it is never copied
+    assert answer_text in notice["body"] and "18500" not in notice["body"]
+    assert "השאלה שלכם:" in notice["body"] and "לצפייה בתשובה בצ'אט" in notice["body"]
     assert employee.post(f"/api/rep/questions/{question['id']}/answer", headers=AUTH,
                          json={"value": answer_text}).status_code == 409
     assert len(service.fake_messages) == 2
@@ -210,16 +211,17 @@ def test_answer_notice_waits_for_email_verification_without_spending_retries(eng
         assert answer_notice.status == "SENT" and answer_notice.attempts == 1
 
 
-def test_email_is_required_for_real_delivery_and_invalid_address_is_rejected(engine):
+def test_email_is_optional_for_real_delivery_and_invalid_address_is_rejected(engine):
     c = make_client(engine, rep_access_token=TOKEN, email_backend="smtp",
                     email_encryption_key=KEY, email_smtp_host="smtp.example.test",
                     email_from="advisor@example.test", email_public_app_url="https://advisor.example.test")
     cid = _present(c)
     missing = c.post(f"/api/conversations/{cid}/rep-question",
                      json={"question": "האם הרכב זמין?", "intent": "general"})
-    assert missing.status_code == 422
+    assert missing.status_code == 200          # never required (10/11): the answer shows in the chat either way
     invalid = c.post(f"/api/conversations/{cid}/rep-question", json={
         "question": "האם הרכב זמין?", "intent": "general", "email": "not-an-email",
     })
     assert invalid.status_code == 422
-    assert c.get("/api/rep/questions", headers=AUTH).json() == []
+    # only the inquiry sent without an address was opened; the invalid address opened nothing more
+    assert len(c.get("/api/rep/questions", headers=AUTH).json()) == 1

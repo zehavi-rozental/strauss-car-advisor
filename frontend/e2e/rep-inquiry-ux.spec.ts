@@ -132,8 +132,10 @@ test('5-7. two inquiries: one notice each, and each link opens its own answer on
   // each notice names its own question (the files are not in sending order: matched by what they say)
   const byQuestion = [FIRST, SECOND].map((q) => notices.find((n) => n.body.includes(`השאלה שלכם: ${q}`))!)
   expect(byQuestion.every(Boolean)).toBe(true)
-  expect(byQuestion[0].html).toContain('לצפייה בתשובת הנציג')
-  expect(notices.every((n) => !n.body.includes('התוספת מטופלת') && !n.body.includes('18500'))).toBe(true)
+  expect(byQuestion[0].body).toContain("לצפייה בתשובה בצ'אט")
+  // the answer is in the mail since 10/11 (the product owner's request); pay data never is
+  expect(notices.some((n) => n.body.includes('התוספת מטופלת'))).toBe(true)
+  expect(notices.every((n) => !n.body.includes('18500'))).toBe(true)
   for (const [i, notice] of byQuestion.entries()) {
     const phone = await newPage(browser, 375)                               // another device, a phone
     await phone.goto(`/employee#return_token=${token(notice.body)}`)

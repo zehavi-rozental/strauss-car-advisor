@@ -124,7 +124,8 @@ test('"הכי משתלם" ranks every eligible option and shows the top three in
   await open(page)
   for (const m of [NOA, 'יש לי קורולה קרוס', '300']) await send(page, m)
   await send(page, 'מה הכי משתלם לי?')
-  await expect(page.locator(BOT).last()).toContainText('בדקתי את כל 13 הרכבים')
+  // 13 options ranked: 12 cars and opting out, said by its own name, never "13 הרכבים" (15/11)
+  await expect(page.locator(BOT).last()).toContainText('בדקתי את כל 12 הרכבים שאתם זכאים להם, וגם ויתור על רכב')
   const ranked = deltas(await state(page))
   expect(ranked).toHaveLength(3)
   expect(ranked.map(([, d]) => d)).toEqual([...ranked.map(([, d]) => d)].sort((a, b) => Number(b) - Number(a)))
@@ -139,28 +140,39 @@ test('a new car is calculated with the catalog copay, marked pending, and one qu
   // the rule since 22/10: the catalog copay is used as is, with no question, until the employee asks
   expect([s.results[0].option_id, result.copay_pending, Number(result.alternative.copay)]).toEqual(['CAR-07', false, 250])
   await expect(page.locator(BOT).last()).toContainText('לפי הקטלוג היא 250 ₪')
+  const earlier = new Set(((await (await page.request.get('/api/rep/questions?status=OPEN',
+    { headers: { 'X-Rep-Token': REP_TOKEN } })).json()) as { id: string }[]).map((q) => q.id))
   await send(page, 'אני רוצה שנציג התחבורה יאשר את ההשתתפות')
   s = await state(page)
   result = s.results[0].result
   expect(result.copay_pending).toBe(true)
   await expect(page.locator('.tag-pending').first()).toBeVisible()
   // the rep API never says which conversation a question belongs to (privacy): COROLLA is chosen only here
+  // this conversation's own question: the one that is new since before the request (leftovers of earlier runs may be open)
   const corolla = async () => (await (await page.request.get('/api/rep/questions?status=OPEN',
     { headers: { 'X-Rep-Token': REP_TOKEN } })).json()).filter((q: { context: { catalog_code?: string } }) =>
-    q.context.catalog_code === 'CAR-07')
-  const mine = await corolla()
+    q.context.catalog_code === 'CAR-07') as { id: string; missing_field: string; mode: string; suggested_value: string;
+      context: object }[]
+  const mine = (await corolla()).filter((q) => !earlier.has(q.id))
   expect(mine).toHaveLength(1)
   expect([mine[0].missing_field, mine[0].mode, Number(mine[0].suggested_value)]).toEqual(['NEW_CAR_COPAY', 'CONFIRM', 250])
   expect(Object.keys(mine[0].context).sort()).toEqual(['car_label', 'catalog_code', 'group', 'suggested_amount'])
   await send(page, 'קורולה')                                  // choosing it again opens no second question
-  expect(await corolla()).toHaveLength(1)
+  expect((await corolla()).filter((q) => !earlier.has(q.id))).toHaveLength(1)
 })
 
 test('the rep answers in the rep screen, sees no salary, and the employee sees the new amount without reloading', async ({ browser }) => {
   test.skip(!REP_TOKEN, 'REP_TOKEN not provided')
   const page = await (await browser.newContext()).newPage()
   await open(page)
-  for (const m of [NOA, 'יש לי קורולה קרוס', '300', 'קונה', 'אני רוצה שנציג התחבורה יאשר את ההשתתפות']) await send(page, m)   // KONA EV: unique to this test
+  const openIds = async () => ((await (await page.request.get('/api/rep/questions?status=OPEN',
+    { headers: { 'X-Rep-Token': REP_TOKEN } })).json()) as { id: string; context: { catalog_code?: string } }[])
+  const earlier = new Set((await openIds()).map((q) => q.id))
+  for (const m of [NOA, 'יש לי קורולה קרוס', '300', 'קונה', 'אני רוצה שנציג התחבורה יאשר את ההשתתפות']) await send(page, m)
+  // this conversation's KONA question by its id (its inquiry number on the rep card), never the first KONA card on screen
+  const mine = (await openIds()).filter((q) => !earlier.has(q.id) && q.context.catalog_code === 'CAR-08')
+  expect(mine).toHaveLength(1)
+  const number = mine[0].id.replace(/-/g, '').slice(0, 8).toUpperCase()
   const before = deltas(await state(page))
   expect(before[0][0]).toBe('CAR-08')
 
@@ -171,7 +183,7 @@ test('the rep answers in the rep screen, sees no salary, and the employee sees t
   await expect(repPage.getByRole('alert')).toBeVisible()          // a wrong token is refused
   await repPage.getByLabel('קוד גישה').fill(REP_TOKEN)
   await repPage.getByRole('button', { name: 'כניסה' }).click()
-  const card = repPage.locator('.rep-card', { hasText: 'KONA EV' }).first()
+  const card = repPage.locator('.rep-card', { hasText: number })
   await expect(card).toBeVisible({ timeout: 20_000 })
   await expect(card).not.toContainText('18,500')                  // the rep never sees the salary
   await expect(card).not.toContainText('18500')

@@ -15,6 +15,10 @@ import pytest
 
 from . import reference_oracle as oracle
 from .conftest import make_client
+from app.modules.conversation.llm.fake import FakeLLM, call
+from app.modules.conversation.public import LLMChain
+from app.modules.conversation.templates import money
+from app.shared.money import to_shekel
 
 NOA = "אני מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים"
 TOKEN = "rep-test-token"
@@ -86,11 +90,37 @@ def test_best_value_ranks_every_eligible_option_and_matches_the_oracle(api):
     reply = api.say("מה הכי משתלם לי?")["reply"]
     expected = _oracle_deltas(_employee())
     assert len(expected) == 13                                     # 12 cars in groups א-ג (not today's) + opting out
-    assert f"בדקתי את כל {len(expected)} הרכבים" in reply
+    # all 13 ranked; said as 12 cars and opting out by its own name, never "13 הרכבים" (15/11)
+    assert f"בדקתי את כל {len(expected) - 1} הרכבים שאתם זכאים להם, וגם ויתור על רכב." in reply
     top = sorted(expected.items(), key=lambda kv: kv[1], reverse=True)[:3]
     assert _results(api.view()) == top
     # each ranked delta equals the same option chosen on its own
     assert all(expected[oid] == delta for oid, delta in _results(api.view()))
+
+
+def test_a_specific_net_comparison_answers_with_each_net_the_cards_show(engine):
+    plain = make_client(engine)
+    cid = plain.post("/api/conversations").json()["conversation_id"]
+    for text in (NOA, "יש לי קורולה קרוס", "300"):
+        response = plain.post(f"/api/conversations/{cid}/messages", json={"text": text})
+        assert response.status_code == 200, response.text
+
+    fake = FakeLLM().turn(call("select_options", options=["MG4", "NIRO"]), reply="הנה ההשוואה שביקשתם.")
+    client = make_client(engine, llm=LLMChain([fake]))
+    client.cookies = plain.cookies
+    response = client.post(f"/api/conversations/{cid}/messages",
+                           json={"text": "מה יהיה הנטו שלי עם MG4 ו-NIRO?"})
+    assert response.status_code == 200, response.text
+    reply = response.json()["reply"]
+    view = client.get(f"/api/conversations/{cid}").json()
+    results = view["results"]
+    assert any("MG4" in row["label"] for row in results) and any("NIRO" in row["label"] for row in results)
+    assert not view["results_stale"]
+    # the direct answer (15/11): each car's estimated net, the very figure its card shows, never a pointer to the cards
+    line = next(ln for ln in reply.splitlines() if ln.startswith("הנטו החודשי המשוער:"))
+    for row in results:
+        net = money(to_shekel(D(row["result"]["alternative"]["net_display"])))
+        assert f"{row['label']} {net}" in line
 
 
 def test_a_new_car_uses_the_catalog_copay_pending_one_confirm_question_and_the_answer_replaces_it(api):

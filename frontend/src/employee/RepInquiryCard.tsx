@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ApiError, api } from '../api/client'
 import type { RepQuestionIntent, RepQuestionResult } from '../api/types'
+import { EMAIL_HINT, validEmail } from '../format/email'
 import { Icon } from '../ui/Icon'
 
 type Step = 'edit' | 'summary' | 'done'
@@ -21,27 +22,29 @@ interface Props {
   catalogAmount?: string
   /** a ready subject ("בירור סכום ההשתתפות ברכב הנוכחי"), shown above the editable question */
   subject?: string
-  /** a verified email stored earlier in this conversation; shown pre-filled, editable */
+  /** the address verified in this conversation: named, with "שינוי כתובת" (a new one is verified again) */
   knownEmail?: string
   /** mail delivery is configured; false: no address is asked and nothing mentions email */
   emailEnabled?: boolean
-  /** a local test server's fake mail: no address is asked, and the card says no real email is sent */
+  /** a local test server's fake mail: the field is still asked, and the card says no real email is sent */
   emailSimulated?: boolean
+  /** an address given earlier waits for its verification (the server never sends it back): said, another may be typed */
+  emailPending?: boolean
   disabled?: boolean
   onCancel: () => void
   /** called after a question is saved (status created/exists), so the parent can refresh results/status */
   onSaved: (result: RepQuestionResult) => void
 }
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
 export function RepInquiryCard({
   conversationId, initialQuestion, intent, optionId, carLabel, catalogAmount, subject, knownEmail, emailEnabled = true,
-  emailSimulated = false, disabled = false, onCancel, onSaved,
+  emailSimulated = false, emailPending = false, disabled = false, onCancel, onSaved,
 }: Props) {
   const [step, setStep] = useState<Step>('edit')
   const [question, setQuestion] = useState(initialQuestion)
-  const [email, setEmail] = useState(knownEmail ?? '')
+  const [email, setEmail] = useState('')
+  // a verified address is shown with "שינוי כתובת"; a new one replaces it only after its own verification
+  const [changing, setChanging] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // errors next to their own field (1/11); `error` is the server's, above the buttons
@@ -58,17 +61,18 @@ export function RepInquiryCard({
     ;(emailField.current ?? field.current)?.focus({ preventScroll: true })
   }, [])
 
-  // an address is asked only when mail is on and none is verified for this conversation yet
-  const needsEmail = emailEnabled && !emailSimulated && !knownEmail
+  // whenever mail is on and no address is verified for this conversation, the field is there (10/11: test servers
+  // with simulated mail hid it, so it "did not always appear"); with a verified one, only when it is being changed
+  const needsEmail = emailEnabled && (!knownEmail || changing)
   const trimmed = question.trim()
   const emailTyped = email.trim().length > 0
-  const emailOk = emailTyped && EMAIL_RE.test(email.trim())
+  const emailOk = emailTyped && validEmail(email)
 
   const toSummary = () => {
     const errors: { question?: string; email?: string } = {}
     // the address is optional (1/11): empty sends the inquiry (the answer shows here, and an address can be added on
     // its record); only an address typed wrong stops it
-    if (needsEmail && emailTyped && !emailOk) errors.email = 'הכתובת לא נראית תקינה. בדקו אותה, למשל name@example.com.'
+    if (needsEmail && emailTyped && !emailOk) errors.email = EMAIL_HINT
     if (!trimmed) errors.question = 'כתבו את השאלה לנציג.'
     setFieldErrors(errors)
     if (errors.email || errors.question) {
@@ -125,6 +129,18 @@ export function RepInquiryCard({
               סביבת בדיקות: לא נשלח מייל אמיתי. התשובה של הנציג תופיע כאן בשיחה.
             </p>
           )}
+          {emailEnabled && knownEmail && !changing && (
+            <p className="rep-inquiry-hint rep-inquiry-known-email">
+              עדכון במייל יישלח לכתובת המאומתת <bdi dir="ltr">{knownEmail}</bdi>.{' '}
+              <button type="button" className="link-inline" disabled={disabled || sending}
+                      onClick={() => setChanging(true)}>שינוי כתובת</button>
+            </p>
+          )}
+          {needsEmail && emailPending && !knownEmail && (
+            <p className="rep-inquiry-hint" role="note">
+              כתובת שמסרתם קודם ממתינה לאימות. אפשר לאמת אותה מהמייל, או להזין כאן כתובת אחרת.
+            </p>
+          )}
           {needsEmail && (
             <>
               <label className="rep-inquiry-label" htmlFor="rep-email">כתובת אימייל לעדכון כשהנציג יענה (לא חובה)</label>
@@ -136,7 +152,9 @@ export function RepInquiryCard({
               {fieldErrors.email
                 ? <p id="rep-email-error" className="rep-inquiry-field-error" role="alert">{fieldErrors.email}</p>
                 : <p id="rep-email-hint" className="rep-inquiry-hint">
-                    נשלח קישור חד־פעמי לאימות הכתובת. בלי כתובת, התשובה תופיע כאן בשיחה.
+                    {changing
+                      ? 'נשלח קישור חד־פעמי לאימות הכתובת החדשה; עד שתאומת לא יישלח מייל לאף כתובת.'
+                      : 'נשלח קישור חד־פעמי לאימות הכתובת. בלי כתובת, התשובה תופיע כאן בשיחה.'}
                   </p>}
             </>
           )}

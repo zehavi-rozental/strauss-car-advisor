@@ -9,7 +9,7 @@ import { useDialog } from '../ui/useDialog'
 import { driveLabel } from './labels'
 import { STALE_NOTE } from './MessageList'
 import {
-  MAX_COMPARE, NET_ONLY_NOTE, STATUS_LABEL, asResults, filterValues, leadText, mapSections, toggleCompare,
+  MAX_COMPARE, NET_ONLY_NOTE, STATUS_LABEL, asResults, eligibleText, filterValues, leadText, mapSections, toggleCompare,
 } from './optionMap'
 import type { MapFilter, MapSort } from './optionMap'
 
@@ -86,7 +86,12 @@ export function OptionMapPanel({ map, onClose, onCompare }: Props) {
           {map.stale && <p className="stale-note" role="status">{STALE_NOTE}</p>}
           <dl className="map-summary">
             {map.group && <div><dt>קבוצת זכאות</dt><dd>{map.group}</dd></div>}
-            <div><dt>חלופות זכאיות</dt><dd>{map.counts.eligible}</dd></div>
+            {map.counts.cars === undefined
+              ? <div><dt>חלופות זכאיות</dt><dd>{map.counts.eligible}</dd></div>
+              : <div><dt>רכבים זכאים</dt><dd>{map.counts.cars}</dd></div>}
+            {map.counts.others?.map((o) => (
+              <div key={o.option_id}><dt>{o.label}</dt><dd>{STATUS_LABEL[o.status]}</dd></div>
+            ))}
             <div><dt>חושבו</dt><dd>{map.counts.calculated}</dd></div>
             <div><dt>ממתינות למידע</dt><dd>{map.counts.waiting}</dd></div>
           </dl>
@@ -165,7 +170,7 @@ export function OptionMapSummary({ map, onOpen }: { map: OptionMap; onOpen: () =
              aria-label="מפת האפשרויות">
       {map.stale && <p className="stale-note" role="status">{STALE_NOTE}</p>}
       <h3 className="result-title">מפת האפשרויות שלכם</h3>
-      <p>{map.counts.eligible} חלופות זכאיות · {map.counts.calculated} חושבו · {map.counts.waiting} ממתינות</p>
+      <p>{eligibleText(map)} · {map.counts.calculated} חושבו · {map.counts.waiting} ממתינות</p>
       <p className="map-lead-line">{leadText(map)}</p>
       <button type="button" className="table-button" onClick={onOpen}>פתיחת מפת האפשרויות</button>
     </article>

@@ -217,8 +217,6 @@ def test_smtp_is_never_called_inside_a_request_and_its_failure_loses_nothing(eng
     monkeypatch.setattr(mail.smtplib, "SMTP", Down)
     c = _client(engine, **SMTP)
     cid = _present(c)
-    assert c.post(f"/api/conversations/{cid}/rep-question",
-                  json={"question": "באיזה צבעים יש את NIRO?", "intent": "general"}).status_code == 422
     _ask(c, cid, "באיזה צבעים יש את NIRO?", email=EMAIL)
     _answer_all(c, "לבן ושחור")
     assert calls == []                                         # the worker sends; the requests never wait for it

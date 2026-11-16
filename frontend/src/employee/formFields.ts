@@ -3,7 +3,7 @@
 import type { ProfileFields } from '../api/types'
 import { formatMoney } from '../format/money'
 
-export type FormKey = keyof ProfileFields
+export type FormKey = 'base_salary' | 'commissions' | 'bonus' | 'pension_percent' | 'study_fund_percent' | 'credit_points' | 'children_under_23'
 
 export interface FormFieldSpec {
   key: FormKey

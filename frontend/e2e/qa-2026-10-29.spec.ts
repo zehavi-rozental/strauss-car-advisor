@@ -142,8 +142,8 @@ test('1. today copay asked through "לברר מול נציג": the address first
   await employee.setViewportSize({ width: 1280, height: 900 })
 })
 
-test('2. the comparison on the provisional catalog amount: one record, its status, no per-car link', async () => {
-  await expect(employee.getByRole('button', { name: /בירור אישי/ })).toHaveCount(0)         // no per-car link
+test('2. the comparison on the provisional catalog amount: one record, its status, the per-car link', async () => {
+  await expect(employee.getByRole('button', { name: /בירור אישי/ })).not.toHaveCount(0)     // the per-car link (restored 9/11)
   await expect(employee.locator(RECORD).first()).toContainText('COROLLA CROSS')
   await expect(employee.locator(RECORD).first()).toContainText('ממתינים לתשובת הנציג')
   const today = employee.locator('.today-copay-card')

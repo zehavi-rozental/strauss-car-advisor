@@ -51,7 +51,9 @@ def turn_with(sessions, reply, *, retry=None, verdicts=(), text=CREDIT_Q, chain=
 def test_a_grounded_reply_is_sent_without_its_source_tags(sessions):
     turn, _ = turn_with(sessions, f"{ANSWER}\n{ASK}")
     assert turn.source == "llm" and turn.say == "llm"
-    assert turn.reply == "נקודות זיכוי מקטינות את מס ההכנסה, וכל נקודה שווה 242 ₪ בחודש.\n" + ASK
+    # the reply contract (16/11): the model's answer, without its tags, then code's own question (never the model's)
+    assert turn.reply.startswith("נקודות זיכוי מקטינות את מס ההכנסה, וכל נקודה שווה 242 ₪ בחודש.\n\n")
+    assert ASK not in turn.reply and turn.decision["ask"] in turn.reply and "[[" not in turn.reply
 
 
 def test_a_number_not_in_state_faq_or_the_message_is_rejected_then_the_sentence_is_dropped(sessions):
@@ -92,7 +94,8 @@ def test_out_of_budget_the_verifier_is_skipped_and_only_template_safe_sentences_
 
 def test_a_reply_that_does_not_move_forward_is_not_used(sessions):
     turn, _ = turn_with(sessions, f"{ANSWER}\nיש עוד משהו שתרצו לשאול?")
-    assert turn.source == "template" and turn.say == "guard:progress"
+    # the reply contract (16/11): the model never asks; code's question moves the conversation forward
+    assert "יש עוד משהו" not in turn.reply and turn.decision["ask"] in turn.reply
 
 
 @pytest.mark.parametrize("bad, kind", [
@@ -106,19 +109,26 @@ def test_a_reply_that_does_not_move_forward_is_not_used(sessions):
 ])
 def test_shape_violations_fall_back_to_the_template(sessions, bad, kind):
     turn, _ = turn_with(sessions, bad)
-    assert turn.source == "template" and kind in turn.say
+    # the offending text never reaches the employee: a violation in the answer falls back to the verified FAQ
+    # answer; a question / call to action from the model is never taken at all (the reply contract, 16/11)
+    for marker in ("שלך", "🙂", "!", "לא הצלחתי להבין", "בשמחה", "כתבו את הקבוצה"):
+        assert marker not in turn.reply
+    assert "242" in turn.reply and turn.reply.count("נקודות זיכוי מקטינות") == 1
 
 
 def test_a_shape_violation_is_fixed_by_the_retry(sessions):
-    turn, _ = turn_with(sessions, f"{ANSWER}\nמה הקבוצה שלך?", retry=f"{ANSWER}\n{ASK}")
-    assert turn.say == "llm:retry" and "שלך" not in turn.reply
+    # the model's question is never taken (the reply contract, 16/11), so the retry is tested on the answer itself
+    turn, _ = turn_with(sessions, f"בשמחה. {ANSWER}\n{ASK}", retry=f"{ANSWER}\n{ASK}")
+    assert turn.say == "llm:retry" and "בשמחה" not in turn.reply and "242" in turn.reply
 
 
 def test_parser_and_llm_numbers_disagree_the_reply_must_ask(sessions):
     # (both numbers are in the message: the model took the study fund's 2.5 for the pension)
     turn, _ = turn_with(sessions, "רשמתי: פנסיה 2.5%.\nכתבו את הקבוצה שלכם.", text="פנסיה 6%, קרן השתלמות 2.5%",
                         calls=[call("save_profile", pension_percent=2.5)])
-    assert turn.source == "template" and "conflict" in turn.say
+    # the conflict is code's question in the turn decision (the reply contract, 16/11): the reply asks it
+    assert turn.source == "template" and "שני ערכים שונים לפנסיה" in turn.decision["ask"]
+    assert turn.decision["ask"] in turn.reply and "רשמתי: פנסיה 2.5%" not in turn.reply
 
 
 def test_an_outage_on_round_one_uses_the_parser_and_the_template(sessions):
@@ -153,10 +163,12 @@ def test_a_question_without_a_question_mark_is_answered_with_the_rep_offer(sessi
     svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain([fake]))
     turn, token = svc.start()
     turn = svc.send(turn.conversation_id, token, SUNROOF)
-    assert turn.source == "llm" and turn.reply == "על גג נפתח אין לי מידע מדויק. רוצים שאשאל את נציג התחבורה?"
+    # a car's property the catalog does not hold: nothing verified answers it, so code offers the representative
+    # (the reply contract, 16/11: the offer and its buttons are the decision's, never the model's words)
+    assert "נציג התחבורה" in turn.reply and turn.decision["ask"] in turn.reply
     assert [c["id"] for f in turn.expects["fields"] if f["field"] == "ask_rep" for c in f["choices"]] == ["ask_rep", "skip"]
     turn = svc.send(turn.conversation_id, token, COMPLAINT)
-    assert turn.source == "llm" and turn.reply.startswith("צודקים, סליחה.") and "נציג התחבורה" in turn.reply
+    assert "נציג התחבורה" in turn.reply and "complaint" in turn.decision["intent"]
 
 
 def test_the_two_transcripts_in_template_mode(sessions):

@@ -67,7 +67,6 @@ def test_a_percent_and_a_bare_none_are_code_too(engine):
     "למה אתה צריך את התפקיד שלי?",
     "נו, אז כמה יישאר לי בנטו?",
     "יש לכם רכב אדום כהה?",
-    "תשאל אותי שאלה אחת בכל פעם",
     "איזה רכב הכי משתלם לי?",
     "אתה באמת משתמש בג'מיני?",
     "18000 אבל אני לא בטוחה",
@@ -79,6 +78,17 @@ def test_language_goes_to_the_model(engine, text):
     before = len(fake.calls)
     send({"text": text})
     assert len(fake.calls) > before, text
+
+
+def test_a_pace_request_code_reads_in_full_needs_no_model_call(engine):
+    """The reply contract (16/11): "תשאל אותי שאלה אחת בכל פעם" is read in full by code (the pace cues) and owes no
+    explanation, so the turn is decided and written by code without a model call."""
+    fake, client = model_client(engine)
+    cid, send = start(client)
+    send({"text": "קבוצה א"})
+    before = len(fake.calls)
+    reply = send({"text": "תשאל אותי שאלה אחת בכל פעם"})["reply"]
+    assert len(fake.calls) == before and "שאלה אחת בכל פעם" in reply
 
 
 def test_without_the_model_the_engine_question_says_this_reply_is_a_template(engine):
@@ -165,13 +175,13 @@ def test_the_card_s_copay_inquiry_is_accepted_and_only_then_the_copay_waits(engi
 
 
 def test_the_rep_choice_says_the_copay_is_with_the_rep_not_on_the_payslip(engine):
-    from decimal import Decimal
-    from app.modules.conversation.templates import copay_with_rep_text
+    from app.modules.conversation.templates import COPAY_WITH_REP
     client = make_client(engine)
     _, send, _ = at_copay(client)
     reply = send({"choice": "rep", "field": "copay"})["reply"]
-    # a catalog car: the calculation goes on with the catalog amount, provisionally, and says so (1/11)
-    assert reply.startswith(copay_with_rep_text(Decimal(250))) and "בתלוש" not in reply
+    # 16/11: no provisional catalog amount — nothing is calculated until the rep's answer (or an estimate)
+    first_line = reply.splitlines()[0]
+    assert reply.startswith(COPAY_WITH_REP) and "בתלוש" not in reply and "₪" not in first_line
 
 
 def test_controlled_today_copay_200_then_300_changes_only_today(engine, tmp_path):

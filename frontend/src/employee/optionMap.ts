@@ -59,6 +59,15 @@ export function asResults(map: OptionMap, ids: string[]): OptionResult[] {
     .map((e) => ({ option_id: e.option_id, label: e.label, run_id: null, result: e.result }))
 }
 
+/** What the map holds, as the chat says it (15/11): the eligible cars, and an option that is not a car by its own
+ *  name ("12 רכבים + ויתור על רכב"), never "13 חלופות". A map without the split (older server) keeps its own count. */
+export function eligibleText(map: OptionMap): string {
+  const { cars, others } = map.counts
+  if (cars === undefined) return `${map.counts.eligible} חלופות זכאיות`
+  const head = cars === 1 ? 'רכב זכאי אחד' : `${cars} רכבים זכאים`
+  return others?.length ? `${head} + ${others.map((o) => o.label).join(', ')}` : head
+}
+
 /** "מוביל בנטו המשוער" / a tie / nothing to rank: from the server's leaders only. */
 export function leadText(map: OptionMap): string {
   if (map.stale) return 'המפה חושבה לפני השינוי האחרון ולכן אין בה דירוג עדכני.'
