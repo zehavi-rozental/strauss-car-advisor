@@ -115,12 +115,13 @@ export const api = {
   searchCars: (q: string) => request<CarSearchItem[]>(`/api/catalog/search?q=${encodeURIComponent(q)}`),
   /** The company catalog (GET /api/catalog), for display details on the selection cards only. */
   catalog: () => request<CatalogItem[]>('/api/catalog'),
-  /** Upload a payslip for extraction only. The file is never stored; the result is reviewed and
-   *  confirmed before anything is saved. */
-  extractPayslip: (file: File) => {
+  /** Upload a payslip for extraction only, for this conversation (its session cookie is checked). The file is
+   *  never stored; the result is reviewed and confirmed before anything is saved. */
+  extractPayslip: (conversationId: string, file: File) => {
     const form = new FormData()
     form.append('file', file)
-    return request<ExtractionResult>('/api/payslip/extract', { method: 'POST', body: form })
+    return request<ExtractionResult>(`/api/conversations/${encodeURIComponent(conversationId)}/payslip/extract`,
+                                     { method: 'POST', body: form })
   },
 }
 

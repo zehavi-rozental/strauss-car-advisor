@@ -62,7 +62,7 @@ const field = (name: string, value: string | null) => ({ field: name, label: nam
   confident: true, in_range: true, note: '' })
 
 async function uploadWithAnswer(page: Page, answer: object) {
-  await page.route('**/api/payslip/extract', (route) => route.fulfill({ status: 200, json: answer }))
+  await page.route('**/api/conversations/*/payslip/extract', (route) => route.fulfill({ status: 200, json: answer }))
   await openEmployee(page)
   await send(page, 'מנהלת מוצר, שכר בסיס 18500')
   await page.getByRole('button', { name: 'להעלות תלוש' }).click()

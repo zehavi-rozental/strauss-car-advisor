@@ -109,9 +109,13 @@ s = httpx.get(f"{BASE}/api/catalog/search", params={"q": "קורולה"}, timeou
 check(s.status_code == 200 and len(s.json()) >= 1, "catalog search (קורולה)", f"{len(s.json())} matches")
 
 print("== payslip")
+pay = Chat()                                   # the upload belongs to a conversation and its session (16/11)
+upload = f"/api/conversations/{pay.cid}/payslip/extract"
+anon = httpx.post(f"{BASE}{upload}", files={"file": ("p.pdf", b"%PDF-1.4", "application/pdf")}, timeout=30)
+check(anon.status_code == 404, "a payslip upload without the conversation's session is refused (404, no model call)")
 if PAYSLIP and os.path.exists(PAYSLIP) and h.get("payslip"):
     with open(PAYSLIP, "rb") as f:
-        r, ms = timed("ai", lambda: httpx.post(f"{BASE}/api/payslip/extract", files={"file": ("payslip.pdf", f, "application/pdf")}, timeout=120))
+        r, ms = timed("ai", lambda: pay.c.post(upload, files={"file": ("payslip.pdf", f, "application/pdf")}, timeout=120))
     j = r.json() if r.status_code == 200 else {}
     found = {x["field"]: x["value"] for x in j.get("fields", []) if x.get("status") == "found"}
     check(r.status_code == 200 and j.get("status") == "found" and len(found) == 7 and "." in str(found.get("credit_points", "")),
@@ -119,7 +123,7 @@ if PAYSLIP and os.path.exists(PAYSLIP) and h.get("payslip"):
           f"status={j.get('status')} found={len(found)} {ms:.0f} ms")
 else:
     check(False, "payslip extraction", "skipped: no file or payslip disabled")
-big = httpx.post(f"{BASE}/api/payslip/extract", files={"file": ("big.pdf", b"0" * (9 * 1024 * 1024), "application/pdf")}, timeout=120)
+big = pay.c.post(upload, files={"file": ("big.pdf", b"0" * (9 * 1024 * 1024), "application/pdf")}, timeout=120)
 check(big.status_code == 413, "a payslip over 8 MB is refused (413, no model call)")
 
 print("== errors and missing information")

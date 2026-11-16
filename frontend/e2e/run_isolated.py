@@ -49,7 +49,7 @@ def main(argv: list[str]) -> int:
         "PORT": str(port), "FRONTEND_DIST_DIR": str(FRONTEND / "dist"), "CONFIG_MODE": "strict",
         "LLM_MODE": "llm_first", "SESSION_COOKIE_SECURE": "false", "REP_ACCESS_TOKEN": rep_token,
         "PAYSLIP_ENABLED": "true", "PAYSLIP_FAKE_VISION_DIR": str(FRONTEND / "e2e" / "fixtures" / "payslips" / "vision"),
-        "PAYSLIP_RATE_LIMIT_PER_MINUTE": "200", "CREATE_RATE_LIMIT_PER_MINUTE": "500",
+        "PAYSLIP_RATE_LIMIT_PER_MINUTE": "200", "PAYSLIP_CONVERSATION_RATE_LIMIT_PER_MINUTE": "200", "CREATE_RATE_LIMIT_PER_MINUTE": "500",
         "EMAIL_BACKEND": "fake", "EMAIL_FAKE_NOTICE": "false", "EMAIL_FAKE_DIR": str(work / "mail"),
         "EMAIL_PUBLIC_APP_URL": f"http://localhost:{port}", "EMAIL_ENCRYPTION_KEY": Fernet.generate_key().decode(),
     })

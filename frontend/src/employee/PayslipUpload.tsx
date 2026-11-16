@@ -7,8 +7,8 @@
 // The payslip file is never stored by the server; saving happens through the normal {fields} message.
 import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { ApiError, api } from '../api/client'
-import type { PayslipInfo, ProfileFields } from '../api/types'
+import { ApiError } from '../api/client'
+import type { ExtractionResult, PayslipInfo, ProfileFields } from '../api/types'
 import { formatMoney } from '../format/money'
 import { Icon } from '../ui/Icon'
 import { payslipOutcome } from './payslipOutcome'
@@ -21,6 +21,8 @@ interface Props {
   onSubmit: (fields: ProfileFields) => Promise<SendResult>
   onCancel: () => void
   loadProfile: () => Promise<Record<string, unknown>>
+  // the extraction for this conversation (useConversation.extractPayslip: its session is checked by the server)
+  extract: (file: File) => Promise<ExtractionResult>
   disabled: boolean
 }
 
@@ -39,7 +41,7 @@ const infoValue = (i: PayslipInfo) => (i.kind === 'amount'
   ? (i.suspect ? `${Number(i.value)} ₪` : formatMoney(Number(i.value)))
   : i.kind === 'percent' ? `${Number(i.value)}%` : String(Number(i.value)))
 
-export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled }: Props) {
+export function PayslipUpload({ onSubmit, onCancel, loadProfile, extract, disabled }: Props) {
   const [step, setStep] = useState<Step>('pick')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -61,7 +63,7 @@ export function PayslipUpload({ onSubmit, onCancel, loadProfile, disabled }: Pro
     setBusy(true)
     setError(null)
     try {
-      const [result, profile] = await Promise.all([api.extractPayslip(file), currentProfile()])
+      const [result, profile] = await Promise.all([extract(file), currentProfile()])
       const next = payslipOutcome(result)
       setOutcome(next)
       setErrors({})

@@ -409,7 +409,7 @@ export interface PayslipInfo {
 
 export type PayslipStatus = 'found' | 'partial' | 'nothing_found' | 'not_payslip' | 'unreadable' | 'failed'
 
-/** POST /payslip/extract. The payslip itself is never stored; saving happens through {fields}
+/** POST /conversations/{id}/payslip/extract (the conversation's session cookie). The payslip itself is never stored; saving happens through {fields}
  *  only after the employee reviews, edits, and confirms. ok=false (status "failed") → retry or manual entry. */
 export interface ExtractionResult {
   ok: boolean

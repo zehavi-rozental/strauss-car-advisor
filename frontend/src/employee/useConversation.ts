@@ -436,6 +436,13 @@ export function useConversation(ready = true) {
     return id ? (await api.getConversation(id)).profile : {}
   }, [])
 
+  /** The payslip upload belongs to this conversation (16/11): the server checks its session before any model call. */
+  const extractPayslip = useCallback(async (file: File) => {
+    const id = idRef.current
+    if (!id) throw new Error('no conversation')
+    return api.extractPayslip(id, file)
+  }, [])
+
   /** "שיחה חדשה": forget the stored id and open a new conversation (the server replaces the cookie). */
   const newConversation = useCallback(async () => {
     try {
@@ -521,7 +528,7 @@ export function useConversation(ready = true) {
     messages, stage, expects, questionKey, results, resultsStale, mapReady, mapMissing, optionMap: optionMapState, mapAnchor, resultsAnchor,
     pendingQuestions,
     repQuestions, returnTokenPending, returnTokenError, returnLinkInvalid, returnStored, resumeEmailLink,
-    waitingForRep, sending, loading, error, send, sendFields, retry, reload, loadProfile, newConversation,
+    waitingForRep, sending, loading, error, send, sendFields, retry, reload, loadProfile, extractPayslip, newConversation,
     dismissError: () => setError(null),
   }
 }

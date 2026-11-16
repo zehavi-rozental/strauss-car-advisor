@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Request, Response, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text as sql
@@ -292,16 +293,26 @@ async def _read_capped(upload: UploadFile, max_bytes: int) -> bytes:
     return b"".join(chunks)
 
 
-@router.post("/payslip/extract")
-async def payslip_extract(request: Request, file: UploadFile) -> dict[str, Any]:
+@router.post("/conversations/{conversation_id}/payslip/extract")
+async def payslip_extract(conversation_id: str, request: Request, file: UploadFile) -> dict[str, Any]:
     """העלאת תלוש לחילוץ בלבד: מחזיר את השדות הנתמכים שזוהו, לסקירה ואישור בצד הלקוח.
-    הקובץ לא נשמר בשרת. השמירה בפרופיל נעשית אחר כך דרך POST .../messages {fields}, רק אחרי אישור העובד."""
+    הקובץ לא נשמר בשרת. השמירה בפרופיל נעשית אחר כך דרך POST .../messages {fields}, רק אחרי אישור העובד.
+
+    Only for the conversation the session cookie opens (16/11; it used to be /api/payslip/extract with no session, so
+    anyone could spend Gemini Vision calls). Before the file is read and before any model call: the session (404 for
+    none, an invalid one or someone else's conversation, as everywhere), the feature switch, then a limit per
+    conversation and the limit per address."""
+    conversation_id = conversation_id.strip()
     ctx = context(request)
+    try:
+        await run_in_threadpool(ctx.service.check_session, conversation_id, request.cookies.get(COOKIE, ""))
+    except ConversationNotFound:
+        raise HTTPException(404, NOT_FOUND) from None
     if not ctx.payslip.enabled:
         raise HTTPException(503, "העלאת תלוש אינה זמינה כרגע. אפשר למלא את הנתונים ידנית.")
     client = client_address(request, ctx.settings.edge_proxy_secret)
-    if not ctx.payslip_limiter.allow(client):
-        raise HTTPException(429, "יותר מדי העלאות. נסו שוב בעוד דקה.")
+    if not ctx.payslip_conversation_limiter.allow(conversation_id) or not ctx.payslip_limiter.allow(client):
+        raise HTTPException(429, "יותר מדי העלאות. נסו שוב בעוד דקה.", headers={"Retry-After": "60"})
     data = await _read_capped(file, ctx.settings.payslip_max_bytes)
     try:
         result = ctx.payslip.extract(data)

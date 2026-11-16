@@ -149,6 +149,7 @@ export function EmployeePage() {
   )
   const payslipUpload = (
     <PayslipUpload disabled={busy} onCancel={() => setOpened(null)} loadProfile={c.loadProfile}
+                   extract={c.extractPayslip}
                    onSubmit={async (fields) => {
                      const sent = await c.sendFields(fields, payslipFormText(fields), 'payslip')
                      if (sent.ok) setOpened(null)

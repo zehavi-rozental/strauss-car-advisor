@@ -89,6 +89,14 @@ def make_client(engine, llm=None, **overrides) -> TestClient:
 CTA_STARTS = ("כתבו", "בחרו", "אפשר לכתוב")
 
 
+def payslip_upload(client, cid=None, **kwargs):
+    """POST a payslip to /api/conversations/{cid}/payslip/extract (16/11: the upload belongs to a conversation and its
+    session cookie). Without a cid a new conversation is opened first, as the employee page does on load."""
+    if cid is None:
+        cid = client.post("/api/conversations").json()["conversation_id"]
+    return client.post(f"/api/conversations/{cid}/payslip/extract", **kwargs)
+
+
 def without_cta(reply: str) -> str:
     """The reply without its last line, the call to action (every non-result reply ends with one)."""
     head, _, last = reply.rpartition("\n\n")

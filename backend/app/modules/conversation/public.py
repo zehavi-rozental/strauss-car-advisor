@@ -681,6 +681,12 @@ class ConversationService:
                     option_id=q.option_id, value=q.answer_value, effective_date=q.effective_date,
                     note=q.answer_note))
 
+    def check_session(self, conversation_id: str, token: str) -> None:
+        """The session cookie opens this conversation (its own token or one issued by an email link), or
+        ConversationNotFound — the same answer for a missing, foreign or invalid one. Reads only; for work done outside
+        the conversation (a payslip extraction) that must belong to one."""
+        self._authorized(conversation_id, token)
+
     def _authorized(self, conversation_id: str, token: str) -> uuid.UUID:
         with self.sessions() as session:
             return self._load(ConversationRepository(session), conversation_id, token).id

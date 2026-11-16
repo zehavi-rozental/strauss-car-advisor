@@ -162,6 +162,7 @@ jobs:
           PAYSLIP_ENABLED: "true"
           PAYSLIP_FAKE_VISION_DIR: ${{ github.workspace }}/frontend/e2e/fixtures/payslips/vision
           PAYSLIP_RATE_LIMIT_PER_MINUTE: "200"
+          PAYSLIP_CONVERSATION_RATE_LIMIT_PER_MINUTE: "200"
           CREATE_RATE_LIMIT_PER_MINUTE: "500"   # the suite opens ~40 conversations a minute from one address
           # representative inquiries with email (29/10): the fake backend, its messages in a temporary folder
           EMAIL_BACKEND: fake
