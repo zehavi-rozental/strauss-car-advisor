@@ -29,3 +29,6 @@ edge/.wrangler/
 
 # local server, build and test logs: never committed
 *.log
+
+# personal documents (the final-project submission files): never committed
+docs/*.docx
