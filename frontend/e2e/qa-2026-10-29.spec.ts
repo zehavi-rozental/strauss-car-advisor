@@ -95,7 +95,7 @@ async function repScreen(browser: Browser, base: string) {
   return page
 }
 
-test('1. today copay asked through "לברר מול נציג": the address first, sent, and the comparison goes on', async ({ browser }) => {
+test('1. today copay asked through "לברר מול נציג": the address first, sent, no net until an estimate', async ({ browser }) => {
   mailBefore = new Set((await readdir(MAIL)).filter((f) => f.endsWith('.json')))
   employee = await open(browser, BASE, 1280, 'file')     // the one employee story the tests share
   await send(employee, PROFILE)
@@ -115,6 +115,11 @@ test('1. today copay asked through "לברר מול נציג": the address first
   await card.getByRole('button', { name: 'שליחת הפנייה לנציג' }).click()
   await expect(employee.locator(RECORD)).toHaveCount(1)
   await send(employee, 'NIRO ו-DOLPHIN')
+  // the business rule of 16/11 (c204812): today's copay is with the representative, so no net is calculated on a value
+  // nobody gave — the reply says what it waits for; the comparison comes with the answer or the employee's own estimate
+  await expect(employee.locator('.summary-card')).toHaveCount(0)
+  await expect(employee.locator(BOT).last()).toContainText('נציג התחבורה')
+  await send(employee, 'בערך 300')                                    // an explicit estimate: calculated, marked so
   await expect(employee.locator('.summary-card')).toBeVisible({ timeout: 30_000 })
   await expect(row(employee, 'NIRO')).toBeVisible()
   await expect(row(employee, 'DOLPHIN')).toBeVisible()
@@ -142,7 +147,7 @@ test('1. today copay asked through "לברר מול נציג": the address first
   await employee.setViewportSize({ width: 1280, height: 900 })
 })
 
-test('2. the comparison on the provisional catalog amount: one record, its status, the per-car link', async () => {
+test("2. the comparison on the employee's estimate: one record, its status, the per-car link", async () => {
   await expect(employee.getByRole('button', { name: /בירור אישי/ })).not.toHaveCount(0)     // the per-car link (restored 9/11)
   await expect(employee.locator(RECORD).first()).toContainText('COROLLA CROSS')
   await expect(employee.locator(RECORD).first()).toContainText('ממתינים לתשובת הנציג')
@@ -266,8 +271,10 @@ test('8. the answer notice: one per answer, its link opens the conversation on a
   await other.goto(`/employee#return_token=${token(notices[0].body)}`)
   await other.getByRole('button', { name: 'פתיחת השיחה המאובטחת' }).click()
   await expect(other.locator(BOT, { hasText: 'התוספת מטופלת מול היבואן' })).toHaveCount(1, { timeout: 30_000 })
-  // the employee's own question is named (1/11); the answer itself is read only in the conversation
-  expect(notices.every((m) => !m.body.includes('התוספת מטופלת')), 'no answer content in the email').toBe(true)
+  // the employee's own question is named (1/11) and, since 10/11, the representative's answer too (backend:
+  // test_rep_answer_email_2026_11_01); the employee's pay never is (the rep never sees it)
+  expect(notices.filter((m) => m.body.includes('התוספת מטופלת')), 'the general answer in its notice').toHaveLength(1)
+  expect(notices.every((m) => !m.body.includes('18500') && !m.body.includes('18,500')), 'no pay in any email').toBe(true)
 })
 
 test('9. mail off: the inquiry and the answer work, and nothing mentions email', async ({ browser }) => {
@@ -282,6 +289,8 @@ test('9. mail off: the inquiry and the answer work, and nothing mentions email',
   await expect(page.locator(RECORD)).toHaveCount(1)
   await expect(page.locator(RECORD)).not.toContainText('אימייל')
   await send(page, 'NIRO')
+  await expect(page.locator('.result-card')).toHaveCount(0)              // today's copay with the rep: no net yet
+  await send(page, 'בערך 300')                                          // the employee's estimate (16/11 rule)
   await expect(page.locator('.result-card')).toBeVisible({ timeout: 30_000 })
   await send(page, 'אני רוצה שנציג התחבורה יאשר את ההשתתפות ב-NIRO')
   await expect(page.locator(RECORD)).toHaveCount(2)

@@ -8,7 +8,14 @@ import { expect, test, type Page } from '@playwright/test'
 const BOT = '.bubble-bot .bubble-text'
 const USER = '.bubble-user'
 
-test.skip(!/127\.0\.0\.1:889[23]/.test(process.env.E2E_BASE_URL || ''), 'isolated live server only')
+// Two conditions, said separately (19/11; before, the server's address stood for both, so every other run skipped it
+// silently): (1) an isolated server only — this conversation writes to the server's database, never to a shared one
+// such as 8870; run_isolated.py sets E2E_ISOLATED, the 16/11 live server ran on 127.0.0.1:8892/3. (2) a live model —
+// in template mode "בסיס 20000, אין עמלות, אין בונוס" is not read (a documented limit), so the steps after it cannot
+// hold. The same steps are checked without a model in backend tests (test_pending_field_2026_11_16,
+// test_reply_contract_2026_11_16).
+const ISOLATED = process.env.E2E_ISOLATED === '1' || /127\.0\.0\.1:889[23]/.test(process.env.E2E_BASE_URL || '')
+test.skip(!ISOLATED, 'isolated server only: this conversation writes to the server\'s database (never a shared server)')
 
 async function send(page: Page, text: string): Promise<string> {
   await expect(page.locator('.typing, .bubble-typing')).toHaveCount(0, { timeout: 60_000 })
@@ -35,7 +42,9 @@ const shekels = (v: string | number) => Math.round(Number(v)).toLocaleString('en
 const cards = (page: Page) => page.locator('.result-card, article[aria-label="סיכום ההשוואה"]')
 const questions = (reply: string) => reply.split('\n').filter((l) => l.includes('?'))
 
-test('live: pending fields, an explanation, the comparison cards and a copay correction', async ({ page }) => {
+test('live: pending fields, an explanation, the comparison cards and a copay correction', async ({ page, request }) => {
+  const health = await (await request.get('/api/health')).json()
+  test.skip(health.llm === 'templates', 'needs a live model: in template mode a free salary sentence is not read')
   test.setTimeout(420_000)
   const log: string[] = []
   const say = async (text: string) => {

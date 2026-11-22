@@ -85,7 +85,9 @@ def main(argv: list[str]) -> int:
             print((work / "server.log").read_text(encoding="utf-8")[-3000:])
             return 1
         print(f"isolated server {base} (fresh database, {'model on' if llm else 'templates only'})", flush=True)
-        run_env = {**os.environ, "E2E_BASE_URL": base, "REP_TOKEN": rep_token, "EMAIL_FAKE_DIR": str(work / "mail")}
+        # E2E_ISOLATED: specs that write a whole conversation may run here, never against a shared server (19/11)
+        run_env = {**os.environ, "E2E_BASE_URL": base, "REP_TOKEN": rep_token, "EMAIL_FAKE_DIR": str(work / "mail"),
+                   "E2E_ISOLATED": "1"}
         return subprocess.run([npx, "playwright", "test", "--reporter=list", *args], cwd=FRONTEND, env=run_env).returncode
     finally:
         server.terminate()
