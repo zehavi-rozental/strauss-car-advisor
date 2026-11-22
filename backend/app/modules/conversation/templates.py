@@ -14,6 +14,7 @@ from typing import Any, Optional, Sequence
 from app.modules.rules.public import FAMILY_GROUP, RulesSnapshot
 from app.shared.money import to_shekel
 
+from .actions import payslip_allowed
 from .stage import (ESTIMABLE, MAX_OPTIONS, PROFILE_ARGS, Q2_FIELDS, REP_ASKABLE, profile_args, ConversationState, RepReason,
                     Stage, current_group, current_unknown, missing_current_car, next_stage, open_profile, unknown_missing,
                     with_rep)
@@ -1346,11 +1347,11 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
         return "בחרו אחת מהאפשרויות, או כתבו את הסכום.", None   # no catalog amount: a known amount or the rep (1/11)
     if _is_q2(fields):
         example = q2_example(fields) if len(fields) > 1 else _faq_example(snapshot, first)
-        ext = snapshot.extensions
         # "all at once" (state.link_now set by the turn) wants the form, to fill everything together.
-        # Otherwise, when the built-in uploader is enabled, offer it (once) instead of the manual form link,
-        # so the employee can upload rather than type. Only one Q2 link ever.
-        if state.link_now != "profile_form" and (ext.payslip_upload_enabled or ext.payslip_upload_url):
+        # Otherwise, when a payslip upload is allowed now, offer it (once) instead of the manual form link,
+        # so the employee can upload rather than type. Only one Q2 link ever. 22/11: "allowed" is the one rule of
+        # actions.payslip_allowed, so once a payslip was confirmed it is not offered again unless asked for.
+        if state.link_now != "profile_form" and payslip_allowed(state, snapshot):
             link = _once(state, "payslip_upload")
             return f"אפשר לכתוב כאן, למשל: \"{example}\"" + (", או להעלות תלוש." if link else "."), link
         link = _once(state, "profile_form")
