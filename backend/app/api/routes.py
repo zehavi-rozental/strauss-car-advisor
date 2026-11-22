@@ -79,6 +79,15 @@ def _service(request: Request) -> ConversationService:
     return context(request).service
 
 
+@router.get("/live")
+def live() -> dict[str, str]:
+    """Liveness (20/11): the process answers, nothing more. It takes no Request, so it cannot reach the app context,
+    a database session, a service or the model: no path here opens a database connection. The container's health
+    check uses it, so a sleeping or unavailable Neon compute is neither woken by it nor makes a working app
+    "unhealthy" (the heal cron would restart it). /api/health stays the readiness check that asks the database."""
+    return {"status": "ok"}
+
+
 @router.get("/health")
 def health(request: Request) -> dict[str, Any]:
     ctx = context(request)
