@@ -331,6 +331,24 @@
 .answer-tail .link-button .ico { color: var(--brand); }
 .answer-tail .link-button:hover:not(:disabled) { border-color: var(--brand); box-shadow: var(--shadow-2); transform: translateY(-1px); }
 .link-payslip_upload .ico { color: var(--electric); }
+/* the persistent actions (19/11): the server's expects.actions, under the messages and above the composer */
+.persistent-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+/* the two ways to give the salary details (19/11): one quiet card, shown once; the system's own tokens */
+.payslip-choice {
+  inline-size: 100%;
+  max-inline-size: 560px;
+  padding: 14px 16px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--card);
+  box-shadow: var(--shadow-1);
+}
+.payslip-choice-title { margin: 0 0 4px; font-weight: 600; color: var(--ink); }
+.payslip-choice-text { margin: 0 0 12px; color: var(--ink-2); line-height: 1.55; }
+.payslip-choice-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.payslip-choice-actions .chip { display: inline-flex; align-items: center; gap: 6px; min-block-size: 44px; }
+.payslip-choice-actions .link-payslip_upload { --bg: var(--brand); --fg: #fff; --bd: var(--brand); }
+.payslip-choice-actions .link-payslip_upload .ico { color: #fff; }
 
 .selected-bar {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;

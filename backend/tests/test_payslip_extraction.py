@@ -357,7 +357,8 @@ def test_fixture_vision_answers_by_file_hash_and_simulates_failures(tmp_path, sn
     assert extract(ok, MIME_PDF, vision, snapshot, 10).status == "partial"
     assert extract(bad, MIME_PDF, vision, snapshot, 10).reason == "quota"
     unknown = PDF.replace(b"1.4", b"1.6")
-    assert extract(unknown, MIME_PDF, vision, snapshot, 10).reason == "rejected"
+    # 19/11: a file the recordings do not know is the test server's limit, not a file the service refused
+    assert extract(unknown, MIME_PDF, vision, snapshot, 10).reason == "test_mode"
 
 
 def test_fixture_vision_is_off_unless_asked_for():

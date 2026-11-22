@@ -11,9 +11,10 @@ from typing import Any, Callable, Optional
 from app.modules.rules.public import RulesSnapshot
 from app.modules.vehicles.public import VehicleInfo, VehicleKey
 
+from .actions import expects_actions
 from .free_text import looks_like_title
 from .llm.port import ToolCall
-from .stage import MAX_OPTIONS, ConversationState, Stage, current_group, next_stage, question_fields
+from .stage import MAX_OPTIONS, ConversationState, Stage, current_group, next_stage, question_fields, with_rep
 from .templates import (DRIVE_HE, LINK_LABELS, ask_fields, call_to_action, catalog_copay_hint, copay_choices_offered, money,
                         placeholder_text)
 from .tools import available_options
@@ -174,6 +175,16 @@ def COPAY_CHOICES(code: Optional[str]) -> list[dict[str, str]]:
 COPAY_CHOICES_NO_CATALOG = [{"id": "other", "label": "להזין סכום"}, {"id": "rep", "label": "לברר מול נציג"}]
 
 
+def MAINTENANCE_CHOICES(state: ConversationState) -> list[dict[str, str]]:
+    """No company car (19/11), the same shape as today's copay: the payslip's amount to confirm, another amount or the
+    representative; without a payslip amount nothing is suggested: an amount, "אין אחזקת רכב" or the representative.
+    The representative is not offered again once asked (the answer is on its way)."""
+    rep = [] if with_rep(state, "maintenance") else [{"id": "rep", "label": "לברר מול נציג"}]
+    if state.payslip_maintenance is not None:
+        return [{"id": "payslip", "label": "זה הסכום שלי"}, {"id": "other", "label": "הסכום שונה"}, *rep]
+    return [{"id": "other", "label": "להזין סכום"}, {"id": "none", "label": "אין אחזקת רכב"}, *rep]
+
+
 CLOSED = {"confirmation", "occupation_confirmation", "clarification", "car_choice", "drive", "rep_question",
           "ambiguity", "ask_rep", "value_choice"}
 
@@ -183,7 +194,8 @@ def build_expects(state: ConversationState, snapshot: RulesSnapshot) -> dict[str
     fields = expects.get("fields") or []
     only_group = [f["field"] for f in fields] == ["group"]
     for f in fields:
-        f["closed"] = f["field"] in CLOSED or only_group or (f["field"] == "copay" and f["type"] == "choice")
+        f["closed"] = (f["field"] in CLOSED or only_group
+                       or (f["field"] in ("copay", "maintenance") and f["type"] == "choice"))
     if state.unanswered_question is not None and state.pending_rep_question is None:
         # question: what the inquiry card opens with (the employee's own words; "" when they are still to be said)
         fields.append({"field": "ask_rep", "type": "choice", "choices": ASK_REP, "quick_replies": [],
@@ -208,6 +220,9 @@ def build_expects(state: ConversationState, snapshot: RulesSnapshot) -> dict[str
         # a pilot's external page; empty here means the client uses the built-in in-chat uploader
         expects["link"]["url"] = snapshot.extensions.payslip_upload_url
     expects["placeholder"] = placeholder_text(state, snapshot)
+    # the actions the screen offers now (19/11): the only buttons the client draws outside a question, and the only
+    # ones a reply may name (actions.py)
+    expects["actions"] = expects_actions(state, snapshot)
     return expects
 
 
@@ -279,6 +294,14 @@ def _field_expects(question: str, state: ConversationState, snapshot: RulesSnaps
             out = _expects("copay", "choice", COPAY_CHOICES_NO_CATALOG)
             out["context"] = out["fields"][0]["context"] = {"car": state.current.label}
             return out
+        if question == "maintenance" and state.current.source == "none":
+            # no car today (19/11): closed choices, asked first and again at the end (the unknown status)
+            out = _expects("maintenance", "choice", MAINTENANCE_CHOICES(state))
+            hint = state.payslip_maintenance
+            context = {"payslip_amount": str(hint) if hint is not None else None,
+                       "with_rep": with_rep(state, "maintenance")}
+            out["context"] = out["fields"][0]["context"] = context
+            return out
         return _expects(question, "number", quick=_quick(*quick))
     return _expects(None, "none")
 
@@ -317,7 +340,8 @@ def _validate(expects: dict[str, Any], ids: list[str], snapshot: RulesSnapshot, 
     return ", ".join(offered[i] for i in dict.fromkeys(ids))
 
 
-def choice_calls(field: str, ids: list[str], snapshot: RulesSnapshot) -> list[ToolCall]:
+def choice_calls(field: str, ids: list[str], snapshot: RulesSnapshot,
+                 payslip_maintenance: Optional[Decimal] = None) -> list[ToolCall]:
     """הבחירה (שכבר נבדקה) כקריאות לכלים — אותם כלים ואותן בדיקות כמו כל מקור אחר."""
     ids = list(dict.fromkeys(i.strip() for i in ids))
     first = ids[0]
@@ -347,8 +371,16 @@ def choice_calls(field: str, ids: list[str], snapshot: RulesSnapshot) -> list[To
             # an inquiry about today's copay was sent: the amount is unknown until it is answered — no default,
             # and nothing that depends on it is calculated (31/10)
             return call("save_profile", current_copay_unknown=True)
-        if field == "copay" and first == "other":
+        if field in ("copay", "maintenance") and first == "other":
             return []                                    # the client opens an amount field; the amount is the answer
+        if field == "maintenance" and first == "rep":
+            # the inquiry about the allowance was sent (19/11): unknown until it is answered — never a default
+            return call("save_profile", current_maintenance_unknown=True)
+        if field == "maintenance" and first == "payslip":
+            # "זה הסכום שלי": the payslip's amount, confirmed by the employee (it is never saved by itself)
+            if payslip_maintenance is None:
+                return []
+            return call("save_profile", current_maintenance=str(payslip_maintenance))
         if field == "copay" and first.startswith("catalog:"):
             car = next((c for c in snapshot.catalog if c.catalog_code == first.split(":", 1)[1]), None)
             if car is None or car.default_copay is None:

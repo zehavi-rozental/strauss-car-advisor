@@ -29,6 +29,22 @@ const TITLES: Record<PayslipStatus, string> = {
 
 const filled = (v: string | null | undefined) => v !== null && v !== undefined && v !== ''
 
+// why a reading failed (19/11): the reading service (try again later, or go on in the chat) or the file itself (another
+// file, or the chat). A test server that knows only sample payslips says so. The title keeps "לא הצלחנו לקרוא את התלוש"
+const SERVICE_REASONS = new Set(['timeout', 'quota', 'unavailable', 'invalid_response', 'not_configured'])
+const FAILED_TITLES = {
+  service: 'לא הצלחנו לקרוא את התלוש: שירות הקריאה לא זמין כרגע',
+  file: 'לא הצלחנו לקרוא את התלוש: הקובץ לא התקבל לקריאה',
+  test_mode: 'לא הצלחנו לקרוא את התלוש: סביבת בדיקות',
+}
+
+export function failedTitle(reason: string | undefined): string {
+  if (reason === 'test_mode') return FAILED_TITLES.test_mode
+  if (reason && SERVICE_REASONS.has(reason)) return FAILED_TITLES.service
+  if (reason === 'rejected') return FAILED_TITLES.file
+  return TITLES.failed
+}
+
 export function payslipOutcome(result: ExtractionResult): PayslipOutcome {
   const found = result.fields.filter((f) => filled(f.value) && (f.status ?? 'found') === 'found').length
   // an older server sends no status: derive it the same way
@@ -36,7 +52,8 @@ export function payslipOutcome(result: ExtractionResult): PayslipOutcome {
     ?? (found === 0 ? 'nothing_found' : found < result.fields.length ? 'partial' : 'found')
   const title = TITLES[status]
   if (status === 'failed') {
-    return { view: 'failed', status, title, message: result.message_he || FAILED_FALLBACK, retry: result.retry ?? true }
+    return { view: 'failed', status, title: failedTitle(result.reason), message: result.message_he || FAILED_FALLBACK,
+             retry: result.retry ?? true }
   }
   if (status === 'not_payslip' || status === 'unreadable') {
     return { view: 'failed', status, title, message: result.message_he, retry: false }

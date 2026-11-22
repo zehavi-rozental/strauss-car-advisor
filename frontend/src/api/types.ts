@@ -47,7 +47,8 @@ export interface ExpectsField {
   closed?: boolean           // a closed question: the client shows buttons; open questions are typed
   question?: string | null   // ask_rep: the employee's question the inquiry card opens with ("" — still to be said)
   // copay: today's car and its (unverified) catalog amount; rep_copay: the rep's amount and the one it replaces
-  context?: { car?: string; catalog_amount?: string; amount?: string; previous?: string | null; provisional?: string | null }
+  context?: { car?: string; catalog_amount?: string; amount?: string; previous?: string | null; provisional?: string | null;
+              payslip_amount?: string | null; with_rep?: boolean }   // payslip_amount, with_rep: the maintenance question (19/11)
 }
 
 export interface ExpectsLink {
@@ -56,10 +57,19 @@ export interface ExpectsLink {
   url?: string               // payslip_upload only: a pilot's external URL; empty uses the built-in upload
 }
 
+/** An action the screen really offers now (19/11, conversation/actions.py): the server's contract. The client draws a
+ *  button only for these (and the reply's own link), never from words in a reply. */
+export interface ExpectsAction {
+  kind: 'payslip_upload'
+  label: string
+  url?: string               // a pilot's external upload page; empty uses the built-in upload
+}
+
 export interface Expects extends ExpectsField {
   fields: ExpectsField[]
   link?: ExpectsLink | null   // the one secondary link the reply names ("או למלא בטופס")
   placeholder?: string       // the composer hint, with an example
+  actions?: ExpectsAction[]   // the persistent actions on the screen now (19/11)
 }
 
 // ---------- ScenarioResult ----------
@@ -344,13 +354,15 @@ export type MessageIn =
   | { text: string }
   | { choice: string; field?: string }
   | { choices: string[]; field?: string }
-  | { fields: ProfileFields; source?: 'payslip'; base_version?: number }     // source: values approved from a reviewed payslip
+  // source: values approved from a reviewed payslip; payslip_maintenance (with it only, 19/11): a car-maintenance line
+  // found on that payslip, offered for the no-car question and never saved by itself
+  | { fields: ProfileFields; source?: 'payslip'; base_version?: number; payslip_maintenance?: Decimal }
 
 // ---------- employee-initiated rep question (POST /conversations/{id}/rep-question) ----------
 
 /** intent decides the kind, not the car: 'general' is informational (never changes the calculation);
  *  'copay_verification' is a structured copay check the server re-validates against the car on screen. */
-export type RepQuestionIntent = 'general' | 'copay_verification' | 'current_copay'
+export type RepQuestionIntent = 'general' | 'copay_verification' | 'current_copay' | 'current_maintenance'
 
 export interface RepQuestionIn {
   question: string

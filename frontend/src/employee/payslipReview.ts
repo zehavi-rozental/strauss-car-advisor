@@ -169,3 +169,10 @@ export function assign(rows: ReviewRow[], key: Key, info: PayslipInfo): ReviewRo
         note: 'שויך על ידיכם' }
     : r))
 }
+
+/** A car-maintenance line found on the payslip (19/11): sent with the reviewed values so the no-car question can offer
+ *  it ("זה הסכום שלי"); a doubtful reading is never offered. The server saves it only on the employee's choice. */
+export function payslipMaintenance(info: PayslipInfo[]): string | undefined {
+  const line = info.find((i) => i.key === 'car_maintenance' && !i.suspect && Number(i.value) > 0)
+  return line ? String(line.value) : undefined
+}

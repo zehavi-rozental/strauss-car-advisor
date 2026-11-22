@@ -194,7 +194,8 @@ def test_an_uncovered_question_offers_the_rep_and_shows_the_text_before_sending(
     turn, token = talk(svc, ["מנהלת מוצר"])
     cid = turn.conversation_id
     turn = svc.send(cid, token, UNCOVERED)
-    assert turn.reply.startswith("על זה אין לי מידע מדויק") and "שכר בסיס" not in turn.reply   # the offer only
+    # 19/11: a car property the catalog cannot verify is said as such (templates.ATTRIBUTE_UNVERIFIED), then offered
+    assert turn.reply.startswith("צבע, אבזור וזמינות של רכב") and "שכר בסיס" not in turn.reply   # the offer only
     ask = [f for f in turn.expects["fields"] if f["field"] == "ask_rep"]
     assert ask and [c["label"] for c in ask[0]["choices"]] == ["לשאול את הנציג", "להמשיך בלי"]
     turn = svc.send_choice(cid, token, ["ask_rep"], field="ask_rep")

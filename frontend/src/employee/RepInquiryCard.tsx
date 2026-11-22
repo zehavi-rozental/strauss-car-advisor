@@ -20,6 +20,8 @@ interface Props {
   optionId?: string
   carLabel?: string
   catalogAmount?: string
+  /** what catalogAmount is (default: the catalog copay); "אחזקה לפי התלוש" for the maintenance allowance (19/11) */
+  amountLabel?: string
   /** a ready subject ("בירור סכום ההשתתפות ברכב הנוכחי"), shown above the editable question */
   subject?: string
   /** the address verified in this conversation: named, with "שינוי כתובת" (a new one is verified again) */
@@ -37,7 +39,7 @@ interface Props {
 }
 
 export function RepInquiryCard({
-  conversationId, initialQuestion, intent, optionId, carLabel, catalogAmount, subject, knownEmail, emailEnabled = true,
+  conversationId, initialQuestion, intent, optionId, carLabel, catalogAmount, amountLabel, subject, knownEmail, emailEnabled = true,
   emailSimulated = false, emailPending = false, disabled = false, onCancel, onSaved,
 }: Props) {
   const [step, setStep] = useState<Step>('edit')
@@ -181,11 +183,16 @@ export function RepInquiryCard({
           <dl className="rep-inquiry-summary">
             {subject && <div><dt>נושא</dt><dd>{subject}</dd></div>}
             {carLabel && <div><dt>הרכב</dt><dd><bdi>{carLabel}</bdi></dd></div>}
-            {catalogAmount && <div><dt>השתתפות לפי הקטלוג</dt><dd>{catalogAmount} ₪</dd></div>}
+            {catalogAmount && <div><dt>{amountLabel ?? 'השתתפות לפי הקטלוג'}</dt><dd>{catalogAmount} ₪</dd></div>}
             <div><dt>השאלה לנציג</dt><dd><bdi>{trimmed}</bdi></dd></div>
             {needsEmail && <div><dt>אימייל לעדכון</dt>
               <dd dir={emailOk ? 'ltr' : undefined}>{emailOk ? email.trim() : 'בלי עדכון במייל (התשובה תופיע כאן בשיחה)'}</dd></div>}
           </dl>
+          {intent === 'current_maintenance' && (
+            <p className="rep-inquiry-note">
+              עד לתשובת הנציג לא יחושב נטו ולא יוצב סכום. אם תדעו בערך, אפשר לכתוב הערכה.
+            </p>
+          )}
           {(intent === 'copay_verification' || intent === 'current_copay') && (
             <p className="rep-inquiry-note">
               עד שהנציג יאמת סכום אישי, החישוב ממשיך להתבסס על סכום ברירת המחדל בקטלוג.

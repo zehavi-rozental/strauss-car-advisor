@@ -141,6 +141,10 @@ def answer(style: str, emp: Employee, expects: dict[str, Any], reply: str, rephr
 
     first = names[0] if names else None
     if first == "confirmation":
+        # an employee confirms only what is true for her (19/11): "אין" to the two contributions is asked back as "0% for
+        # both" (one confirmation, 1/11); with a pension she corrects it with her own value instead of "כן"
+        if "פנסיה 0% וקרן השתלמות 0%" in reply and v["pension_percent"] != 0:
+            return {"text": labelled("pension_percent", v["pension_percent"])}
         return {"choice": "yes"} if style == "buttons" else {"text": "כן"}
     if first == "clarification":
         if style == "buttons":

@@ -3,7 +3,7 @@
 // get no widget at all — the bot asks in words and the employee types. Buttons appear only for closed
 // questions (`closed` from the server: confirmations, clarifications, the car version, the drive,
 // "לשאול את נציג התחבורה"). The car selection and the profile form open only from the reply's one link.
-import type { Expects, ExpectsField, ExpectsLink, Stage } from '../api/types'
+import type { Expects, ExpectsField, ExpectsAction, ExpectsLink, Stage } from '../api/types'
 
 export const SELECT_THRESHOLD = 8
 export type WidgetKind = 'buttons' | 'select'
@@ -28,6 +28,13 @@ export function widgetsFor(expects: Expects | null): Widget[] {
 /** The one secondary link under the reply ("או למלא בטופס", "להציג את הרכבים בקבוצה שלכם"), or null. */
 export function linkFor(expects: Expects | null): ExpectsLink | null {
   return expects?.link ?? null
+}
+
+/** The persistent actions to draw (19/11): the server's `expects.actions`, minus one the reply's own link already shows
+ *  or one that is open now. Nothing is drawn that the server did not offer. */
+export function persistentActions(expects: Expects | null, opened: string | null): ExpectsAction[] {
+  const link = expects?.link?.kind
+  return (expects?.actions ?? []).filter((a) => a.kind !== link && a.kind !== opened)
 }
 
 /** The options field, for the selection card the link opens. */
@@ -75,4 +82,9 @@ export function progressStep(stage: Stage | null, hasResults = false): number {
     default:
       return 0
   }
+}
+
+/** The salary-details choice (PayslipChoice, 19/11): expanded only while no salary value is known (the facts' pay section) and the chat was not chosen. */
+export function choiceExpanded(payValues: (string | null)[], chatChosen: boolean): boolean {
+  return !chatChosen && payValues.every((v) => v === null)
 }

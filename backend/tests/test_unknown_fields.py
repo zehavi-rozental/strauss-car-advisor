@@ -103,7 +103,7 @@ def test_the_payslip_upload_link_is_offered_only_when_configured(sessions, tmp_p
                    encoding="utf-8")
     svc = service(sessions, config=config)
     turn, _ = talk(svc, [PROFILE_Q1, "אני לא יודע אף אחד מהם", CAR, "אטו 3"])
-    assert turn.expects["link"] == {"kind": "payslip_upload", "label": "להעלות תלוש",
+    assert turn.expects["link"] == {"kind": "payslip_upload", "label": "להעלות תלוש שכר",
                                     "url": "https://hr.example/upload"}
     assert turn.reply.endswith("או העלו את התלוש.")
 
@@ -119,7 +119,7 @@ def test_the_builtin_upload_link_is_offered_without_a_url(sessions, tmp_path):
     svc = service(sessions, config=config)
     turn, _ = talk(svc, [PROFILE_Q1, "אני לא יודע אף אחד מהם", CAR, "אטו 3"])
     # the link is offered, but with no url: the client uses the built-in in-chat uploader
-    assert turn.expects["link"] == {"kind": "payslip_upload", "label": "להעלות תלוש"}
+    assert turn.expects["link"] == {"kind": "payslip_upload", "label": "להעלות תלוש שכר"}
     assert turn.reply.endswith("או העלו את התלוש.")
 
 

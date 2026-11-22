@@ -15,6 +15,7 @@ import { MAP_REQUEST } from './optionMap'
 import { Composer } from './Composer'
 import { MessageList } from './MessageList'
 import { PayslipUpload } from './PayslipUpload'
+import { PayslipChoice } from './PayslipChoice'
 import { TodayCopayCard } from './TodayCopayCard'
 import { ProfileForm } from './ProfileForm'
 import { Progress } from './Progress'
@@ -24,8 +25,8 @@ import { CarActions } from './CarActions'
 import { RepInquiryCard } from './RepInquiryCard'
 import { useCatalog } from './useCatalog'
 import { useConversation } from './useConversation'
-import { fieldsOf, linkFor, optionsField, placeholderFor } from './widgets'
-import type { Expects, Message, RepQuestionIntent, RepQuestionResult } from '../api/types'
+import { choiceExpanded, fieldsOf, linkFor, optionsField, persistentActions, placeholderFor } from './widgets'
+import type { Expects, ExpectsAction, Message, RepQuestionIntent, RepQuestionResult } from '../api/types'
 
 const LINK_ICON: Record<string, string> = { profile_form: 'form', selection: 'grid', payslip_upload: 'upload',
                                             correction_form: 'edit' }
@@ -69,6 +70,7 @@ export function EmployeePage() {
   // in the field when the card is opened for another one (the NIRO inquiry that carried a DOLPHIN question)
   const [inquiry, setInquiryState] = useState<{ intent: RepQuestionIntent; question: string; optionId?: string;
                                                 carLabel?: string; catalogAmount?: string; copayToday?: boolean; subject?: string;
+                                                maintenanceToday?: boolean; amountLabel?: string;
                                                 opened: number } | null>(null)
   const inquiryCount = useRef(0)
   const setInquiry = (next: Omit<NonNullable<typeof inquiry>, 'opened'> | null) =>
@@ -80,6 +82,14 @@ export function EmployeePage() {
     subject: 'בירור סכום ההשתתפות ברכב הנוכחי',
     question: `אני מבקש/ת לברר מה סכום ההשתתפות החודשי שלי ברכב הנוכחי${car ? ` (${car})` : ''}. ` +
       'האם הסכום שבקטלוג הוא הסכום שחל עליי?',
+  })
+  // "לברר מול נציג" on the car-maintenance allowance (no car today, 19/11): a draft only, as today's copay; the
+  // allowance is marked as with the representative once the inquiry was really sent
+  const openMaintenanceInquiry = (payslipAmount?: string) => setInquiry({
+    intent: 'current_maintenance', maintenanceToday: true, catalogAmount: payslipAmount,
+    amountLabel: 'אחזקה לפי התלוש', subject: 'בירור סכום אחזקת הרכב',
+    question: 'אין לי רכב צמוד היום. אני מבקש/ת לברר מה סכום אחזקת הרכב החודשי שאני מקבל/ת' +
+      (payslipAmount ? ` (בתלוש מופיע ${payslipAmount} ₪)` : '') + '.',
   })
   // "בירור אישי מול הנציג" on a new car's copay (restored 9/11): the car is the inquiry's option, never its text; the
   // server checks it against the results on screen (copay_verification → NEW_CAR_COPAY)
@@ -120,6 +130,30 @@ export function EmployeePage() {
   // catalog details for the selection cards (display only; the cards work without them)
   const catalog = useCatalog(Boolean(options))
 
+  // the persistent actions (19/11): drawn from the server's contract only; the same flow as the reply's link
+  const actions = persistentActions(c.expects, opened)
+  // the two ways to give the salary details (19/11): explained once, while nothing of the salary is known and the
+  // employee has not chosen the chat; the choice is kept for this conversation (this browser only)
+  const choiceKey = c.conversationId ? `sca.payslipChoice.${c.conversationId}` : null
+  const [chatChosenFor, setChatChosenFor] = useState<string | null>(null)
+  let storedChat = false
+  try { storedChat = choiceKey !== null && localStorage.getItem(choiceKey) === 'chat' } catch { storedChat = false }
+  const chatChosen = storedChat || (choiceKey !== null && chatChosenFor === choiceKey)
+  const payValues = (c.facts?.items ?? []).filter((i) => i.section === 'pay').map((i) => i.value)
+  const chooseChat = () => {
+    if (choiceKey) {
+      setChatChosenFor(choiceKey)
+      try { localStorage.setItem(choiceKey, 'chat') } catch { /* a per-viewer convenience only */ }
+    }
+    document.querySelector<HTMLElement>('[aria-label="הודעה"]')?.focus()
+  }
+  const openAction = (a: ExpectsAction) => {
+    if (a.url) {
+      window.open(a.url, '_blank', 'noopener,noreferrer')
+      return
+    }
+    setOpened(a.kind)
+  }
   // a pilot can point the link at an external upload page; then the link just opens it in a new tab
   const openLink = () => {
     if (link?.kind === 'payslip_upload' && link.url) {
@@ -150,8 +184,8 @@ export function EmployeePage() {
   const payslipUpload = (
     <PayslipUpload disabled={busy} onCancel={() => setOpened(null)} loadProfile={c.loadProfile}
                    extract={c.extractPayslip}
-                   onSubmit={async (fields) => {
-                     const sent = await c.sendFields(fields, payslipFormText(fields), 'payslip')
+                   onSubmit={async (fields, maintenance) => {
+                     const sent = await c.sendFields(fields, payslipFormText(fields), 'payslip', maintenance)
                      if (sent.ok) setOpened(null)
                      return sent
                    }} />
@@ -185,7 +219,8 @@ export function EmployeePage() {
   } else {
     area = (
       <>
-        <AnswerWidgets expects={c.expects} disabled={busy} onSend={c.send} onCopayRep={openTodayCopayInquiry} />
+        <AnswerWidgets expects={c.expects} disabled={busy} onSend={c.send} onCopayRep={openTodayCopayInquiry}
+                       onMaintenanceRep={openMaintenanceInquiry} />
         {link && link.kind !== 'selection' && (
           <button type="button" className={`link-button link-${link.kind}`} disabled={busy} onClick={openLink}>
             <Icon name={LINK_ICON[link.kind] ?? 'chevron'} size={18} />{link.label}
@@ -236,6 +271,11 @@ export function EmployeePage() {
     if (inquiry?.copayToday && copayAsked && (res.status === 'created' || res.status === 'exists')) {
       void c.send({ choice: 'rep', field: 'copay' }, 'לברר מול נציג')
     }
+    // the same for the car-maintenance allowance (19/11): marked only after the inquiry was created or found open
+    const maintenanceAsked = fieldsOf(c.expects).some((f) => f.field === 'maintenance')
+    if (inquiry?.maintenanceToday && maintenanceAsked && (res.status === 'created' || res.status === 'exists')) {
+      void c.send({ choice: 'rep', field: 'maintenance' }, 'לברר מול נציג')
+    }
     // created: the inquiry's record now stands in the chat, so the card closes. exists: the card stays and says
     // so, with a link to the record already in the chat (nothing new was sent)
     if (res.status === 'created') setInquiry(null)
@@ -273,6 +313,19 @@ export function EmployeePage() {
   const tail = (
     <div className="answer-tail" ref={tailRef}>
       {area}
+      {actions.length > 0 && (
+        <div className="persistent-actions" aria-label="פעולות זמינות">
+          {actions.map((a) => (a.kind === 'payslip_upload' ? (
+            <PayslipChoice key={a.kind} action={a} disabled={busy} onUpload={() => openAction(a)} onChat={chooseChat}
+                           expanded={choiceExpanded(payValues, chatChosen)} />
+          ) : (
+            <button key={a.kind} type="button" className={`link-button link-${a.kind} persistent-action`}
+                    disabled={busy} onClick={() => openAction(a)}>
+              <Icon name={LINK_ICON[a.kind] ?? 'chevron'} size={18} />{a.label}
+            </button>
+          )))}
+        </div>
+      )}
       {carActions}
       {inquiry && (
         <RepInquiryCard
@@ -283,6 +336,7 @@ export function EmployeePage() {
           optionId={inquiry.optionId}
           carLabel={inquiry.carLabel}
           catalogAmount={inquiry.catalogAmount}
+          amountLabel={inquiry.amountLabel}
           subject={inquiry.subject}
           knownEmail={repEmail}
           emailEnabled={c.emailEnabled}

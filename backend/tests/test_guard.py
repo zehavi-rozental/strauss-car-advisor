@@ -175,7 +175,8 @@ def test_the_two_transcripts_in_template_mode(sessions):
     svc = ConversationService(sessions, RulesStore(CONFIG), LLMChain())
     turn, token = svc.start()
     turn = svc.send(turn.conversation_id, token, SUNROOF)
-    assert turn.reply.startswith("על זה אין לי מידע מדויק. התשובה של נציג התחבורה תגיע לכאן. רוצים שאשאל אותו?")
+    # 19/11: a car property the catalog cannot verify is said as such (templates.ATTRIBUTE_UNVERIFIED), then offered
+    assert turn.reply.startswith("צבע, אבזור וזמינות של רכב לא מופיעים בקטלוג שלי")
     assert "לא הצלחתי להבין" not in turn.reply
     turn = svc.send(turn.conversation_id, token, COMPLAINT)
     assert turn.reply.startswith("צודקים, סליחה.") and "נציג התחבורה" in turn.reply

@@ -14,8 +14,9 @@ describe('payslipOutcome', () => {
   it('a failure is its own view, never an empty review form', () => {
     const r: ExtractionResult = { ok: false, status: 'failed', reason: 'quota', retry: true, fields: [],
       message_he: 'שירות הקריאה עמוס כרגע.' }
+    // 19/11: the title says the reading service, not the file (quota is the service's)
     expect(payslipOutcome(r)).toMatchObject({ view: 'failed', status: 'failed', retry: true,
-      title: 'לא הצלחנו לקרוא את התלוש', message: r.message_he })
+      title: 'לא הצלחנו לקרוא את התלוש: שירות הקריאה לא זמין כרגע', message: r.message_he })
   })
 
   it('a failure that a retry will not fix offers another file instead', () => {

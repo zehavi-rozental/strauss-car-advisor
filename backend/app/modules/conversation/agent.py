@@ -35,10 +35,10 @@ from .parsing import (YEAR_RE, copay_unknown_span, has_all_scope, is_unknown, ma
                       occupation_match, parse_copay, read_profile, redact_id_numbers, said_approximately)
 from .guards import (FIELD_WORDS, STALE_WORDS, SINGULAR_RE, TAG_RE, Check, Violation, answer_part, ask_lines, check,
                      check_answer, content_sentences, drop,
-                     has_statement, sentences, strip_tags, verify)
+                     has_statement, sentences, strip_tags, ui_violations, verify)
 from .turn import LLM_TOOLS, Candidate, parser_hint, render_catalog, render_faq, run_rounds, state_block, system_message, user_message
 from .comparison import facts_block, pair_facts, pick_pair
-from . import data_facts
+from . import actions, data_facts
 from .option_map import build_option_map, dump_option, dump_result as _dump, evaluate_option, map_reply
 from .option_map import with_assumptions as _with_assumptions
 from .understanding import (ELIGIBLE_CONTEXT_TURNS, asks_estimate, ELIGIBLE_TOPIC, ELIGIBLE_UNCLEAR, NO_CAR_OR_ZERO,
@@ -58,6 +58,7 @@ from .stage import (
     PendingConfirmation,
     PendingRep,
     RepCopayOffer,
+    ReplyContext,
     RepReason,
     Stage,
     blocking_rep_reason,
@@ -73,7 +74,7 @@ from .stage import (
     profile_args,
     Q2_FIELDS,
 )
-from .templates import (
+from .templates import (LINK_LABELS,
     options_list_text,
     today_cars_text,
     ALL_AT_ONCE,
@@ -82,6 +83,7 @@ from .templates import (
     CHOOSE_TO_COMPARE,
     COPAY_WITH_REP,
     PAYSLIP_OFFER,
+    PAYSLIP_REPLACE_OFFER,
     CORRECTION_ASK,
     CORRECTION_CARS,
     correction_field_ask,
@@ -121,6 +123,7 @@ from .templates import (
     rep_copay_offer_text,
     rep_current_text,
     rep_maintenance_text,
+    rep_today_maintenance_text,
     rep_note_text,
     rep_request_text,
     rep_copay_text,
@@ -721,6 +724,25 @@ def asked_field(state: ConversationState, reply: str) -> Optional[str]:
 
 
 TODAY_COPAY_PREFIX = "today:"
+TODAY_MAINTENANCE_ID = TODAY_COPAY_PREFIX + "maintenance"
+NO_CAR_LABEL = "ללא רכב צמוד"
+
+
+def today_maintenance_question_id(state: ConversationState) -> str:
+    """The option_id of an employee's inquiry about the car-maintenance allowance (no car today, 19/11): one open inquiry
+    per conversation; the "today:" prefix tells apply_answer it is the employee's own value (not the opt-out rule's)."""
+    return TODAY_MAINTENANCE_ID
+
+
+def note_payslip_car(state: ConversationState, snapshot: RulesSnapshot, maintenance: Optional[Decimal]) -> None:
+    """A payslip the employee reviewed (19/11): its car-maintenance line, when there is one in the conversation's own
+    range, is kept as the offer of the no-car question; it is never saved as a value without the employee's choice.
+    A payslip without such a line is remembered too, so the question says nothing was found instead of inventing."""
+    state.payslip_reviewed = True
+    state.payslip_requested = False          # confirmed: the upload leaves the screen until asked for again (19/11)
+    low, high = snapshot.extensions.value_ranges.get("current_maintenance", (Decimal(0), Decimal(0)))
+    ok = maintenance is not None and Decimal(low) < Decimal(maintenance) <= Decimal(high)
+    state.payslip_maintenance = Decimal(maintenance) if ok else None
 
 
 def today_copay_question_id(state: ConversationState) -> str:
@@ -1079,8 +1101,13 @@ class _Before:
             conflict.announced = True
         elif p.occupation and p.group and (p.occupation, p.group) != self.occupation and conflict is None:
             lines.append(confirm_group_text(p.occupation, p.group))
-        if [f for f in current_unknown(state.current) if f not in self.car_unknown]:
-            lines.append(CURRENT_UNKNOWN_ACK)
+        new_unknown = [f for f in current_unknown(state.current) if f not in self.car_unknown]
+        if new_unknown and current_group(state)[0] == "unknown":
+            # recorded now and nothing else is left (19/11): the end-of-flow line that follows says what the
+            # calculation waits for and every way on — said as a status, never the same question asked again at once
+            state.unknown_told = 1
+        elif new_unknown:
+            lines.append(MAINTENANCE_UNKNOWN_ACK if new_unknown == ["maintenance"] else CURRENT_UNKNOWN_ACK)
         if state.selected and tuple(state.selected) != self.selected and not just_calculated:
             labels = {o.id: o.label for o in available_options(snapshot, state)}
             lines.append(chosen_options_text([labels.get(i, i) for i in state.selected]))
@@ -1108,6 +1135,13 @@ COPAY_UNKNOWN_CHOOSE = ("אם אתם לא יודעים את הסכום, אפשר
 COPAY_OTHER_ASK = "כמה בדיוק יורד לכם מהמשכורת בכל חודש עבור הרכב של היום? כתבו את הסכום המדויק, למשל: 280."
 CURRENT_UNKNOWN_ACK = ("רשמתי שזה לא ידוע, בלי לנחש סכום. הוא מופיע בתלוש השכר החודשי, ואם תדעו רק בערך אפשר לכתוב"
                        " הערכה. נמשיך, ונחזור אליו כשנצטרך אותו לחישוב.")
+# no car today, the allowance not known (19/11): the payslip only "if there is one", and the ways it is completed later
+MAINTENANCE_UNKNOWN_ACK = ("רשמתי שסכום אחזקת הרכב לא ידוע, בלי לנחש ובלי להציב 0. נמשיך, ונשלים אותו לפני החישוב: "
+                           "אם אתם מקבלים אחזקה היא מופיעה ברכיבי השכר בתלוש, ואפשר גם לכתוב הערכה או לברר מול נציג.")
+MAINTENANCE_OTHER_ASK = "כמה אחזקת רכב אתם מקבלים בכל חודש? כתבו את הסכום, למשל: 1,500."
+MAINTENANCE_WITH_REP = ("רשמתי: את סכום אחזקת הרכב נברר מול נציג התחבורה, והתשובה תגיע לכאן. "
+                        "עד אז לא אחשב נטו ולא אציב סכום משלי. אם אתם יודעים בערך, אפשר לכתוב הערכה ואסמן את "
+                        "התוצאות כמשוערות.")
 
 
 def _stated_new_copay(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Optional[tuple[Any, Decimal]]:
@@ -1230,7 +1264,7 @@ class Agent:
             state.pending_confirmation = None
             if field_ == "copay" and ids[0].startswith("catalog:"):
                 ctx.copay_source = "catalog_confirmed"   # "זה הסכום שלי": the catalog amount, confirmed (1/11)
-            plan = ParserPlan(choice_calls(field_, ids, snapshot), True, direct=True)
+            plan = ParserPlan(choice_calls(field_, ids, snapshot, state.payslip_maintenance), True, direct=True)
             if field_ == "copay" and ids == ["other"]:
                 # "הסכום שלי שונה" (16/11): the exact amount is asked, in words too (the client opens an amount field)
                 plan = replace(plan, notice=COPAY_OTHER_ASK, asks="current_copay")
@@ -1240,7 +1274,20 @@ class Agent:
                 # until the representative's answer is confirmed or the employee writes an estimate (marked as one);
                 # never the catalog amount in its place
                 state.current.copay_provisional = None
+                if "copay" not in state.rep_fields:
+                    state.rep_fields.append("copay")      # the explicit status: with the representative (19/11)
                 plan = replace(plan, notice=copay_with_rep_text(state.current.copay_provisional), acked=True)
+            if field_ == "maintenance" and ids == ["payslip"]:
+                ctx.value_source = "payslip"             # the amount read from the payslip, confirmed (19/11)
+            if field_ == "maintenance" and ids == ["other"]:
+                # "הסכום שונה" / "להזין סכום": the exact amount is asked (the client opens an amount field)
+                plan = replace(plan, notice=MAINTENANCE_OTHER_ASK, asks="current_maintenance")
+            if field_ == "maintenance" and ids == ["rep"]:
+                # the inquiry about the allowance was sent (19/11), the same flow as today's copay: unknown, with the
+                # representative, no net until the answer or an estimate; never a default and never 0
+                if "maintenance" not in state.rep_fields:
+                    state.rep_fields.append("maintenance")
+                plan = replace(plan, notice=MAINTENANCE_WITH_REP, acked=True)
         return self._finish(ctx, (), label, plan, before, record_run, choice=True)
 
     def run_fields(self, snapshot: RulesSnapshot, find_vehicle: VehicleLookup, get_vehicle: VehicleGetter,
@@ -1400,8 +1447,11 @@ class Agent:
         elif und.payslip_request:
             # "אני רוצה להעלות תלוש" (1/11): the uploader at once, whatever the flow would ask; code decides (the action
             # is the code's), the reply says what happens to the file. Unavailable here: said plainly.
-            enabled = snapshot.extensions.payslip_upload_enabled or bool(snapshot.extensions.payslip_upload_url)
-            notice = PAYSLIP_OFFER if enabled else PAYSLIP_UNAVAILABLE
+            # 19/11: offered only when it can be used now; a new payslip over values already given says that every
+            # change is shown for approval before anything is replaced
+            replacing = state.payslip_reviewed or any(v is not None for v in profile_args(state.profile).values())
+            notice = (PAYSLIP_UNAVAILABLE if not actions.payslip_possible(state, snapshot)
+                      else PAYSLIP_REPLACE_OFFER if replacing else PAYSLIP_OFFER)
             return self._finish(ctx, history, text, ParserPlan(complete=True, notice=notice, direct=True, acked=True),
                                 before, record_run, choice=True, und=replace(und, remainder=""))
         elif correcting and (values := _correction_values(state, snapshot, correcting, text)) is not None:
@@ -1603,8 +1653,18 @@ class Agent:
         state, snapshot = ctx.state, ctx.snapshot
         und = und or Understanding(remainder=text)
         state.link_now = None               # a link is offered on one reply only (templates._once)
-        if und.payslip_request and (snapshot.extensions.payslip_upload_enabled or snapshot.extensions.payslip_upload_url):
+        if und.payslip_request and actions.payslip_possible(state, snapshot):
             state.link_now = "payslip_upload"   # the uploader, on this reply, whatever the flow asks (1/11)
+            state.payslip_requested = True       # and on the screen again until a payslip is confirmed (19/11)
+        if und.action is not None:
+            state.link_now = und.action          # the action this turn is about, on this reply (19/11)
+            if und.action == actions.PAYSLIP_UPLOAD:
+                state.payslip_requested = True
+        if und.correction is not None and actions.payslip_possible(state, snapshot) and (
+                not und.correction or any(f in PROFILE_ARGS for f in und.correction)):
+            # "אני רוצה לעדכן את נתוני השכר" (19/11): the correction form, and the upload next to it — a new payslip is
+            # another way to update the salary details (its review shows every change before anything is replaced)
+            state.payslip_requested = True
         if und.correction is not None:
             state.link_now = "correction_form"   # the correction form, on this reply (1/11)
         if und.all_at_once:
@@ -1627,8 +1687,11 @@ class Agent:
         missing_found = data_facts.facts(state, snapshot, concerned)
         # the claim verifier gets every fact; the model's prompt the same, without the rule line code says itself
         facts = "\n\n".join(x for x in (facts_block(pair), data_facts.facts_block(missing_found)) if x)
+        on_screen = [f'"{actions.LABELS[k]}" ({actions.HELP[k].split(".")[0]})' for k in actions.available(state, snapshot)]
+        screen_block = ("ACTIONS ON SCREEN (the only buttons you may mention, by this exact label): "
+                        + ("; ".join(on_screen) if on_screen else "none"))
         prompt_facts = "\n\n".join(x for x in (facts_block(pair),
-                                              data_facts.facts_block(missing_found, for_model=True)) if x)
+                                              data_facts.facts_block(missing_found, for_model=True), screen_block) if x)
         data_before = (dict(profile_args(state.profile)), list(state.selected))
         has_car_said = und.has_car and state.current.source is None and not state.current.has_car
         if has_car_said:
@@ -1772,9 +1835,10 @@ class Agent:
         # "עדכנתי: קבוצה ג" is said as well: never "רשמתי: קבוצה ג." next to it (15/11)
         said = (notice or "").startswith(("רשמתי", "עדכנתי")) or plan.acked
         confirmations = before_turn.confirmations(state, snapshot, just_calculated, said)
-        if plan.notice is not None and plan.notice.startswith(COPAY_WITH_REP[:40]):
-            # the copay is pending with the rep, not "unknown, look at the payslip": that line says it instead
-            confirmations = [line for line in confirmations if line != CURRENT_UNKNOWN_ACK]
+        if plan.notice is not None and plan.notice.startswith((COPAY_WITH_REP[:40], MAINTENANCE_WITH_REP[:40])):
+            # the value is pending with the rep, not "unknown, look at the payslip": that line says it instead
+            confirmations = [line for line in confirmations
+                             if line not in (CURRENT_UNKNOWN_ACK, MAINTENANCE_UNKNOWN_ACK)]
 
         # רכב שזוהה בתור הזה (מהקורא, מהמודל או מהגיבוי) — אומרים איזה, כדי שטעות לא תעבור בשקט
         matched_car = state.current.source in ("catalog", "tax") and _car_key(state) != car_before
@@ -1823,8 +1887,8 @@ class Agent:
                  *([ALL_AT_ONCE] if und.all_at_once else []),
                  *([snapshot.faq.redirect] if und.redirect and not und.complaint else []),   # the rep offer: plan_reply
                  # a truly unclear question: one line, no buttons, never the representative
-                 *([snapshot.faq.clarify] if und.clarify and not (und.redirect or und.unanswered or und.complaint)
-                   else [])]
+                 *([snapshot.faq.clarify] if und.clarify and und.action is None
+                   and not (und.redirect or und.unanswered or und.complaint) else [])]
         # a turn that calculated or ranked answers with its results; no explanation is added to them (15/11: "ומה
         # שלושת הכי משתלמים?" opened with every car's copay)
         about_results = (und.about_results and state.stage == Stage.PRESENTED and bool(state.results)
@@ -1935,6 +1999,14 @@ class Agent:
             state.link_now = link
             if link not in state.links_shown:
                 state.links_shown.append(link)
+        # what this reply is about, for the next message's follow-up (19/11): the action it offered (its link), and its
+        # topic — the action's own when the turn was about it, else the term explained
+        offered = [state.link_now] if state.link_now in actions.LABELS else []
+        about_action = und.action is not None or (und.payslip_request and bool(offered))
+        group_fields = current_group(state)[1]
+        state.last_reply = ReplyContext(
+            topic=actions.TOPICS.get(offered[0]) if about_action and offered else state.last_topic,
+            asked_field=group_fields[0] if len(group_fields) == 1 else None, offered=offered)
         requests = dict(question_requests=ctx.question_requests, cancel_question_ids=ctx.cancel_question_ids,
                         copay_selection=ctx.copay_selection)
         draft = reply_plan.text()
@@ -1954,7 +2026,14 @@ class Agent:
         attribute_q = bool(und.unanswered) and any(asks_attribute(snapshot, q) for q in und.unanswered)
         # code's rules could not read the message (no value, no known question): the model's understanding counts — a
         # remark or an intention it answered ("לא נורא, נמצא אותו יחד") is the turn's answer, never "לא בטוח שהבנתי"
-        code_lost = not (understood or problems or und.anything)
+        # a decision code reached only weakly (19/11: c204812 left these to templates, so "איפה הכפתור?" got "לא בטוח
+        # שהבנתי" with the model available): an unclear question, or "explain again" with no referent found. The model
+        # reads it with the history and the actions on screen; its answer passes the same guards, and code keeps the
+        # question, the actions and every value
+        # "explain again" (help) is not weak: code has its own answer (the question on screen in simpler words), and the
+        # model's own call to action must never stand next to code's choices (the copay's three choices)
+        weak = und.clarify
+        code_lost = not (understood or problems or und.anything) or weak
         answer, blocked, say = "", False, "llm:composed"
         if explainable or (und.unanswered and not attribute_q) or code_lost:
             answer, blocked, say = self._model_answer(candidate, draft, ctx, history, text, deadline,
@@ -1968,6 +2047,10 @@ class Agent:
         elif answer and code_lost:
             understood = True                      # read by the model: the decision is the understood one
             state.misses = 0
+            if weak:
+                # the model's answer replaces code's "say it again" / "in simpler words" (never both)
+                und = replace(und, clarify=False, help=False)
+                lines[:] = [x for x in lines if x != snapshot.faq.clarify]
             reply_plan = decide(build_plan())
             reply_plan = replace(reply_plan, answers=[answer, *reply_plan.answers], answer_source="model")
             state.last_ask = reply_plan.ask[-1] if reply_plan.ask else ""
@@ -2465,6 +2548,25 @@ class Agent:
                                rep_question_result=RepQuestionResult(
                                    status="created", missing_field=missing_field.value, option_id=qid, car_label=car,
                                    catalog_amount=str(hint) if hint else None, question_text=question))
+        if missing_field == MissingField.MAINTENANCE_AMOUNT:
+            # no car today (19/11): the allowance the employee receives, asked from the representative as today's copay
+            # is. The rep sees the group and "no company car" only, never pay; the answer completes the value
+            qid = today_maintenance_question_id(state)
+            if existing_text is not None:
+                return TurnOutcome(reply="", source="rep", path="choice",
+                                   rep_question_result=RepQuestionResult(
+                                       status="exists", missing_field=missing_field.value, option_id=qid,
+                                       car_label=NO_CAR_LABEL, question_text=existing_text))
+            hint = state.payslip_maintenance
+            self._request(ctx, MissingField.MAINTENANCE_AMOUNT, Mode.CONFIRM, AnswerType.MONEY, question,
+                          {"group": state.profile.group, "car_label": NO_CAR_LABEL},
+                          suggested=str(hint) if hint is not None else None, option_id=qid)
+            state.unanswered_question = state.last_rep_question = None
+            return TurnOutcome(reply="", source="rep", path="choice", question_requests=ctx.question_requests,
+                               rep_question_result=RepQuestionResult(
+                                   status="created", missing_field=missing_field.value, option_id=qid,
+                                   car_label=NO_CAR_LABEL, catalog_amount=str(hint) if hint is not None else None,
+                                   question_text=question))
         # GENERAL_QUESTION: informational, never changes the calculation. option_id is the content hash, so the
         # same question is recognised (never sent twice) while different questions open their own case.
         if existing_text is not None:
@@ -2618,6 +2720,21 @@ class Agent:
             state.profile.rep_opt_out_allowed = allowed
             invalidate_results(state)
             lines.append(rep_opt_out_text(allowed))
+        elif field == MissingField.MAINTENANCE_AMOUNT and (event.option_id or "") == TODAY_MAINTENANCE_ID:
+            # the employee's own inquiry about their allowance (no car today, 19/11): the answer completes the value
+            # and the calculation runs again — unless the employee gave a value of their own meanwhile, which stays
+            c = state.current
+            if c.source == "none" and c.maintenance is None:
+                c.maintenance, c.maintenance_unknown = amount, False
+                state.field_sources["current_maintenance"] = "representative"
+                if "current_maintenance" in state.profile.approximate_fields:
+                    state.profile.approximate_fields.remove("current_maintenance")
+                invalidate_results(state)
+                lines.append(rep_today_maintenance_text(amount, None))
+            else:
+                lines.append(rep_today_maintenance_text(amount, c.maintenance if c.source == "none" else None))
+            if "maintenance" in state.rep_fields:
+                state.rep_fields.remove("maintenance")
         elif field == MissingField.MAINTENANCE_AMOUNT:
             state.profile.rep_opt_out_maintenance = amount
             invalidate_results(state)
@@ -2808,11 +2925,16 @@ class Agent:
         allowed = (collect_numbers([facts, text]) if facts_numbers_only
                    else self._allowed_numbers(ctx, history, text, cand, draft))
 
+        # the actions the screen has on this reply: the persistent ones and this reply's link (19/11)
+        on_screen = {k: LINK_LABELS[k] for k in [*actions.available(state, snap), *([state.link_now] if state.link_now
+                                                                                     else [])] if k in LINK_LABELS}
+
         def judge(raw: str) -> tuple[str, Check, list[Violation]]:
             part = answer_part(raw)
             result = check_answer(part, snapshot=snap, allowed=allowed, tools_called=cand.tools_called)
             unsupported = self._claims(part, state, snap, deadline, facts) if part else []
-            return part, result, [*result.violations, *(Violation("claim", s) for s in unsupported)]
+            ui = ui_violations(part, on_screen, LINK_LABELS) if part else []     # never a button the screen lacks
+            return part, result, [*result.violations, *ui, *(Violation("claim", s) for s in unsupported)]
 
         part, first, violations = judge(cand.text)
         if not violations:

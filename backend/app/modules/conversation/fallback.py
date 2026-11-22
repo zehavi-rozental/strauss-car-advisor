@@ -386,7 +386,9 @@ def _unknown_plan(snapshot: RulesSnapshot, fields: list[str], text: str,
       - several on screen + a sweeping scope ("לא יודע כלום", "לא יודע אף אחד") → all of them.
       - several on screen, no scope ("לא ידוע", "לא ידוע לי") → AMBIGUOUS: save nothing, ask one at a time.
     """
-    if not fields or any(f not in Q2_FIELDS for f in fields):
+    # the end-of-flow "unknown" group holds today's car values too (copay, use value, maintenance; 19/11): "לא ידוע"
+    # again there is the same acknowledged status for every field, never "not understood"
+    if not fields or (group != "unknown" and any(f not in Q2_FIELDS for f in fields)):
         return None
     span = unknown_span(text)
     if span is None:

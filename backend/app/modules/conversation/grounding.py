@@ -214,6 +214,9 @@ def contributions_zero_said(text: str, cues: Sequence[str], terms: Sequence[str]
     if any(f" {' '.join(words(p))} " in joined for p in nothing if words(p)):
         return True
     stems = tuple(w for t in terms for w in words(t))
+    # a zero word typed one letter short ("אי לי הפרשות", 19/11) counts here only, next to the contributions' own word:
+    # never a value by itself — "אין הפרשות" is held for one confirmation ("לאשר") before anything is saved
+    cues = [*cues, *(c[:-1] for c in cues if len(words(c)) == 1 and len(c) >= 3)]
     return bool(stems) and has_zero_cue(text, cues) and _zero_next_to_stems(stems, words(text.lower()), cues)
 
 

@@ -68,6 +68,10 @@ _FAIL_MESSAGES = {
     "rejected": "שירות הקריאה לא קיבל את הקובץ. אפשר לנסות קובץ אחר, או למלא את הנתונים ידנית.",
     "invalid_response": "קיבלנו תשובה לא תקינה משירות הקריאה. אפשר לנסות שוב, או למלא את הנתונים ידנית.",
     "not_configured": "קריאת תלושים לא זמינה כרגע. אפשר למלא את הנתונים ידנית.",
+    # a test server on recorded answers (PAYSLIP_FAKE_VISION_DIR, 19/11): it knows only its sample payslips. Never a
+    # deployment; said plainly so a real payslip is not taken for a broken file
+    "test_mode": ("השרת הזה הוא סביבת בדיקות שקוראת רק תלושים לדוגמה, ולכן את הקובץ הזה הוא לא קרא. "
+                  "אפשר להמשיך בהזנה בצ'אט, או למלא את הנתונים ידנית."),
 }
 _RETRY = {"timeout", "quota", "unavailable", "invalid_response"}
 

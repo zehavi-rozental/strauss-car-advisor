@@ -86,6 +86,11 @@ def make_client(engine, llm=None, **overrides) -> TestClient:
     return TestClient(app)
 
 
+# the payslip extraction on, with recorded answers only (no model call): a server whose PAYSLIP_ENABLED really runs.
+# Without it (the default here) the server offers no upload: the button and the link are hidden (19/11)
+PAYSLIP_ON = {"payslip_enabled": True,
+              "payslip_fake_vision_dir": str(BACKEND / "tests" / "fixtures" / "payslip_live_2026_10_22")}
+
 CTA_STARTS = ("כתבו", "בחרו", "אפשר לכתוב")
 
 

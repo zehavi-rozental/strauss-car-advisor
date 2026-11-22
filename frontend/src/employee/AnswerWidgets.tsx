@@ -13,9 +13,11 @@ interface Props {
   onSend: Send
   /** "לברר מול נציג" on today's copay: opens the inquiry draft (sent only when the employee sends it) */
   onCopayRep?: (car?: string, catalogAmount?: string) => void
+  /** "לברר מול נציג" on the car-maintenance allowance (no car today, 19/11): the same inquiry draft */
+  onMaintenanceRep?: (payslipAmount?: string) => void
 }
 
-export function AnswerWidgets({ expects, disabled, onSend, onCopayRep }: Props) {
+export function AnswerWidgets({ expects, disabled, onSend, onCopayRep, onMaintenanceRep }: Props) {
   // the representative's copay update is drawn under the answer itself (MessageList), never here (1/11)
   const widgets = widgetsFor(expects).filter((w) => w.field.field !== 'rep_copay')
   if (!widgets.length) return null
@@ -25,6 +27,9 @@ export function AnswerWidgets({ expects, disabled, onSend, onCopayRep }: Props) 
       {widgets.map((w) => (
         w.field.field === 'rep_copay'
           ? <RepCopayUpdate key="rep_copay" field={w.field} disabled={disabled} onSend={onSend} />
+          : w.field.field === 'maintenance' && w.field.type === 'choice'
+          ? <MaintenanceChoices key="maintenance" field={w.field} disabled={disabled} onSend={onSend}
+                                onRep={onMaintenanceRep} fieldParam={grouped ? 'maintenance' : undefined} />
           : w.field.field === 'copay'
           ? <CopayChoices key="copay" field={w.field} disabled={disabled} onSend={onSend} onRep={onCopayRep}
                           fieldParam={grouped ? 'copay' : undefined} />
@@ -107,6 +112,61 @@ function CopayChoices({ field, fieldParam, disabled, onSend, onRep }:
           <label htmlFor="copay-amount">סכום ההשתתפות החודשי (₪)</label>
           <input id="copay-amount" inputMode="decimal" dir="ltr" autoFocus value={amount} disabled={disabled}
                  onChange={(e) => setAmount(e.target.value)} placeholder="300" />
+          <button type="submit" className="btn btn-primary btn-sm" disabled={disabled || !valid}>אישור</button>
+        </form>
+      )}
+    </div>
+  )
+}
+
+/** No company car (19/11), the same shape as today's copay: "זה הסכום שלי" confirms the payslip's amount, "הסכום שונה" /
+ * "להזין סכום" opens an amount field (sent as the value itself), "אין אחזקת רכב" is a confirmed 0, "לברר מול נציג" opens
+ * the inquiry draft. Every button is one the server offered; nothing is assumed here. */
+function MaintenanceChoices({ field, fieldParam, disabled, onSend, onRep }:
+  { field: ExpectsField; fieldParam?: string; disabled: boolean; onSend: Send;
+    onRep?: (payslipAmount?: string) => void }) {
+  const [other, setOther] = useState(false)
+  const [amount, setAmount] = useState('')
+  const valid = copayAmountValid(amount)
+  const choice = (id: string) => field.choices.find((c) => c.id === id)
+  const send = (id: string) => {
+    const c = choice(id)
+    if (c) void onSend({ choice: c.id, field: fieldParam ?? 'maintenance' }, c.label)
+  }
+  const payslipAmount = field.context?.payslip_amount ?? undefined
+  const mine = choice('payslip')
+  const otherChoice = choice('other')
+  const none = choice('none')
+  const rep = choice('rep')
+  return (
+    <div className="reply-row copay-choices maintenance-choices">
+      {mine && (
+        <button type="button" className="chip chip-primary" disabled={disabled} onClick={() => send('payslip')}>
+          {mine.label}
+        </button>
+      )}
+      {otherChoice && (
+        <button type="button" className="chip" aria-expanded={other} disabled={disabled} onClick={() => setOther((o) => !o)}>
+          {otherChoice.label}
+        </button>
+      )}
+      {none && (
+        <button type="button" className="chip" disabled={disabled} onClick={() => send('none')}>{none.label}</button>
+      )}
+      {rep && onRep && (
+        <button type="button" className="chip chip-quiet" disabled={disabled} onClick={() => onRep(payslipAmount)}>
+          {rep.label}
+        </button>
+      )}
+      {other && (
+        <form className="copay-amount" onSubmit={(e) => {
+          e.preventDefault()
+          if (valid) void onSend({ fields: { current_maintenance: Number(amount.trim().replace(',', '.')) } },
+                                 `אחזקת הרכב החודשית שלי: ${amount.trim()} ₪`)
+        }}>
+          <label htmlFor="maintenance-amount">סכום אחזקת הרכב החודשי (₪)</label>
+          <input id="maintenance-amount" inputMode="decimal" dir="ltr" autoFocus value={amount} disabled={disabled}
+                 onChange={(e) => setAmount(e.target.value)} placeholder="1500" />
           <button type="submit" className="btn btn-primary btn-sm" disabled={disabled || !valid}>אישור</button>
         </form>
       )}

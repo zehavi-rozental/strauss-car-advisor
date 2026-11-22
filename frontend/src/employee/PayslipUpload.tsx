@@ -13,12 +13,13 @@ import { formatMoney } from '../format/money'
 import { Icon } from '../ui/Icon'
 import { payslipOutcome } from './payslipOutcome'
 import type { PayslipOutcome } from './payslipOutcome'
-import { CHOOSE_FIRST, assign, assignable, choicesFor, reviewFields, reviewRows, shownValue, typed } from './payslipReview'
+import { CHOOSE_FIRST, assign, assignable, choicesFor, payslipMaintenance, reviewFields, reviewRows, shownValue, typed } from './payslipReview'
 import type { ReviewRow } from './payslipReview'
 import type { SendResult } from './useConversation'
 
 interface Props {
-  onSubmit: (fields: ProfileFields) => Promise<SendResult>
+  /** maintenance: a car-maintenance line found on the payslip (offered later, never saved by itself) */
+  onSubmit: (fields: ProfileFields, maintenance?: string) => Promise<SendResult>
   onCancel: () => void
   loadProfile: () => Promise<Record<string, unknown>>
   // the extraction for this conversation (useConversation.extractPayslip: its session is checked by the server)
@@ -28,8 +29,11 @@ interface Props {
 
 // MIME types the server accepts (it also re-checks by file signature). Guides the file picker.
 const ACCEPT = 'application/pdf,image/jpeg,image/png,image/webp'
-const UPLOAD_HINT = 'מעלים צילום או PDF של התלוש. קוראים ממנו רק נתוני שכר והפרשות — לא שם, לא ת"ז ולא פרטי בנק. ' +
-  'התלוש עצמו לא נשמר.'
+// what to upload and why (19/11), in the formats the server really accepts (payslip/extract.py ALLOWED_MIME)
+const UPLOAD_HINT = 'העלו את תלוש השכר האחרון שלכם, רצוי מהחודש האחרון, כקובץ PDF או כתמונה (JPG, PNG או WEBP). ' +
+  'נקרא ממנו רק את נתוני השכר וההפרשות שמשפיעים על חישוב הנטו — לא שם, לא ת"ז ולא פרטי בנק.'
+const REVIEW_PROMISE = 'הנתונים שיזוהו יוצגו לכם לבדיקה ולתיקון, ורק אחרי שתאשרו ישמשו לחישוב. מה שלא יזוהה נשלים יחד בשיחה.'
+const CHAT_LABEL = "להמשיך בהזנה בצ'אט"
 const MANUAL_HINT = 'מלאו את הנתונים ידנית, בחרו מה לעדכן ואשרו. אפשר גם לבטל ולכתוב בצ׳אט.'
 const REVIEW_HINT = 'לכל שורה בחרו אם לעדכן את הפרופיל. כשהתלוש שונה ממה שכתבתם בשיחה, בחרו איזה ערך נכון לחישוב.'
 const ASSIGN_LABEL: Record<string, string> = { commissions: 'לשייך לעמלות', bonus: 'לשייך לבונוס' }
@@ -113,7 +117,7 @@ export function PayslipUpload({ onSubmit, onCancel, loadProfile, extract, disabl
     }
     setError(null)
     setBusy(true)
-    const sent = await onSubmit(built.fields)
+    const sent = await onSubmit(built.fields, payslipMaintenance(info))
     setBusy(false)
     if (!sent.ok) {
       // all or nothing: nothing was saved; the review stays as it was, and each refused field says why
@@ -131,14 +135,17 @@ export function PayslipUpload({ onSubmit, onCancel, loadProfile, extract, disabl
   if (step === 'pick' || step === 'failed') {
     const failed = step === 'failed' && outcome !== null
     return (
-      <div className={`profile-form panel-card payslip-upload${failed ? ' is-failed' : ''}`} aria-label="העלאת תלוש">
+      <div className={`profile-form panel-card payslip-upload${failed ? ' is-failed' : ''}`} aria-label="העלאת תלוש שכר">
         <header className="panel-card-head">
           <span className="panel-card-icon" aria-hidden="true"><Icon name={failed ? 'alert' : 'doc'} size={20} /></span>
           <div>
-            <h3>{failed ? outcome.title : 'העלאת תלוש'}</h3>
+            <h3>{failed ? outcome.title : 'העלאת תלוש שכר'}</h3>
             {failed
               ? <p className="field-error" role="alert">{outcome.message}</p>
-              : <p className="form-hint">{UPLOAD_HINT}</p>}
+              : <>
+                  <p className="form-hint">{UPLOAD_HINT}</p>
+                  <p className="form-hint">{REVIEW_PROMISE}</p>
+                </>}
           </div>
         </header>
         {fileInput}
@@ -158,7 +165,8 @@ export function PayslipUpload({ onSubmit, onCancel, loadProfile, extract, disabl
           {failed && (
             <button type="button" className="chip chip-quiet" disabled={working} onClick={() => void manual()}>מילוי ידני</button>
           )}
-          <button type="button" className="chip chip-quiet" disabled={working} onClick={onCancel}>ביטול</button>
+          {/* back to the chat: the questions go on there, nothing given so far is lost (19/11) */}
+          <button type="button" className="chip chip-quiet" disabled={working} onClick={onCancel}>{CHAT_LABEL}</button>
         </div>
       </div>
     )

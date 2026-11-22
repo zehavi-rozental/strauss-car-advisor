@@ -67,7 +67,9 @@ def test_no_car_allowance_unknown_does_not_block_options_but_blocks_net(sessions
     c = car(svc, turn, token)
     assert c.source == "none"
     assert c.maintenance is None                                       # unknown, NOT assumed 0
-    assert "maintenance" in svc.view(turn.conversation_id, token).state.deferred_fields
+    # 19/11: the unknown status (as today's copay), not a deferral that came straight back
+    st = svc.view(turn.conversation_id, token).state
+    assert c.maintenance_unknown and "maintenance" not in st.deferred_fields
     assert turn.stage == Stage.CHOOSE_OPTIONS                          # alternatives are still choosable
     # pick an alternative: the deferred allowance comes back before any net is shown (never an assumed 0)
     turn = svc.send(turn.conversation_id, token, "אטו 3")

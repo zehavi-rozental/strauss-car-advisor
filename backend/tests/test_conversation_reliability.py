@@ -206,7 +206,7 @@ def test_payslip_link_offered_during_salary_collection(sessions):
     the 'להעלות תלוש' link (the employee can upload instead of typing)."""
     svc = service(sessions)
     turn, token = talk(svc, [PROFILE_Q1])
-    assert turn.expects["link"] == {"kind": "payslip_upload", "label": "להעלות תלוש"}
+    assert turn.expects["link"] == {"kind": "payslip_upload", "label": "להעלות תלוש שכר"}
 
 
 def test_payslip_link_in_salary_collection_when_enabled(sessions, tmp_path):
@@ -221,7 +221,7 @@ def test_payslip_link_in_salary_collection_when_enabled(sessions, tmp_path):
                    encoding="utf-8")
     svc = service(sessions, config=config)
     turn, token = talk(svc, [PROFILE_Q1])        # now on Q2 (salary components)
-    assert turn.expects["link"] == {"kind": "payslip_upload", "label": "להעלות תלוש"}
+    assert turn.expects["link"] == {"kind": "payslip_upload", "label": "להעלות תלוש שכר"}
 
 
 # ===========================================================================

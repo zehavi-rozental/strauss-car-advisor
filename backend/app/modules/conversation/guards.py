@@ -22,6 +22,7 @@ from typing import Iterable, Optional, Sequence
 
 from app.modules.rules.public import RulesSnapshot, matched_name
 
+from .actions import UI_WORDS      # the action contract's own vocabulary (19/11)
 from .llm.port import ChatMessage, LLMChain, LLMError
 from .parsing import numbers_in
 
@@ -76,7 +77,22 @@ HINTS = {"repeat": "the question is word for word the previous one; say in one l
          "unanswered": "the employee asked something or complained: answer it or acknowledge it in one sentence "
                        "before the next question",
          "stale": "a question names a field the employee already answered (STATE knows it): ask only for what "
-                  "is still missing (NEXT in STATE)"}
+                  "is still missing (NEXT in STATE)",
+         "ui": "a sentence names a button, link or form that is not on the employee's screen: name only the actions "
+               "in ACTIONS ON SCREEN, by their exact label, or none"}
+
+
+
+def ui_violations(text: str, on_screen: dict[str, str], all_labels: dict[str, str]) -> list[Violation]:
+    """Sentences that name a control the screen does not have (19/11): a label of a known action that is not on it now,
+    or a control word when no action is on it. on_screen / all_labels: kind -> the button's label. The model's words
+    are never proof that a button exists: only the action contract (actions.py, expects.actions) is."""
+    missing = [label for kind, label in all_labels.items() if kind not in on_screen]
+    out = []
+    for s in sentences(strip_tags(text)):
+        if any(label in s for label in missing) or (not on_screen and any(w in s for w in UI_WORDS)):
+            out.append(Violation("ui", s))
+    return out
 
 
 @dataclass

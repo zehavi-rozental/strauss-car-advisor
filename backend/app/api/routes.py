@@ -68,6 +68,9 @@ class MessageIn(BaseModel):
     field: Optional[str] = None      # בשאלה מקובצת: לאיזה שדה הבחירה (כשכמה שדות מציעים אותו מזהה)
     source: Optional[Literal["payslip"]] = None   # fields only: values approved from a reviewed payslip
     base_version: Optional[int] = None    # fields only: the data version the screen showed (409 if it changed since)
+    # with source "payslip" only (19/11): a car-maintenance line found on the reviewed payslip, offered to the employee
+    # for the no-car question; never saved as a value by itself
+    payslip_maintenance: Optional[Decimal] = None
 
 
 def _turn(t: TurnResult, service: ConversationService) -> dict[str, Any]:
@@ -158,6 +161,8 @@ def send_message(conversation_id: str, body: MessageIn, request: Request) -> Any
         raise HTTPException(422, "יש לשלוח אחד מהשדות: text, choice, choices או fields")
     if body.source is not None and body.fields is None:
         raise HTTPException(422, "source מתאים רק לשליחת שדות")
+    if body.payslip_maintenance is not None and body.source != "payslip":
+        raise HTTPException(422, "payslip_maintenance מתאים רק לנתונים מתלוש")
     form = body.fields.model_dump(exclude_none=True) if body.fields is not None else None
     choice = [body.choice] if body.choice is not None else body.choices
     text = (body.text or "").strip()
@@ -172,7 +177,8 @@ def send_message(conversation_id: str, body: MessageIn, request: Request) -> Any
         raise HTTPException(429, "יותר מדי הודעות בדקה. נסו שוב עוד מעט.")
     try:
         if form is not None:
-            return _turn(ctx.service.send_fields(conversation_id, token, form, body.source, body.base_version),
+            return _turn(ctx.service.send_fields(conversation_id, token, form, body.source, body.base_version,
+                                                  body.payslip_maintenance),
                          ctx.service)
         if choice is not None:
             return _turn(ctx.service.send_choice(conversation_id, token, choice, body.field), ctx.service)
@@ -208,7 +214,7 @@ class RepQuestionIn(BaseModel):
     'copay_verification' נשלח רק מפעולת בירור השתתפות מובנית לרכב ידוע — אחרת 'general' (אינפורמטיבי)."""
     model_config = ConfigDict(extra="forbid")
     question: str
-    intent: Literal["general", "copay_verification", "current_copay"] = "general"
+    intent: Literal["general", "copay_verification", "current_copay", "current_maintenance"] = "general"
     option_id: Optional[str] = None
     email: Optional[str] = None
 

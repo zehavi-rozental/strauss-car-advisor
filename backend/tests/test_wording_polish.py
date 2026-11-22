@@ -106,14 +106,16 @@ def test_an_unrelated_faq_entry_is_not_used(sessions):
     # a car's property: nothing verified answers it, so code offers the representative (the reply contract, 16/11)
     assert "אפשר להשוות עד" not in turn.reply and "נציג התחבורה" in turn.reply
     turn, _, _ = talk(service(sessions), [SUNROOF])           # without an LLM: the honest line, no FAQ entry
-    assert turn.reply.startswith("על זה אין לי מידע מדויק") and "אפשר להשוות עד" not in turn.reply
+    # 19/11: the property is said as unverified (templates.ATTRIBUTE_UNVERIFIED), never an FAQ entry next to it
+    assert turn.reply.startswith("צבע, אבזור וזמינות של רכב") and "אפשר להשוות עד" not in turn.reply
 
 # ---------- 8. the rep offer is the turn's one call to action ----------
 
 def test_the_rep_offer_is_the_only_call_to_action(sessions):
     turn, token, _ = talk(service(sessions), ["מנהלת מוצר", SUNROOF])
     paragraphs = turn.reply.split("\n\n")
-    assert paragraphs == ["על זה אין לי מידע מדויק. התשובה של נציג התחבורה תגיע לכאן. רוצים שאשאל אותו?"]   # the offer only
+    from app.modules.conversation.templates import ATTRIBUTE_UNVERIFIED
+    assert paragraphs == [ATTRIBUTE_UNVERIFIED]          # the offer only (19/11: a car property, said as unverified)
     assert "שכר הבסיס" not in turn.reply and turn.expects["link"] is None          # no flow question, no link
     ask = [f for f in turn.expects["fields"] if f["field"] == "ask_rep"][0]
     assert ask["closed"] and [c["id"] for c in ask["choices"]] == ["ask_rep", "skip"]

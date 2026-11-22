@@ -197,6 +197,8 @@ explain_cues: [מה זה, מה זו, מה זאת, מהו, מהי, מה זה או
 # a question said again ("שאלתי מה זה הפרשות", "התכוונתי לשאול…"): the rest of the message is the question, read as
 # one; never an answer to the question on screen
 requery_cues: [שאלתי, שאלתי אותך, אני שואל, אני שואלת, השאלה שלי, התכוונתי לשאול, רציתי לשאול, רק שאלתי]
+# an answer said again (19/11): "כתבתי שכלום" is read as "כלום" (the joining "ש" dropped when an answer follows)
+restate_cues: [כתבתי, כבר כתבתי, אמרתי, כבר אמרתי, עניתי, כבר עניתי, כתבתי לך, אמרתי לך]
 # a question about the payslip or a reason that points back ("איפה זה בתלוש?", "למה צריך את זה?", "תן דוגמה"): about
 # the term explained in the last reply, else the field the last reply asked
 reference_words: [זה, זו, זאת, הזה, הזאת, אותו, אותה, אותם, אלה, האלה]

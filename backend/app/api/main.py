@@ -55,6 +55,13 @@ def create_app(settings: Optional[Settings] = None, *, engine: Optional[Engine] 
     cases = CasesService(sessions)
     email_notifications = EmailNotificationService(sessions, settings)
     payslip = PayslipService(rules, settings)
+    ext = rules.current.extensions
+    if (ext.payslip_upload_enabled and not ext.payslip_upload_url) and not payslip.enabled:
+        # the screen offers "להעלות תלוש" by the config switch (conversation/actions.py); the extraction needs the backend
+        # switch and a model too. Said at startup so the two never disagree unnoticed (19/11)
+        logging.getLogger("app.modules.payslip").warning(     # its own logger: the startup line stays one
+            "payslip_upload_enabled is on in extensions.yaml but the payslip extraction is off "
+            "(PAYSLIP_ENABLED / model key): the upload button and link are not offered")
     stop_email_worker = threading.Event()
     email_worker: Optional[threading.Thread] = None
 
@@ -90,7 +97,7 @@ def create_app(settings: Optional[Settings] = None, *, engine: Optional[Engine] 
     app.state.ctx = AppContext(
         settings=settings, sessions=sessions, rules=rules,
         service=ConversationService(sessions, rules, llm, cases, settings.max_messages_per_conversation,
-                                    settings.llm_mode, email_notifications),
+                                    settings.llm_mode, email_notifications, payslip_ready=payslip.enabled),
         cases=cases,
         payslip=payslip,
         message_limiter=RateLimiter(settings.rate_limit_per_minute),

@@ -61,7 +61,8 @@ def test_the_rank_button_keeps_the_request_and_asks_the_missing_value_with_where
     asked = no_car_maintenance_unknown(say)
     assert offers_rank(asked)
     turn = say(RANK)
-    assert LOOP not in turn["reply"] and turn["stage"] == "COLLECT_CURRENT_CAR"
+    # 19/11: the allowance is an unknown value now, completed in the end-of-flow step (as today's unknown copay)
+    assert LOOP not in turn["reply"] and turn["stage"] == "COLLECT_PROFILE"
     assert "ביקשתם את החלופות הכי משתלמות" in turn["reply"]
     assert "חסר לי עוד סכום אחזקת הרכב" in turn["reply"] and "שורת אחזקת רכב" in turn["reply"]
     assert "לבדוק בהמשך" not in turn["reply"]          # put off once already: the end is now
@@ -147,6 +148,6 @@ def test_with_the_model_a_typed_ranking_request_is_kept_while_a_value_is_unknown
     say, view = start(engine, FakeLLM())
     no_car_maintenance_unknown(say)
     turn = say("הכי משתלם")
-    assert turn["stage"] == "COLLECT_CURRENT_CAR" and LOOP not in turn["reply"] and view()["results"] == []
+    assert turn["stage"] == "COLLECT_PROFILE" and LOOP not in turn["reply"] and view()["results"] == []
     done = say("1,200")
     assert done["stage"] == "PRESENTED" and len(view()["results"]) == 3

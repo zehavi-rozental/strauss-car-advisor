@@ -111,7 +111,8 @@ class CurrentCar(BaseModel):
     copay_provisional: Optional[Decimal] = None
     # When there is no company car today: does the employee receive a car-maintenance allowance?
     # maintenance=Decimal: the confirmed amount (0 = the employee said they do NOT receive one).
-    # maintenance=None + maintenance_unknown=True: "אבדוק בהמשך" — unknown, never assumed, blocks the net.
+    # maintenance=None + maintenance_unknown=True: "לא ידוע" — the same status as today's unknown copay (19/11):
+    # not asked again now, completed at the end (current_unknown), never assumed, blocks the net.
     # maintenance=None + maintenance_unknown=False: not asked yet.
     maintenance: Optional[Decimal] = None
     maintenance_unknown: bool = False
@@ -245,6 +246,15 @@ class ResolvedValueChoice(BaseModel):
     chosen: list[str] = Field(default_factory=list)
 
 
+class ReplyContext(BaseModel):
+    """What the last reply was about (19/11): its topic, the field it asked and the actions it offered. A follow-up
+    ("איפה הכפתור?", "איך עושים את זה?", "איפה זה?") is read against it first, before the question on screen."""
+
+    topic: Optional[str] = None
+    asked_field: Optional[str] = None
+    offered: list[str] = Field(default_factory=list)      # actions.py kinds the reply offered (its link)
+
+
 class ConversationState(BaseModel):
     stage: Stage = Stage.COLLECT_PROFILE
     profile: Profile = Field(default_factory=Profile)
@@ -338,6 +348,19 @@ class ConversationState(BaseModel):
     # and every value it needs is known. Never changes the selection.
     map_requested: bool = False
     option_map: Optional[OptionMap] = None
+    # Today's values whose amount the transport representative was asked for (19/11): "copay", "maintenance". An
+    # explicit status next to "unknown": the end-of-flow question says the answer is on its way instead of asking the
+    # employee to look for it, and the representative is not offered again. A value saved (the employee's, an
+    # estimate, or the representative's answer) clears it.
+    rep_fields: list[str] = Field(default_factory=list)
+    # A car-maintenance line found on a payslip the employee reviewed (19/11): offered as "זה הסכום שלי" when there is
+    # no company car, never saved by itself. payslip_reviewed: a payslip was reviewed (with or without such a line).
+    payslip_maintenance: Optional[Decimal] = None
+    payslip_reviewed: bool = False
+    # the employee asked to upload a (new) payslip or to update the salary details (19/11): the upload is on the screen
+    # again, at any stage, until a payslip is confirmed. Without it the upload stays hidden once one was confirmed
+    payslip_requested: bool = False
+    last_reply: ReplyContext = Field(default_factory=ReplyContext)
 
 
 # ---------- מה חסר ----------
@@ -360,11 +383,11 @@ def missing_current_car(c: CurrentCar) -> list[str]:
     if c.source is None:
         return ["use_value"] if c.query else ["car"]
     if c.source == "none":
-        # the maintenance-allowance question: "כן" (an amount) or "לא" (maintenance=0, a confirmed value)
-        # answers it. "אבדוק בהמשך" postpones it via deferred_fields (hidden_deferred skips it while
-        # alternatives are chosen, and brings it back before the net is shown) — never a silent 0, never a
-        # net on an unverified assumption.
-        return [] if c.maintenance is not None else ["maintenance"]
+        # the maintenance-allowance question: an amount, "אין" (maintenance=0, a confirmed value) or the payslip's
+        # amount confirmed answers it. "לא ידוע" / "לברר מול נציג" is the unknown status (19/11): like today's copay
+        # it waits in current_unknown and comes back once, at the end, when the calculation needs it — never a
+        # silent 0, never a net on an unverified assumption, never the same question again at once.
+        return [] if c.maintenance is not None or c.maintenance_unknown else ["maintenance"]
     missing: list[str] = []
     if c.use_value is None and not c.use_value_unknown:
         missing.append("use_value")
@@ -391,7 +414,22 @@ def current_unknown(c: CurrentCar) -> list[str]:
         out.append("use_value")
     if c.copay_unknown and c.copay is None and c.copay_provisional is None:
         out.append("copay")
+    if c.source == "none" and c.maintenance_unknown and c.maintenance is None:
+        out.append("maintenance")       # no car today: the allowance, the same status as the copay (19/11)
     return out
+
+
+REP_ASKABLE = ("copay", "maintenance")   # today's values the employee may send to the representative (19/11)
+# Values an estimate the employee writes can stand in for, marked as one in the results (19/11; credit points as the
+# 16/11 rule offers). Not the number of children (a fact of the employee, not an approximation) and not the car itself.
+ESTIMABLE = ("base", "commissions", "bonus", "pension_percent", "study_fund_percent", "credit_points", "copay",
+             "use_value", "maintenance")
+
+
+def with_rep(state: ConversationState, field: str) -> bool:
+    """The value is unknown and its amount was asked from the representative (rep_fields, 19/11): the answer is on its
+    way. Read through the unknown status, so an entry left by a value saved some other way never counts."""
+    return field in state.rep_fields and field in current_unknown(state.current)
 
 
 def map_missing(state: ConversationState) -> list[str]:

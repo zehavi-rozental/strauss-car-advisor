@@ -133,7 +133,7 @@ nothing_deducted_phrases: [לא יורד לי כלום, לא יורד כלום, 
 # it answers the ONE field the last question asked (like a bare number), never another field and never a grouped
 # question. Needs a negative word (bare_zero_negatives or a zero cue); every other word must be one of these.
 # Pension 0% and credit points 0 are then confirmed once, as always (unusual_values). Missing is never zero.
-bare_zero_negatives: [לא, אין, אפס, בלי, ללא, "0"]
+bare_zero_negatives: [לא, אין, אפס, בלי, ללא, כלום, "0"]   # כלום (19/11): "nothing", said alone
 bare_zero_words: [גם, ממש, באמת, בכלל, כלום, שום, דבר, לי, אצלי, מכם, ממני, יורד, יורדת, יורדים, מופרש, מופרשת, מופרשים,
                   מפרישים, מפרישה, מפריש, מורידים, מוריד, מורידה, מקבל, מקבלת, משלם, משלמת, כזה, כזאת, עליו]
 all_at_once_cues: [כל השאלות בפעם אחת, כל השאלות ביחד, כל השאלות יחד, את כל השאלות, כל השאלות במכה, אמלא הכל ביחד,

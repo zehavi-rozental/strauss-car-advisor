@@ -14,8 +14,9 @@ from typing import Any, Optional, Sequence
 from app.modules.rules.public import FAMILY_GROUP, RulesSnapshot
 from app.shared.money import to_shekel
 
-from .stage import (MAX_OPTIONS, PROFILE_ARGS, Q2_FIELDS, profile_args, ConversationState, RepReason, Stage, current_group,
-                    current_unknown, missing_current_car, next_stage, open_profile, unknown_missing)
+from .stage import (ESTIMABLE, MAX_OPTIONS, PROFILE_ARGS, Q2_FIELDS, REP_ASKABLE, profile_args, ConversationState, RepReason,
+                    Stage, current_group, current_unknown, missing_current_car, next_stage, open_profile, unknown_missing,
+                    with_rep)
 from .tools import available_options
 
 DRIVE_HE = {"PETROL": "בנזין", "HYBRID": "היברידי", "PLUG_IN": "פלאג-אין", "ELECTRIC": "חשמלי"}
@@ -80,6 +81,22 @@ def copay_choices_offered(state: ConversationState, snapshot: RulesSnapshot) -> 
             and c.copay_provisional is None)
 
 
+_NOT_ON_PAYSLIP = ("children",)     # faq.yaml children.where: "זה לא בתלוש"
+
+
+def maintenance_question(state: ConversationState) -> str:
+    """No company car today: the car-maintenance allowance, a closed question like today's copay (19/11). An amount read
+    from a payslip the employee reviewed is offered to confirm, change or check with the representative; without one
+    nothing is suggested: an amount, "אין אחזקת רכב" or the representative. Never assumed, never 0 by itself."""
+    if state.payslip_maintenance is not None:
+        return (f"מכיוון שאין לכם רכב צמוד: בתלוש שהעליתם זיהיתי אחזקת רכב של {money(state.payslip_maintenance)} "
+                "בחודש. זה הסכום שאתם מקבלים היום?")
+    if state.payslip_reviewed:
+        return ("מכיוון שאין לכם רכב צמוד, האם אתם מקבלים היום אחזקת רכב? בתלוש שהעליתם לא זיהיתי שורה כזו, "
+                "ולכן לא אניח סכום.")
+    return "מכיוון שאין לכם רכב צמוד, האם אתם מקבלים היום אחזקת רכב בתלוש? אם כן, כמה בחודש?"
+
+
 def question(field: str, state: ConversationState, snapshot: RulesSnapshot) -> str:
     c = state.current
     age = snapshot.strauss.family_track.child_max_age
@@ -102,8 +119,7 @@ def question(field: str, state: ConversationState, snapshot: RulesSnapshot) -> s
                      f"לא מצאתי את \"{c.query or ''}\" במאגר. מה שווי השימוש החודשי שמופיע בתלוש שלכם?",
         "drive": "מה סוג ההנעה של הרכב: בנזין, היברידי, פלאג-אין או חשמלי?",
         "copay": "מה ההשתתפות החודשית שלכם היום בעלות הרכב?",
-        "maintenance": ("מכיוון שאין לכם רכב צמוד, האם אתם מקבלים היום אחזקת רכב בתלוש? "
-                        "אם כן, כמה בחודש? אם לא, כתבו \"אין\". אפשר גם לבדוק בהמשך."),
+        "maintenance": maintenance_question(state),
     }
     if field == "car_choice" and c.choices and all(ch.catalog_code for ch in c.choices):
         names = " או ".join(ch.label for ch in c.choices)
@@ -115,14 +131,6 @@ def question(field: str, state: ConversationState, snapshot: RulesSnapshot) -> s
                 "קוד הדגם מופיע ברישיון הרכב.\n" + "\n".join(lines))
     if field == "options":
         return options_ask(state, snapshot)
-    if field == "maintenance" and "maintenance" in state.deferred_fields:
-        # not known earlier and kept for the end: asked again with why it is needed and where it is, never the
-        # first wording again with "אפשר גם לבדוק בהמשך" (manual QA 9/11: the same question came back after the
-        # cars were chosen)
-        entry = snapshot.faq.get("maintenance")
-        where = f" {entry.where}" if entry is not None and entry.where else ""
-        return ("כדי לחשב את הנטו שלכם היום, חסר לי עוד סכום אחזקת הרכב."
-                f"{where} אם אין בתלוש שורה כזו, כתבו \"אין\".")
     if field == "copay" and (hint := catalog_copay_hint(state, snapshot)) is not None:
         return (f"לפי הקטלוג, ההשתתפות החודשית ב-{c.label} היא {money(hint)}. זה סכום כללי, ובהסכם האישי שלכם "
                 "הוא עשוי להיות שונה. מה נכון אצלכם?")
@@ -192,7 +200,8 @@ _LEFTOVER_NAMES = {"commissions": "עמלות", "bonus": "בונוס", "pension_
                    "study_fund_percent": "קרן השתלמות", "credit_points": "נקודות זיכוי", "children": "ילדים"}
 # what is left when only unknown values remain: the Q2 leftovers, and today's car values the employee does not know
 # (rule A, 22/10: asked from the employee, never the representative)
-_UNKNOWN_NAMES = {**_LEFTOVER_NAMES, "copay": "ההשתתפות ברכב של היום", "use_value": "שווי השימוש של הרכב של היום"}
+_UNKNOWN_NAMES = {**_LEFTOVER_NAMES, "copay": "ההשתתפות ברכב של היום", "use_value": "שווי השימוש של הרכב של היום",
+                  "maintenance": "סכום אחזקת הרכב"}
 
 
 def _q1(fields: list[str], state: ConversationState, snapshot: RulesSnapshot) -> str:
@@ -892,6 +901,15 @@ def form_saved_text(previous: dict[str, Any], saved: dict[str, Any], source: Opt
     return "\n".join(lines)
 
 
+def rep_today_maintenance_text(amount: Decimal, kept: Optional[Decimal]) -> str:
+    """The representative's answer about the employee's own car-maintenance allowance (no car today, 19/11). kept: a
+    value the employee gave meanwhile, which is not replaced by itself (it can be changed in "הנתונים שלי")."""
+    if kept is not None:
+        return (f"נציג התחבורה השיב: אחזקת הרכב שלכם היא {money(amount)} בחודש. בינתיים מסרתם {money(kept)}, "
+                "והחישוב נשאר לפיו. אם צריך לעדכן, אפשר לעשות זאת ב\"הנתונים שלי\".")
+    return f"נציג התחבורה השיב: אחזקת הרכב שלכם היא {money(amount)} בחודש. עדכנתי את הנתון."
+
+
 def rep_maintenance_text(amount: Decimal) -> str:
     return f"נציג התחבורה השיב: סכום אחזקת הרכב בוויתור הוא {money(amount)} בחודש."
 
@@ -1055,7 +1073,7 @@ SAVED_STARTS = ("רשמתי", "עדכנתי", "זיהיתי")
 NEXT_AFTER_RESULTS = "רוצים לראות אילו רכבים משאירים לכם את הנטו הגבוה ביותר?"
 NEXT_AFTER_RANK = "רוצים להשוות רכבים אחרים? כתבו את השמות שלהם."
 LINK_LABELS = {"profile_form": "למלא בטופס", "selection": "לבחור רכבים להשוואה",
-               "payslip_upload": "להעלות תלוש", "correction_form": "לפתוח את טופס תיקון הנתונים"}
+               "payslip_upload": "להעלות תלוש שכר", "correction_form": "לפתוח את טופס תיקון הנתונים"}
 
 # a correction of the employee's own data (1/11): code asks what, or the new value; saved like the form, then every
 # result and the option map are recalculated. Never a question for the representative.
@@ -1086,18 +1104,39 @@ def _names(fields: Sequence[str]) -> str:
 def unknown_text(state: ConversationState, snapshot: RulesSnapshot, fields: Sequence[str]) -> str:
     """Only fields the employee does not know are left: no calculation, never a default. Said once with
     where to find each value; asked again ("לא יודע") in other words, never the same text twice in a row."""
+    waiting = [f for f in fields if with_rep(state, f)]
+    open_ = [f for f in fields if f not in waiting]
+    estimable = any(f in ESTIMABLE for f in fields)
+    estimate = " אם אתם יודעים בערך, כתבו את הערך ואסמן את התוצאה כהערכה." if estimable else ""
+    if waiting:
+        # sent to the representative (19/11): the answer is on its way — never "maybe you found it", never offered again
+        waited = _names(waiting)
+        lines = [f"החישוב מחכה ל{waited[1:] if waited.startswith('ה') else waited}: "
+                 "שאלתי את נציג התחבורה, והתשובה תגיע לכאן ואחשב מיד. לא אנחש ולא אציב 0 בינתיים."
+                 + (" אם אתם יודעים בערך, אפשר לכתוב הערכה ואסמן את התוצאה כמשוערת." if estimable else "")]
+        if open_:
+            lines.append(f"חסר עוד: {_names(open_)}.")
+        return "\n".join(lines)
+    if fields == ["maintenance"]:
+        # no car today, the allowance alone (19/11): what is missing, where it is (only if there is one), and every way on
+        entry = snapshot.faq.get("maintenance")
+        where = f" {entry.where}" if entry is not None and entry.where else ""
+        if state.unknown_told % 2:
+            return ("בסדר. החישוב מחכה רק לסכום אחזקת הרכב: בלעדיו אין נטו אמין, ולכן לא אנחש ולא אציב 0. "
+                    "אפשר לברר מול נציג, לכתוב הערכה ואסמן אותה, או לכתוב \"אין\" אם אינכם מקבלים אחזקה.")
+        return (f"כדי לחשב את הנטו שלכם היום, חסר לי עוד סכום אחזקת הרכב.{where} "
+                "אם אינכם מקבלים אחזקה, כתבו \"אין\". אפשר גם לברר מול נציג, או לכתוב הערכה ואסמן אותה בתוצאות.")
     names = _names(fields)
     if state.unknown_told % 2:
         # still unknown (16/11): no reliable net yet, said briefly; everything else goes on, and a value the employee
         # knows roughly is welcome, marked as an estimate. Never a value of the system's own, never 0.
         to = names[1:] if names.startswith("ה") else names        # ל + ההשתתפות = להשתתפות
-        return (f"בסדר. החישוב מחכה רק ל{to}: בלעדיו אין נטו אמין, ולכן לא אנחש ולא אציב 0. "
-                "אם אתם יודעים בערך, כתבו את הערך ואסמן את התוצאה כהערכה. "
+        return (f"בסדר. החישוב מחכה רק ל{to}: בלעדיו אין נטו אמין, ולכן לא אנחש ולא אציב 0.{estimate} "
                 "בינתיים אפשר לשאול על הרכבים, הזכאות וההשתתפות בכל רכב.")
     these = "הערך הזה" if len(fields) == 1 else "הערכים האלה"
     # the calculation needs them now: asked again gently, once, with where to find them (16/11)
-    lines = [f"כדי לחשב את הנטו אני צריך עכשיו את {names}. אולי כבר מצאתם {these}? "
-             "אם אתם יודעים רק בערך, אפשר לכתוב הערכה ואסמן אותה בתוצאות."]
+    lines = [f"כדי לחשב את הנטו אני צריך עכשיו את {names}. אולי כבר מצאתם {these}?"
+             + (" אם אתם יודעים רק בערך, אפשר לכתוב הערכה ואסמן אותה בתוצאות." if estimable else "")]
     where = [f for f in fields if (e := snapshot.faq.get(f)) is not None and e.where]
     if len(where) <= 2:           # where on the payslip, field by field — short
         lines += [f"{_UNKNOWN_NAMES[f]}: {snapshot.faq.get(f).where}" for f in where]
@@ -1105,6 +1144,18 @@ def unknown_text(state: ConversationState, snapshot: RulesSnapshot, fields: Sequ
         lines.append("כולם מופיעים בתלוש השכר החודשי.")
     return "\n".join(lines)
 UNANSWERED = "על זה אין לי מידע מדויק. התשובה של נציג התחבורה תגיע לכאן. רוצים שאשאל אותו?"
+# a car property the catalog does not hold (colour, equipment, sunroof, stock: faq.attribute_terms, 19/11): said as
+# unverified, never "not possible" and never a stock claim; the representative can check it
+ATTRIBUTE_UNVERIFIED = ("צבע, אבזור וזמינות של רכב לא מופיעים בקטלוג שלי, כך שאין לי מידע מאומת עליהם ולא אקבע אם זה "
+                        "אפשרי. נציג התחבורה יכול לבדוק את זה עבורכם. רוצים שאשאל אותו?")
+
+
+def unanswered_offer(state: ConversationState, snapshot: RulesSnapshot) -> str:
+    """The offer to ask the representative, in words that fit what is open: a car property the catalog cannot
+    verify is said as such (19/11); any other question keeps the general line."""
+    from .understanding import asks_attribute      # lazy: understanding imports this module's neighbours
+    question = state.unanswered_question or ""
+    return ATTRIBUTE_UNVERIFIED if question and asks_attribute(snapshot, question) else UNANSWERED
 # the offer is the turn's one call to action; the next question comes after the choice
 REP_OFFER_CTA = "בחרו \"לשאול את הנציג\" או \"להמשיך בלי\"."
 NOT_UNDERSTOOD = "לא הצלחתי להבין את התשובה."
@@ -1167,9 +1218,13 @@ def compare_needs_text(state: ConversationState) -> str:
 
 # the question about the language engine answered without the model (an outage, a cap, none configured): said (31/10)
 # "אני רוצה להעלות תלוש" (1/11): the uploader opens at once; what happens to the file, said before it is chosen
-PAYSLIP_OFFER = ("בשמחה, אפשר להתחיל מהתלוש. לחצו על \"להעלות תלוש\" ובחרו קובץ PDF או תמונה. "
+PAYSLIP_OFFER = ("בשמחה, אפשר להתחיל מהתלוש. לחצו על \"להעלות תלוש שכר\" ובחרו קובץ PDF או תמונה. "
                  "אקרא ממנו את פרטי השכר ואציג לכם אותם לבדיקה ולתיקון, ורק אחרי שתאשרו אשתמש בהם בחישוב. "
                  "התלוש עצמו לא נשמר.")
+# a new payslip over values already given (19/11): nothing is replaced before the employee sees and approves it
+PAYSLIP_REPLACE_OFFER = ("אפשר להעלות תלוש שכר חדש. לחצו על \"להעלות תלוש שכר\" ובחרו קובץ PDF או תמונה. "
+                         "אציג לכם כל שינוי מול הנתונים שכבר רשמתי, ורק אחרי שתאשרו אעדכן אותם ואחשב מחדש. "
+                         "התלוש עצמו לא נשמר.")
 PAYSLIP_UNAVAILABLE = ("העלאת תלוש לא זמינה כרגע. אפשר לכתוב כאן את פרטי השכר מהתלוש, "
                        "למשל: \"שכר בסיס 18,000, פנסיה 6%\".")
 
@@ -1234,8 +1289,13 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
                    fields: Optional[Sequence[str]] = None) -> tuple[str, Optional[str]]:
     """The one call to action that ends a reply, and the one link it names (or None)."""
     if state.link_now == "payslip_upload":
-        # the employee asked to upload a payslip (1/11): the uploader, whatever the flow would ask next
-        return "לחצו על \"להעלות תלוש\" ובחרו את הקובץ.", "payslip_upload"
+        # the employee asked to upload a payslip (1/11): the uploader, whatever the flow would ask next. Typing stays
+        # open (19/11): the question on screen can still be answered in words, never only "upload"
+        asked = current_group(state)[1]
+        if asked and asked[0] in PROFILE_ARGS.values():
+            example = _faq_example(snapshot, asked[0]).split(", ")[0]
+            return f"לחצו על \"להעלות תלוש שכר\" ובחרו את הקובץ, או כתבו כאן, למשל: \"{example}\".", "payslip_upload"
+        return "לחצו על \"להעלות תלוש שכר\" ובחרו את הקובץ.", "payslip_upload"
     if state.link_now == "correction_form":
         # a correction asked for (1/11): the form is the other way to give it
         return (CORRECTION_VALUE_CTA if state.correcting_field else CORRECTION_CTA), "correction_form"
@@ -1263,8 +1323,19 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
         return "", None
     if group == "unknown":
         ext = snapshot.extensions
-        link = "payslip_upload" if (ext.payslip_upload_enabled or ext.payslip_upload_url) else None
+        if all(with_rep(state, f) for f in fields):
+            # the representative was asked (19/11): nothing to look for; an estimate is still welcome
+            return ("אפשר להמשיך לשאול בינתיים, או לכתוב הערכה, למשל: \"בערך 1,000\"."
+                    if any(f in ESTIMABLE for f in fields) else "אפשר להמשיך לשאול בינתיים."), None
+        if fields == ["maintenance"]:
+            return "בחרו אחת מהאפשרויות, או כתבו את הסכום, למשל: 1,500, או \"אין\".", None
+        # the payslip is offered only when a value asked is printed on it (19/11: not for the number of children alone),
+        # and not again once a payslip was reviewed
+        on_payslip = any(f not in _NOT_ON_PAYSLIP for f in fields) and not state.payslip_reviewed
+        link = "payslip_upload" if on_payslip and (ext.payslip_upload_enabled or ext.payslip_upload_url) else None
         example = _faq_example(snapshot, fields[0]).split(", ")[0]
+        if not on_payslip:
+            return f"כתבו את הערך, למשל: \"{example}\".", None
         return (f"כתבו את הערך כשתמצאו אותו בתלוש, למשל: \"{example}\"" + (", או העלו את התלוש." if link else "."),
                 link)
     # the field the question text asks (group_question's order), not just the first open one
@@ -1305,9 +1376,10 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
     if first == "drive":
         return "בחרו או כתבו, למשל: היברידי.", None
     if first == "maintenance":
-        if "maintenance" in state.deferred_fields:       # already put off once: the end is now, nothing to put off again
-            return "כתבו את הסכום, למשל: 1,500, או \"אין\".", None
-        return "כתבו את הסכום, למשל: 1,500, או \"אין\", או \"לא ידוע\" כדי לבדוק בהמשך.", None
+        # the closed choices (19/11): with the payslip's amount, three; without one, an amount, "אין" or the rep
+        if state.payslip_maintenance is not None:
+            return "בחרו אחת משלוש האפשרויות.", None
+        return "בחרו אחת מהאפשרויות, או כתבו את הסכום, למשל: 1,500, או \"אין\", או \"לא ידוע\".", None
     if first == "car_choice":
         return "בחרו גרסה, או כתבו את המספר שלה.", None
     if first == "options":
@@ -1478,7 +1550,7 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
         plan.ask.append(f"אשלח לנציג התחבורה: \"{state.pending_rep_question}\". לשלוח?")
         return plan
     if state.unanswered_question is not None:
-        plan.ask.append(UNANSWERED)            # one call to action: the offer (its buttons); no flow question
+        plan.ask.append(unanswered_offer(state, snapshot))   # one call to action: the offer; no flow question
         plan.cta = ""
         return plan
     if state.pending_ambiguity is not None:

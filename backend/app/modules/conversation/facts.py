@@ -91,7 +91,8 @@ def facts_view(state: ConversationState, snapshot: RulesSnapshot) -> dict[str, A
         items.append(_item("current_car", "הרכב של היום", "car", "none", "אין רכב צמוד", "chat", "known", edit="car"))
         if c.maintenance is not None:
             items.append(_number(snapshot, state, "current_maintenance", c.maintenance, "car",
-                                 state.field_sources.get("current_maintenance", "chat")))
+                                 state.field_sources.get("current_maintenance", "chat"),
+                                 "estimated" if "current_maintenance" in p.approximate_fields else "known"))
         else:
             items.append(_number(snapshot, state, "current_maintenance", None, "car", None,
                                  "unknown" if c.maintenance_unknown else "missing"))

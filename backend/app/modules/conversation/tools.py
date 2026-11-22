@@ -379,6 +379,7 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
         c.copay, c.copay_unknown = args.current_copay, False
         c.copay_source = ctx.copay_source  # the rep's answer applied by the employee, or (None) the employee's own
         c.copay_provisional = None       # a real amount replaces the provisional catalog one
+        _clear_rep_field(ctx.state, "copay")
         saved.append("current_copay")
     elif args.current_copay_unknown and c.copay is None and c.source in ("catalog", "tax", "stated") \
             and not c.copay_unknown and c.copay_provisional is None and not ctx.copay_rep_chosen \
@@ -421,17 +422,20 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
         if c.source == "none":
             c.maintenance, c.maintenance_unknown = args.current_maintenance, False
             if "maintenance" in ctx.state.deferred_fields:
-                ctx.state.deferred_fields.remove("maintenance")   # answered — no longer deferred
+                ctx.state.deferred_fields.remove("maintenance")   # answered (a state stored before 19/11)
+            _clear_rep_field(ctx.state, "maintenance")
             saved.append("current_maintenance")
         else:
             ignored.append({"field": "current_maintenance", "reason": "רלוונטי רק למי שאין לו רכב היום"})
     elif args.current_maintenance_unknown and c.source == "none" and c.maintenance is None:
-        # "אבדוק בהמשך": postpone the allowance question (deferred_fields). hidden_deferred skips it while
-        # alternatives can be chosen and brings it back before the net is shown — never assumed 0.
-        c.maintenance_unknown = True
-        if "maintenance" not in ctx.state.deferred_fields:
-            ctx.state.deferred_fields.append("maintenance")
-        saved.append("current_maintenance_unknown")
+        # "לא ידוע" / "אבדוק בהמשך" / "לברר מול נציג" (19/11): the unknown status, as today's unknown copay — the
+        # question is not asked again now; the value is completed at the end (stage.current_unknown), before any
+        # net, never assumed 0. Before, it was only postponed (deferred_fields) and came straight back: a loop.
+        if "maintenance" in ctx.state.deferred_fields:
+            ctx.state.deferred_fields.remove("maintenance")
+        if not c.maintenance_unknown:
+            c.maintenance_unknown = True
+            saved.append("current_maintenance_unknown")
 
     # a value saved for the field being confirmed resolves that confirmation: never "רשמתי X" and "התכוונתם ל-X?"
     # in one reply (live QA 22/10)
@@ -459,6 +463,12 @@ def save_profile(ctx: ToolContext, args: SaveProfileArgs) -> dict[str, Any]:
         _invalidate_results(ctx.state)
     return {"saved": saved, "ignored": ignored,
             "missing": missing_profile(p) + missing_current_car(c)}
+
+
+def _clear_rep_field(state: ConversationState, field: str) -> None:
+    """A value was saved: it is no longer waiting for the representative (rep_fields)."""
+    if field in state.rep_fields:
+        state.rep_fields.remove(field)
 
 
 def _drive_enum(text: str) -> Optional[Drive]:
@@ -917,8 +927,9 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                                     "company car. Pass 0 only if the employee says they do NOT receive one. "
                                     "Never guess it."},
             "current_maintenance_unknown": {"type": "boolean", "description": "the employee does not know / "
-                                            "will check later whether they get a maintenance allowance. Never "
-                                            "assume 0."},
+                                            "will check later whether they get a maintenance allowance or how "
+                                            "much: recorded as unknown and completed before the calculation. "
+                                            "Never assume 0."},
             "unknown_fields": {"type": "array", "items": {"type": "string", "enum": list(Q2_FIELDS)},
                                "description": "fields the employee says they do not know (לא יודע / לא זוכרת). "
                                "Never guess or fill a value for them."},

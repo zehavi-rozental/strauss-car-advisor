@@ -20,9 +20,9 @@ from typing import Iterable, Optional
 
 from app.modules.rules.public import FAMILY_GROUP, CatalogCar, Faq, FaqEntry, RulesSnapshot, matched_name, related_cars, words
 
-from . import data_facts
+from . import actions, data_facts
 from .fallback import _RANK_RE, named_cars
-from .grounding import CONTRIBUTION_FIELDS, bare_zero_answer, contributions_zero_said, word_numbers
+from .grounding import CONTRIBUTION_FIELDS, bare_zero_answer, contributions_zero_said, has_zero_cue, word_numbers
 from .parsing import _NO_COPAY_RE, COMPANY_CAR, match_drive, match_group, match_occupation, no_car_span
 from .stage import NO_CAR_OR_ZERO, ConversationState, Stage, results_stale  # noqa: F401  (NO_CAR_OR_ZERO: re-exported)
 
@@ -110,6 +110,9 @@ class Understanding:
     # "אין הפרשות", "לא יורד לי כלום" (1/11): nothing deducted, said for both contributions at once; the fields it
     # holds at 0 for one confirmation (the missing ones, else both: a correction)
     zero_contributions: list[str] = field(default_factory=list)
+    # an action on the screen this turn points to (actions.py, 19/11): a question or a follow-up about it, or a message
+    # about its topic. Its help line is in topic_lines; the reply carries the action itself (never only words)
+    action: Optional[str] = None
 
     @property
     def question_only(self) -> bool:
@@ -123,7 +126,7 @@ class Understanding:
                     or self.presence or self.help or self.redirect
                     or self.ambiguity or self.compare or self.complaint or self.clarify or self.about_results
                     or self.rep_request or self.social or self.correction is not None
-                    or bool(self.zero_contributions))
+                    or bool(self.zero_contributions) or self.action is not None)
 
 
 # words that may stand next to small talk without making it more ("מה נשמע אצלכם היום?")
@@ -239,6 +242,30 @@ def without_requery(faq: Faq, text: str) -> str:
     return text
 
 
+def without_restatement(snapshot: RulesSnapshot, text: str) -> str:
+    """"כתבתי שכלום", "אמרתי שאין לי": an answer said again, without its opening words (19/11), the same way a question
+    said again is read (without_requery). The "ש" that joins it is dropped only when what follows is then an answer
+    the conversation reads (a zero, a number, a car, a group) — "כתבתי שכר" keeps its word."""
+    faq = snapshot.faq
+    ws = words(text)
+    for cue in sorted(faq.restate_cues, key=lambda c: -len(words(c))):
+        cw = words(cue)
+        if [_spelling(w) for w in ws[:len(cw)]] != [_spelling(w) for w in cw] or len(ws) <= len(cw):
+            continue
+        rest = text.strip()
+        for w in cw:
+            rest = rest[rest.index(w) + len(w):].lstrip(" ,:-–")
+        ext = snapshot.extensions
+
+        def reads(t: str) -> bool:           # an answer the conversation reads (a value, a zero, a bare "no")
+            return (answer_like(snapshot, t) or has_zero_cue(t, ext.zero_cues)
+                    or bare_zero_answer(t, ext.bare_zero_negatives, ext.bare_zero_words))
+        if rest.startswith("ש") and len(rest) > 2 and not reads(rest) and reads(rest[1:]):
+            return rest[1:]                  # "שכלום" -> "כלום"; "שכר 18,500" reads as it is and keeps its word
+        return rest
+    return text
+
+
 _BARE_NO_RE = re.compile(r"\s*(?:אין|לא|אין\s+לי)\s*[.!]*\s*")
 
 
@@ -300,13 +327,26 @@ def refers_back(faq: Faq, clause: str) -> bool:
 _FAQ_OF_FIELD = {"base_salary": "base", "children_under_23": "children", "pension": "pension_percent"}
 
 
+def asked_contributions(state: ConversationState) -> bool:
+    """The last question asked the two contributions together and nothing else (19/11): read from what the question
+    on screen really asked (templates.ask_fields: after a partial salary answer, one item at a time; "אילו הפרשות
+    יורדות לכם: פנסיה, קרן השתלמות?"), not from the whole salary group it belongs to."""
+    if state.asked_field is not None:
+        return False
+    from .stage import current_group
+    from .templates import ask_fields               # lazy: templates' neighbours import this module
+    group = current_group(state)[0]
+    asked = ask_fields(state, group, list(state.last_asked)) if state.last_asked else []
+    return set(asked) == set(CONTRIBUTION_FIELDS)
+
+
 def referent(snapshot: RulesSnapshot, state: ConversationState) -> Optional[FaqEntry]:
     """What "זה" is about: the term the last reply explained, else the one field the last reply asked (both
     contributions asked together: "הפרשות")."""
     faq = snapshot.faq
     if state.last_topic and (entry := faq.get(state.last_topic)) is not None:
         return entry
-    if set(state.last_asked) == set(CONTRIBUTION_FIELDS) and state.asked_field is None:
+    if asked_contributions(state):
         return faq.get("contributions")
     field_name = state.asked_field or (state.last_asked[0] if len(state.last_asked) == 1 else None)
     return faq.get(_FAQ_OF_FIELD.get(field_name, field_name)) if field_name else None
@@ -821,6 +861,43 @@ def correction_request(snapshot: RulesSnapshot, text: str) -> Optional[list[str]
     return fields
 
 
+def _offered_action(state: ConversationState, snapshot: RulesSnapshot, about_it: bool = False) -> Optional[str]:
+    """The action the last reply offered that is still on the screen (19/11). about_it: only when the reply was about
+    that action (its topic), not one that only stood next to a data question ("…, או להעלות תלוש")."""
+    now = actions.available(state, snapshot)
+    last = state.last_reply
+    for kind in last.offered:
+        if kind in now and (not about_it or last.topic == actions.TOPICS.get(kind)):
+            return kind
+    return None
+
+
+def _choosing_cars(state: ConversationState) -> bool:
+    """The conversation is about the cars to choose (the alternatives asked, or results on screen), and today's car is not
+    the question (19/11): a car property said then is a request about a new car. Earlier, "the white Hyundai is mine"
+    describes today's car and a wish for "something small" comes before any data: both go on as before."""
+    from .stage import next_stage
+    return next_stage(state) in (Stage.CHOOSE_OPTIONS, Stage.PRESENTED) or bool(state.selected)
+
+
+def _carries_value(snapshot: RulesSnapshot, text: str) -> bool:
+    """A value the parser could save is in the text: a number, a group letter, a catalog car or a job title (a word
+    of the salary domain alone, "תלוש", is no value)."""
+    groups = {_spelling(g) for g in snapshot.calc.group_order}
+    return (any(ch.isdigit() for ch in text) or any(_spelling(w) in groups for w in words(text))
+            or bool(named_cars(text, snapshot.catalog)) or bool(match_occupation(snapshot.occupations.keys(), text)))
+
+
+def _point_to(u: Understanding, kind: str) -> None:
+    """This turn is about an action on the screen: where it is and what it does (code's words), and the reply carries
+    the action itself. "זה" in the next message is about it."""
+    u.action = kind
+    line = (actions.HELP[kind], actions.LABELS[kind])
+    if line not in u.topic_lines:
+        u.topic_lines.append(line)
+    u.topic = actions.TOPICS.get(kind)
+
+
 def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> Understanding:
     faq = snapshot.faq
     # "טעית"/"טעיתם" (you got it wrong) is an audit cue; "טעיתי" (I made a mistake) is a first-person
@@ -830,6 +907,7 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
                       audit=audit, has_car=bool(_HAS_CAR_RE.search(text)) and not no_car_span(text),
                       map_all=any(cue in text for cue in snapshot.extensions.option_map_cues))
     text = without_requery(faq, text)      # "שאלתי מה זה הפרשות": the question again, read as one (10/11)
+    text = without_restatement(snapshot, text)   # "כתבתי שכלום": the answer again, read as one (19/11)
     kind = social_kind(faq, text)
     if kind is not None:
         u.social, u.remainder, u.resume = kind, "", True
@@ -845,19 +923,39 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
         return u              # never act on a manipulative or off-topic message (one with values goes on below:
                               # its off-topic question is redirected by in_scope, its values are read)
     if _is_help(text):
+        if (kind := _offered_action(state, snapshot, about_it=True)) is not None:
+            _point_to(u, kind)
+            return u
         if not _explain_topic_again(snapshot, state, u):
             u.help = True         # no term explained last: the question on screen, in simpler words
         return u
     ext = snapshot.extensions
-    if (len(words(text)) <= 6 and not any(ch.isdigit() for ch in text) and not named_cars(text, snapshot.catalog)
-            and (contributions_zero_said(text, ext.zero_cues, ext.contribution_terms, ext.nothing_deducted_phrases)
-                 # a bare "no" ("לא מופרש", "אין") to the question that asks both contributions and nothing else
-                 or (state.asked_field is None and set(state.last_asked) == set(CONTRIBUTION_FIELDS)
-                     and bare_zero_answer(text, ext.bare_zero_negatives, ext.bare_zero_words)))):
+    # 19/11: the statement and the questions of one message are read apart ("אי לי הפרשות, מה זה?"): the zero is read
+    # from what the message states, and a question next to it is still answered (before, the whole message was either
+    # the zero — the question dropped — or, typed one letter short, a question only — the zero dropped)
+    clauses = [c for c in _CLAUSE_RE.split(text) if c and c.strip()]
+    asks = [c for c in clauses if "?" in c or _is_question(c) or asks_explanation(faq, c)]
+    said = " ".join(c for c in clauses if c not in asks).strip() or (text if not asks else "")
+    if (said and len(words(said)) <= 6 and not any(ch.isdigit() for ch in said)
+            and not named_cars(said, snapshot.catalog)
+            and (contributions_zero_said(said, ext.zero_cues, ext.contribution_terms, ext.nothing_deducted_phrases)
+                 # a bare "no" ("לא מופרש", "אין", "כלום") to the question that asks both contributions, nothing else
+                 or (asked_contributions(state)
+                     and bare_zero_answer(said, ext.bare_zero_negatives, ext.bare_zero_words)))):
         # "אין הפרשות" (1/11): a zero for both contributions, confirmed once in code (both modes): never "not
         # understood", never read as an answer to another question, never saved without "לאשר"
         p = state.profile
         missing = [f for f in CONTRIBUTION_FIELDS if getattr(p, f) is None]
+        if asks:
+            # the question is understood as if asked alone (its explanation is part of the reply), the zero kept
+            u = understand(state, snapshot, " ".join(c.strip() for c in asks))
+            term = match_faq(faq, said)
+            if (u.help or (refers_back(faq, " ".join(asks)) and not u.faq_ids)) and term is not None:
+                # "…, מה זה?": "זה" is the term this message just said ("הפרשות"), never the question on screen
+                u.help = False
+                if term not in u.faq_ids:
+                    u.faq_ids.append(term)
+                u.topic = term
         u.zero_contributions, u.remainder = missing or list(CONTRIBUTION_FIELDS), ""
         return u
     if (state.eligible_unclear_asked and state.profile.group and len(words(text)) <= 4
@@ -907,7 +1005,10 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
                 and not any(ch.isdigit() for ch in clause) and not off_topic(snapshot, clause) \
                 and match_faq(faq, clause, explain=explain) is None and not _strong(snapshot, clause, short) \
                 and not _about_bot(faq, short):   # "מה זה השתתפות?": FAQ; "איך אתה יודע?": about the advisor
-            u.help = True                     # "ולמה?", "כלומר?", "והשני?": a follow-up to the bot's last message
+            if (kind := _offered_action(state, snapshot, about_it=True)) is not None:
+                _point_to(u, kind)            # a follow-up to a reply about an action: that action (19/11)
+            else:
+                u.help = True                 # "ולמה?", "כלומר?", "והשני?": a follow-up to the bot's last message
             continue
         # "מה הכי משתלם לי?" is a request; "על מה מבוססות ההמלצות שלך?" is a question about the advisor
         if (_is_question(clause) or explain) and (not _RANK_RE.search(clause) or asks_basis(faq, clause)):
@@ -937,6 +1038,9 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
                 continue
             if back is not None and entry in faq.meta_entries:
                 u.topic = back.id                     # "למה צריך את זה?": answered; "זה" stays the same term
+            if (kind := actions.for_topic(state, snapshot, entry)) is not None:
+                # "איך מעלים תלוש?" (19/11): the topic has an action on the screen — named and carried by the reply
+                _point_to(u, kind)
             catalog = (catalog_answer(snapshot, clause, [r.option_id for r in state.results])
                        if entry is None else None)
             if entry is None and _is_help(clause):
@@ -966,17 +1070,43 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
                 elif scope == "org":
                     u.unanswered.append(clause.strip())   # a concrete question: the representative may answer
                 elif scope == "follow":
-                    u.help = True                     # a follow-up to the bot's last message: explained again
+                    if (kind := _offered_action(state, snapshot, about_it=True)) is not None:
+                        _point_to(u, kind)            # "איך עושים את זה?" after a reply about an action (19/11)
+                    else:
+                        u.help = True                 # a follow-up to the bot's last message: explained again
                 elif scope == "off":
                     u.redirect = True                 # another domain ("קניית דירה"): the boundary line, never the rep
                 elif scope == "bot":
                     if "how_it_works" not in u.faq_ids and snapshot.faq.get("how_it_works") is not None:
                         u.faq_ids.append("how_it_works")   # how the advisor works: only what it really uses
+                elif (kind := _offered_action(state, snapshot, about_it=True)) is not None:
+                    # an unclear follow-up right after a reply about an action (19/11): that action, never "not
+                    # understood" and never the data question in its place
+                    _point_to(u, kind)
+                elif actions.names_control(clause) and (
+                        kind := _offered_action(state, snapshot) or next(iter(actions.available(state, snapshot)), None)):
+                    # a question about a control of the screen ("איפה הכפתור?"): the action the last reply offered, else
+                    # the one the screen has — from the contract, never the model's words, never invented
+                    _point_to(u, kind)
                 else:
                     u.clarify = True                  # truly unclear: asked to say it again, never the rep
             elif entry not in u.faq_ids:
                 u.faq_ids.append(entry)
                 faq_clauses.append((entry, clause))
+            continue
+        if not _carries_value(snapshot, clause) and asks_attribute(snapshot, clause) \
+                and not off_topic(snapshot, clause) and _choosing_cars(state):
+            # a REQUEST for a property the catalog cannot verify ("אני רוצה רכב בצבע אדום", "בא לי גג נפתח"; 19/11) is
+            # the same as asking about it: kept as the question nothing here answers, so the representative is offered
+            # and a later "אפשר לשאול נציג על זה?" sends exactly it. Before, only the question form was ("יש בצבע
+            # אדום?"): the request was read as a failed answer and the follow-up had nothing to send
+            u.unanswered.append(clause.strip())
+            continue
+        if (not _carries_value(snapshot, clause)
+                and (kind := actions.for_topic(state, snapshot, match_faq(faq, clause))) is not None):
+            # a message about an action's topic that gives no value ("מעלה תלוש", 19/11): the action on the screen,
+            # never "לא הצלחתי להבין" and never the data question alone
+            _point_to(u, kind)
             continue
         kept.append(clause)
     # a question naming a value the calculation still needs ("איך אתה מחשב את הנטו בלי ההשתתפות?", 16/11) is about that

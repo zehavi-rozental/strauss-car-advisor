@@ -12,7 +12,7 @@ from app.modules.conversation.llm.fake import FakeLLM
 from app.modules.conversation.public import LLMChain
 from app.modules.conversation.templates import PAYSLIP_OFFER
 
-from .conftest import make_client
+from .conftest import PAYSLIP_ON, make_client
 
 
 def start(client):
@@ -23,16 +23,16 @@ def start(client):
 @pytest.mark.parametrize("text", ["אני רוצה כעת להעלות תלוש ותראה את הנתונים דבר ראשון", "אי אפשר להעלות תלוש?",
                                   "אפשר לצרף תלוש שכר?", "אני אעלה את התלוש שלי"])
 def test_a_payslip_request_opens_the_uploader_first(engine, text):
-    client = make_client(engine)
+    client = make_client(engine, **PAYSLIP_ON)
     _, send = start(client)
     turn = send({"text": text})
     assert turn["reply"].startswith(PAYSLIP_OFFER)
-    assert turn["expects"]["link"] == {"kind": "payslip_upload", "label": "להעלות תלוש"}
+    assert turn["expects"]["link"] == {"kind": "payslip_upload", "label": "להעלות תלוש שכר"}
     assert "קבוצת הזכאות" not in turn["reply"] and "שכר הבסיס" not in turn["reply"]
 
 
 def test_at_any_stage_and_again_later(engine):
-    client = make_client(engine)
+    client = make_client(engine, **PAYSLIP_ON)
     _, send = start(client)
     send({"text": "קבוצה ג"})
     send({"text": "18000"})
@@ -44,7 +44,7 @@ def test_at_any_stage_and_again_later(engine):
 
 
 def test_a_question_about_the_payslip_is_not_an_upload_request(engine):
-    client = make_client(engine)
+    client = make_client(engine, **PAYSLIP_ON)
     _, send = start(client)
     turn = send({"text": "איפה בתלוש רואים את נקודות הזיכוי?"})
     assert not turn["reply"].startswith(PAYSLIP_OFFER)
@@ -52,7 +52,7 @@ def test_a_question_about_the_payslip_is_not_an_upload_request(engine):
 
 def test_with_the_model_the_request_is_code_s_and_the_model_knows_uploads_exist(engine):
     fake = FakeLLM()
-    client = make_client(engine, llm=LLMChain([fake]))
+    client = make_client(engine, llm=LLMChain([fake]), **PAYSLIP_ON)
     _, send = start(client)
     before = len(fake.calls)
     turn = send({"text": "אני רוצה כעת להעלות תלוש ותראה את הנתונים דבר ראשון"})

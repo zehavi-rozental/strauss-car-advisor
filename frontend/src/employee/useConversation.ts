@@ -390,8 +390,9 @@ export function useConversation(ready = true) {
     (await deliver(body, display)).ok, [deliver])
 
   /** The profile form or a reviewed payslip: all or nothing on the server; field errors come back. */
-  const sendFields = useCallback((fields: ProfileFields, display: string, source?: 'payslip') =>
-    deliver(source ? { fields, source } : { fields }, display), [deliver])
+  const sendFields = useCallback((fields: ProfileFields, display: string, source?: 'payslip', payslipMaintenance?: string) =>
+    deliver(source ? { fields, source, ...(payslipMaintenance ? { payslip_maintenance: payslipMaintenance } : {}) }
+                   : { fields }, display), [deliver])
 
   /** One value edited on its own ("הנתונים שלי"): it applies only to the data this screen showed (409 and a reload otherwise). */
   const editField = useCallback((fields: ProfileFields, display: string) =>

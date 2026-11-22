@@ -5,7 +5,8 @@ It lets a browser test drive the real server path (upload, validation, parsing, 
 with fixed answers and no paid call. It is not a test of Gemini itself: the live check is `pytest -m eval`.
 
 A file's JSON is the model's answer as text, or {"__error__": "<reason>"} to simulate a provider failure
-(timeout / quota / unavailable / rejected / invalid_response). An unknown file is a "rejected" failure.
+(timeout / quota / unavailable / rejected / invalid_response). An unknown file is "test_mode" (19/11): this server
+reads only its recorded payslips — said as such, never as a file the reading service refused.
 """
 from __future__ import annotations
 
@@ -23,7 +24,7 @@ class FixtureVision:
     def extract(self, data: bytes, mime: str, prompt: str, timeout_s: float) -> str:
         path = self.directory / f"{hashlib.sha256(data).hexdigest()}.json"
         if not path.is_file():
-            raise VisionError("rejected", "no recorded answer for this file")
+            raise VisionError("test_mode", "no recorded answer for this file")
         text = path.read_text(encoding="utf-8")
         try:
             recorded = json.loads(text)

@@ -113,6 +113,8 @@ class Faq(BaseModel):
     explain_cues: tuple[str, ...] = ()
     # a question said again ("שאלתי מה זה הפרשות"): the rest is the question, never an answer to the one on screen
     requery_cues: tuple[str, ...] = ()
+    # an answer said again ("כתבתי שכלום", 19/11): the rest is the answer, read as if said alone
+    restate_cues: tuple[str, ...] = ()
     # words that point back ("איפה זה בתלוש?"): to the term the last reply explained, else the field it asked
     reference_words: tuple[str, ...] = ()
     # the cars open to the employee ("בין כמה רכבים אני יכולה לבחור?", 15/11): answered by code from the eligibility rules

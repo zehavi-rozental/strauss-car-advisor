@@ -19,7 +19,11 @@ async function send(page: Page, text: string) {
 }
 
 test.describe('payslip upload (synthetic)', () => {
-  test('the upload link is offered during salary collection and opens the uploader', async ({ page }) => {
+  test('the upload link is offered during salary collection and opens the uploader', async ({ page, request }) => {
+    // 19/11: the screen offers the upload only when the server's extraction is on (PAYSLIP_ENABLED; CI runs it with
+    // recorded answers). Off, no button is the right behaviour: help-actions-2026-11-19.spec.ts checks that
+    test.skip((await (await request.get('/api/health')).json()).payslip !== true,
+              'payslip extraction is off on this server: no upload is offered (help-actions spec covers it)')
     await openEmployee(page)
     await send(page, 'מנהלת מוצר, שכר בסיס 18500')   // now on Q2 (salary components)
     // the "להעלות תלוש" link should be offered
@@ -70,6 +74,12 @@ async function uploadWithAnswer(page: Page, answer: object) {
 }
 
 test.describe('payslip outcomes (mocked extraction)', () => {
+  // the extraction's answer is mocked in the browser, but the button that opens the uploader is the server's: it is
+  // offered only while the extraction is on (19/11; CI runs with it on)
+  test.beforeEach(async ({ request }) => {
+    test.skip((await (await request.get('/api/health')).json()).payslip !== true,
+              'payslip extraction is off on this server: no upload is offered (help-actions spec covers it)')
+  })
   test('a failed extraction says so, offers retry and manual entry, and is not shown as a review', async ({ page }) => {
     await uploadWithAnswer(page, { ok: false, status: 'failed', fields: [],
       message_he: 'לא הצלחנו לקרוא את התלוש כרגע. אפשר לנסות שוב בעוד רגע, או למלא את הנתונים ידנית.' })

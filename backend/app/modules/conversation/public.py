@@ -1,6 +1,7 @@
 """הממשק הציבורי של מודול השיחה: ConversationService ומה שה-API צריך."""
 from __future__ import annotations
 
+import dataclasses
 import hmac
 import logging
 import secrets
@@ -9,6 +10,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Optional
 
@@ -40,7 +42,8 @@ from .expects import (EDIT_FIELDS, ChoiceInvalid, FieldsInvalid, build_expects, 
 from .facts import facts_view
 from .templates import _VALUE_LABELS, _show
 from .email_notifications import EmailNotificationService, EmailNotConfigured, InvalidEmailLink
-from .agent import Agent, RepQuestionResult, employee_wording, general_question_id, today_copay_question_id
+from .agent import (Agent, RepQuestionResult, employee_wording, general_question_id, note_payslip_car,
+                    today_copay_question_id, today_maintenance_question_id)
 from .models import ConversationRow
 from .understanding import rep_scope_ok_in_context
 from . import value_choice
@@ -168,9 +171,15 @@ def _uuid(value: str) -> uuid.UUID:
 class ConversationService:
     def __init__(self, sessions: sessionmaker, rules: RulesStore, llm: LLMChain,
                  cases: Optional[CasesService] = None, max_messages: int = 80, llm_mode: str = "llm_first",
-                 email_notifications: Optional[EmailNotificationService] = None):
+                 email_notifications: Optional[EmailNotificationService] = None,
+                 payslip_ready: Optional[bool] = None):
         self.sessions = sessions
         self.rules = rules
+        # the payslip extraction this server really runs (19/11; api: PayslipService.enabled). False hides the built-in
+        # uploader everywhere the conversation offers it (its link, expects.actions, the texts), so the screen never
+        # shows an action that answers 503. None (a service built without the API): the configuration alone decides
+        self.payslip_ready = payslip_ready
+        self._effective: tuple[int, Optional[RulesSnapshot]] = (0, None)
         self.llm = llm
         self.agent = Agent(llm, llm_mode)
         self.cases = cases or CasesService(sessions)
@@ -182,6 +191,20 @@ class ConversationService:
         self.snapshot_id(rules.current)        # בהפעלה: שורת הגרסה קיימת לפני התור הראשון
 
     # ---------- גרסת הגדרות ----------
+
+    def _current(self) -> RulesSnapshot:
+        """The rules as this server applies them (19/11): the configuration, with the built-in payslip uploader off when
+        the payslip extraction is off here (PAYSLIP_ENABLED / a model). A pilot's external upload page does not depend
+        on it and stays. The files and their version are the same (snapshot_id), only what the screen may offer differs."""
+        snap = self.rules.current
+        ext = snap.extensions
+        if self.payslip_ready is not False or not ext.payslip_upload_enabled or ext.payslip_upload_url:
+            return snap
+        key, cached = self._effective
+        if key != id(snap) or cached is None:
+            cached = dataclasses.replace(snap, extensions=ext.model_copy(update={"payslip_upload_enabled": False}))
+            self._effective = (id(snap), cached)
+        return cached
 
     def snapshot_id(self, snapshot: RulesSnapshot) -> uuid.UUID:
         """המזהה של שורת הגרסה. נוצרת פעם אחת (בהפעלה, ושוב אחרי טעינה מחדש של הכללים),
@@ -225,7 +248,7 @@ class ConversationService:
         query = query.strip()
         if len(query) < 2:
             return []
-        snapshot = self.rules.current
+        snapshot = self._current()
         key = query.lower()
         cars = find_catalog_car(snapshot, query)               # התאמה מדויקת קודם, אחר כך כל שם שמכיל את החיפוש
         cars += [c for c in snapshot.catalog if c not in cars
@@ -245,15 +268,15 @@ class ConversationService:
         """מחזיר את תור הפתיחה ואת טוקן השיחה (נשמר רק כ-hash)."""
         token = secrets.token_urlsafe(32)
         state = ConversationState()
-        greeting = self.agent.greeting(state, self.rules.current)
+        greeting = self.agent.greeting(state, self._current())
         with self.sessions() as session, session.begin():
             repo = ConversationRepository(session)
             row = repo.create(state.model_dump(mode="json"), state.stage.value, token_hash(token), self.llm.mode)
             repo.add_message(row.id, "assistant", greeting, "template")
             conversation_id = str(row.id)
         return TurnResult(conversation_id=conversation_id, stage=state.stage, reply=greeting,
-                          source="template", expects=build_expects(state, self.rules.current),
-                          facts=facts_view(state, self.rules.current)), token
+                          source="template", expects=build_expects(state, self._current()),
+                          facts=facts_view(state, self._current())), token
 
     # ---------- תור ----------
 
@@ -267,20 +290,25 @@ class ConversationService:
         return self._timed(conversation_id, token, "", list(ids), field)
 
     def send_fields(self, conversation_id: str, token: str, values: dict[str, Any],
-                    source: Optional[str] = None, base_version: Optional[int] = None) -> TurnResult:
+                    source: Optional[str] = None, base_version: Optional[int] = None,
+                    payslip_maintenance: Optional[Decimal] = None) -> TurnResult:
         """טופס מובנה של שדות פרופיל (Q2 או תיקון): נבדק מול הטווחים (FieldsInvalid, כל השדות השגויים;
         דבר לא נשמר) ונשמר בקוד, בלי מודל השפה. ההודעה שנשמרת היא טקסט קריא של הערכים, לתצוגה בלבד.
-        source="payslip": values the employee reviewed and approved from a payslip (said so in the history)."""
-        return self._timed(conversation_id, token, "", None, None, values, source, base_version)
+        source="payslip": values the employee reviewed and approved from a payslip (said so in the history).
+        payslip_maintenance: a car-maintenance line found on that payslip (19/11): kept as an offer for the no-car
+        question ("זה הסכום שלי"), never saved as the employee's value by itself."""
+        return self._timed(conversation_id, token, "", None, None, values, source, base_version, payslip_maintenance)
 
     def _timed(self, conversation_id: str, token: str, text: str, choice: Optional[list[str]],
                field: Optional[str] = None, fields: Optional[dict[str, Any]] = None,
-               source: Optional[str] = None, base_version: Optional[int] = None) -> TurnResult:
+               source: Optional[str] = None, base_version: Optional[int] = None,
+               payslip_maintenance: Optional[Decimal] = None) -> TurnResult:
         started = time.monotonic()
         path, say = "error", ""
         try:
             self._apply_pending(self._authorized(conversation_id, token))
-            result = self._send(conversation_id, token, text, choice, field, fields, source, base_version)
+            result = self._send(conversation_id, token, text, choice, field, fields, source, base_version,
+                                payslip_maintenance)
             path, say = result.path, result.say
             return result
         finally:
@@ -288,10 +316,11 @@ class ConversationService:
 
     def _send(self, conversation_id: str, token: str, text: str, choice: Optional[list[str]] = None,
               field: Optional[str] = None, fields: Optional[dict[str, Any]] = None,
-              source: Optional[str] = None, base_version: Optional[int] = None) -> TurnResult:
+              source: Optional[str] = None, base_version: Optional[int] = None,
+              payslip_maintenance: Optional[Decimal] = None) -> TurnResult:
         """שלושה שלבים, כדי שאף טרנזקציה לא תהיה פתוחה בזמן קריאות למודל השפה:
         (א) קריאה קצרה, (ב) הסוכן בלי סשן פתוח, (ג) כתיבה קצרה של כל התור."""
-        snapshot = self.rules.current
+        snapshot = self._current()
         snapshot_id = self.snapshot_id(snapshot)   # אחרי טעינה מחדש — נוצרת כאן, מחוץ לתור
         text = redact_id_numbers(text)
 
@@ -314,6 +343,8 @@ class ConversationService:
                 raise StaleEdit()                           # edited on an older screen: nothing saved, it reloads
             fields = validate_fields(snapshot, fields, state, self._get_vehicle)      # לפני כל שינוי במצב
             text = ("מהתלוש (אושר): " if source == "payslip" else "") + self._fields_text(fields, snapshot)
+            if source == "payslip":
+                note_payslip_car(state, snapshot, payslip_maintenance)
 
         # (ב) הסוכן — הרצות החישוב נאספות בזיכרון
         pending: list[_PendingRun] = []
@@ -433,7 +464,7 @@ class ConversationService:
         question = redact_id_numbers(question)
         if email and self._mail_enabled:
             email = self.email_notifications.normalize_email(email)     # a bad address: 422 at once, nothing saved
-        snapshot = self.rules.current
+        snapshot = self._current()
         snapshot_id = self.snapshot_id(snapshot)
 
         for _ in range(self.APPLY_RETRIES):
@@ -451,6 +482,9 @@ class ConversationService:
             if intent == "current_copay" and state.current.source in ("catalog", "tax", "stated"):
                 # today's copay asked from the representative (1/11): an amount answer the employee may apply
                 field = MissingField.CURRENT_COPAY
+            if intent == "current_maintenance" and state.current.source == "none":
+                # no car today (19/11): the employee's car-maintenance allowance; the answer can complete the value
+                field = MissingField.MAINTENANCE_AMOUNT
             if field == MissingField.GENERAL_QUESTION:
                 has_car_context = state.current.source is not None or bool(state.results)
                 if not rep_scope_ok_in_context(snapshot, question, has_car_context=has_car_context):
@@ -463,6 +497,8 @@ class ConversationService:
                 dedup_option = option_id or ""
             elif field == MissingField.CURRENT_COPAY:
                 dedup_option = today_copay_question_id(state)
+            elif field == MissingField.MAINTENANCE_AMOUNT:
+                dedup_option = today_maintenance_question_id(state)
             else:
                 dedup_option = general_question_id(question)
             existing_id, existing = self._open_question(str(conv_id), field, dedup_option)
@@ -627,7 +663,7 @@ class ConversationService:
         שכבר יושמה לא משנה דבר. מחזיר True אם נכתב משהו."""
         conv_id = uuid.UUID(event.conversation_id)
         for _ in range(self.APPLY_RETRIES):
-            snapshot = self.rules.current
+            snapshot = self._current()
             snapshot_id = self.snapshot_id(snapshot)
             with self.sessions() as session:                                 # (א)
                 row = ConversationRepository(session).get(conv_id)
@@ -705,7 +741,7 @@ class ConversationService:
                     "option_id": q.option_id or None}
                    for q in self.cases.list_for_conversation(str(conv_id), QuestionStatus.OPEN)]
         return {"conversation_id": str(conv_id), "stage": state.stage.value, "messages": messages,
-                "pending_questions": pending, "expects": build_expects(state, self.rules.current),
+                "pending_questions": pending, "expects": build_expects(state, self._current()),
                 "results": [r.model_dump(mode="json") for r in state.results],
                 "results_stale": results_stale(state), "option_map": map_json(state),
                 # today's copay as the employee gave or confirmed it (31/10): the screen tells it apart from the new
@@ -717,7 +753,7 @@ class ConversationService:
                                             is not None else None),
                 "today_car": state.current.label or None,   # the card above the comparison (1/11)
                 "rep_questions": [_rep_question_json(q) for q in questions], **map_readiness(state),
-                "facts": facts_view(state, self.rules.current), "data_version": state.data_version,
+                "facts": facts_view(state, self._current()), "data_version": state.data_version,
                 "results_version": state.results_version}
 
     def view(self, conversation_id: str, token: str) -> ConversationView:
@@ -728,7 +764,7 @@ class ConversationService:
             state = ConversationState.model_validate(row.state)
             messages = [_message_json(m) for m in repo.messages(row.id)]
             return ConversationView(conversation_id=str(row.id), stage=state.stage, state=state,
-                                    messages=messages, expects=build_expects(state, self.rules.current),
+                                    messages=messages, expects=build_expects(state, self._current()),
                                     rep_questions=[_rep_question_json(q) for q in
                                                    self.cases.list_for_conversation(str(row.id))])
 
