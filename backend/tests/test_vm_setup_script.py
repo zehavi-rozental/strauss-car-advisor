@@ -220,3 +220,47 @@ def test_h11_the_failure_logs_are_shown_without_secrets(tmp_path):
     for leaked in ("u:p@h", "postgresql://", "token=abc123", "ep-cool-darkness"):
         assert leaked not in r.stdout, leaked
     assert "<db-url>" in r.stdout and "<neon-endpoint>" in r.stdout   # masked, not dropped
+
+
+# ---------- 22/11: the self-test checks the path users take, sees the mail settings, and reports the engine ----------
+
+def test_the_end_to_end_run_goes_through_the_public_link():
+    # the VM cannot reach its own public address on 443 (Cloudflare's ranges only): https://$DOMAIN timed out there
+    text = SCRIPT.read_text(encoding="utf-8")
+    assert 'PUBLIC_URL="https://strauss-drive.strauss-drive-edge.workers.dev"' in text
+    line = _lines()[_index("python /tmp/e2e_api.py")]
+    assert '"$PUBLIC_URL"' in line and "$DOMAIN" not in line
+
+
+def test_the_mail_check_sees_the_app_package():
+    line = _lines()[_index("python /tmp/mail_check.py")]
+    assert "-e PYTHONPATH=/srv/backend" in line
+
+
+def _run_engine(tmp_path, exit_code: int) -> subprocess.CompletedProcess:
+    lines = _lines()
+    start = _index("engine=$(docker compose exec -T app python -m app.verify")
+    block = "\n".join(lines[start:start + 2])
+    program = "\n".join([
+        "set -uo pipefail",
+        "ok() { printf 'PASS  %s\\n' \"$*\"; }; bad() { printf 'FAIL  %s\\n' \"$*\"; }",
+        "docker() {",
+        '  [ "$*" = "compose exec -T app python -m app.verify" ] || { echo "unexpected docker call: $*"; return 99; }',
+        "  printf 'checking\\n12/12 ערכי נטו תואמים לשטראוס\\n'",
+        f"  return {exit_code}",
+        "}",
+        block,
+    ])
+    return subprocess.run([BASH, "-c", program], capture_output=True, text=True, encoding="utf-8", timeout=30)
+
+
+@pytest.mark.skipif(BASH is None, reason="needs bash")
+def test_the_engine_line_is_a_pass_when_every_value_matches(tmp_path):
+    r = _run_engine(tmp_path, 0)
+    assert "PASS  engine: 12/12" in r.stdout and "FAIL" not in r.stdout
+
+
+@pytest.mark.skipif(BASH is None, reason="needs bash")
+def test_the_engine_line_is_a_fail_when_app_verify_fails(tmp_path):
+    r = _run_engine(tmp_path, 1)
+    assert "FAIL  engine:" in r.stdout and "PASS" not in r.stdout

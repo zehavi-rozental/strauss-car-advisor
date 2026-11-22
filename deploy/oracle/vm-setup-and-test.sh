@@ -33,16 +33,22 @@ for n in "$DOMAIN" "$D.nip.io" "$D.sslip.io"; do
   for i in $(seq 1 30); do curl -sf -m 10 --resolve "$n:443:127.0.0.1" "https://$n/api/health" >/dev/null && break; sleep 5; done
   curl -sf -m 10 --resolve "$n:443:127.0.0.1" "https://$n/api/health" >/dev/null && ok "https://$n (valid certificate)" || bad "HTTPS for $n"
 done
-echo "== end-to-end (e2e_api.py inside the app container, through Caddy + TLS)"
+# 22/11: through the public link (Cloudflare Worker -> this VM), the path users take. The VM cannot reach its own
+# public address on 443 (open to Cloudflare's ranges only), so "https://$DOMAIN" timed out from here
+PUBLIC_URL="https://strauss-drive.strauss-drive-edge.workers.dev"
+echo "== end-to-end (e2e_api.py inside the app container, through the Cloudflare Worker, Caddy + TLS)"
 APP=$(docker compose ps -q app)
 docker cp /srv/strauss/e2e_api.py "$APP":/tmp/e2e_api.py >/dev/null && docker cp /srv/strauss/synthetic_payslip.pdf "$APP":/tmp/p.pdf >/dev/null
 docker compose exec -T -u root app chmod 644 /tmp/e2e_api.py /tmp/p.pdf
-docker compose exec -T app python /tmp/e2e_api.py "https://$DOMAIN" /tmp/p.pdf 2>&1 | sed -E 's#postgres(ql)?://[^ ]+#<db-url>#g'
+docker compose exec -T app python /tmp/e2e_api.py "$PUBLIC_URL" /tmp/p.pdf 2>&1 | sed -E 's#postgres(ql)?://[^ ]+#<db-url>#g'
 echo "== mail (a login only, nothing is sent)"
 docker cp /srv/strauss/mail_check.py "$APP":/tmp/mail_check.py >/dev/null && docker compose exec -T -u root app chmod 644 /tmp/mail_check.py
-docker compose exec -T app python /tmp/mail_check.py 2>&1 | grep -E '^(PASS|FAIL|INFO)'
+# 22/11: the app package lives in the image's /srv/backend; a script run from /tmp does not see it without PYTHONPATH
+docker compose exec -T -e PYTHONPATH=/srv/backend app python /tmp/mail_check.py 2>&1 | grep -E '^(PASS|FAIL|INFO)'
 echo "== calculation engine on the VM"
-docker compose exec -T app python -m app.verify 2>&1 | tail -1
+# 22/11: a PASS / FAIL line like every other check (app.verify exits 0 only when every reference value matches)
+engine=$(docker compose exec -T app python -m app.verify 2>&1); engine_rc=$?
+[ "$engine_rc" -eq 0 ] && ok "engine: $(printf '%s\n' "$engine" | tail -1)" || bad "engine: $(printf '%s\n' "$engine" | tail -1)"
 echo "== Oracle Cloud Agent (why Run Command does not pick up commands)"
 snap services oracle-cloud-agent 2>/dev/null | tail -n +2 | awk '{print "INFO  agent service:", $1, $3}'
 for f in /var/log/oracle-cloud-agent/agent.log /var/log/oracle-cloud-agent/plugins/runcommand/runcommand.log; do
