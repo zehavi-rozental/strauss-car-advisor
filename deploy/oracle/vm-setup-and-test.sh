@@ -20,8 +20,8 @@ sudo iptables -S INPUT | grep -q 'dport 443 -j ACCEPT' && ok "iptables: 80/443 o
 free -m | awk 'NR==2 {printf "INFO  memory: %s MB total, %s MB used\n", $2, $3}'
 echo "== build and start (first build takes a few minutes)"
 docker compose up -d --build --quiet-pull > /tmp/compose.log 2>&1 && ok "compose up" || { bad "compose up"; tail -20 /tmp/compose.log | grep -viE 'key|token|password|secret'; exit 1; }
-for i in $(seq 1 60); do docker compose ps app | grep -q healthy && break; sleep 5; done
-docker compose ps app | grep -q healthy && ok "app live (the process answers; liveness only, no database)" || { bad "app not live"; docker compose logs --tail 30 app | sed -E 's#postgres(ql)?://[^ ]+#<db-url>#g; s#ep-[a-z0-9-]+#<neon-endpoint>#g; s#[A-Za-z0-9_-]{30,}#<long-value>#g' | grep -viE 'key|token|password|secret'; exit 1; }
+for i in $(seq 1 60); do docker compose ps app | grep -F '(healthy)' >/dev/null && break; sleep 5; done
+docker compose ps app | grep -F '(healthy)' >/dev/null && ok "app live (the process answers; liveness only, no database)" || { bad "app not live"; docker compose logs --tail 30 app | sed -E 's#postgres(ql)?://[^ ]+#<db-url>#g; s#ep-[a-z0-9-]+#<neon-endpoint>#g; s#[A-Za-z0-9_-]{30,}#<long-value>#g' | grep -viE 'key|token|password|secret'; exit 1; }
 # readiness (20/11): the health check above is liveness only, so the database is checked here, explicitly. app.readiness
 # asks the running app's /api/health and passes only on db true AND status ok (exit 0); a deployment fails otherwise
 echo "== database (readiness: /api/health must report db true)"
