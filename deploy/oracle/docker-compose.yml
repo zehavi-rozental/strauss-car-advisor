@@ -12,7 +12,10 @@ services:
       SESSION_COOKIE_SECURE: "true"
     expose: [ "10000" ]
     healthcheck:
-      test: [ "CMD", "python", "-c", "import json,urllib.request as u; d=json.load(u.urlopen('http://127.0.0.1:10000/api/health',timeout=4)); raise SystemExit(0 if d.get('db') else 1)" ]
+      # liveness only (20/11): /api/live never touches PostgreSQL, so Neon can scale to zero and a sleeping or
+      # unavailable database never makes a working app "unhealthy" (the heal cron would restart it). The database is
+      # checked where it matters: vm-setup-and-test.sh (app.readiness, /api/health db:true) and e2e_api.py
+      test: [ "CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:10000/api/live', timeout=4)" ]
       interval: 30s
       timeout: 6s
       retries: 3

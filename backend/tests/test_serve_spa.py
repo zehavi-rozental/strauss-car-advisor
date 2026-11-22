@@ -43,6 +43,13 @@ def test_the_api_is_never_shadowed_by_the_static_files(tmp_path):
     assert created.status_code == 201 and created.json()["conversation_id"]
 
 
+def test_liveness_is_never_shadowed_by_the_static_files(tmp_path):
+    # the container health check calls /api/live (20/11): JSON from the API, never the React page
+    live = make(tmp_path).get("/api/live")
+    assert live.status_code == 200 and live.json() == {"status": "ok"}
+    assert "strauss drive" not in live.text and live.headers["content-type"].startswith("application/json")
+
+
 @pytest.mark.parametrize("path", ["/api/nope", "/api/conversations/x/nope", "/api"])
 def test_an_unknown_api_path_is_a_404_not_an_html_page(tmp_path, path):
     r = make(tmp_path).get(path)
