@@ -1354,6 +1354,9 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
         if state.link_now != "profile_form" and payslip_allowed(state, snapshot):
             link = _once(state, "payslip_upload")
             return f"אפשר לכתוב כאן, למשל: \"{example}\"" + (", או להעלות תלוש." if link else "."), link
+        if state.payslip_reviewed and not state.payslip_requested and state.link_now != "profile_form":
+            # 22/11: after a confirmed payslip the salary questions are asked in text only: no upload, no form
+            return f"אפשר לכתוב כאן, למשל: \"{example}\".", None
         link = _once(state, "profile_form")
         return f"אפשר לכתוב כאן, למשל: \"{example}\"" + (", או למלא בטופס." if link else "."), link
     if fields == ["group"]:
