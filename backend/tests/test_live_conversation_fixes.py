@@ -28,6 +28,14 @@ def start_q2(svc):
     return cid, token
 
 
+def bare_none(svc, cid, token):
+    """23/11: a bare "אין" to the grouped salary question saves nothing and asks what it is about (buttons); the employee
+    picks "אין עמלות, בונוס, קרן השתלמות וילדים" — what a bare "אין" used to record by itself."""
+    asked = svc.send(cid, token, "אין")
+    assert asked.expects["field"] == "none_choice"
+    return svc.send_choice(cid, token, ["none_all"], "none_choice")
+
+
 def open_questions(svc, cid):
     return svc.cases.list_for_conversation(cid, QuestionStatus.OPEN)
 
@@ -53,7 +61,7 @@ def test_rank_before_the_current_car_is_kept_and_calculated_later(sessions, how)
 def test_a_bare_none_answers_the_zero_fields_and_asks_the_rest(sessions):
     svc = service(sessions)
     cid, token = start_q2(svc)
-    turn = svc.send(cid, token, "אין")
+    turn = bare_none(svc, cid, token)
     assert turn.reply.startswith("רשמתי: אין עמלות, אין בונוס, אין קרן השתלמות, אין ילדים.")
     p = svc.view(cid, token).state.profile
     assert (p.commissions, p.bonus, p.study_fund_percent, p.children) == (0, 0, 0, 0)
@@ -77,7 +85,7 @@ def test_what_is_left_after_a_bare_none_is_asked_before_the_car(sessions):
     next, never moved behind the car as a "חסר עוד" tail."""
     svc = service(sessions)
     cid, token = start_q2(svc)
-    turn = svc.send(cid, token, "אין")
+    turn = bare_none(svc, cid, token)
     assert "חסר עוד" not in turn.reply and turn.stage == Stage.COLLECT_PROFILE and "פנסיה" in turn.reply
     turn = svc.send(cid, token, PROFILE_REST)
     assert turn.stage == Stage.COLLECT_CURRENT_CAR and "חסר עוד" not in turn.reply
@@ -99,8 +107,8 @@ def test_the_group_found_from_the_occupation_is_confirmed(sessions):
 def test_the_chosen_alternatives_are_confirmed(sessions):
     svc = service(sessions)
     cid, token = start_q2(svc)
-    for m in ("אין", PROFILE_REST):                     # 16/11: the salary first; the car question offers the cars
-        svc.send(cid, token, m)
+    bare_none(svc, cid, token)                         # 16/11: the salary first; the car question offers the cars
+    svc.send(cid, token, PROFILE_REST)
     turn = svc.send_choice(cid, token, ["CAR-01", "CAR-12", "CAR-03"], "options")
     assert turn.reply.startswith("בחרתם להשוות: PICANTO (2025), TUCSON (2025), BYD DOLPHIN (2025).")
 
@@ -110,7 +118,7 @@ def test_the_chosen_alternatives_are_confirmed(sessions):
 def test_an_unknown_copay_is_recorded_and_asked_from_the_employee_never_the_rep(sessions):
     svc = service(sessions)
     cid, token = start_q2(svc)
-    svc.send(cid, token, "אין")
+    bare_none(svc, cid, token)
     svc.send(cid, token, PROFILE_REST)                # 16/11: the salary first, then the car
     svc.send_choice(cid, token, ["CAR-09"], "car")
     turn = svc.send(cid, token, "לא ידוע")   # a catalog car: three choices on screen; "לא ידוע" is typed
@@ -136,7 +144,7 @@ def test_the_live_conversation_reaches_a_result(sessions):
     replies = [
         svc.send_choice(cid, token, [OCCUPATION], "occupation").reply,
         svc.send(cid, token, "15000").reply,
-        svc.send(cid, token, "אין").reply,
+        bare_none(svc, cid, token).reply,               # 23/11: "אין" asks; the button records the zeros
         svc.send(cid, token, PROFILE_REST).reply,          # 16/11: what is left of the salary, before the car
         svc.send_choice(cid, token, ["CAR-09"], "car").reply,
         svc.send(cid, token, "לא ידוע").reply,           # a catalog car: three choices on screen; typed

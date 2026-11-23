@@ -15,7 +15,7 @@ from .actions import expects_actions
 from .free_text import looks_like_title
 from .llm.port import ToolCall
 from .stage import MAX_OPTIONS, ConversationState, Stage, current_group, next_stage, question_fields, with_rep
-from .templates import (DRIVE_HE, LINK_LABELS, ask_fields, call_to_action, catalog_copay_hint, copay_choices_offered, money,
+from .templates import (DRIVE_HE, LINK_LABELS, NONE_CHOICES, ask_fields, call_to_action, catalog_copay_hint, copay_choices_offered, money,
                         placeholder_text)
 from .tools import available_options
 
@@ -186,7 +186,7 @@ def MAINTENANCE_CHOICES(state: ConversationState) -> list[dict[str, str]]:
 
 
 CLOSED = {"confirmation", "occupation_confirmation", "clarification", "car_choice", "drive", "rep_question",
-          "ambiguity", "ask_rep", "value_choice"}
+          "ambiguity", "ask_rep", "value_choice", "none_choice"}
 
 
 def build_expects(state: ConversationState, snapshot: RulesSnapshot) -> dict[str, Any]:
@@ -235,6 +235,9 @@ def _build(state: ConversationState, snapshot: RulesSnapshot) -> dict[str, Any]:
         return _expects("rep_question", "choice", REP_SEND)
     if state.pending_ambiguity is not None:
         return _expects("ambiguity", "choice", AMBIGUITY)
+    if state.pending_none_choice:
+        return _expects("none_choice", "choice",
+                        [{"id": i, "label": NONE_CHOICES[i][0]} for i in state.pending_none_choice if i in NONE_CHOICES])
     if state.pending_confirmation is not None:
         pending = state.pending_confirmation
         unusual = pending.unusual

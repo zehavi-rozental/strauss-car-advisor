@@ -74,7 +74,7 @@ from .stage import (
     profile_args,
     Q2_FIELDS,
 )
-from .templates import (LINK_LABELS,
+from .templates import (LINK_LABELS, NONE_CHOICES,
     options_list_text,
     today_cars_text,
     ALL_AT_ONCE,
@@ -1217,6 +1217,10 @@ class Agent:
         field_ = field or build_expects(state, snapshot)["field"]
         state.payslip_offer_now = False          # the bot's offer of the upload belongs to one reply (23/11)
         asked_value, state.pending_value_choice = state.pending_value_choice, None
+        none_asked, state.pending_none_choice = state.pending_none_choice, None
+        if field_ == "none_choice" and none_asked and ids[0] in none_asked and ids[0] in NONE_CHOICES:
+            # what a bare "אין" was about (23/11): only the chosen button's fields are recorded as 0
+            return self._finish(ctx, (), label, none_plan(NONE_CHOICES[ids[0]][1]), before, record_run, choice=True)
         if field_ == "value_choice" and asked_value is not None and (
                 chosen := value_choice.from_button(asked_value, ids)) is not None:
             return self._value_chosen(ctx, asked_value, chosen, (), label, before, record_run)
@@ -1300,6 +1304,7 @@ class Agent:
                           exact_amounts=True)
         before = next_stage(state)
         state.payslip_offer_now = False          # the bot's offer of the upload belongs to one reply (23/11)
+        state.pending_none_choice = None         # another answer: the "אין" buttons leave with their question
         previous = {**_form_values(state), "current_copay": state.current.copay,
                     "current_use_value": state.current.use_value, "current_maintenance": state.current.maintenance}
         group_before, occupation_before, car_before = state.profile.group, state.profile.occupation, state.current.label
@@ -1351,6 +1356,7 @@ class Agent:
         ctx = ToolContext(snapshot=snapshot, find_vehicle=find_vehicle, state=state)
         before = next_stage(state)
         state.payslip_offer_now = False          # the bot's offer of the upload belongs to one reply (23/11)
+        state.pending_none_choice = None         # another answer: the "אין" buttons leave with their question
 
         # one number for several fields ("2" → "לשניהם"; production 9/11: "לשתיהם" was not understood and both
         # contributions went back to missing): the question held in the state is answered first; a later "בעצם רק
@@ -1717,12 +1723,15 @@ class Agent:
                 # a blanket "לא ידוע" / "אין לי כלום" / "הכל 5" on a grouped question: nothing is saved,
                 # and from here the fields are asked one at a time, so each answer is unambiguous.
                 state.pace = "one_at_a_time"
+            if plan.none_choices:
+                state.pending_none_choice = list(plan.none_choices)   # a bare "אין": asked with buttons (23/11)
             if plan.clarify is not None:
                 state.pending_clarification = plan.clarify     # "<רכב> הוא הרכב שלכם היום, או חלופה?"
                 state.role_asked.append(plan.clarify.catalog_code)
                 understood = True
             if (self._llm_led() and not choice and next_stage(state) != Stage.CALCULATING
-                    and not simple and (meaningful(und.remainder) or _owes_explanation(und))):
+                    and not simple and not plan.none_choices
+                    and (meaningful(und.remainder) or _owes_explanation(und))):
                 # saved in code (an answer to the bot's own question, or a message read in full); the model reads
                 # what is left of the message and writes the explanation it asks for. A message code read in full
                 # that asks nothing needs no model call: the turn decision is code's (reply contract, 16/11)

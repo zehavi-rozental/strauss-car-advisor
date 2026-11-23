@@ -54,7 +54,8 @@ def test_a_percent_and_a_bare_none_are_code_too(engine):
     send({"text": "קבוצה א"})
     send({"text": "18000"})
     before = len(fake.calls)
-    send({"text": "אין"})                                  # the salary components asked: 0 for those it may mean
+    send({"text": "אין"})                                  # several salary values asked: what is it about? (23/11)
+    send({"choice": "none_all", "field": "none_choice"})   # the button: 0 for those it may mean
     send({"text": "פנסיה 5%"})                             # labelled: saved wherever it is said
     assert len(fake.calls) == before
     profile = client.get(f"/api/conversations/{cid}").json()["profile"]

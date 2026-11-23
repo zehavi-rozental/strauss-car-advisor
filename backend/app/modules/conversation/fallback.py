@@ -46,7 +46,7 @@ from .parsing import (
     year_spans,
 )
 from .stage import ARG_OF, PROFILE_ARGS, Q2_FIELDS, CarClarification, ConversationState, current_group
-from .templates import ask_fields, paced, recorded_text   # recorded_text: re-exported (agent, public)
+from .templates import NONE_CHOICES, ask_fields, paced, recorded_text   # recorded_text: re-exported (agent, public)
 from .tools import OPT_OUT_WORDS, available_options
 
 _RANK_RE = re.compile(r"(?:מה\s+)?הכי\s*(?:משתלם|כדאי|טוב)(?:\s+לי)?|תמליץ|המלצ|דרג", re.IGNORECASE)
@@ -85,6 +85,7 @@ class ParserPlan:
     asks: Optional[str] = None               # the notice IS the question, about this save_profile field
     clarify_scope: bool = False              # a blanket answer ("לא ידוע", "אין לי כלום", "הכל 5") to a
     #   grouped Q2: too broad to split silently — save nothing, switch to one field at a time, ask again
+    none_choices: tuple[str, ...] = ()       # a bare "אין" to several salary values: nothing saved, these buttons
 
 
 def _key(text: str) -> str:
@@ -511,8 +512,8 @@ def _grouped_plan(state: ConversationState, snapshot: RulesSnapshot, group: Opti
 
 
 def _bare_none_plan(snapshot: RulesSnapshot, fields: list[str], text: str) -> Optional[ParserPlan]:
-    """"אין" לבד כתשובה ל-Q2: אפס בשדות שבהם אפס הוא ערך סביר (עמלות, בונוס, קרן השתלמות, ילדים).
-    פנסיה ונקודות זיכוי לא מקבלות ערך — הן נשאלות שוב במפורש.
+    """"אין" לבד כתשובה לשאלה על שדה אחד שאפס סביר בו: אפס בו. על כמה שדות (23/11): לא נשמר דבר — נשאל על מה
+    ה"אין", עם כפתורים. פנסיה ונקודות זיכוי לא מקבלות ערך — הן נשאלות שוב במפורש.
     אבל "אין לי כלום" על שאלה מקובצת הוא מענה גורף ועמום — לא מאפסים בשקט כמה שדות; שואלים אחד-אחד."""
     span = none_span(text)
     if not span:
@@ -523,6 +524,13 @@ def _bare_none_plan(snapshot: RulesSnapshot, fields: list[str], text: str) -> Op
     if unread_words(text, [span], (), snapshot.extensions.answer_fillers):
         return None
     zero = [f for f in fields if f in ZERO_ALLOWED]
+    if multi and len(zero) > 1:
+        # 23/11: a bare "אין" names no field: nothing is saved; what it is about is asked with buttons (only those whose
+        # fields are all asked now), else one field at a time
+        offered = tuple(i for i, (_, owned) in NONE_CHOICES.items() if all(f in zero for f in owned))
+        if offered:
+            return ParserPlan([], True, direct=True, none_choices=offered)
+        return ParserPlan([], True, direct=True, clarify_scope=True, notice=SCOPE_CLARIFY)
     return none_plan(zero) if zero else None
 
 

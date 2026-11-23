@@ -37,12 +37,16 @@ def profile(occupation="מנהלת מוצר", children="2"):
 
 
 def test_a_bare_none_to_q2_fills_only_the_fields_where_zero_is_reasonable(sessions):
-    """"אין" לשאלה המקובצת: אפס בעמלות, בונוס, קרן השתלמות וילדים; פנסיה ונקודות זיכוי נשאלות שוב."""
+    """"אין" לשאלה המקובצת (23/11): נשאל על מה ה"אין"; הכפתור "הכול" — אפס בעמלות, בונוס, קרן השתלמות וילדים;
+    פנסיה ונקודות זיכוי נשאלות שוב."""
     svc = service(sessions)
     turn, token = talk(svc, ["מנהלת מוצר", "18,500", "לא ברור לי"])
     assert turn.stage == Stage.COLLECT_PROFILE
     assert "לא הצלחתי להבין" in turn.reply and "עמלות" in turn.reply
     turn, _ = talk(svc, ["אין"], start=(turn, token))
+    assert turn.expects["field"] == "none_choice"             # 23/11: a bare "אין" asks what it is about
+    assert svc.view(turn.conversation_id, token).state.profile.commissions is None
+    turn = svc.send_choice(turn.conversation_id, token, ["none_all"], "none_choice")
     p = svc.view(turn.conversation_id, token).state.profile
     assert (p.commissions, p.bonus, p.study_fund_percent, p.children) == (0, 0, 0, 0)
     assert p.pension_percent is None and p.credit_points is None

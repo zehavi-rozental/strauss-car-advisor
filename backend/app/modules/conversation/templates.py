@@ -1082,6 +1082,15 @@ CORRECTION_ASK = ("אפשר לתקן כל נתון שמסרתם, והחישוב 
                   "מה תרצו לתקן? כתבו את הנתון והערך הנכון, למשל: \"השכר שלי 20,000\" או \"פנסיה 6%\".")
 CORRECTION_CARS = "כדי לשנות את הרכבים בהשוואה, לחצו על \"לשנות בחירה\"."
 CORRECTION_CTA = "אפשר גם לפתוח את טופס תיקון הנתונים."
+# a bare "אין" to a question about several salary values (23/11): what it is about is asked, never spread as zeros.
+# id -> (button label, the fields it records as 0); a button is offered only when all its fields are asked
+NONE_CHOICES = {
+    "none_commissions_bonus": ("אין עמלות ואין בונוס", ("commissions", "bonus")),
+    "none_children": ("אין ילדים עד גיל 23", ("children",)),
+    "none_all": ("אין עמלות, בונוס, קרן השתלמות וילדים", ("commissions", "bonus", "study_fund_percent", "children")),
+}
+NONE_QUESTION = 'על מה ה"אין"?'
+NONE_CTA = 'בחרו אחת מהאפשרויות, או כתבו במפורש, למשל: "אין עמלות ואין בונוס".'
 CORRECTION_VALUE_CTA = "כתבו רק את הערך הנכון, והחישוב יתעדכן."
 
 
@@ -1308,6 +1317,8 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
         return "בחרו אחת מהאפשרויות, או כתבו במילים.", None
     if state.pending_ambiguity is not None:
         return "בחרו אחת מהאפשרויות, או כתבו \"אין רכב\" או את דגם הרכב.", None
+    if state.pending_none_choice:
+        return NONE_CTA, None
     if state.pending_confirmation is not None:
         if state.pending_confirmation.unusual:
             return "בחרו \"לאשר\" או \"לתקן\", או כתבו את הערך הנכון.", None
@@ -1404,6 +1415,8 @@ def placeholder_text(state: ConversationState, snapshot: RulesSnapshot) -> str:
         return "למשל: לשניהם"
     if state.pending_ambiguity is not None:
         return "למשל: אין רכב"
+    if state.pending_none_choice:
+        return "למשל: אין עמלות ואין בונוס"
     if state.pending_confirmation is not None or state.pending_clarification is not None:
         return "למשל: כן"
     if state.pending_occupation is not None:
@@ -1561,6 +1574,9 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
         return plan
     if state.pending_ambiguity is not None:
         plan.ask.append("לא בטוח שהבנתי: אין לכם רכב צמוד היום, או שיש רכב וההשתתפות שלכם היא 0?")
+        return plan
+    if state.pending_none_choice:
+        plan.ask.append(NONE_QUESTION)          # nothing saved; the buttons say what the "אין" is about (23/11)
         return plan
     if state.pending_clarification is not None:
         plan.ask.append(clarify_role_text(state.pending_clarification.label))

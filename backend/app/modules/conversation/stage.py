@@ -314,6 +314,8 @@ class ConversationState(BaseModel):
     offered_rank: bool = False   # the results reply offered "הכי משתלם": "כן" ranks
     rep_skipped: bool = False    # "להמשיך בלי" this turn: the representative is not offered again
     pending_ambiguity: Optional[str] = None      # "no_car_or_zero_copay": asked with two buttons, never guessed
+    # a bare "אין" to several salary values (23/11): the NONE_CHOICES ids offered; nothing saved until one is chosen
+    pending_none_choice: Optional[list[str]] = None
     # the one save_profile field the last reply asked for (None: several or none). A bare value ("34") may
     # only be saved to it, never remapped to another field.
     asked_field: Optional[str] = None

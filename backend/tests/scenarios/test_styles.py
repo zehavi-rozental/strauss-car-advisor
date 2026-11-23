@@ -309,7 +309,7 @@ CORPUS = [
     ("Q1", "?", {"help": True}),
     ("Q1", "מנהלת מוצר. מה זה שווי שימוש?", {"answer": "שווי שימוש", "save": {"group": "ג"}}),
     ("Q1", "אני מנהל מוצר ומרוויח 20 אלף ברוטו", {}),
-    ("Q2", "אין", {"save": {"commissions": 0, "bonus": 0}, "keep": ["pension_percent", "credit_points"]}),
+    ("Q2", "אין", {"keep": ["commissions", "bonus", "pension_percent", "credit_points"], "field": "none_choice"}),
     ("Q2", "יש קצת עמלות ובונוסים", {"keep": ["commissions", "bonus"], "follow_up": True}),
     ("Q2", "פנסיה 6%, אין קרן השתלמות, 2.25 נקודות זיכוי", {"save": {"pension_percent": 6, "credit_points": "2.25"}}),
     ("Q2", "מה זה נקודות זיכוי?", {"answer": "נקודות זיכוי", "keep": ["credit_points"], "field_in": ["credit_points"]}),
