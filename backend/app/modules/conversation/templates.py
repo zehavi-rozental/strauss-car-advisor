@@ -1334,7 +1334,6 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
     if not fields:
         return "", None
     if group == "unknown":
-        ext = snapshot.extensions
         if all(with_rep(state, f) for f in fields):
             # the representative was asked (19/11): nothing to look for; an estimate is still welcome
             return ("אפשר להמשיך לשאול בינתיים, או לכתוב הערכה, למשל: \"בערך 1,000\"."
@@ -1342,9 +1341,10 @@ def call_to_action(state: ConversationState, snapshot: RulesSnapshot,
         if fields == ["maintenance"]:
             return "בחרו אחת מהאפשרויות, או כתבו את הסכום, למשל: 1,500, או \"אין\".", None
         # the payslip is offered only when a value asked is printed on it (19/11: not for the number of children alone),
-        # and not again once a payslip was reviewed
+        # and not again once a payslip was reviewed. 23/11: the upload itself only when payslip_allowed — the bot's one
+        # offer, or asked for by the employee (the rule of the salary questions)
         on_payslip = any(f not in _NOT_ON_PAYSLIP for f in fields) and not state.payslip_reviewed
-        link = "payslip_upload" if on_payslip and (ext.payslip_upload_enabled or ext.payslip_upload_url) else None
+        link = "payslip_upload" if on_payslip and payslip_allowed(state, snapshot) else None
         example = _faq_example(snapshot, fields[0]).split(", ")[0]
         if not on_payslip:
             return f"כתבו את הערך, למשל: \"{example}\".", None

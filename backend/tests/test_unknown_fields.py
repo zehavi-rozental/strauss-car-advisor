@@ -102,10 +102,13 @@ def test_the_payslip_upload_link_is_offered_only_when_configured(sessions, tmp_p
                                    'payslip_upload_url: "https://hr.example/upload"'),
                    encoding="utf-8")
     svc = service(sessions, config=config)
-    turn, _ = talk(svc, [PROFILE_Q1, "אני לא יודע אף אחד מהם", CAR, "אטו 3"])
+    turn, token = talk(svc, [PROFILE_Q1])                     # 23/11: the bot's one offer, at the salary question
     assert turn.expects["link"] == {"kind": "payslip_upload", "label": "להעלות תלוש שכר",
                                     "url": "https://hr.example/upload"}
-    assert turn.reply.endswith("או העלו את התלוש.")
+    assert turn.reply.endswith("או להעלות תלוש.")
+    for t in ("אני לא יודע אף אחד מהם", CAR, "אטו 3"):
+        turn = svc.send(turn.conversation_id, token, t)
+    assert turn.expects["link"] is None and "העלו את התלוש" not in turn.reply   # offered once (23/11)
 
 
 def test_the_builtin_upload_link_is_offered_without_a_url(sessions, tmp_path):
@@ -117,10 +120,13 @@ def test_the_builtin_upload_link_is_offered_without_a_url(sessions, tmp_path):
                                                            "payslip_upload_enabled: true"),
                    encoding="utf-8")
     svc = service(sessions, config=config)
-    turn, _ = talk(svc, [PROFILE_Q1, "אני לא יודע אף אחד מהם", CAR, "אטו 3"])
+    turn, token = talk(svc, [PROFILE_Q1])                     # 23/11: the bot's one offer, at the salary question
     # the link is offered, but with no url: the client uses the built-in in-chat uploader
     assert turn.expects["link"] == {"kind": "payslip_upload", "label": "להעלות תלוש שכר"}
-    assert turn.reply.endswith("או העלו את התלוש.")
+    assert turn.reply.endswith("או להעלות תלוש.")
+    for t in ("אני לא יודע אף אחד מהם", CAR, "אטו 3"):
+        turn = svc.send(turn.conversation_id, token, t)
+    assert turn.expects["link"] is None and "העלו את התלוש" not in turn.reply   # offered once (23/11)
 
 
 # ---------- why SAY fell back to the template ----------
