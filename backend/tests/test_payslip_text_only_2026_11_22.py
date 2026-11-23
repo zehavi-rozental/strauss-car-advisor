@@ -65,7 +65,8 @@ def test_the_q2_call_to_action_after_a_confirmed_payslip_names_no_form_and_no_up
 
 
 def test_before_any_payslip_nothing_changes(snapshot):
-    text, offered = call_to_action(_state(), snapshot, CONTRIBUTIONS)               # the upload is offered, as before
+    offer = {"payslip_offered": True, "payslip_offer_now": True}                      # 23/11: the bot's one offer
+    text, offered = call_to_action(_state(**offer), snapshot, CONTRIBUTIONS)        # the upload is offered, as before
     assert offered == "payslip_upload" and "או להעלות תלוש" in text
     no_upload = dataclasses.replace(snapshot, extensions=snapshot.extensions.model_copy(
         update={"payslip_upload_enabled": False, "payslip_upload_url": ""}))

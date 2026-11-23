@@ -65,7 +65,8 @@ def _state(**kw) -> ConversationState:
 
 
 def test_the_q2_call_to_action_offers_the_upload_only_when_allowed(snapshot):
-    before = call_to_action(_state(), snapshot, CONTRIBUTIONS)                       # no payslip yet: offered
+    offer = {"payslip_offered": True, "payslip_offer_now": True}                       # 23/11: the bot's one offer
+    before = call_to_action(_state(**offer), snapshot, CONTRIBUTIONS)                # no payslip yet: offered
     assert before[1] == "payslip_upload" and "או להעלות תלוש" in before[0]
 
     reviewed = call_to_action(_state(payslip_reviewed=True), snapshot, CONTRIBUTIONS)

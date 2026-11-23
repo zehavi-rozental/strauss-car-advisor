@@ -360,6 +360,10 @@ class ConversationState(BaseModel):
     # the employee asked to upload a (new) payslip or to update the salary details (19/11): the upload is on the screen
     # again, at any stage, until a payslip is confirmed. Without it the upload stays hidden once one was confirmed
     payslip_requested: bool = False
+    # the bot offers the upload once on its own initiative (23/11): at the first salary question; offer_now marks the
+    # reply that offered it (shown again on its reload), and it is cleared when the next turn starts
+    payslip_offered: bool = False
+    payslip_offer_now: bool = False
     last_reply: ReplyContext = Field(default_factory=ReplyContext)
 
 

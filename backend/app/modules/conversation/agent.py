@@ -1215,6 +1215,7 @@ class Agent:
         ctx = ToolContext(snapshot=snapshot, find_vehicle=find_vehicle, state=state, get_vehicle=get_vehicle)
         before = next_stage(state)
         field_ = field or build_expects(state, snapshot)["field"]
+        state.payslip_offer_now = False          # the bot's offer of the upload belongs to one reply (23/11)
         asked_value, state.pending_value_choice = state.pending_value_choice, None
         if field_ == "value_choice" and asked_value is not None and (
                 chosen := value_choice.from_button(asked_value, ids)) is not None:
@@ -1298,6 +1299,7 @@ class Agent:
         ctx = ToolContext(snapshot=snapshot, find_vehicle=find_vehicle, state=state, get_vehicle=get_vehicle,
                           exact_amounts=True)
         before = next_stage(state)
+        state.payslip_offer_now = False          # the bot's offer of the upload belongs to one reply (23/11)
         previous = {**_form_values(state), "current_copay": state.current.copay,
                     "current_use_value": state.current.use_value, "current_maintenance": state.current.maintenance}
         group_before, occupation_before, car_before = state.profile.group, state.profile.occupation, state.current.label
@@ -1348,6 +1350,7 @@ class Agent:
         text = redact_id_numbers(text)
         ctx = ToolContext(snapshot=snapshot, find_vehicle=find_vehicle, state=state)
         before = next_stage(state)
+        state.payslip_offer_now = False          # the bot's offer of the upload belongs to one reply (23/11)
 
         # one number for several fields ("2" → "לשניהם"; production 9/11: "לשתיהם" was not understood and both
         # contributions went back to missing): the question held in the state is answered first; a later "בעצם רק
@@ -1999,6 +2002,7 @@ class Agent:
             state.link_now = link
             if link not in state.links_shown:
                 state.links_shown.append(link)
+        actions.mark_offer(state, snapshot)      # the bot's one offer of the upload (23/11)
         # what this reply is about, for the next message's follow-up (19/11): the action it offered (its link), and its
         # topic — the action's own when the turn was about it, else the term explained
         offered = [state.link_now] if state.link_now in actions.LABELS else []

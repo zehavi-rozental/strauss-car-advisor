@@ -12,7 +12,7 @@ from typing import Any
 
 from app.modules.rules.public import RulesSnapshot
 
-from .stage import PROFILE_FIELDS, ConversationState, Stage, next_stage
+from .stage import PROFILE_FIELDS, ConversationState, Stage, current_group, next_stage
 
 PAYSLIP_UPLOAD = "payslip_upload"
 # the label is the button's own text on the screen (the client draws exactly this)
@@ -49,16 +49,32 @@ def payslip_possible(state: ConversationState, snapshot: RulesSnapshot) -> bool:
 
 
 def payslip_allowed(state: ConversationState, snapshot: RulesSnapshot) -> bool:
-    """The upload is on the screen by itself (19/11): before any payslip was confirmed, while a salary value is still
-    missing and no result is shown; once one was confirmed it is hidden (what is left is asked in the chat, and
-    "הנתונים שלי" changes a value). Asked for again ("להעלות תלוש חדש", "לעדכן את נתוני השכר"), it is back."""
+    """The upload on the screen. Asked for ("להעלות תלוש חדש", "לעדכן את נתוני השכר"), it is there at any stage. By
+    itself (23/11) it is offered once: at the first question that asks a salary value (not the greeting, not the group
+    question), and on a reload of that reply; never after a confirmed payslip or with results on the screen."""
     if not payslip_possible(state, snapshot):
         return False
     if state.payslip_requested:
         return True
     if state.payslip_reviewed or state.results:
         return False
+    if state.payslip_offered and not state.payslip_offer_now:
+        return False
+    if not state.payslip_offered and not _asks_salary(state):
+        return False
     return any(getattr(state.profile, f) is None for f in PROFILE_FIELDS)
+
+
+def _asks_salary(state: ConversationState) -> bool:
+    """The question now asks a salary value and not the eligibility group (the bot's one offer goes with it)."""
+    fields = current_group(state)[1]
+    return any(f in PROFILE_FIELDS for f in fields) and not any(f in ("occupation", "group") for f in fields)
+
+
+def mark_offer(state: ConversationState, snapshot: RulesSnapshot) -> None:
+    """At the end of a turn: the reply that first carries the upload is the bot's one offer of it (23/11)."""
+    if not state.payslip_offered and payslip_allowed(state, snapshot):
+        state.payslip_offered = state.payslip_offer_now = True
 
 
 def available(state: ConversationState, snapshot: RulesSnapshot) -> list[str]:
