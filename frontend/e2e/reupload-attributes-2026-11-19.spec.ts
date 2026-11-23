@@ -104,8 +104,9 @@ for (const [width, height] of [[1280, 860], [375, 800]]) {
     test('a repeated payslip: hidden after the first one, back on request, the change approved and recalculated', async ({ page }) => {
       test.skip((await (await page.request.get('/api/health')).json()).payslip !== true, 'payslip extraction is off')
       await open(page)
-      await expect(page.locator(UPLOAD_BTN).first()).toBeVisible()                   // before: clear and available
+      await expect(page.locator(UPLOAD_BTN)).toHaveCount(0)                          // 23/11: not at the greeting
       await send(page, 'מנהלת מוצר, שכר בסיס 18,500')
+      await expect(page.locator(UPLOAD_BTN).first()).toBeVisible()                   // the first salary question: offered
       await page.locator(UPLOAD_BTN).first().click()
       await page.locator('input[type="file"]').setInputFiles(join(PAYSLIPS, 'full_payslip.pdf'))
       await expect(page.getByRole('heading', { name: 'בדיקת הנתונים מהתלוש' })).toBeVisible()

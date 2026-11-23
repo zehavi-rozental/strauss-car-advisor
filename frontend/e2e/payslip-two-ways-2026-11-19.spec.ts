@@ -72,6 +72,9 @@ for (const [width, height] of [[1280, 860], [375, 800]]) {
 
     test('1. the chat alone: both ways explained once, the chat chosen, every detail typed, no upload needed', async ({ page }) => {
       await open(page)
+      await expect(page.locator(CHOICE)).toHaveCount(0)                       // 23/11: not at the greeting
+      await expect(page.getByRole('button', { name: UPLOAD })).toHaveCount(0)
+      await send(page, 'קבוצה ג')                                             // the base-salary question: the one offer
       const choice = page.locator(CHOICE)
       await expect(choice).toContainText('את פרטי השכר אפשר למלא כאן בשיחה, שאלה אחר שאלה')
       await expect(choice.getByRole('button', { name: CHAT })).toBeVisible()
@@ -79,13 +82,23 @@ for (const [width, height] of [[1280, 860], [375, 800]]) {
       expect(await fitsWidth(page)).toBe(true)
       await choice.getByRole('button', { name: CHAT }).click()
       await expect(page.locator(CHOICE)).toHaveCount(0)                       // explained once, then out of the way
-      await expect(page.getByRole('button', { name: UPLOAD })).toBeVisible()  // still there, compact
       await expect(page.getByLabel('הודעה')).toBeFocused()
-      await send(page, 'אני מנהלת מוצר, שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, ' +
-                       '2.75 נקודות זיכוי, 2 ילדים')
+      await send(page, '18,500')
+      await expect(page.getByRole('button', { name: UPLOAD })).toHaveCount(0)  // offered once: not again by itself
+      await expect(page.locator(CHOICE)).toHaveCount(0)
+      await send(page, 'אין')                                                 // a bare "אין" to several values (#4)
+      for (const chip of ['אין עמלות ואין בונוס', 'אין ילדים עד גיל 23', 'אין עמלות, בונוס, קרן השתלמות וילדים']) {
+        await expect(page.getByRole('button', { name: chip, exact: true })).toBeVisible()
+      }
+      expect((await state(page)).profile.commissions).toBeNull()              // nothing saved before a choice
+      const bots = await page.locator(BOT).count()
+      await page.getByRole('button', { name: 'אין עמלות ואין בונוס', exact: true }).click()
+      await waitBot(page, bots)
+      await send(page, 'פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים')
       const s = await state(page)
       expect(s.stage).toBe('COLLECT_CURRENT_CAR')
-      expect([s.profile.base, s.profile.pension_percent, s.profile.children]).toEqual(['18500', '6', 2])
+      expect([s.profile.base, s.profile.commissions, s.profile.bonus, s.profile.pension_percent, s.profile.children])
+        .toEqual(['18500', '0', '0', '6', 2])
       await expect(page.getByRole('button', { name: UPLOAD })).toHaveCount(0)  // the salary is complete
       await page.reload()
       await expect(page.locator(CHOICE)).toHaveCount(0)
@@ -93,6 +106,8 @@ for (const [width, height] of [[1280, 860], [375, 800]]) {
 
     test('2. choosing the upload: a clear window, what to upload and why, and back to the chat', async ({ page }) => {
       await open(page)
+      await expect(page.locator(CHOICE)).toHaveCount(0)                       // 23/11: not at the greeting
+      await send(page, 'קבוצה ג')                                             // the base-salary question: the one offer
       await page.locator(CHOICE).getByRole('button', { name: UPLOAD }).click()
       const panel = page.locator('.payslip-upload')
       await expect(panel.getByRole('heading', { name: 'העלאת תלוש שכר' })).toBeVisible()
@@ -103,8 +118,9 @@ for (const [width, height] of [[1280, 860], [375, 800]]) {
       expect(await fitsWidth(page)).toBe(true)
       await panel.getByRole('button', { name: CHAT }).click()
       await expect(page.locator('.payslip-upload')).toHaveCount(0)
-      await send(page, 'קבוצה ג, שכר בסיס 18,500')
+      await send(page, '18,500')
       expect((await state(page)).profile.base).toBe('18500')
+      await expect(page.getByRole('button', { name: UPLOAD })).toHaveCount(0)  // offered once: not again by itself
     })
 
     test('3+6. a synthetic payslip: read, corrected, confirmed; the chat goes on without asking it again', async ({ page }) => {
@@ -127,8 +143,10 @@ for (const [width, height] of [[1280, 860], [375, 800]]) {
 
     test('4+5. the chat, then the payslip, then the chat: a value given in the chat is kept when chosen', async ({ page }) => {
       await open(page)
-      await send(page, 'מנהלת מוצר, שכר בסיס 18,500')
+      await send(page, 'מנהלת מוצר, שכר בסיס 18,500')                       // the first salary question: the offer
       await send(page, 'פנסיה 7%')
+      await expect(page.getByRole('button', { name: UPLOAD })).toHaveCount(0)  // offered once: not again by itself
+      await send(page, 'אני רוצה להעלות תלוש')                                // asked for: back
       await upload(page, 'full_payslip.pdf')
       const pension = row(page, 'pension_percent')
       await expect(pension).toContainText('שונה ממה שכתבתם בשיחה')
