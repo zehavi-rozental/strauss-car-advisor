@@ -221,6 +221,12 @@ social_cues:
   how_are_you: [מה נשמע, מה שלומך, מה שלומכם, מה העניינים, מה המצב, מה קורה, מה איתך, איך אתה, איך את, איך הולך]
   greeting: [שלום, היי, הי, הלו, אהלן, בוקר טוב, צהריים טובים, ערב טוב, לילה טוב, שלום לך, היי לך, שלום רב]
   thanks: [תודה, תודה רבה, תודה לך, תודה רבה לך, תנקס]
+  # about the advisor itself, asking for nothing (24/11): "מה אתה אומר? אתה שמח שאתה עוזר לי?"
+  about_bot: [מה אתה אומר, אתה שמח, שאתה עוזר לי, שאתה עוזר, אתה נהנה, אתה נהנה לעזור, שמח לעזור, אתה אוהב לעזור]
+# 24/11: a message asking nothing of the service is answered by code: one of these fixed lines, then one follow-up
+# line for where the conversation is (the question on screen, the next step after the results, the representative)
+small_talk_reply: "תודה! אני כאן כדי לעזור לכם לבחור רכב חברה ולהבין את ההשפעה על הנטו."
+off_topic_reply: "בזה אני לא יכול לעזור. אני עוזר רק בנושאי רכב החברה וההשפעה שלו על הנטו."
 social_replies:
   how_are_you: ["מצוין.", "מצוין, תודה.", "הכול מצוין."]
   greeting: ["שלום.", "שלום שוב."]

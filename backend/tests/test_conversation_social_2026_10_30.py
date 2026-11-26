@@ -44,31 +44,35 @@ def asks(reply: str) -> list[str]:
 
 # ---------- small talk ----------
 
+GREETINGS = ("בוקר טוב", "שלום")      # a greeting opens the conversation and keeps its own few words
+
+
 @pytest.mark.parametrize("text", ["מה נשמע?", "מה המצב", "היי, מה שלומך?", "בוקר טוב", "שלום", "תודה רבה",
                                   "מה קורה אצלכם היום?"])
 def test_small_talk_is_answered_in_a_few_words_then_the_open_question(client, text):
     _, [turn] = chat(client, text)
-    assert first_line(turn["reply"]) in SOCIAL
+    if text in GREETINGS:
+        assert first_line(turn["reply"]) in SOCIAL and "!" not in turn["reply"]
+    else:                                                 # 24/11: the approved fixed line, then the open question
+        assert first_line(turn["reply"]) == SNAP.faq.small_talk_reply
     assert not any(r in turn["reply"] for r in ROBOTIC)
     assert "קבוצת הזכאות" in turn["reply"]                 # back to the open question, gently
-    assert "!" not in turn["reply"] and turn["expects"]["fields"]   # the persona's style; never a dead end
+    assert turn["expects"]["fields"]                       # never a dead end
 
 
 def test_small_talk_mid_collection_keeps_what_was_saved_and_asks_what_is_next(client):
     cid, [_, turn] = chat(client, "קבוצה ג", "מה נשמע?")
-    assert first_line(turn["reply"]) in SOCIAL
+    assert first_line(turn["reply"]) == SNAP.faq.small_talk_reply
     assert "שכר הבסיס" in turn["reply"] and "קבוצת הזכאות" not in turn["reply"]
     assert not any(r in turn["reply"] for r in ROBOTIC)
 
 
-def test_small_talk_twice_never_gets_the_same_line_and_the_question_is_picked_up(client):
+def test_small_talk_twice_gets_the_fixed_line_and_the_question_each_time(client):
+    # 24/11: a fixed opening line (approved wording) and the open question, every time: never "still missing"
     _, turns = chat(client, "קבוצה ג", "מה נשמע?", "מה נשמע?")
-    a, b = first_line(turns[1]["reply"]), first_line(turns[2]["reply"])
-    assert a != b and {a, b} <= SOCIAL
-    for t in turns[1:]:                                   # the same question, never "still missing"
+    for t in turns[1:]:
+        assert first_line(t["reply"]) == SNAP.faq.small_talk_reply
         assert "שכר הבסיס" in t["reply"] and not any(r in t["reply"] for r in ROBOTIC)
-    assert turns[1]["reply"] != turns[2]["reply"]
-    assert any("נמשיך מאיפה שעצרנו" in t["reply"] for t in turns[1:])
 
 
 def test_a_greeting_with_a_value_is_read_as_a_value(client):
@@ -159,20 +163,24 @@ def test_with_the_model_down_the_fallback_answers_small_talk_and_feedback(engine
     social = svc.send(cid, token, "מה נשמע?")
     feedback = svc.send(cid, token, "מה הקשר זה לא תשובה")
     pace = svc.send(cid, token, "תשאל כל פעם שאלה אחת")
-    assert first_line(social.reply) in SOCIAL
+    assert first_line(social.reply) == SNAP.faq.small_talk_reply          # 24/11: code's fixed line, no model needed
     assert any(line in feedback.reply for line in FEEDBACK) and "במילים פשוטות" in feedback.reply
     assert pace.reply.startswith("בסדר, אשאל שאלה אחת בכל פעם.")
     for t in (social, feedback, pace):
         assert not any(r in t.reply for r in ROBOTIC)
 
 
-def test_a_rejected_model_reply_falls_back_to_the_small_talk_template(engine):
+def test_small_talk_never_reaches_the_model(engine):
+    # 24/11: small talk is answered by code (the approved fixed line and the open question): the model is not asked,
+    # so a reply it would have written ("!!!", an emoji) can never reach the employee
     fake = FakeLLM()
     svc = service(engine, fake)
     start, token = svc.start()
-    fake.turn(reply="הכול מעולה!!! 😊 ספרו לי על עצמכם")          # "!" and an emoji: rejected by the guard
+    fake.turn(reply="הכול מעולה!!! 😊 ספרו לי על עצמכם")
+    before = len(fake.calls)
     turn = svc.send(start.conversation_id, token, "מה נשמע?")
-    assert first_line(turn.reply) in SOCIAL and "!" not in turn.reply
+    assert first_line(turn.reply) == SNAP.faq.small_talk_reply and "😊" not in turn.reply
+    assert len(fake.calls) == before
     assert not any(r in turn.reply for r in ROBOTIC)
 
 
@@ -217,10 +225,12 @@ def test_ask_me_later_is_not_a_pace_request(client):
     assert "שאלה אחת בכל פעם" not in turn["reply"]
 
 
-def test_how_are_you_at_the_start_is_a_conversation_not_a_form(client):
+def test_how_are_you_at_the_start_gets_the_fixed_line_and_the_open_question(client):
+    # 24/11 (approved rule): the fixed line, then ONE line: the question on screen (here the first one), no example
     _, [turn] = chat(client, "מה נשמע?")
-    assert first_line(turn["reply"]) in SOCIAL and OPEN_HELP in turn["reply"]
-    assert "שכר" not in turn["reply"] and "למשל" not in turn["reply"]
+    parts = [p for p in turn["reply"].split("\n") if p.strip()]
+    assert parts[0] == SNAP.faq.small_talk_reply and len(parts) == 2
+    assert "קבוצת הזכאות" in parts[1] and OPEN_HELP not in turn["reply"] and "למשל" not in turn["reply"]
 
 
 @pytest.mark.parametrize("text", ["איך אתה יודע את כל התשובות?", "על סמך מה אתה ממליץ?", "המערכת שלך אמינה?",

@@ -60,7 +60,7 @@ def test_a_question_about_the_service_with_no_answer_is_in_scope(question):
 def test_template_mode_redirects_and_never_offers_the_representative(sessions, question):
     svc = service(sessions)
     turn, token = start(svc, Q1, question)
-    assert REDIRECT in turn.reply
+    assert turn.reply.startswith(SNAP.faq.off_topic_reply)          # 24/11: the approved fixed line, by code
     assert "נציג" not in turn.reply and "אשאל" not in turn.reply
     assert state(svc, turn, token).unanswered_question is None
     assert not any(f["field"] == "ask_rep" for f in turn.expects.get("fields", []))

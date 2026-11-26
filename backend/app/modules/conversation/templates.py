@@ -1073,6 +1073,12 @@ CTA_STARTS = ("כתבו", "בחרו", "אפשר לכתוב")
 SAVED_STARTS = ("רשמתי", "עדכנתי", "זיהיתי")
 NEXT_AFTER_RESULTS = "רוצים לראות אילו רכבים משאירים לכם את הנטו הגבוה ביותר?"
 NEXT_AFTER_RANK = "רוצים להשוות רכבים אחרים? כתבו את השמות שלהם."
+# 24/11: the one follow-up line after a small-talk or off-topic message, by where the conversation is
+ASIDE_REP_DRAFT = 'הפנייה לנציג התחבורה מחכה לאישור שלכם: בחרו "לשלוח" או "לבטל".'
+ASIDE_REP_OFFER = 'רוצים שאשאל את נציג התחבורה? בחרו "לשאול את הנציג" או "להמשיך בלי".'
+ASIDE_REP_WAITING = "שאלתי את נציג התחבורה, והתשובה תגיע לכאן בשיחה."
+ASIDE_REP_OPEN = "השאלה שלכם לנציג התחבורה עדיין פתוחה, והתשובה תגיע לכאן."
+ASIDE_AFTER_RANK = "אפשר להשוות רכבים אחרים, או לשאול איך חישבתי את הנטו."
 LINK_LABELS = {"profile_form": "למלא בטופס", "selection": "לבחור רכבים להשוואה",
                "payslip_upload": "להעלות תלוש שכר", "correction_form": "לפתוח את טופס תיקון הנתונים"}
 
@@ -1754,3 +1760,25 @@ def rep_request_text(question: Optional[str]) -> str:
                 "והפרטים שכבר מסרתם נשמרים. רוצים שאשאל אותו?")
     return ("אפשר לפנות לנציג התחבורה. כתבו מה תרצו לשאול, והתשובה תגיע לכאן. "
             "הפרטים שכבר מסרתם נשמרים.")
+
+
+def aside_follow_up(state: ConversationState, snapshot: RulesSnapshot) -> str:
+    """The one line after a small-talk or off-topic message (24/11): the representative step waiting for the employee,
+    else a question on screen again (its buttons stay: nothing changed), else after the results the next step (an open
+    question with the representative first). Never the results, never the sources text."""
+    if state.pending_rep_question is not None:
+        return ASIDE_REP_DRAFT
+    if state.unanswered_question is not None:
+        return ASIDE_REP_OFFER
+    if next_stage(state) == Stage.WAITING_FOR_REP:
+        return ASIDE_REP_WAITING
+    held = (state.pending_value_choice, state.pending_ambiguity, state.pending_none_choice, state.pending_confirmation,
+            state.pending_occupation, state.pending_clarification, state.rep_copay_offer)
+    if any(h is not None for h in held):
+        # a question of code's own, with its buttons (an ambiguity, a value to confirm…): the last reply asked it
+        return state.last_ask or group_question(state, snapshot)
+    if state.stage == Stage.PRESENTED and state.results:
+        if any(q.answer is None for q in state.general_questions.values()):
+            return ASIDE_REP_OPEN
+        return ASIDE_AFTER_RANK if state.ranked_count else NEXT_AFTER_RESULTS
+    return group_question(state, snapshot) or state.last_ask       # the flow's question on screen

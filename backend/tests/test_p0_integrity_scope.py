@@ -301,7 +301,8 @@ def test_template_mode_never_offers_the_representative_for_the_four_cases(sessio
     for context in ((), (PROFILE,), (PROFILE, Q2), (PROFILE, Q2, CAR)):
         turn, token = start(svc, *context, text)
         assert not offers_rep(turn) and state(svc, turn, token).unanswered_question is None, (context, text)
-        assert REDIRECT in turn.reply
+        # 24/11: a message that is only an injection is answered by code with the fixed off-topic line
+        assert (SNAP.faq.off_topic_reply if text in INJECTION else REDIRECT) in turn.reply
     assert not svc.cases.list_open()
 
 

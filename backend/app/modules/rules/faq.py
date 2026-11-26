@@ -88,6 +88,10 @@ class Faq(BaseModel):
     social_cues: dict[str, tuple[str, ...]] = {}
     # kind -> short replies, used in turn so the same line does not come twice in a row
     social_replies: dict[str, tuple[str, ...]] = {}
+    # 24/11: the fixed opening lines for a message that asks nothing of the service (small talk, off-topic); code adds
+    # one follow-up line for where the conversation is
+    small_talk_reply: str = "תודה! אני כאן כדי לעזור לכם לבחור רכב חברה ולהבין את ההשפעה על הנטו."
+    off_topic_reply: str = "בזה אני לא יכול לעזור. אני עוזר רק בנושאי רכב החברה וההשפעה שלו על הנטו."
     # "let's move on" with nothing else to read ("אוקי אז מה ההמשך"): the open question picked up, never "not sure"
     proceed_terms: tuple[str, ...] = ()
     # a request to upload a payslip (1/11): "תלוש" next to one of these verbs, at any stage, before the flow question

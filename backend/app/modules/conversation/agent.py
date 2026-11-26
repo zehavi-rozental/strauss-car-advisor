@@ -74,7 +74,7 @@ from .stage import (
     profile_args,
     Q2_FIELDS,
 )
-from .templates import (LINK_LABELS, NONE_CHOICES,
+from .templates import (LINK_LABELS, NONE_CHOICES, aside_follow_up,
     options_list_text,
     today_cars_text,
     ALL_AT_ONCE,
@@ -1355,6 +1355,13 @@ class Agent:
         text = redact_id_numbers(text)
         ctx = ToolContext(snapshot=snapshot, find_vehicle=find_vehicle, state=state)
         before = next_stage(state)
+        aside = understand(state, snapshot, text).aside
+        if aside is not None:
+            # 24/11: small talk or off-topic asks nothing of the service: a fixed line and one follow-up line, by code,
+            # before anything of the turn changes (the question on screen and its buttons stay, nothing is saved)
+            opening = snapshot.faq.small_talk_reply if aside == "small_talk" else snapshot.faq.off_topic_reply
+            return TurnOutcome(reply="\n\n".join(x for x in (opening, aside_follow_up(state, snapshot)) if x),
+                               source="template", path="aside")
         state.payslip_offer_now = False          # the bot's offer of the upload belongs to one reply (23/11)
         state.pending_none_choice = None         # another answer: the "אין" buttons leave with their question
 

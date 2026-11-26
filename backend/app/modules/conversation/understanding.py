@@ -101,6 +101,9 @@ class Understanding:
     show_list: bool = False
     # small talk and nothing else ("מה נשמע?", "בוקר טוב", "תודה"): its kind in faq.social_cues (30/10)
     social: Optional[str] = None
+    # 24/11: the message asks nothing of the service: "small_talk" (thanks, how are you, "are you happy") or "off_topic"
+    # (weather, news, an attempt to change the rules). Answered by code: a fixed line and the follow-up for the stage
+    aside: Optional[str] = None
     # nothing was answered, but nothing was missed either (small talk, "שאלה אחת כל פעם", "יותר קצר"): the open
     # question comes back as it was, picked up where it stopped, never as "still missing" (30/10)
     resume: bool = False
@@ -129,6 +132,8 @@ class Understanding:
                     or bool(self.zero_contributions) or self.action is not None)
 
 
+# the small talk answered by the fixed line (24/11); a greeting opens the conversation and keeps its own reply
+SMALL_TALK = ("how_are_you", "thanks", "about_bot")
 # words that may stand next to small talk without making it more ("מה נשמע אצלכם היום?")
 _SOCIAL_FILLER = {"אצלך", "אצלכם", "היום", "לך", "לכם", "רב", "מאוד", "ממש", "שוב", "באמת", "גם", "אחי", "חבר"}
 
@@ -911,6 +916,7 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
     kind = social_kind(faq, text)
     if kind is not None:
         u.social, u.remainder, u.resume = kind, "", True
+        u.aside = "small_talk" if kind in SMALL_TALK else None
         return u              # small talk only: answered in a few words, then the open question (never a miss)
     if (faq.proceed_terms and _names_any(faq.proceed_terms, [_spelling(w) for w in words(text)], starts=False)
             and not answer_like(snapshot, text)):
@@ -920,6 +926,7 @@ def understand(state: ConversationState, snapshot: RulesSnapshot, text: str) -> 
     if _contains_any(text, faq.injection_patterns) or (
             off_topic(snapshot, text) and not any(ch.isdigit() for ch in text)):
         u.redirect = True
+        u.aside = None if (u.complaint or u.audit) else "off_topic"
         return u              # never act on a manipulative or off-topic message (one with values goes on below:
                               # its off-topic question is redirected by in_scope, its values are read)
     if _is_help(text):

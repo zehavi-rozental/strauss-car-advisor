@@ -381,8 +381,8 @@ def test_free_corpus(setup: str, text: str, checks: dict[str, Any]):
         assert checks["answer"] in reply.split("\n\n")[0], f"question not answered first: {where}"
     if checks.get("help"):                      # simpler words: the template marker, or the LLM's own wording
         assert "במילים פשוטות" in reply or (body["source"] == "llm" and len(reply.split("\n\n")) >= 2), where
-    if checks.get("redirect"):
-        assert reply.startswith("אני כאן כדי לעזור לכם"), where
+    if checks.get("redirect"):                  # 24/11: a message only off-topic gets the fixed line, by code
+        assert reply.startswith(("אני כאן כדי לעזור לכם", "בזה אני לא יכול לעזור.")), where
     if checks.get("follow_up"):
         assert "כתבתם שיש לכם" in reply, where
     if "no_car" in checks:
@@ -398,8 +398,10 @@ def test_free_corpus(setup: str, text: str, checks: dict[str, Any]):
     # the next question fits the profile: a known car is never asked about maintenance
     if after["source"] in ("catalog", "tax", "stated"):
         assert "כמה אחזקת רכב מופיעה" not in reply, where
-    # every reply that is not a result or a wait ends with one call to action
-    if not body.get("results") and body["stage"] != "WAITING_FOR_REP":
+    # every reply that is not a result or a wait ends with one call to action; 24/11: a small-talk or off-topic
+    # message gets the approved fixed line and ONE follow-up line (the question on screen) instead
+    aside = reply.startswith(("בזה אני לא יכול לעזור.", "תודה! אני כאן כדי לעזור"))
+    if not body.get("results") and body["stage"] != "WAITING_FOR_REP" and not aside:
         assert reply.split("\n\n")[-1].startswith(("כתבו", "בחרו", "אפשר לכתוב")), f"no call to action: {where}"
 
 # ---------- the session-2 live transcript, replayed (written to LIVE_TRANSCRIPT.txt) ----------

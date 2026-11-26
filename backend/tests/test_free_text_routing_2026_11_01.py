@@ -69,9 +69,13 @@ def test_with_the_model_an_off_topic_question_is_answered_not_only_the_call_to_a
     fake = FakeLLM()
     fake.turn(reply="כתבו איזה דגם צמוד יש לכם כעת?")                  # the live reply after trimming
     c, cid, say = with_model(engine, fake, FULL)
+    before = len(fake.calls)
     turn = say("רגע, אתה יודע אם ירד גשם מחר?")
-    assert len([ln for ln in turn["reply"].splitlines() if ln.strip()]) > 2          # more than the question
-    assert "רכבי החברה" in turn["reply"] or "רכב החברה" in turn["reply"]   # what the advisor helps with
+    # 24/11: answered by code, not by the model: the fixed off-topic line (what the advisor helps with), then the
+    # question on screen again, one line
+    lines = [ln for ln in turn["reply"].splitlines() if ln.strip()]
+    assert lines[0] == "בזה אני לא יכול לעזור. אני עוזר רק בנושאי רכב החברה וההשפעה שלו על הנטו." and len(lines) == 2
+    assert len(fake.calls) == before
     assert c.get(f"/api/conversations/{cid}").json()["today_car"] is None
 
 
