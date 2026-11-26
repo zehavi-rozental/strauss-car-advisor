@@ -43,13 +43,12 @@ def test_atto_3_is_explained_in_plain_lines(sessions):
     r = turn.results[0].result
     assert r["cost"]["monthly_cost"] == str(atto.monthly_cost) and r["cost"]["budget"] == str(budget)
     assert r["cost"]["under_budget"] is (atto.monthly_cost < budget)
-    # the chat text is two short lines; the detail lives in the structured result
-    # the catalog amount is used and said with its source; the representative only if the employee asks (22/10)
-    summary = ("בדקתי את ATTO 3 (2025). הנטו שלכם יגדל ב-661 ₪ בחודש.\n"
-               "ההשתתפות ב-ATTO 3 (2025) לפי הקטלוג היא 300 ₪.\nלרכב שלכם היום חישבתי עם ההשתתפות שמסרתם: 300 ₪.")
-    # the summary, then why (the engine's main driver, in words), then one next step
-    assert turn.reply.split("\n\n") == [summary, "הסיבה העיקרית ב-ATTO 3 (2025): שווי השימוש נמוך יותר, ולכן המס יקטן.",
-                                        T.NEXT_AFTER_RESULTS]
+    # the chat text is a short summary (#9, 27/11): the change and the new net, then why (the engine's main driver,
+    # in words) and that the detail is on the cards (no copay list), then one next step as its own paragraph
+    net = f"{int(r['alternative']['net_display']):,}"
+    summary = (f"בדקתי את ATTO 3 (2025). הנטו שלכם יגדל ב-661 ₪ בחודש, ל-{net} ₪.\n"
+               "הסיבה העיקרית: שווי השימוש נמוך יותר, ולכן המס יקטן. הפירוט המלא בכרטיסים.")
+    assert turn.reply.split("\n\n") == [summary, T.NEXT_AFTER_RESULTS]
     assert r["why"] == "שווי השימוש נמוך יותר, ולכן המס יקטן." and r["copay_pending"] is False
 
 

@@ -31,24 +31,28 @@ def assert_style(t):
     assert not re.search(r"[+−-]\d", t.replace("ב-", "")), t
 
 
+DETAIL = T.RESULTS_DETAIL       # "הפירוט המלא בכרטיסים." (#9, 27/11: the cards hold every other figure)
+
+
 def test_all_up_two_and_three():
     t = text(_item("A", 100), _item("MG4 (2025)", 1013))
-    assert t == "בדקתי 2 רכבים, ובשניהם הנטו שלכם יגדל. הנטו הגבוה ביותר: MG4 (2025), תוספת של 1,013 ₪ בחודש."
+    assert t.splitlines() == ["בשני הרכבים הנטו שלכם יגדל. MG4 (2025) משאיר את הנטו הגבוה ביותר: 1,013 ₪ יותר מהיום.",
+                              DETAIL]
     t = text(_item("A", 100), _item("B", 300), _item("C", 200))
-    assert t == "בדקתי 3 רכבים, ובכולם הנטו שלכם יגדל. הנטו הגבוה ביותר: B, תוספת של 300 ₪ בחודש."
+    assert t.splitlines()[0] == "בכל 3 הרכבים הנטו שלכם יגדל. B משאיר את הנטו הגבוה ביותר: 300 ₪ יותר מהיום."
     assert_style(t)
 
 
 def test_all_down_names_the_least_bad():
     t = text(_item("A", -923), _item("B", -1200), _item("C", -1500))
-    assert t == "בדקתי 3 רכבים, ובכולם הנטו שלכם יקטן. הנטו הגבוה ביותר: A, רק 923 ₪ פחות בחודש."
-    assert text(_item("A", -923), _item("B", -1200)).startswith("בדקתי 2 רכבים, ובשניהם הנטו שלכם יקטן.")
+    assert t.splitlines()[0] == "בכל 3 הרכבים הנטו שלכם יקטן. A משאיר את הנטו הגבוה ביותר: 923 ₪ פחות מהיום."
+    assert text(_item("A", -923), _item("B", -1200)).startswith("בשני הרכבים הנטו שלכם יקטן.")
     assert_style(t)
 
 
 def test_mixed_names_the_best():
     t = text(_item("A", -50), _item("B", 70))
-    assert t == "בדקתי 2 רכבים. הנטו הגבוה ביותר: B, תוספת של 70 ₪ בחודש."
+    assert t.splitlines()[0] == "בחלק מהרכבים הנטו שלכם יגדל ובחלק יקטן. B משאיר את הנטו הגבוה ביותר: 70 ₪ יותר מהיום."
     assert_style(t)
 
 
@@ -60,22 +64,21 @@ def test_no_phrase_is_repeated_in_a_results_line():
 
 
 def test_zero_and_single():
-    assert text(_item("A", 0), _item("B", 0)) == "בדקתי 2 רכבים, ובשניהם הנטו שלכם לא ישתנה."
-    assert text(_item("A", 0)) == "בדקתי את A. הנטו שלכם לא ישתנה."
-    assert text(_item("A", -5)) == "בדקתי את A. הנטו שלכם יקטן ב-5 ₪ בחודש."
+    assert text(_item("A", 0), _item("B", 0)).splitlines() == ["בשני הרכבים הנטו שלכם לא ישתנה.", DETAIL]
+    assert text(_item("A", 0)).splitlines() == ["בדקתי את A. הנטו שלכם לא ישתנה.", DETAIL]
+    assert text(_item("A", -5)).splitlines()[0] == "בדקתי את A. הנטו שלכם יקטן ב-5 ₪ בחודש."
 
 
 def test_rank_says_how_many_were_ranked():
     state = ConversationState(results=[_item("A", 100), _item("B", 300), _item("C", 200)], ranked_count=13)
     assert T.results_text(state).splitlines() == [
-        "בדקתי את כל 13 הרכבים שאתם זכאים להם. אלה 3 החלופות עם הנטו המשוער הגבוה ביותר:",
-        "הנטו הגבוה ביותר: B, תוספת של 300 ₪ בחודש."]
+        "בדקתי את כל 13 הרכבים שאתם זכאים להם. B משאיר את הנטו הגבוה ביותר: 300 ₪ יותר מהיום.", DETAIL]
 
-def test_three_options_with_pending_copay_are_two_lines():
+def test_three_options_with_pending_copay_say_what_waits_after_the_summary():
     t = text(_item("A", 100, pending=True), _item("B", -300, pending=True), _item("C", 5))
     # after a result in the same reply: no "תודה!", straight to what is missing
-    assert len(t.splitlines()) == 2 and t.splitlines()[1] == T.WAITING_COPAY_ONLY
-    assert t.splitlines()[1].startswith("חסר לי רק אישור") and not re.search(r"\d", T.WAITING_COPAY_ONLY)
+    assert len(t.splitlines()) == 3 and t.splitlines()[2] == T.WAITING_COPAY_ONLY
+    assert t.splitlines()[2].startswith("חסר לי רק אישור") and not re.search(r"\d", T.WAITING_COPAY_ONLY)
     assert_style(t)
 
 
@@ -83,7 +86,7 @@ def test_not_eligible_and_incomplete_get_one_short_line_each():
     t = text(_item("A", 100), _item("B", None, "NOT_ELIGIBLE", reason="קבוצה גבוהה"),
              _item("C", None, "INCOMPLETE", reason="חסר שכר"))
     lines = t.splitlines()
-    assert lines[1] == "B לא זמין לכם: קבוצה גבוהה" and lines[2] == "C: חסר מידע לחישוב. חסר שכר"
+    assert lines[2] == "B לא זמין לכם: קבוצה גבוהה" and lines[3] == "C: חסר מידע לחישוב. חסר שכר"
     assert_style(t)
 
 

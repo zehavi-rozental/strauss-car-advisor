@@ -139,7 +139,10 @@ test('a new car is calculated with the catalog copay, marked pending, and one qu
   let result = s.results[0].result
   // the rule since 22/10: the catalog copay is used as is, with no question, until the employee asks
   expect([s.results[0].option_id, result.copay_pending, Number(result.alternative.copay)]).toEqual(['CAR-07', false, 250])
-  await expect(page.locator(BOT).last()).toContainText('לפי הקטלוג היא 250 ₪')
+  // #9 (27/11): the chat is a short summary; the copay amount and its source are on the card only
+  await expect(page.locator(BOT).last()).toContainText('הפירוט המלא בכרטיסים.')
+  await expect(page.locator(BOT).last()).not.toContainText('לפי הקטלוג היא')
+  await expect(page.locator('.result-card').last().locator('.copay-box')).toContainText('250')
   const earlier = new Set(((await (await page.request.get('/api/rep/questions?status=OPEN',
     { headers: { 'X-Rep-Token': REP_TOKEN } })).json()) as { id: string }[]).map((q) => q.id))
   await send(page, 'אני רוצה שנציג התחבורה יאשר את ההשתתפות')
@@ -416,7 +419,7 @@ test.describe('merged conversation acceptance', () => {
     const s = await state(page)
     expect([s.profile.children, s.profile.occupation]).toEqual([1, 'מנהל/ת פיתוח'])
     expect(deltas(s)).toEqual([['OPT_OUT', 3562]])
-    await expect(page.locator(BOT).last()).toContainText('בוויתור על רכב')
+    await expect(page.locator(BOT).last()).toContainText('בדקתי את ויתור על רכב.')     // the short summary (#9, 27/11)
   })
 
   test('a payslip with an ID in labels and values shows no ID anywhere and saves only the valid values', async ({ page, request }) => {

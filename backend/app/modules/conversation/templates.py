@@ -372,29 +372,6 @@ def pending_copay_text(label: str, amount: Any) -> str:
 COPAY_UPDATE = "אם לרכב החדש סוכם אתכם סכום אחר, אפשר לעדכן אותי ואפנה לנציג התחבורה לבירור."
 
 
-# where today's copay came from, in the words the employee reads (1/11)
-TODAY_COPAY_SOURCE = {"rep_confirmed": "לפי תשובת הנציג שאישרתם", "catalog_confirmed": "לפי סכום הקטלוג שאישרתם"}
-
-
-def catalog_copays_text(items: Sequence[tuple[str, Any]], today_copay: Any = None,
-                        today_source: Optional[str] = None) -> str:
-    """The new cars' catalog amounts used as is (the challenge owner, 22/10), and — kept apart — the amount used for
-    today's car: the one the employee gave or confirmed, or the representative's answer the employee applied. No offer
-    to ask the representative here (1/11): a result on settled amounts is no reason to ask again."""
-    if len(items) == 1:
-        line = f"ההשתתפות ב-{items[0][0]} לפי הקטלוג היא {money(items[0][1])}."
-    else:
-        each = ", ".join(f"{in_label(label)} {money(amount)}" for label, amount in items)
-        line = f"ההשתתפות ברכבים החדשים לפי הקטלוג: {each}."
-    if today_source == "provisional" and today_copay is not None:
-        line += (f"\nהחישוב כרגע מבוסס על השתתפות של {money(today_copay)} לפי הקטלוג ברכב שלכם היום, "
-                 "עד לאימות מול נציג.")
-    elif today_copay is not None and Decimal(str(today_copay)) > 0:
-        source = TODAY_COPAY_SOURCE.get(today_source or "", "שמסרתם")
-        line += f"\nלרכב שלכם היום חישבתי עם ההשתתפות {source}: {money(today_copay)}."
-    return line
-
-
 def copay_rep_request_text(labels: Sequence[str], amounts: Sequence[Any]) -> str:
     """The employee asked the representative about a new car's copay: a question was opened."""
     each = ", ".join(f"{in_label(label)} ({money(a)} לפי הקטלוג)" for label, a in zip(labels, amounts))
@@ -513,70 +490,86 @@ def rep_group_text(group: str) -> str:
     return f"נציג התחבורה השיב: קבוצת הזכאות שלכם היא {group}."
 
 
-def _among(n: int) -> str:
-    return "בשניהם" if n == 2 else "בכולם"
-
-
-def _best_line(best: Any) -> str:
-    """"הנטו הגבוה ביותר: MG4 (2025), תוספת של 1,013 ₪ בחודש." — a fact about the estimated net, never a verdict
-    on which car is best for the employee (STRAUSS DRIVE 360°); one phrase, never the net sentence twice."""
-    d = to_shekel(Decimal(str(best.result["delta_display"])))
-    if d > 0:
-        return f"הנטו הגבוה ביותר: {best.label}, תוספת של {money(d)} בחודש."
-    if d < 0:
-        return f"הנטו הגבוה ביותר: {best.label}, רק {money(-d)} פחות בחודש."
-    return f"הנטו הגבוה ביותר: {best.label}, בלי שינוי בנטו."
-
-
 def _change(delta: Decimal) -> str:
     d = to_shekel(delta)
     return f"תוספת של {money(d)}" if d > 0 else f"{money(-d)} פחות" if d < 0 else "בלי שינוי"
 
 
-def nets_line(items: list[Any]) -> str:
-    """"הנטו החודשי המשוער: MG4 (2025) 12,045 ₪ (תוספת של 1,013 ₪), NIRO (2025) 11,571 ₪ (תוספת של 539 ₪)." — the
-    direct answer to "מה יהיה הנטו שלי עם…" (15/11), in the cards' order, from the same engine result the cards show."""
-    parts = [f"{i.label} {money(to_shekel(Decimal(str(i.result['alternative']['net_display']))))} "
-             f"({_change(Decimal(str(i.result['delta_display'])))})"
-             for i in items if (i.result.get("alternative") or {}).get("net_display") is not None]
-    return f"הנטו החודשי המשוער: {', '.join(parts)}." if len(parts) == len(items) and parts else ""
+RESULTS_DETAIL = "הפירוט המלא בכרטיסים."
+
+
+def _versus_today(delta: Any) -> str:
+    """"1,163 ₪ פחות מהיום" / "300 ₪ יותר מהיום" / "כמו היום": the difference from today, in words."""
+    d = to_shekel(Decimal(str(delta)))
+    return f"{money(d)} יותר מהיום" if d > 0 else f"{money(-d)} פחות מהיום" if d < 0 else "כמו היום"
+
+
+def highest_net_sentence(items: Sequence[Any]) -> str:
+    """"MG4 (2025) משאיר את הנטו הגבוה ביותר: 12,446 ₪ בחודש, 1,163 ₪ פחות מהיום." — the option(s) with the
+    highest estimated net (a tie names each), that net and its difference from today: the engine's figures, the same
+    the cards show. A fact about the estimated net, never a verdict on which car is best for the employee."""
+    top = max(to_shekel(Decimal(str(i.result["delta_display"]))) for i in items)
+    leaders = [i for i in items if to_shekel(Decimal(str(i.result["delta_display"]))) == top]
+    names = " ו-".join(i.label for i in leaders)
+    verb = "משאיר" if len(leaders) == 1 else "משאירים"
+    net = (leaders[0].result.get("alternative") or {}).get("net_display")
+    figure = f"{money(to_shekel(Decimal(str(net))))} בחודש, " if net is not None else ""
+    return f"{names} {verb} את הנטו הגבוה ביותר: {figure}{_versus_today(top)}."
+
+
+def _direction(items: Sequence[Any]) -> str:
+    """"בכל 3 הרכבים הנטו שלכם יקטן." / "בשני הרכבים…" / "בחלק מהרכבים הנטו שלכם יגדל ובחלק יקטן.\""""
+    deltas = [to_shekel(Decimal(str(i.result["delta_display"]))) for i in items]
+    where = "בשני הרכבים" if len(items) == 2 else f"בכל {len(items)} הרכבים"
+    up, down, flat = any(d > 0 for d in deltas), any(d < 0 for d in deltas), any(d == 0 for d in deltas)
+    if up and not down and not flat:
+        return f"{where} הנטו שלכם יגדל."
+    if down and not up and not flat:
+        return f"{where} הנטו שלכם יקטן."
+    if flat and not up and not down:
+        return f"{where} הנטו שלכם לא ישתנה."
+    first, second = ("יגדל", "יקטן") if up and down else ("יגדל", "לא ישתנה") if up else ("יקטן", "לא ישתנה")
+    return f"בחלק מהרכבים הנטו שלכם {first} ובחלק {second}."
+
+
+def reason_line(why: Optional[str], detail: str = RESULTS_DETAIL) -> str:
+    """"הסיבה העיקרית: שווי השימוש גבוה יותר, ולכן המס יגדל. הפירוט המלא בכרטיסים." (the engine's main driver)."""
+    return f"הסיבה העיקרית: {why} {detail}" if why else detail
 
 
 def results_text(state: ConversationState) -> str:
-    """At most three short lines for a plain comparison: a summary, each car's estimated net (the direct answer, the
-    same figures as the cards), then what is waiting. The rest of the detail lives in the structured results (the
-    summary card and the comparison panel)."""
+    """A short summary above the result cards (finding #9, 27/11), never the cards' figures again: (1) where relevant
+    the direction for all the cars, then the car with the highest estimated net, that net and its difference from
+    today; (2) the main reason for that car, and that the detail is in the cards. No per-car net list and no copay
+    list (the cards and the today's-copay card show them). Lines about a car that was not calculated, or about an
+    amount that is not final yet (a copay waiting for the representative, a provisional catalog amount) follow."""
     ok, bad = [], []
     for item in state.results:
         r = item.result
         (ok if r["status"] == "OK" and r.get("delta_display") is not None else bad).append(item)
     lines: list[str] = []
-    best = max(ok, key=lambda i: Decimal(str(i.result["delta_display"]))) if ok else None
-    if state.ranked_count and ok:
-        # "הכי משתלם": how many were ranked, and that only the top ones are shown
-        top = (f"אלה {len(ok)} החלופות עם הנטו המשוער הגבוה ביותר:" if len(ok) > 1
-               else "זו החלופה עם הנטו המשוער הגבוה ביותר:")
-        # the cars ranked, and an option without a car by its own name ("ויתור על רכב"), never as one more car
-        others = state.ranked_other_labels
-        cars = state.ranked_count - len(others)
-        also = f", וגם {' ו'.join(others)}" if others else ""
-        lines.append(f"בדקתי את כל {cars} הרכבים שאתם זכאים להם{also}. {top}")
-        lines.append(_best_line(best))
-    elif len(ok) == 1:
-        lines.append(f"בדקתי את {ok[0].label}. {net_change(ok[0].result['delta_display'])}.")
-    elif ok:
-        deltas = [Decimal(str(i.result["delta_display"])) for i in ok]
-        head = f"בדקתי {len(ok)} רכבים"
-        if all(d > 0 for d in deltas):
-            lines.append(f"{head}, ו{_among(len(ok))} הנטו שלכם יגדל. {_best_line(best)}")
-        elif all(d < 0 for d in deltas):
-            lines.append(f"{head}, ו{_among(len(ok))} הנטו שלכם יקטן. {_best_line(best)}")
-        elif all(d == 0 for d in deltas):
-            lines.append(f"{head}, ו{_among(len(ok))} הנטו שלכם לא ישתנה.")
+    if ok:
+        flat = all(to_shekel(Decimal(str(i.result["delta_display"]))) == 0 for i in ok) and len(ok) > 1
+        if state.ranked_count:
+            # "הכי משתלם": how many were ranked; an option without a car by its own name ("ויתור על רכב"),
+            # never as one more car
+            others = state.ranked_other_labels
+            cars = state.ranked_count - len(others)
+            also = f", וגם {' ו'.join(others)}" if others else ""
+            lines.append(f"בדקתי את כל {cars} הרכבים שאתם זכאים להם{also}. {highest_net_sentence(ok)}")
+        elif len(ok) == 1:
+            # one car: the settled wording ("הנטו שלכם יגדל ב-661 ₪ בחודש") and the new estimated net
+            r = ok[0].result
+            net = (r.get("alternative") or {}).get("net_display")
+            moved = to_shekel(Decimal(str(r["delta_display"]))) != 0 and net is not None
+            lines.append(f"בדקתי את {ok[0].label}. {net_change(r['delta_display'])}"
+                         + (f", ל-{money(to_shekel(Decimal(str(net))))}." if moved else "."))
+        elif flat:
+            lines.append(_direction(ok))
         else:
-            lines.append(f"{head}. {_best_line(best)}")
-    if len(ok) >= 2 and (nets := nets_line(ok)):
-        lines.append(nets)
+            lines.append(f"{_direction(ok)} {highest_net_sentence(ok)}")
+        best = max(ok, key=lambda i: Decimal(str(i.result["delta_display"])))
+        lines.append(reason_line(None if flat else best.result.get("why")))
     for item in bad:
         r = item.result
         if r["status"] == "NOT_ELIGIBLE":
@@ -587,14 +580,10 @@ def results_text(state: ConversationState) -> str:
             lines.append(f"{item.label}: חסר מידע לחישוב. {r['reason']}")
     pending = [(i.label, (i.result.get("alternative") or {}).get("copay")) for i in ok
                if i.result.get("copay_pending") and i.result.get("copay_source", "catalog") == "catalog"]
-    final = [(i.label, (i.result.get("alternative") or {}).get("copay")) for i in ok
-             if i.result.get("copay_source") == "catalog_final"]
     c = state.current
     provisional = c.copay is None and c.copay_provisional is not None   # today's copay pending with the rep (1/11)
-    if final and all(a is not None for _, a in final):
-        lines.append(catalog_copays_text(final, c.copay_provisional if provisional else c.copay,
-                                         "provisional" if provisional else c.copay_source))
-    elif provisional and ok:
+    # the new cars' settled catalog amounts and today's amount are on the cards (#9, 27/11): no copay list here
+    if provisional and ok:
         lines.append(f"החישוב כרגע מבוסס על השתתפות של {money(c.copay_provisional)} לפי הקטלוג ברכב שלכם היום, "
                      "עד לאימות מול נציג.")
     if pending and all(a is not None for _, a in pending):
@@ -1556,12 +1545,9 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
         plan.cta = call_to_action(state, snapshot)[0]
         return plan
     if plan.fixed and state.stage == Stage.PRESENTED:
-        # after results: why (the engine's main driver, in words), then one relevant next step
+        # after results: one relevant next step, its own paragraph (the main reason is in the summary, #9 27/11)
         ok = [r for r in state.results if r.result.get("status") == "OK" and r.result.get("delta_display") is not None]
         if ok:
-            best = max(ok, key=lambda r: Decimal(str(r.result["delta_display"])))
-            if best.result.get("why"):
-                plan.ask.append(f"הסיבה העיקרית {in_label(best.label)}: {best.result['why']}")
             plan.cta = (NEXT_AFTER_RANK if state.ranked_count else NEXT_AFTER_RESULTS)
         return plan
     if about_results and state.stage == Stage.PRESENTED and state.pending_confirmation is None:

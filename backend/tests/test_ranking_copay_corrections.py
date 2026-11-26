@@ -116,11 +116,13 @@ def test_a_specific_net_comparison_answers_with_each_net_the_cards_show(engine):
     results = view["results"]
     assert any("MG4" in row["label"] for row in results) and any("NIRO" in row["label"] for row in results)
     assert not view["results_stale"]
-    # the direct answer (15/11): each car's estimated net, the very figure its card shows, never a pointer to the cards
-    line = next(ln for ln in reply.splitlines() if ln.startswith("הנטו החודשי המשוער:"))
+    # the short summary (#9, 27/11, replaces the 15/11 per-car list): the car with the highest net and that net, the
+    # very figure its card shows; the other figures stay on the cards
+    best = max(results, key=lambda row: D(row["result"]["delta_display"]))
+    assert "הנטו החודשי המשוער:" not in reply and "הפירוט המלא בכרטיסים." in reply
     for row in results:
         net = money(to_shekel(D(row["result"]["alternative"]["net_display"])))
-        assert f"{row['label']} {net}" in line
+        assert (net in reply) is (row is best)
 
 
 def test_a_new_car_uses_the_catalog_copay_pending_one_confirm_question_and_the_answer_replaces_it(api):

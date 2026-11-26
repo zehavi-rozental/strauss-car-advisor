@@ -80,8 +80,11 @@ def test_a_later_typed_amount_is_the_employee_s_own_again(engine):
     assert car["copay"] == "240" and car["copay_source"] is None
 
 
-def test_the_results_say_the_amount_came_from_the_representative():
-    from app.modules.conversation.templates import catalog_copays_text
-    line = catalog_copays_text([("NIRO (2025)", 250)], 230, "rep_confirmed")
-    assert "לפי תשובת הנציג שאישרתם: 230 ₪" in line and "שמסרתם" not in line
-    assert "שמסרתם: 230 ₪" in catalog_copays_text([("NIRO (2025)", 250)], 230)
+def test_the_results_say_the_amount_came_from_the_representative(engine):
+    """Since #9 (27/11) the results text lists no copay: the update line says where the amount came from, and the
+    view carries the source for the card above the comparison."""
+    client, cid, send = setup(engine)
+    view = ask_and_answer(client, cid, send)
+    turn = send({"choice": offer_of(view)["choices"][0]["id"], "field": "rep_copay"})
+    assert "עדכנתי לפי תשובת הנציג: השתתפות 230 ₪" in turn["reply"] and "שמסרתם" not in turn["reply"]
+    assert client.get(f"/api/conversations/{cid}").json()["today_copay_source"] == "rep_confirmed"

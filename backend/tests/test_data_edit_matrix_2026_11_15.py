@@ -87,11 +87,11 @@ def test_an_edit_is_saved_said_once_recalculated_consistent_and_kept(engine, pat
     # NIRO as today's car is no longer an alternative to itself: only MG4 stays compared
     expected = {"MG4 (2025)"} if field == "car" else {"MG4 (2025)", "NIRO (2025)"}
     assert {r["label"] for r in v["results"]} == expected
-    # the chat's figures are the cards'
-    line = next((ln for ln in reply.splitlines() if ln.startswith("הנטו החודשי המשוער:")), None)
-    if line is not None:
-        for label, net in nets(v).items():
-            assert f"{label} {money(to_shekel(Decimal(net)))}" in line
+    # the chat's figures are the cards': no per-car list (#9, 27/11); a car named with the highest net has its net
+    assert "הנטו החודשי המשוער:" not in reply
+    for label, net in nets(v).items():
+        if f"{label} משאיר את הנטו הגבוה ביותר" in reply:
+            assert f"{label} משאיר את הנטו הגבוה ביותר: {money(to_shekel(Decimal(net)))} בחודש" in reply
     # the map: rebuilt or out of date, never an old ranking shown as current; when current, its figures are the cards'
     m = v["option_map"]
     if m is not None and not m["stale"]:

@@ -16,7 +16,7 @@ from .test_rep_policy_2026_10_22 import NO_CAR, PROFILE_B, Chat, _no_catalog_cop
 
 TODAY = "יש לי קורולה 2026, משלמת 280"          # CAR-07: catalog 250; the employee pays 280
 NIRO = "CAR-05"                                 # catalog 250
-# the new car's catalog amount, named, and today's own amount said apart (31/10)
+# the copay list the results text used to say (31/10); since #9 (27/11) the amounts and their source are on the cards
 CATALOG_LINE = "ההשתתפות ב-NIRO (2025) לפי הקטלוג היא 250 ₪.\nלרכב שלכם היום חישבתי עם ההשתתפות שמסרתם: 280 ₪."
 MODES = ["template", "llm"]
 
@@ -34,7 +34,9 @@ def test_1_2_a_catalog_amount_is_used_and_said_with_its_source_without_a_questio
     r = chat.state.results[0].result
     assert r["status"] == "OK" and r["alternative"]["copay"] == "250"
     assert r["copay_source"] == "catalog_final" and not r["copay_pending"]
-    assert CATALOG_LINE in turn.reply and "ממתינ" not in turn.reply and "שלחתי לנציג" not in turn.reply
+    assert r["today"]["copay"] == "280"                         # each amount and its source: on the cards
+    assert CATALOG_LINE not in turn.reply and "לפי הקטלוג היא" not in turn.reply      # no copay list (#9, 27/11)
+    assert "ממתינ" not in turn.reply and "שלחתי לנציג" not in turn.reply
     assert chat.open() == [] and turn.stage == Stage.PRESENTED
 
 

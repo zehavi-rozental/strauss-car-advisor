@@ -58,9 +58,12 @@ def test_compare_between_x_and_y_is_read_and_answers_with_the_cards_figures(engi
     reply = say("תשווה בין MG4 ל-NIRO")
     v = view()
     assert {r["label"] for r in v["results"]} == {"MG4 (2025)", "NIRO (2025)"}
-    line = next(ln for ln in reply.splitlines() if ln.startswith("הנטו החודשי המשוער:"))
+    # the short summary (#9, 27/11): the car with the highest net and that net, the cards' figure; no per-car list
+    best = max(v["results"], key=lambda r: Decimal(r["result"]["delta_display"]))
+    assert "הנטו החודשי המשוער:" not in reply
     for label, net in nets(v).items():
-        assert f"{label} {money(to_shekel(Decimal(net)))}" in line
+        assert (money(to_shekel(Decimal(net))) in reply) is (label == best["label"])
+    assert f"{best['label']} משאיר את הנטו הגבוה ביותר" in reply
 
 
 def test_a_group_correction_after_the_copay_is_saved_before_it_is_confirmed(engine):

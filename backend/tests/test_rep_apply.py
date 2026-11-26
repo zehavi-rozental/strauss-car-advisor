@@ -324,7 +324,9 @@ def test_pending_copay_uses_the_scenario_wording_until_the_rep_confirms(client):
     """The rule since 22/10: the catalog amount is used and said; the employee's request opens the question, the
     card waits for the answer, and the answer makes it approved."""
     cid, body = start(client, *NOA[:3])
-    assert "ההשתתפות ב-ATTO 3 (2025) לפי הקטלוג היא 300 ₪" in body["reply"] and open_questions(client) == []
+    # the amount and its source are on the card; the results text lists no copay (#9, 27/11)
+    assert body["results"][0]["alternative"]["copay"] == "300" and "לפי הקטלוג היא" not in body["reply"]
+    assert open_questions(client) == []
     body = say(client, cid, NOA[3])
     assert "פניתי לנציג התחבורה לבירור ההשתתפות ב-ATTO 3 (2025)" in body["reply"]
     [q] = open_questions(client)

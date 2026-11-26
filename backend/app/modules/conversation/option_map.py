@@ -15,8 +15,8 @@ from app.modules.calculation.public import Status as CalcStatus
 from app.modules.rules.public import RulesSnapshot
 
 from .stage import OPT_OUT_ID, ConversationState, MapEntry, OptionMap
-from .templates import (OPT_OUT_DENIED, approximate_assumptions, confirmed_assumption, map_copay_line, net_change,
-                        rep_amount_assumption, to_plural, why_sentence)
+from .templates import (OPT_OUT_DENIED, approximate_assumptions, confirmed_assumption, highest_net_sentence,
+                        map_copay_line, reason_line, rep_amount_assumption, to_plural, why_sentence)
 from .tools import Option, classify_options, engine_inputs, option_state
 
 
@@ -156,6 +156,7 @@ def map_json(state: ConversationState) -> Optional[dict[str, Any]]:
     }
 
 
+MAP_DETAIL = "הפירוט המלא במפת האפשרויות."
 NET_ONLY = "הדירוג מבוסס על הנטו החודשי המשוער בלבד. התאמת הרכב לצרכים שלכם עשויה להיות שונה."
 
 
@@ -169,20 +170,19 @@ def map_reply(state: ConversationState) -> str:
     counts = data["counts"]
     cars, done = counts["cars"], counts["cars_calculated"]
     head = (f"מיפיתי את כל {cars} הרכבים שאתם זכאים להם" if cars != 1 else "מיפיתי את הרכב היחיד שאתם זכאים לו")
-    lines = [head + (", וחישבתי את כולם." if done == cars and cars > 1 else ", וחישבתי אותו." if done == cars
-                     else f", וחישבתי {done} מהם.")]
+    top = leaders(m)
+    # the short summary (#9, 27/11): the option(s) with the highest estimated net, that net and the difference from
+    # today, then the main reason; every other figure is in the map (its card and its panel), never listed here
+    lines = [head + ("." if done == cars else f", וחישבתי {done} מהם.")
+             + (f" {highest_net_sentence(top)}" if top else "")]
+    if top:
+        lines.append(reason_line(top[0].result.get("why"), MAP_DETAIL))
     for other in counts["others"]:
         # an option that is not a car is named as itself, never counted as one more car
         lines.append(f"בדקתי גם {other['label']}." if other["status"] in ("full", "catalog_copay")
                      else f"{other['label']}: ממתין למידע, ולכן לא נכלל בדירוג.")
     cars_waiting = cars - done
-    top = leaders(m)
-    if len(top) == 1:
-        lines.append(f"הנטו החודשי הגבוה ביותר: {top[0].label}. {net_change(top[0].result['delta_display'])}.")
-    elif top:
-        names = " ו-".join(e.label for e in top)
-        lines.append(f"שוויון בנטו המשוער בין {names}. {net_change(top[0].result['delta_display'])}.")
-    else:
+    if not top:
         lines.append("אין עדיין חלופה שחושבה במלואה, ולכן אין דירוג.")
     if cars_waiting > 0:
         lines.append("רכב אחד ממתין למידע ולא נכלל בדירוג." if cars_waiting == 1

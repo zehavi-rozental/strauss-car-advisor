@@ -40,8 +40,11 @@ test.describe('representative flow', () => {
   test('the catalog copay is used at once, the rep approves it in one click, and the label changes', async ({ browser }) => {
     const page = await employee(browser)
     for (const m of [PROFILE, 'יש לי קורולה קרוס, משלמת 300', 'MAZDA 3']) await send(page, m)
-    // the rule since 22/10: the catalog amount is used and said; the employee asks the representative to confirm it
-    await expect(page.locator(BOT).last()).toContainText('לפי הקטלוג היא 350 ₪')
+    // the rule since 22/10: the catalog amount is used; since #9 (27/11) the card says it, the chat is a short summary.
+    // The employee asks the representative to confirm it
+    await expect(page.locator(BOT).last()).toContainText('הפירוט המלא בכרטיסים.')
+    await expect(page.locator(BOT).last()).not.toContainText('לפי הקטלוג היא')
+    await expect(page.locator('.result-card').last().locator('.copay-box')).toContainText('350')
     await send(page, 'אני רוצה שנציג התחבורה יאשר את ההשתתפות')
     const card = page.locator('.result-card').last()
     await expect(card).toContainText('השתתפות לפי ברירת המחדל בקטלוג — ממתינה לאישור הנציג')

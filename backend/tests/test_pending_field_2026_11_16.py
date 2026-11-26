@@ -265,8 +265,10 @@ def test_cars_chosen_while_a_value_is_unknown_get_no_cards_and_the_reason(sessio
     assert COMPARE_WAITS not in turn.reply                      # the reason is said once, by the unknown question
     turn = svc.send(cid, token, "אין ילדים")
     assert turn.stage == Stage.PRESENTED and len(turn.results) == 2
-    for r in turn.results:                                      # the chat names each car's net from the same result
-        assert f"{int(r.result['alternative']['net_display']):,}" in turn.reply
+    # the short summary (#9, 27/11): the net of the car with the highest net only, from the same result as its card
+    best = max(turn.results, key=lambda r: int(r.result['delta_display']))
+    for r in turn.results:
+        assert (f"{int(r.result['alternative']['net_display']):,}" in turn.reply) is (r is best)
 
 
 # ---------- 4. a correction: saved, said once, recalculated ----------

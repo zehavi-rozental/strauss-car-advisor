@@ -155,7 +155,7 @@ def test_a_tie_names_no_single_winner():
     m = OptionMap(entries=[_entry("A", "500"), _entry("B", "500"), _entry("C", "100")])
     assert [e.option_id for e in leaders(m)] == ["A", "B"]
     reply = map_reply(ConversationState(option_map=m))
-    assert "שוויון בנטו המשוער בין A ו-B" in reply and "הנטו החודשי הגבוה ביותר" not in reply
+    assert "A ו-B משאירים את הנטו הגבוה ביותר" in reply and "A משאיר" not in reply
 
 
 def test_nothing_calculated_means_no_ranking():
