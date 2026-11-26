@@ -10,6 +10,7 @@ import { STALE_NOTE } from './MessageList'
 import { Money } from '../format/Amount'
 import { Icon } from '../ui/Icon'
 import { useDialog } from '../ui/useDialog'
+import { reducedMotion } from '../art/motion'
 import type { Cell } from './comparison'
 import { CarName, CopayLine, NetChange, StateBadge } from './ResultCard'
 import { SelectionCard } from './SelectionCard'
@@ -160,7 +161,11 @@ export function ComparisonPanel({ results, stale = false, expects, disabled, onC
           )}
 
           {/* the transparent breakdown, one click away */}
-          <details className="fold breakdown">
+          {/* #8 (24/11): opened, the breakdown is brought in from its top (the first row first) */}
+          <details className="fold breakdown" onToggle={(e) => {
+            const fold = e.currentTarget
+            if (fold.open) fold.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'start' })
+          }}>
             <summary>
               <Icon name="table" size={20} className="fold-icon" />
               <h3 id="breakdown-title" className="fold-title">

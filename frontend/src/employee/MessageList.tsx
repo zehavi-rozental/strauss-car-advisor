@@ -10,6 +10,8 @@ import { InquiryRecord, parseRecord } from './InquiryRecord'
 import { ResultCard } from './ResultCard'
 import { bubbleText, copyText, copyableText, lastUserSeq as findLastUserSeq } from './messages'
 import { RichText } from './richText'
+import { scrollTarget } from './scroll'
+import { reducedMotion } from '../art/motion'
 import { SummaryCard } from './SummaryCard'
 import type { ChatMessage } from './useConversation'
 
@@ -61,17 +63,33 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
                               todayCopay = null, todayCopaySource = null, focusQuestionId = null,
                               todayCard = null, mapAnchor = null, onAskCopay }: Props) {
   const end = useRef<HTMLDivElement>(null)
+  const shownTop = useRef<number | null>(null)
   const [copied, setCopied] = useState<number | null>(null)
   useEffect(() => {
     if (focusQuestionId) return                 // an answer is being shown: never pulled to the bottom
-    end.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    const behavior: ScrollBehavior = reducedMotion() ? 'auto' : 'smooth'
+    // #8 (24/11): a tall new reply (the result cards, the map's card) from its top, the best car first; else the end
+    const last = messages[messages.length - 1]
+    const el = last ? document.getElementById(`message-${last.seq}`) : null
+    const view = el?.closest('.chat-body')
+    const target = last && el ? scrollTarget({
+      bot: last.role !== 'user', typing, height: el.getBoundingClientRect().height,
+      carriesCards: (last.seq === resultsAnchor && results.length > 0) || (last.seq === mapAnchor && mapCard != null),
+      visible: view ? view.clientHeight : window.innerHeight, shownTop: shownTop.current === last.seq,
+    }) : 'end'
+    if (target === 'top' && el) {
+      shownTop.current = last.seq
+      el.scrollIntoView({ behavior, block: 'start' })
+    } else if (target === 'end') {
+      end.current?.scrollIntoView({ behavior, block: 'end' })
+    }
   }, [messages.length, results, typing, tail != null, focusQuestionId])
   useEffect(() => {
     if (!focusQuestionId) return
     const answer = messages.find((m) => m.source === 'rep' && m.rep_question_id === focusQuestionId)
     const el = document.getElementById(answer ? `message-${answer.seq}` : `rep-inquiry-${focusQuestionId}`)
     if (!el) return
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'center' })
     el.classList.add('is-focused')
   }, [focusQuestionId, messages.length])
   useEffect(() => {

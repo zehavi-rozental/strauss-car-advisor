@@ -812,3 +812,31 @@
 .rep-inquiry-add-email { display: grid; gap: 6px; }
 .rep-inquiry-add-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .rep-inquiry-add-row .rep-inquiry-email { flex: 1 1 200px; min-width: 0; }
+/* ---------- #8 (24/11): the employee screen about 10% more compact (no redesign, the same colours) ----------
+   Type: every size here is in rem, so the page's root size scales all of them on this screen only (body text
+   16 -> 14.4px, the bot's text 17 -> 15.3px: never under 14px); the two smallest labels keep a floor. Spacing: the
+   spacing tokens and the main gaps and paddings of the chat and the result cards, x0.9 at each width. Tap targets keep
+   their pixel minimums (40-44px). */
+:root:has(.is-chat) {
+  font-size: 90%;
+  --fs-micro: 11.5px;
+  --fs-small: 12px;
+  --s1: 4px; --s2: 7px; --s3: 11px; --s4: 14px; --s5: 18px; --s6: 22px; --s7: 29px; --s8: 36px; --s9: 50px; --s10: 65px;
+}
+.is-chat .messages { gap: 20px; padding-block: 29px 14px; }
+.is-chat .message-group { gap: 13px; }
+.is-chat .bubble-bot { gap: 12px; }
+.is-chat .bubble-user { padding-block: 11px 7px; padding-inline: 16px; }
+.is-chat .answer-tail { gap: 11px; }
+.is-chat .result-cards { gap: 12px; }
+.is-chat .result-card, .is-chat .summary-card { padding: 20px 20px 14px; }
+.is-chat .car-actions { padding: 9px 13px; }
+@media (max-width: 760px) {
+  .is-chat .result-card, .is-chat .summary-card { padding: 16px 14px 13px; }
+}
+@media (max-width: 720px) {
+  .is-chat .messages { padding-block: 20px 11px; gap: 16px; }
+  .is-chat .bubble-bot { gap: 9px; }
+}
+/* a reply shown from its top (#8) keeps a little air under the chat's top edge */
+.chat-body { scroll-padding-block-start: 12px; }

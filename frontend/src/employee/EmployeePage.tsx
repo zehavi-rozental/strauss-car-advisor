@@ -3,6 +3,7 @@ import { DataSheet, MyDataButton } from './DataSheet'
 import { ApiError, api } from '../api/client'
 import type { OptionResult } from '../api/types'
 import { FlowCar } from '../art/FlowCar'
+import { reducedMotion } from '../art/motion'
 import { ServiceStatus } from '../shell/ServiceStatus'
 import { useBackendReady } from '../shell/backendReady'
 import { Icon } from '../ui/Icon'
@@ -120,7 +121,7 @@ export function EmployeePage() {
   // a form, the payslip review or the cards open under the latest message: bring them into view
   const tailRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    if (opened || correcting) tailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    if (opened || correcting) tailRef.current?.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'start' })
   }, [opened, correcting])
 
   // The consultation looks the same from the first message on (the opening artwork lives on the entry page, /).
