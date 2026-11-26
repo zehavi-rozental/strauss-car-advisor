@@ -2,11 +2,13 @@ import { expect, test, type Page } from '@playwright/test'
 
 // QA 22/10, in the browser against the real server without an LLM: an off-topic question gets the redirect and
 // no representative buttons; a question about the service still can go to the representative, once.
+// 24/11 (#6): the redirect is the fixed off-topic line, then the question on screen, as two paragraphs.
 
 const BOT = '.bubble-bot .bubble-text'
 const USER = '.bubble-user'
 const REP_TOKEN = process.env.REP_TOKEN || ''
-const REDIRECT = 'אני כאן כדי לעזור לכם להבין איך בחירת רכב החברה משפיעה על הנטו החודשי שלכם'
+const REDIRECT = 'בזה אני לא יכול לעזור. אני עוזר רק בנושאי רכב החברה וההשפעה שלו על הנטו.'
+const PENDING = 'יש רכיבי שכר נוספים — עמלות, בונוסים? ואילו הפרשות יורדות לכם: פנסיה, קרן השתלמות? כמה נקודות זיכוי יש לכם? וכמה ילדים עד גיל 23?'
 
 async function open(page: Page) {
   await page.goto('/employee')
@@ -29,7 +31,8 @@ for (const viewport of [{ width: 1366, height: 860 }, { width: 375, height: 800 
     await open(page)
     await send(page, 'מנהלת מוצר, שכר בסיס 18,500')
     await send(page, 'מה מזג האויר?')                                       // the screenshot, one vav
-    await expect(page.locator(BOT).last()).toContainText(REDIRECT)
+    const reply = page.locator(BOT).last()
+    await expect(reply.locator('p')).toHaveText([REDIRECT, PENDING])          // two paragraphs, never glued
     await expect(page.locator(BOT).last()).not.toContainText('נציג')
     // no offer to ask the representative, whatever the button says ("לשאול את נציג הרכב" since the inquiry card)
     await expect(page.getByRole('button', { name: /לשאול את (ה)?נציג/ })).toHaveCount(0)

@@ -65,6 +65,9 @@ def check_aside(say, view, text, opening, follow_up):
     turn = say(text)
     after = view()
     assert lines(turn["reply"]) == [opening, follow_up], (text, turn["reply"])
+    # two paragraphs, a blank line between them (never "…על הנטו.יש רכיבי שכר…"): in the turn and as stored
+    assert turn["reply"] == opening + "\n\n" + follow_up, (text, turn["reply"])
+    assert after["messages"][-1]["content"] == turn["reply"], text
     assert SOURCES not in turn["reply"] and "בדקתי את" not in turn["reply"] and not turn["results"], text
     assert {k: after[k] for k in DATA} == {k: before[k] for k in DATA}, text            # no saved data changes
     assert on_screen(after) == on_screen(before), text                                 # the same questions and buttons
