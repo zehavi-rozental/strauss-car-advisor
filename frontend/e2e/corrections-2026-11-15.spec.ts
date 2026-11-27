@@ -75,7 +75,8 @@ test('a "הנתונים שלי" edit: one confirmation in the chat, recalculated
   expect(await nets(page)).toBe(after)
   expect((await view(page)).profile.base).toBe('20000')
   await send(page, 'מה הכי משתלם?')                      // it goes on from where it was
-  await expect(page.locator(BOT).last()).toContainText('הרכבים שאתם זכאים להם')
+  // #10 (27/11): the ranking's text says where the results are; how many were ranked is on the cards
+  await expect(page.locator(BOT).last()).toContainText('התוצאות מוצגות בכרטיסים, מהנטו הגבוה לנמוך.')
 })
 
 test('a chat correction: saved, said once with the old value, every card recalculated', async ({ page }) => {
