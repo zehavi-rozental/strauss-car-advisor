@@ -1,5 +1,28 @@
 import { describe, expect, it } from 'vitest'
-import { scrollTarget } from './scroll'
+import { TOP_GAP, replyStart, scrollTarget, topScroll } from './scroll'
+
+const msg = (role: string) => ({ role })
+
+describe("the bot's reply, not the employee's message (#11, 27/11)", () => {
+  it('the reply starts after the employee\'s latest message, even when it is several messages', () => {
+    expect(replyStart([msg('assistant'), msg('user'), msg('assistant')])).toBe(2)
+    expect(replyStart([msg('assistant'), msg('user'), msg('assistant'), msg('assistant')])).toBe(2)
+    expect(replyStart([msg('assistant')])).toBe(0)                    // the greeting
+  })
+
+  it("while the employee's message is the newest there is no reply yet", () => {
+    expect(replyStart([msg('assistant'), msg('user')])).toBe(-1)
+    expect(replyStart([])).toBe(-1)
+  })
+
+  it("puts the reply's first line at the top of the visible area, below anything sticky", () => {
+    // the bubble is 300px below the chat's top edge, the chat is scrolled 1000px: scroll by 300 (less the gap)
+    expect(topScroll({ scrollTop: 1000, viewTop: 100, targetTop: 400, cover: 0 })).toBe(1300 - TOP_GAP)
+    // a 48px sticky bar over the top edge: the first line goes below it, not under it
+    expect(topScroll({ scrollTop: 1000, viewTop: 100, targetTop: 400, cover: 48 })).toBe(1300 - 48 - TOP_GAP)
+    expect(topScroll({ scrollTop: 0, viewTop: 100, targetTop: 102, cover: 0 })).toBe(0)     // never above the start
+  })
+})
 
 const base = { bot: true, typing: false, carriesCards: false, height: 120, visible: 600, shownTop: false }
 

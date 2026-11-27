@@ -81,6 +81,34 @@ for (const [width, height] of [[1280, 860], [375, 800]]) {
   })
 }
 
+// #11 (27/11): after a button ("3 המשתלמים ביותר") the view starts at the first line of the bot's reply bubble, below
+// anything sticky, never at the employee's own echoed message above it
+for (const [width, height] of [[1280, 860], [375, 800]]) {
+  test(`${width}px: the rank button shows the bot's reply from its first line, not the echoed message`, async ({ page }) => {
+    await page.setViewportSize({ width, height })
+    await page.goto('/employee')
+    await expect(page.locator(BOT).first()).toBeVisible({ timeout: 30_000 })
+    const id = await page.evaluate(() => localStorage.getItem('sca.conversationId'))
+    for (const data of [{ text: 'קבוצה ג' }, { fields: PAY, source: 'payslip' }, { text: 'יש לי קורולה קרוס 2025 ואני משלמת 300' }]) {
+      expect((await page.request.post(`/api/conversations/${id}/messages`, { data })).status()).toBe(200)
+    }
+    await page.reload()
+    const rank = page.getByRole('button', { name: '3 המשתלמים ביותר' })
+    await expect(rank).toBeVisible({ timeout: 30_000 })
+    await rank.click()
+    await expect(page.locator('.message-group.from-bot').last().locator('.result-card, .summary-card').first())
+      .toBeAttached({ timeout: 45_000 })
+    await expect.poll(async () => page.evaluate(() => {
+      const body = (document.querySelector('.chat-body') as HTMLElement).getBoundingClientRect()
+      const bubble = [...document.querySelectorAll('.message-group.from-bot')].pop()!.querySelector('.bubble-bot')!
+      const echo = [...document.querySelectorAll('.message-group.from-user')].pop()!
+      const top = bubble.getBoundingClientRect().top - body.top
+      // the first line just below the top edge (the 8px gap), and the echo entirely above the visible area
+      return top >= 0 && top <= 20 && echo.getBoundingClientRect().bottom <= body.top + 1
+    }), { timeout: 10_000 }).toBe(true)
+  })
+}
+
 test('the tab icon is the car: svg, ico and apple-touch-icon', async ({ page, request }) => {
   await page.goto('/employee')
   await expect(page).toHaveTitle('יועץ הרכב')

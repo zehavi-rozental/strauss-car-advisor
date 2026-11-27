@@ -10,7 +10,7 @@ import { InquiryRecord, parseRecord } from './InquiryRecord'
 import { ResultCard } from './ResultCard'
 import { bubbleText, copyText, copyableText, lastUserSeq as findLastUserSeq } from './messages'
 import { RichText } from './richText'
-import { scrollTarget } from './scroll'
+import { replyStart, scrollTarget, scrollToReply } from './scroll'
 import { reducedMotion } from '../art/motion'
 import { SummaryCard } from './SummaryCard'
 import type { ChatMessage } from './useConversation'
@@ -68,22 +68,30 @@ export function MessageList({ messages, repQuestions = [], results, resultsStale
   useEffect(() => {
     if (focusQuestionId) return                 // an answer is being shown: never pulled to the bottom
     const behavior: ScrollBehavior = reducedMotion() ? 'auto' : 'smooth'
-    // #8 (24/11): a tall new reply (the result cards, the map's card) from its top, the best car first; else the end
+    // #8 (24/11): a tall new reply (the result cards, the map's card) from its top; else the end. #11 (27/11): the
+    // top is the first line of the bot's reply bubble (the reply may be several messages), below anything sticky,
+    // never the employee's own message above it; and the choice is made again when an anchor arrives a render later
+    const start = replyStart(messages)
+    const first = start >= 0 ? messages[start] : null
     const last = messages[messages.length - 1]
-    const el = last ? document.getElementById(`message-${last.seq}`) : null
-    const view = el?.closest('.chat-body')
-    const target = last && el ? scrollTarget({
-      bot: last.role !== 'user', typing, height: el.getBoundingClientRect().height,
-      carriesCards: (last.seq === resultsAnchor && results.length > 0) || (last.seq === mapAnchor && mapCard != null),
-      visible: view ? view.clientHeight : window.innerHeight, shownTop: shownTop.current === last.seq,
+    const el = first ? document.getElementById(`message-${first.seq}`) : null
+    const lastEl = last ? document.getElementById(`message-${last.seq}`) : null
+    const view = el?.closest<HTMLElement>('.chat-body') ?? null
+    const reply = start >= 0 ? messages.slice(start) : []
+    const target = first && el ? scrollTarget({
+      bot: true, typing,
+      height: (lastEl ?? el).getBoundingClientRect().bottom - el.getBoundingClientRect().top,
+      carriesCards: reply.some((m) => (m.seq === resultsAnchor && results.length > 0)
+                                      || (m.seq === mapAnchor && mapCard != null)),
+      visible: view ? view.clientHeight : window.innerHeight, shownTop: shownTop.current === first.seq,
     }) : 'end'
-    if (target === 'top' && el) {
-      shownTop.current = last.seq
-      el.scrollIntoView({ behavior, block: 'start' })
+    if (target === 'top' && first && el) {
+      shownTop.current = first.seq
+      scrollToReply(view, el.querySelector<HTMLElement>('.bubble-bot') ?? el, behavior)
     } else if (target === 'end') {
       end.current?.scrollIntoView({ behavior, block: 'end' })
     }
-  }, [messages.length, results, typing, tail != null, focusQuestionId])
+  }, [messages.length, results, typing, tail != null, focusQuestionId, resultsAnchor, mapAnchor, mapCard != null])
   useEffect(() => {
     if (!focusQuestionId) return
     const answer = messages.find((m) => m.source === 'rep' && m.rep_question_id === focusQuestionId)
