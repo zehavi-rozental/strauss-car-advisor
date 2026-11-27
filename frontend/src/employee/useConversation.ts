@@ -6,7 +6,7 @@ import { reportBackendLost } from '../shell/backendReady'
 import { normalizeResults } from '../api/normalize'
 import { mapKey } from './optionMap'
 import { placeAnchor, type CardAnchor } from './anchors'
-import type { ConversationView, EngineState, Expects, Facts, Message, MessageIn, OptionMap, OptionResult, PendingQuestion, ProfileFields, RepInquiry, Stage } from '../api/types'
+import type { CarActionLabels, ConversationView, EngineState, Expects, Facts, Message, MessageIn, OptionMap, OptionResult, PendingQuestion, ProfileFields, RepInquiry, Stage } from '../api/types'
 
 const STORAGE_KEY = 'sca.conversationId'
 
@@ -97,6 +97,8 @@ export function useConversation(ready = true) {
   const [todayCopayProvisional, setTodayCopayProvisional] = useState<string | null>(null)
   const [todayCopay, setTodayCopay] = useState<string | null>(null)
   const [todayCar, setTodayCar] = useState<string | null>(null)
+  // the car buttons' names, from the server: the same names the chat's text points at (#10, 27/11)
+  const [carActions, setCarActions] = useState<CarActionLabels | null>(null)
   const [todayCopaySource, setTodayCopaySource] = useState<string | null>(null)   // the employee's own amount, not the catalog's
   const [mapReady, setMapReady] = useState(false)          // the server can build the option map now
   const [mapMissing, setMapMissing] = useState<string[]>([])   // what the map still needs, in Hebrew
@@ -177,6 +179,7 @@ export function useConversation(ready = true) {
     if (view.facts) setFacts(view.facts)
     setTodayCopay(view.today_copay ?? null)
     setTodayCar(view.today_car ?? null)
+    if (view.car_actions) setCarActions(view.car_actions)
     setTodayCopaySource(view.today_copay_source ?? null)
     setTodayCopayProvisional(view.today_copay_provisional ?? null)
     setMapReady(view.map_ready === true)
@@ -286,6 +289,7 @@ export function useConversation(ready = true) {
           setRepEmail(null)
           setExpects(turn.expects)
           if (turn.facts) setFacts(turn.facts)
+          if (turn.car_actions) setCarActions(turn.car_actions)
         }
         await sync()
         setError(null)
@@ -524,6 +528,7 @@ export function useConversation(ready = true) {
 
   return {
     engine, focusQuestionId, focusQuestion: setFocusQuestionId, todayCopay, todayCar, todayCopaySource, todayCopayProvisional,
+    carActions,
     conversationId, repEmail, emailEnabled, emailSimulated, emailPending,
     facts, editField,
     messages, stage, expects, questionKey, results, resultsStale, mapReady, mapMissing, optionMap: optionMapState, mapAnchor, resultsAnchor,

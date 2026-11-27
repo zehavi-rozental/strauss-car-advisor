@@ -105,7 +105,7 @@ def test_after_the_explanation_the_values_are_saved_as_usual(engine):
     assert (p["pension_percent"], p["study_fund_percent"]) == ("6", "2.5")
     say("קורולה 2026, משלמת 300")
     turn = say("MG4")
-    assert "הנטו שלכם יגדל" in turn["reply"]                            # the calculation runs, unchanged
+    assert turn["results"] and "התוצאות מוצגות בכרטיסים, מהנטו הגבוה לנמוך." in turn["reply"]                # the calculation runs, unchanged
 
 
 def test_gross_and_net_are_explained_not_read_as_a_request_to_calculate(engine):

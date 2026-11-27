@@ -138,6 +138,7 @@ from .templates import (LINK_LABELS, NONE_CHOICES, aside_follow_up,
     rep_opt_out_text,
     results_text,
     held_fix_text,
+    car_buttons_shown,
 )
 from .tools import (
     available_options,
@@ -1841,8 +1842,9 @@ class Agent:
         # the map is shown when asked for (and ready), and said to be updated when a change rebuilt it
         map_shown = ((und.map_all or (map_built and not map_had))      # asked now, or asked earlier and ready now
                      and state.option_map is not None and state.option_map.fresh)
-        map_line = map_reply(state) if map_shown else MAP_UPDATED if (map_built and map_had) else ""
         state.stage = next_stage(state)
+        # after the stage: the map's text names the buttons the screen draws for that stage (#10, 27/11)
+        map_line = map_reply(state) if map_shown else MAP_UPDATED if (map_built and map_had) else ""
         understood = understood or state.stage != before or map_shown
         notice = _plan_notice(plan, path)
         if (notice and notice.startswith("רשמתי") and plan.fallback_notice and path in ("fallback", "templates")
@@ -1988,6 +1990,8 @@ class Agent:
                 built.ask = []      # the correction's own question is the reply's question (1/11)
             if map_shown and state.stage in (Stage.CHOOSE_OPTIONS, Stage.PRESENTED):
                 built.ask = []      # the map answered the request; the call to action still offers a comparison
+                if car_buttons_shown(state):
+                    built.cta = None    # ...unless the map's own text ends with the buttons to go on (#10, 27/11)
             return built
 
         def decide(built: ReplyPlan) -> ReplyPlan:
@@ -2009,7 +2013,8 @@ class Agent:
         state.unknown_told = state.unknown_told + 1 if current_group(state)[0] == "unknown" else 0
         state.misses = 0 if (understood or problems or und.anything) else state.misses + 1
         state.rep_skipped = False
-        state.offered_rank = ((reply_plan.fixed or reply_plan.cta == NEXT_AFTER_RESULTS)
+        # "כן" ranks only after the reply asked "רוצים לראות…?"; the buttons' pointer (#10, 27/11) asks nothing
+        state.offered_rank = (((reply_plan.fixed and not car_buttons_shown(state)) or reply_plan.cta == NEXT_AFTER_RESULTS)
                               and state.stage == Stage.PRESENTED and not state.ranked_count)
         state.last_asked = [] if just_calculated else list(current_group(state)[1])
         state.last_ask = reply_plan.ask[-1] if reply_plan.ask else ""
@@ -2791,7 +2796,9 @@ class Agent:
         follow: list[str] = []                 # the advisor's next step, after the answer and what it changed
         map_had = state.option_map is not None
         if self._resolve_map(ctx):
-            # the representative's answer completed the map (presented now, as it was asked for) or changed it
+            # the representative's answer completed the map (presented now, as it was asked for) or changed it; its
+            # text names the buttons of the stage it leaves the conversation in (#10, 27/11)
+            state.stage = next_stage(state)
             follow.append(map_reply(state) if not map_had else MAP_UPDATED)
         state.stage = next_stage(state)
         rep_opened = any(r.mode == Mode.REQUIRED for r in ctx.question_requests)

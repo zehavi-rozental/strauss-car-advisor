@@ -6,20 +6,18 @@ lines:
   2) the main reason for that car, then "הפירוט המלא בכרטיסים." (the map: "הפירוט המלא במפת האפשרויות.");
   3) the existing next step, as its own paragraph.
 No per-car net list and no copay list. Every figure comes from the engine result the cards show.
+Since #10 (27/11) this summary is the text only where the car buttons are not shown; with them, the text
+says where the results are and points at the buttons (test_minimal_results_text_2026_11_27.py).
 """
 from __future__ import annotations
 
 from decimal import Decimal
 
 from app.modules.conversation import templates as T
-from app.modules.conversation.option_map import NET_ONLY
-from app.modules.conversation.stage import ConversationState, OptionResult
-from app.modules.conversation.templates import money
-from app.shared.money import to_shekel
+from app.modules.conversation.option_map import NET_ONLY, map_reply
+from app.modules.conversation.stage import (ConversationState, MapEntry, OptionMap, OptionResult,
+                                            PendingConfirmation, Stage)
 
-from .conftest import make_client
-
-NOA = "שכר בסיס 18,500, אין עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי, 2 ילדים, קבוצה ב"
 CARDS = "הפירוט המלא בכרטיסים."
 
 
@@ -77,69 +75,25 @@ def test_rank_says_how_many_were_checked_then_the_summary():
         "הסיבה העיקרית: שווי השימוש גבוה יותר, ולכן המס יגדל. " + CARDS]
 
 
-# ---------------------------------------------------------------- through the API
+# ---------------------------------------------------------------- where the car buttons are not shown
 
-def _start(engine):
-    client = make_client(engine)
-    cid = client.post("/api/conversations").json()["conversation_id"]
-
-    def say(text):
-        r = client.post(f"/api/conversations/{cid}/messages", json={"text": text})
-        assert r.status_code == 200, r.text
-        return r.json()["reply"]
-
-    for text in (NOA, "יש לי קורולה קרוס", "300"):
-        say(text)
-    return say, lambda: client.get(f"/api/conversations/{cid}").json()
-
-
-def _best(view):
-    ok = [r for r in view["results"] if r["result"]["status"] == "OK"]
-    return max(ok, key=lambda r: Decimal(r["result"]["delta_display"])), ok
+def test_without_the_car_buttons_the_summary_stays_and_the_held_value_waits():
+    """#10 (27/11) replaced this summary wherever the car buttons are on screen. A value held for confirmation has
+    its own buttons and hides them, so the reply keeps the summary (and the held value is its one question)."""
+    state = ConversationState(stage=Stage.PRESENTED, results=[_item("NIRO (2025)", 539, 11571),
+                                                              _item("MG4 (2025)", 1013, 12045)],
+                              pending_confirmation=PendingConfirmation(field="base_salary", value=Decimal("5000"),
+                                                                       unusual=True))
+    assert not T.car_buttons_shown(state)
+    assert T.results_text(state).splitlines() == [
+        "בשני הרכבים הנטו שלכם יגדל. MG4 (2025) משאיר את הנטו הגבוה ביותר: 12,045 ₪ בחודש, 1,013 ₪ יותר מהיום.",
+        "הסיבה העיקרית: שווי השימוש גבוה יותר, ולכן המס יגדל. " + CARDS]
 
 
-def _amount(value) -> str:
-    return money(to_shekel(Decimal(str(value))))
-
-
-def _assert_summary(reply, view, follow_up):
-    paragraphs = reply.split("\n\n")
-    summary = paragraphs[0].splitlines()
-    best, ok = _best(view)
-    delta = to_shekel(Decimal(best["result"]["delta_display"]))
-    assert len(summary) == 2, reply
-    assert f"{best['label']} משאיר את הנטו הגבוה ביותר: {_amount(best['result']['alternative']['net_display'])} בחודש, "\
-           f"{money(abs(delta))} {'יותר' if delta > 0 else 'פחות'} מהיום." in summary[0]
-    assert summary[1] == f"הסיבה העיקרית: {best['result']['why']} {CARDS}"
-    for other in ok:
-        if other is not best:                                   # no per-car list: the other cards' figures stay there
-            assert _amount(other["result"]["alternative"]["net_display"]) not in reply
-    assert "הנטו החודשי המשוער:" not in reply and "לפי הקטלוג" not in reply and "חישבתי עם ההשתתפות" not in reply
-    assert paragraphs[-1] == follow_up and len(paragraphs) == 2      # the next step, its own paragraph
-
-
-def test_a_chosen_comparison_is_a_short_summary_and_the_next_step(engine):
-    say, view = _start(engine)
-    reply = say("תשווה בין MG4 ל-NIRO")
-    assert len(view()["results"]) == 2
-    _assert_summary(reply, view(), T.NEXT_AFTER_RESULTS)
-    assert reply.startswith("בשני הרכבים הנטו שלכם")
-
-
-def test_best_value_is_a_short_summary_and_the_next_step(engine):
-    say, view = _start(engine)
-    reply = say("מה הכי משתלם לי?")
-    assert reply.startswith("בדקתי את כל ")
-    _assert_summary(reply, view(), T.NEXT_AFTER_RANK)
-
-
-def test_the_map_names_only_the_car_with_the_highest_net(engine):
-    say, view = _start(engine)
-    reply = say("השווה את כל האפשרויות שלי")
-    entries = [e for e in view()["option_map"]["entries"] if e["status"] in ("full", "catalog_copay")]
-    leader = next(e for e in entries if e["option_id"] in view()["option_map"]["leaders"])
-    net = _amount(leader["result"]["alternative"]["net_display"])
-    assert f"{leader['label']} משאיר את הנטו הגבוה ביותר: {net} בחודש" in reply
+def test_the_map_without_the_car_buttons_keeps_its_summary():
+    m = OptionMap(entries=[MapEntry(option_id="A", label="A", status="full", result={
+        "status": "OK", "delta_display": "500", "why": "שווי השימוש נמוך יותר, ולכן המס יקטן.",
+        "alternative": {"net_display": "11500"}})])
+    reply = map_reply(ConversationState(stage=Stage.WAITING_FOR_REP, option_map=m))
+    assert "A משאיר את הנטו הגבוה ביותר: 11,500 ₪ בחודש, 500 ₪ יותר מהיום." in reply
     assert "הפירוט המלא במפת האפשרויות." in reply and NET_ONLY in reply
-    others = {_amount(e["result"]["alternative"]["net_display"]) for e in entries} - {net}
-    assert not any(n in reply for n in others)

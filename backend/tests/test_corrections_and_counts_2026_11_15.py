@@ -58,12 +58,10 @@ def test_compare_between_x_and_y_is_read_and_answers_with_the_cards_figures(engi
     reply = say("תשווה בין MG4 ל-NIRO")
     v = view()
     assert {r["label"] for r in v["results"]} == {"MG4 (2025)", "NIRO (2025)"}
-    # the short summary (#9, 27/11): the car with the highest net and that net, the cards' figure; no per-car list
-    best = max(v["results"], key=lambda r: Decimal(r["result"]["delta_display"]))
-    assert "הנטו החודשי המשוער:" not in reply
-    for label, net in nets(v).items():
-        assert (money(to_shekel(Decimal(net))) in reply) is (label == best["label"])
-    assert f"{best['label']} משאיר את הנטו הגבוה ביותר" in reply
+    # #10 (27/11): the cards show every net; the text above them repeats none
+    assert reply.startswith("התוצאות מוצגות בכרטיסים, מהנטו הגבוה לנמוך.") and "הנטו החודשי המשוער:" not in reply
+    for net in nets(v).values():
+        assert money(to_shekel(Decimal(net))) not in reply
 
 
 def test_a_group_correction_after_the_copay_is_saved_before_it_is_confirmed(engine):
@@ -123,7 +121,7 @@ def test_the_map_counts_cars_and_names_the_option_that_is_not_a_car(engine):
     cars = counts["cars"]
     assert counts["eligible"] == cars + len(counts["others"])
     assert [o["label"] for o in counts["others"]] == ["ויתור על רכב"]
-    assert f"מיפיתי את כל {cars} הרכבים" in asked and "ויתור על רכב" in asked
+    assert "כל הרכבים מדורגים לפי הנטו החודשי המשוער." in asked and "ויתור על רכב" in asked     # the count is on the map's card (#10)
     assert f"{counts['eligible']} החלופות" not in asked
 
 

@@ -150,7 +150,7 @@ def test_a_ranking_asked_in_other_words_is_ranked_by_the_engine(engine):
     fake.turn(call("rank_options"))
     reply = say("תראי לי את אלה שהכי פחות יורידו לי מהמשכורת.")
     v = view()
-    assert len(v["results"]) == 3 and "הרכבים שאתם זכאים להם" in reply
+    assert len(v["results"]) == 3 and "התוצאות מוצגות בכרטיסים, מהנטו הגבוה לנמוך." in reply
     deltas = [float(r["result"]["delta_display"]) for r in v["results"]]
     assert deltas == sorted(deltas, reverse=True)
 

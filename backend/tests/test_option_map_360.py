@@ -104,7 +104,7 @@ def test_the_request_needs_no_chosen_car_and_lists_every_eligible_option(session
     s, m = mapped(svc, turn, token)
     assert s.selected == [] and s.ranked_count == 0                      # nothing chosen for the employee
     assert len(m["entries"]) == len(available_options(SNAP, s)) == 13 > 3
-    assert "מיפיתי את כל 12 הרכבים שאתם זכאים להם" in turn.reply and NET_ONLY in turn.reply
+    assert turn.reply.startswith("כל הרכבים מדורגים לפי הנטו החודשי המשוער.") and NET_ONLY in turn.reply    # the count is on the card (#10)
     assert "הכי משתלם" not in turn.reply.split("\n\n")[0]
 
 
@@ -129,7 +129,7 @@ def test_the_request_asked_first_waits_for_the_data_and_asks_only_what_is_missin
     turn = svc.send(turn.conversation_id, token, profile("מנהלת מוצר"))
     assert mapped(svc, turn, token)[1] is None                            # no car yet: nothing calculated
     turn = svc.send(turn.conversation_id, token, CAR)
-    assert "מיפיתי את כל 12 הרכבים שאתם זכאים להם" in turn.reply                         # shown as soon as it is ready
+    assert "כל הרכבים מדורגים לפי הנטו החודשי המשוער." in turn.reply                         # shown as soon as it is ready
 
 
 # ---------- 9, 14, 19, 20: only what was calculated is ranked; ties; nothing to rank ----------
@@ -231,7 +231,7 @@ def test_with_a_model_the_request_still_maps_and_chooses_nothing(sessions):
     turn = svc.send(turn.conversation_id, token, ASK)
     s, m = mapped(svc, turn, token)
     assert s.selected == [] and m["counts"]["eligible"] == 13             # refused: the employee named no car
-    assert turn.reply.startswith("מיפיתי את כל 12 הרכבים שאתם זכאים להם")               # the code's summary, not the model's
+    assert turn.reply.startswith("כל הרכבים מדורגים לפי הנטו החודשי המשוער.")               # the code's summary, not the model's
 
 
 def test_unknown_inputs_never_build_a_map():

@@ -12,6 +12,7 @@ from sqlalchemy import text as sql
 
 from app.modules.calculation.public import ENGINE_VERSION
 from app.modules.conversation.public import (
+    CAR_ACTIONS,
     ChoiceInvalid,
     ConversationConflict,
     ConversationLimitReached,
@@ -85,6 +86,7 @@ def _turn(t: TurnResult, service: ConversationService) -> dict[str, Any]:
                     for r in t.results],
         "pending_rep": t.pending_rep.value if t.pending_rep else None,
         "expects": t.expects,
+        "car_actions": CAR_ACTIONS,     # the car buttons' names: one source with the text (#10, 27/11)
         "results_stale": t.results_stale,
         "facts": t.facts,
     }
@@ -354,6 +356,7 @@ def get_conversation(conversation_id: str, request: Request) -> dict[str, Any]:
             "today_copay_provisional": (state["current"].get("copay_provisional")
                                         if state["current"]["copay"] is None else None),
             "selected": state["selected"], "results": state["results"],
+            "car_actions": CAR_ACTIONS,     # the car buttons' names: one source with the text (#10, 27/11)
             "results_stale": results_stale(view.state), "option_map": map_json(view.state),
             "facts": facts_view(view.state, context(request).rules.current), "data_version": view.state.data_version,
             "results_version": view.state.results_version,

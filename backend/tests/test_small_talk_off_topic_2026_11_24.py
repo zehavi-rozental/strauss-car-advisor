@@ -42,7 +42,7 @@ def to_results(say):
     say({"fields": PROFILE})
     say("יש לי קורולה קרוס 2025 ואני משלמת 300")
     shown = say("אטו 3")
-    assert shown["results"] and "בדקתי את" in shown["reply"]
+    assert shown["results"] and "התוצאות מוצגות בכרטיסים, מהנטו הגבוה לנמוך." in shown["reply"]
     return shown
 
 
@@ -53,6 +53,9 @@ def on_screen(view: dict) -> list:
 def fields(turn: dict) -> list[str]:
     return [f["field"] for f in turn["expects"].get("fields") or []]
 
+
+# after results the follow-up points at the car buttons by their names, as the results text does (#10, 27/11)
+POINTER = 'להשוואת רכבים אחרים לחצו על "לשנות בחירה", ולצפייה בכל הרכבים על "כל הרכבים לפי נטו".'
 
 def lines(reply: str) -> list[str]:
     return [x for x in reply.split("\n") if x.strip()]
@@ -101,14 +104,14 @@ def test_a_question_with_buttons_keeps_its_buttons(engine, text, opening):
 def test_after_the_results_the_next_step_and_never_the_results_again(engine, text, opening):
     say, view = start(engine)
     to_results(say)
-    check_aside(say, view, text, opening, "רוצים לראות אילו רכבים משאירים לכם את הנטו הגבוה ביותר?")
+    check_aside(say, view, text, opening, POINTER)       # the car buttons' names, as the results say (#10)
 
 
 def test_after_the_ranking_the_next_step_is_another_comparison(engine):
     say, view = start(engine)
     to_results(say)
     say("מה הכי משתלם")
-    check_aside(say, view, SMALL_TALK[0], SMALL, "אפשר להשוות רכבים אחרים, או לשאול איך חישבתי את הנטו.")
+    check_aside(say, view, SMALL_TALK[0], SMALL, POINTER)
 
 
 def test_an_offer_to_ask_the_representative_is_reminded(engine):

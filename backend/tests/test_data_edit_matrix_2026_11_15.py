@@ -105,7 +105,7 @@ def test_an_edit_is_saved_said_once_recalculated_consistent_and_kept(engine, pat
     assert saved_value(again, saved[0], saved[1]) == saved[2] and nets(again) == nets(v)
     # the conversation goes on
     ranked = say("מה הכי משתלם?")
-    assert ranked.status_code == 200 and "הרכבים שאתם זכאים להם" in ranked.json()["reply"]
+    assert ranked.status_code == 200 and "התוצאות מוצגות בכרטיסים, מהנטו הגבוה לנמוך." in ranked.json()["reply"]
     assert len(view()["results"]) == 3
 
 

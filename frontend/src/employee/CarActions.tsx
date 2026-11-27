@@ -2,13 +2,11 @@
 // choose up to 3 for the comparison in the chat, the 3 with the highest net (also into the chat), or every car by
 // net in the option map (to look at; the chat's comparison does not change). The same three, the same names,
 // wherever they show. Nothing here calculates: each one sends what the chat already understands.
+// The names come from the server (the view's car_actions, #10 27/11): the chat's text points at the buttons by the
+// same names, from one source, so the two never drift apart. Nothing here names a button by itself.
 import { useState } from 'react'
+import type { CarActionLabels } from '../api/types'
 import { Icon } from '../ui/Icon'
-
-export const CHOOSE_LABEL = 'לבחור רכבים להשוואה'
-export const CHANGE_LABEL = 'לשנות בחירה'
-export const RANK_LABEL = '3 המשתלמים ביותר'
-export const MAP_LABEL = 'כל הרכבים לפי נטו'
 
 /** What the full ranking still needs, and how to give it (never a dead button). */
 export function mapMissingText(missing: string[]): string {
@@ -18,6 +16,8 @@ export function mapMissingText(missing: string[]): string {
 }
 
 interface Props {
+  /** the buttons' names, from the server (one source with the chat's text) */
+  labels: CarActionLabels
   /** the cars in the chat's comparison now (empty before results) */
   selected: string[]
   /** the alternatives question is open: choosing and ranking are possible */
@@ -37,7 +37,7 @@ interface Props {
   onCompleteData?: () => void
 }
 
-export function CarActions({ selected, canChoose, canRank, mapReady, mapExists, mapMissing, disabled,
+export function CarActions({ labels, selected, canChoose, canRank, mapReady, mapExists, mapMissing, disabled,
                              onChoose, onRank, onMap, onCompleteData }: Props) {
   // the map cannot be built yet: the click says what is missing and how to give it, never a dead button
   const [askedMap, setAskedMap] = useState(false)
@@ -57,19 +57,19 @@ export function CarActions({ selected, canChoose, canRank, mapReady, mapExists, 
         {canChoose && (
           <button type="button" className="chip car-action is-choose" disabled={disabled} onClick={onChoose}
                   title="סמנו עד 3 רכבים, והנטו של כל אחד יחושב כאן בצ'אט">
-            <Icon name={selected.length ? 'swap' : 'grid'} size={16} />{selected.length ? CHANGE_LABEL : CHOOSE_LABEL}
+            <Icon name={selected.length ? 'swap' : 'grid'} size={16} />{selected.length ? labels.change : labels.choose}
           </button>
         )}
         {canChoose && canRank && (
           <button type="button" className="chip car-action is-rank" disabled={disabled} onClick={onRank}
                   title="3 הרכבים שמשאירים לכם את הנטו הגבוה ביותר, כהשוואה כאן בצ'אט">
-            <Icon name="trendUp" size={16} />{RANK_LABEL}
+            <Icon name="trendUp" size={16} />{labels.rank}
           </button>
         )}
         <button type="button" className="chip car-action is-map" disabled={disabled} aria-expanded={!mapOpenable ? askedMap : undefined}
                 onClick={() => (mapOpenable ? onMap() : setAskedMap(true))}
                 title="כל הרכבים שאתם זכאים להם, מדורגים לפי נטו, לעיון. ההשוואה בצ'אט לא משתנה">
-          <Icon name="table" size={16} />{MAP_LABEL}
+          <Icon name="table" size={16} />{labels.map}
         </button>
       </div>
       {askedMap && !mapOpenable && (

@@ -10,6 +10,7 @@ from app.modules.conversation.guard import collect_numbers, is_safe, violations
 from app.modules.conversation.llm.fake import FakeLLM, call
 from app.modules.conversation.models import MessageRow
 from app.modules.conversation.public import ConversationService, LLMChain, Stage
+from app.modules.conversation.templates import results_pointer
 from app.modules.rules.public import RulesStore
 
 from .conftest import CAR_WORDS, CONFIG, NOA_WORDS
@@ -196,5 +197,5 @@ def test_results_text_is_the_template_and_the_llm_is_not_asked(sessions):
     for text in (NOA_WORDS, CAR_WORDS, "את החשמלי הסיני בבקשה"):
         turn = svc.send(turn.conversation_id, token, text)
     assert turn.source == "template" and "חבל" not in turn.reply
-    assert "הנטו שלכם יגדל ב-661 ₪ בחודש" in turn.reply and "הסיבה העיקרית" in turn.reply
-    assert turn.reply.split("\n\n")[-1] == "רוצים לראות אילו רכבים משאירים לכם את הנטו הגבוה ביותר?"
+    # #10 (27/11): where the results are and the car buttons' names, no figure and no second next step
+    assert turn.reply == "התוצאות מוצגות בכרטיסים, מהנטו הגבוה לנמוך.\n" + results_pointer()

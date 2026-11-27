@@ -52,7 +52,7 @@ def net(row):
 @pytest.mark.parametrize("model", [False, True], ids=["templates", "model-ranks"])
 def test_the_ranking_answers_with_the_ranking_only(engine, model):
     _, view, reply = ranked(engine, FakeLLM() if model else None)
-    assert len(view()["results"]) == 3 and "הרכבים שאתם זכאים להם" in reply
+    assert len(view()["results"]) == 3 and reply.startswith("התוצאות מוצגות בכרטיסים, מהנטו הגבוה לנמוך.")
     assert COPAY_PARAGRAPH not in reply
 
 

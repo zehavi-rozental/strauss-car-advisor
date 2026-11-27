@@ -49,7 +49,9 @@ def test_new_car_copay_question_is_opened_once_and_the_result_is_shown(engine):
     cid = client.post("/api/conversations").json()["conversation_id"]
     for text in NOA:
         body = client.post(f"/api/conversations/{cid}/messages", json={"text": text}).json()
-    assert body["stage"] == "PRESENTED" and "יגדל ב-661 ₪" in body["reply"] and PENDING in body["reply"]
+    # #10 (27/11): the figures are on the card; the copay sent to the representative is still said
+    assert body["stage"] == "PRESENTED" and "התוצאות מוצגות בכרטיסים, מהנטו הגבוה לנמוך." in body["reply"] and PENDING in body["reply"]
+    assert body["results"][0]["delta_display"] == "661"
     [q] = cases.list_open()
     assert (q.missing_field, q.mode, q.option_id, q.suggested_value) == (
         MissingField.NEW_CAR_COPAY, Mode.CONFIRM, "CAR-10", "300")
@@ -109,7 +111,7 @@ def _policy(tmp_path, policy):
 def test_catalog_default_policy_opens_no_question(sessions, tmp_path):
     svc = service(sessions, config=_policy(tmp_path, "CATALOG_DEFAULT"))
     turn, _ = talk(svc, NOA)
-    assert turn.stage == Stage.PRESENTED and "יגדל ב-661 ₪" in turn.reply and PENDING not in turn.reply
+    assert turn.stage == Stage.PRESENTED and "התוצאות מוצגות בכרטיסים, מהנטו הגבוה לנמוך." in turn.reply and PENDING not in turn.reply
     assert svc.cases.list_open() == []
 
 

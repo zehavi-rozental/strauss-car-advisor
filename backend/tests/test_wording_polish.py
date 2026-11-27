@@ -82,8 +82,8 @@ def test_the_example_lists_only_missing_fields(sessions):
 
 def test_rank_says_how_many_cars_were_ranked(sessions):
     turn, _, _ = talk(service(sessions), PROFILE + ["מה הכי משתלם לי?"])
-    assert turn.results and turn.reply.startswith("בדקתי את כל ")
-    assert "הרכבים שאתם זכאים להם, וגם ויתור על רכב. " in turn.reply and "משאיר את הנטו הגבוה ביותר: " in turn.reply
+    # #10 (27/11): how many were ranked and the leader are on the cards; the text repeats none of it
+    assert turn.results and turn.reply.startswith("התוצאות מוצגות בכרטיסים, מהנטו הגבוה לנמוך.")
 
 
 # ---------- 7. an FAQ answer only when the entry answers the question ----------

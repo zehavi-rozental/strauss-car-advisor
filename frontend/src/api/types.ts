@@ -213,6 +213,7 @@ export interface TurnResponse {
   reply: string
   source: string
   engine?: EngineState | null   // what answered this turn; null: code alone (buttons, a form)
+  car_actions?: CarActionLabels   // the car buttons' names (#10): the same source as the text
   results: FlatOptionResult[]  // only when this turn calculated
   pending_rep: RepReason | null
   expects: Expects
@@ -221,11 +222,20 @@ export interface TurnResponse {
   data_version?: number
 }
 
+/** The car buttons' names (CarActions), from the server: the chat's text points at them by the same names (#10). */
+export interface CarActionLabels {
+  choose: string
+  change: string
+  rank: string
+  map: string
+}
+
 export interface ConversationView {
   conversation_id: string
   stage: Stage
   profile: Record<string, unknown>
   current_car: Record<string, unknown>
+  car_actions?: CarActionLabels
   today_copay?: string | null   // today's copay as the employee gave or confirmed it
   today_car?: string | null     // today's car (the card above the comparison, 1/11)
   today_copay_provisional?: string | null   // pending with the rep: the catalog amount used meanwhile

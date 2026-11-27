@@ -61,7 +61,7 @@ from .repository import (
 )
 from .option_map import map_json
 from .stage import ConversationState, OptionResult, RepReason, Stage, map_missing, map_ready, results_stale
-from .templates import FIELD_NAMES, INQUIRY_PURPOSE, INQUIRY_PURPOSE_DEFAULT, inquiry_next_text
+from .templates import CAR_ACTIONS, FIELD_NAMES, INQUIRY_PURPOSE, INQUIRY_PURPOSE_DEFAULT, inquiry_next_text
 
 
 log = logging.getLogger(__name__)
@@ -829,7 +829,7 @@ def engine_state(llm: LLMChain, say: Optional[str] = None) -> Optional[str]:
 
 
 __all__ = [
-    "StaleEdit", "facts_view",
+    "CAR_ACTIONS", "StaleEdit", "facts_view",
     "ChatMessage", "LLMError", "EmailNotificationService", "EmailNotConfigured", "InvalidEmailLink",
     "ConversationConflict", "ConversationLimitReached", "ConversationNotFound", "ConversationService",
     "ConversationState",

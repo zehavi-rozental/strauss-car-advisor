@@ -165,7 +165,7 @@ def test_a_short_no_to_both_contributions_is_one_confirmation_then_the_results(e
     v = view(c, cid)
     assert (v["profile"]["pension_percent"], v["profile"]["study_fund_percent"]) == ("0", "0")
     done = run(say, CAR_STEPS)
-    assert done["results"] and "PICANTO" in done["reply"]
+    assert done["results"] and "התוצאות מוצגות בכרטיסים, מהנטו הגבוה לנמוך." in done["reply"]
 
 
 def test_corrections_after_the_results_are_saved_recalculated_and_keep_the_other_values(engine):

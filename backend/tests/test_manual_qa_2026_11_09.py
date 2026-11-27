@@ -69,7 +69,7 @@ def test_the_rank_button_keeps_the_request_and_asks_the_missing_value_with_where
     assert not offers_rank(turn)                        # the request is recorded: no button to press again
     done = say("אין")
     assert done["stage"] == "PRESENTED" and len(view()["results"]) == 3
-    assert "בדקתי את כל" in done["reply"]
+    assert "התוצאות מוצגות בכרטיסים, מהנטו הגבוה לנמוך." in done["reply"]
 
 
 def test_three_cars_chosen_with_the_value_unknown_ask_it_once_with_why_then_calculate(engine):

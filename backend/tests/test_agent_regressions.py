@@ -286,12 +286,14 @@ def test_check_for_me_two_alternatives_is_read_without_an_llm(sessions):
 
 # ---------- session 3: after the eval ----------
 
-def test_yes_to_the_results_offer_ranks_the_cars(sessions):
+def test_the_results_end_with_the_buttons_and_a_bare_yes_ranks_nothing(sessions):
+    """#10 (27/11): the results end with the car buttons' names, not with "רוצים לראות…?"; with no offer asked,
+    a bare "כן" is no request to rank (the button "3 המשתלמים ביותר" is)."""
     svc = service(sessions)
     turn, token = talk(svc, PROFILE + ["יש לי קורולה קרוס, ואני משתתפת היום ב-300 ש\"ח בחודש", "אטו 3"])
-    assert turn.reply.endswith("רוצים לראות אילו רכבים משאירים לכם את הנטו הגבוה ביותר?")
+    assert turn.reply.endswith('ולצפייה בכל הרכבים על "כל הרכבים לפי נטו".')
     turn = svc.send(turn.conversation_id, token, "כן")
-    assert turn.results and turn.reply.startswith("בדקתי את כל ")
+    assert svc.view(turn.conversation_id, token).state.ranked_count == 0
 
 
 def test_children_in_words_are_saved_when_the_llm_leaves_them_out(sessions):

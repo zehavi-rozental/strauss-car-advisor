@@ -15,8 +15,9 @@ from app.modules.calculation.public import Status as CalcStatus
 from app.modules.rules.public import RulesSnapshot
 
 from .stage import OPT_OUT_ID, ConversationState, MapEntry, OptionMap
-from .templates import (OPT_OUT_DENIED, approximate_assumptions, confirmed_assumption, highest_net_sentence,
-                        map_copay_line, reason_line, rep_amount_assumption, to_plural, why_sentence)
+from .templates import (MAP_ON_CARDS, OPT_OUT_DENIED, approximate_assumptions, car_buttons_shown,
+                        confirmed_assumption, highest_net_sentence, map_copay_line, map_pointer, reason_line,
+                        rep_amount_assumption, to_plural, why_sentence)
 from .tools import Option, classify_options, engine_inputs, option_state
 
 
@@ -171,12 +172,17 @@ def map_reply(state: ConversationState) -> str:
     cars, done = counts["cars"], counts["cars_calculated"]
     head = (f"מיפיתי את כל {cars} הרכבים שאתם זכאים להם" if cars != 1 else "מיפיתי את הרכב היחיד שאתם זכאים לו")
     top = leaders(m)
-    # the short summary (#9, 27/11): the option(s) with the highest estimated net, that net and the difference from
-    # today, then the main reason; every other figure is in the map (its card and its panel), never listed here
-    lines = [head + ("." if done == cars else f", וחישבתי {done} מהם.")
-             + (f" {highest_net_sentence(top)}" if top else "")]
-    if top:
-        lines.append(reason_line(top[0].result.get("why"), MAP_DETAIL))
+    buttons = car_buttons_shown(state)
+    if buttons and top:
+        # the car buttons are on screen (#10, 27/11): no figure, no leader and no reason, the map shows them all
+        lines = [MAP_ON_CARDS]
+    else:
+        # the short summary (#9, 27/11): the option(s) with the highest estimated net, that net and the difference
+        # from today, then the main reason; every other figure is in the map (its card and its panel)
+        lines = [head + ("." if done == cars else f", וחישבתי {done} מהם.")
+                 + (f" {highest_net_sentence(top)}" if top else "")]
+        if top:
+            lines.append(reason_line(top[0].result.get("why"), MAP_DETAIL))
     for other in counts["others"]:
         # an option that is not a car is named as itself, never counted as one more car
         lines.append(f"בדקתי גם {other['label']}." if other["status"] in ("full", "catalog_copay")
@@ -193,4 +199,6 @@ def map_reply(state: ConversationState) -> str:
         lines.append(map_copay_line(len(asked), counts["catalog_copay"]))
     if top:
         lines.append(NET_ONLY)
+    if buttons:
+        lines.append(map_pointer(state))
     return "\n".join(lines)

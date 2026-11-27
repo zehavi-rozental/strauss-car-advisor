@@ -110,9 +110,11 @@ test.describe('reference journeys (engine = Strauss reference)', () => {
       for (const m of messages) await send(page, m)
       const s = await state(page)
       expect(deltas(s)).toEqual([[option, delta]])
-      // the screen shows the same amount as the server, in the agreed wording
+      // the screen shows the same amount as the server, in the agreed wording: on the card (#10, 27/11: the text
+      // above the cards repeats no figure)
       const word = delta > 0 ? 'יגדל' : 'יקטן'
-      await expect(page.locator(BOT).last()).toContainText(`${word} ב-${Math.abs(delta).toLocaleString('en-US')} ₪`)
+      await expect(page.locator('.result-card').last()).toContainText(`${word} ב-${Math.abs(delta).toLocaleString('en-US')} ₪`)
+      await expect(page.locator(BOT).last()).toContainText('התוצאות מוצגות בכרטיסים, מהנטו הגבוה לנמוך.')
       if (option === 'CAR-19') expect(Number(s.results[0].result.alternative.family_share)).toBe(1150)
     })
   }
@@ -124,8 +126,11 @@ test('"הכי משתלם" ranks every eligible option and shows the top three in
   await open(page)
   for (const m of [NOA, 'יש לי קורולה קרוס', '300']) await send(page, m)
   await send(page, 'מה הכי משתלם לי?')
-  // 13 options ranked: 12 cars and opting out, said by its own name, never "13 הרכבים" (15/11)
-  await expect(page.locator(BOT).last()).toContainText('בדקתי את כל 12 הרכבים שאתם זכאים להם, וגם ויתור על רכב')
+  // #10 (27/11): the text says where the results are and names the car buttons as the screen draws them
+  await expect(page.locator(BOT).last()).toContainText('התוצאות מוצגות בכרטיסים, מהנטו הגבוה לנמוך.')
+  await expect(page.locator(BOT).last()).toContainText('להשוואת רכבים אחרים לחצו על "לשנות בחירה", ולצפייה בכל הרכבים על "כל הרכבים לפי נטו".')
+  await expect(page.getByRole('button', { name: 'לשנות בחירה' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'כל הרכבים לפי נטו' })).toBeVisible()
   const ranked = deltas(await state(page))
   expect(ranked).toHaveLength(3)
   expect(ranked.map(([, d]) => d)).toEqual([...ranked.map(([, d]) => d)].sort((a, b) => Number(b) - Number(a)))
@@ -139,8 +144,8 @@ test('a new car is calculated with the catalog copay, marked pending, and one qu
   let result = s.results[0].result
   // the rule since 22/10: the catalog copay is used as is, with no question, until the employee asks
   expect([s.results[0].option_id, result.copay_pending, Number(result.alternative.copay)]).toEqual(['CAR-07', false, 250])
-  // #9 (27/11): the chat is a short summary; the copay amount and its source are on the card only
-  await expect(page.locator(BOT).last()).toContainText('הפירוט המלא בכרטיסים.')
+  // #9/#10 (27/11): no figure in the chat; the copay amount and its source are on the card only
+  await expect(page.locator(BOT).last()).toContainText('התוצאות מוצגות בכרטיסים, מהנטו הגבוה לנמוך.')
   await expect(page.locator(BOT).last()).not.toContainText('לפי הקטלוג היא')
   await expect(page.locator('.result-card').last().locator('.copay-box')).toContainText('250')
   const earlier = new Set(((await (await page.request.get('/api/rep/questions?status=OPEN',
@@ -398,7 +403,7 @@ test.describe('merged conversation acceptance', () => {
     const s = await state(page)
     expect(s.profile.base).toBe('16000')
     expect(deltas(s)).toEqual([['CAR-10', 656]])
-    await expect(page.locator(BOT).last()).toContainText('יגדל ב-656 ₪')
+    await expect(page.locator(BOT).last()).toContainText('התוצאות מוצגות בכרטיסים, מהנטו הגבוה לנמוך.')          // the figure is on the card (#10)
   })
 
   test('"יש לי קיה נירו" is the current car, and the family-track alternative stays an alternative', async ({ page }) => {
@@ -419,7 +424,7 @@ test.describe('merged conversation acceptance', () => {
     const s = await state(page)
     expect([s.profile.children, s.profile.occupation]).toEqual([1, 'מנהל/ת פיתוח'])
     expect(deltas(s)).toEqual([['OPT_OUT', 3562]])
-    await expect(page.locator(BOT).last()).toContainText('בדקתי את ויתור על רכב.')     // the short summary (#9, 27/11)
+    await expect(page.locator(BOT).last()).toContainText('התוצאות מוצגות בכרטיסים, מהנטו הגבוה לנמוך.')     // the result is on its card (#10, 27/11)
   })
 
   test('a payslip with an ID in labels and values shows no ID anywhere and saves only the valid values', async ({ page, request }) => {

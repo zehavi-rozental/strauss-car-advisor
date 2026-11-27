@@ -91,7 +91,7 @@ def test_best_value_ranks_every_eligible_option_and_matches_the_oracle(api):
     expected = _oracle_deltas(_employee())
     assert len(expected) == 13                                     # 12 cars in groups א-ג (not today's) + opting out
     # all 13 ranked; said as 12 cars and opting out by its own name, never "13 הרכבים" (15/11)
-    assert f"בדקתי את כל {len(expected) - 1} הרכבים שאתם זכאים להם, וגם ויתור על רכב." in reply
+    assert reply.startswith("התוצאות מוצגות בכרטיסים, מהנטו הגבוה לנמוך.")     # #10 (27/11): what was ranked is on the cards, not repeated here
     top = sorted(expected.items(), key=lambda kv: kv[1], reverse=True)[:3]
     assert _results(api.view()) == top
     # each ranked delta equals the same option chosen on its own
@@ -116,13 +116,11 @@ def test_a_specific_net_comparison_answers_with_each_net_the_cards_show(engine):
     results = view["results"]
     assert any("MG4" in row["label"] for row in results) and any("NIRO" in row["label"] for row in results)
     assert not view["results_stale"]
-    # the short summary (#9, 27/11, replaces the 15/11 per-car list): the car with the highest net and that net, the
-    # very figure its card shows; the other figures stay on the cards
-    best = max(results, key=lambda row: D(row["result"]["delta_display"]))
-    assert "הנטו החודשי המשוער:" not in reply and "הפירוט המלא בכרטיסים." in reply
+    # #10 (27/11, replaces the 15/11 per-car list and the #9 summary): every net is on the cards, the text above
+    # them repeats none
+    assert "הנטו החודשי המשוער:" not in reply and "התוצאות מוצגות בכרטיסים, מהנטו הגבוה לנמוך." in reply
     for row in results:
-        net = money(to_shekel(D(row["result"]["alternative"]["net_display"])))
-        assert (net in reply) is (row is best)
+        assert money(to_shekel(D(row["result"]["alternative"]["net_display"]))) not in reply
 
 
 def test_a_new_car_uses_the_catalog_copay_pending_one_confirm_question_and_the_answer_replaces_it(api):

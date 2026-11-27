@@ -167,7 +167,8 @@ def test_s5_a_change_is_acknowledged_once_recalculated_and_text_matches_results(
     assert d["changes"] == {"base": "22000"} and d["results"] and turn.results
     assert turn.reply.count("עדכנתי") == 1 and "רשמתי: שכר בסיס 22,000" not in turn.reply
     r = turn.results[0].result
-    assert f"{abs(int(r['delta_display'])):,}" in turn.reply                # the text says the engine's number
+    # #10 (27/11): the engine's number is on the card; the text repeats none
+    assert "התוצאות מוצגות בכרטיסים, מהנטו הגבוה לנמוך." in turn.reply and f"{abs(int(r['delta_display'])):,}" not in turn.reply
     assert not svc.view(cid, token).state.results == [] and not turn.results_stale
 
 

@@ -1,11 +1,14 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { CHANGE_LABEL, CHOOSE_LABEL, CarActions, MAP_LABEL, RANK_LABEL, mapMissingText } from './CarActions'
+import { CarActions, mapMissingText } from './CarActions'
 import { BROWSE_NOTE, MOVE_TO_CHAT, canMoveToChat } from './ComparisonPanel'
 
+// the names as the server sends them in the view (templates.CAR_ACTIONS, #10 27/11)
+const LABELS = { choose: 'לבחור רכבים להשוואה', change: 'לשנות בחירה', rank: '3 המשתלמים ביותר', map: 'כל הרכבים לפי נטו' }
+const { choose: CHOOSE_LABEL, change: CHANGE_LABEL, rank: RANK_LABEL, map: MAP_LABEL } = LABELS
 const noop = () => {}
 const actions = (p: Partial<Parameters<typeof CarActions>[0]>) => renderToStaticMarkup(
-  <CarActions selected={[]} canChoose canRank mapReady mapExists={false} mapMissing={[]} disabled={false}
+  <CarActions labels={LABELS} selected={[]} canChoose canRank mapReady mapExists={false} mapMissing={[]} disabled={false}
               onChoose={noop} onRank={noop} onMap={noop} {...p} />)
 const count = (html: string, text: string) => html.split(text).length - 1
 const text = (html: string) => html.replace(/&#x27;/g, "'")
@@ -32,6 +35,14 @@ describe('the cars, one compact place (1/11)', () => {
     expect(out).not.toContain(CHOOSE_LABEL)
     expect(out).not.toContain(RANK_LABEL)
     expect(out).toContain(MAP_LABEL)
+  })
+
+  it("the buttons' names are the server's, never the component's own (one source with the chat's text, #10)", () => {
+    const named = { choose: 'א-בחירה', change: 'ב-שינוי', rank: 'ג-שלושה', map: 'ד-מפה' }
+    const before = text(actions({ labels: named }))
+    for (const label of [named.choose, named.rank, named.map]) expect(count(before, label)).toBe(1)
+    expect(text(actions({ labels: named, selected: ['NIRO (2025)'] }))).toContain(named.change)
+    for (const label of Object.values(LABELS)) expect(before).not.toContain(label)
   })
 
   it('the map not ready: the entry stays, and says what is missing and how to give it', () => {

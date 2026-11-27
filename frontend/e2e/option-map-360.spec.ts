@@ -36,7 +36,7 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 375, height: 740 
     const bots = await page.locator(BOT).count()
     await page.getByRole('button', { name: 'כל הרכבים לפי נטו' }).click()
     await expect.poll(async () => page.locator(BOT).count(), { timeout: 45_000 }).toBeGreaterThan(bots)
-    await expect(page.locator(BOT).last()).toContainText('מיפיתי את כל 12 הרכבים שאתם זכאים להם')
+    await expect(page.locator(BOT).last()).toContainText('כל הרכבים מדורגים לפי הנטו החודשי המשוער.')     // the count is on the map's card (#10)
     await expect(page.locator(BOT).last()).toContainText('הדירוג מבוסס על הנטו החודשי המשוער בלבד')
 
     const s = await state(page)
@@ -88,7 +88,7 @@ test('the map asked in words survives a reload, and a salary change rebuilds it'
   await expect(page.locator(BOT).last()).toContainText('כדי למפות את כל האפשרויות, חסרים לי עוד')
   await send(page, NOA)
   await send(page, CAR)
-  await expect(page.locator(BOT).last()).toContainText('מיפיתי את כל 12 הרכבים שאתם זכאים להם')     // ready: shown at once
+  await expect(page.locator(BOT).last()).toContainText('כל הרכבים מדורגים לפי הנטו החודשי המשוער.')     // ready: shown at once
   const before = (await state(page)).option_map
   await page.reload()
   await expect(page.getByRole('button', { name: 'פתיחת מפת האפשרויות' })).toBeVisible({ timeout: 30_000 })
@@ -133,7 +133,7 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 375, height: 740 
     const bots = await page.locator(BOT).count()
     await button.click()
     await expect.poll(async () => page.locator(BOT).count(), { timeout: 45_000 }).toBeGreaterThan(bots)
-    await expect(page.locator(BOT).last()).toContainText('מיפיתי את כל')        // the promise is kept
+    await expect(page.locator(BOT).last()).toContainText('כל הרכבים מדורגים לפי הנטו החודשי המשוער.')        // the promise is kept
     await expect(page.locator(BOT).last()).not.toContainText('חסרים לי עוד')
     await button.click()                                                      // the same entry opens the map now
     await expect(page.getByRole('dialog', { name: 'מפת האפשרויות שלכם' })).toBeVisible()

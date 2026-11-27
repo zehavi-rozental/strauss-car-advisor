@@ -239,8 +239,9 @@ export function EmployeePage() {
   const choosing = options != null && (c.stage === 'CHOOSE_OPTIONS' || c.results.length > 0)
   const showCarActions = !formOpen && !opened && !inquiry && !offersAskRep(c.expects) && !closedAsked
     && (choosing || c.results.length > 0 || c.optionMap != null)
-  const carActions = showCarActions && (
-    <CarActions selected={c.resultsStale ? [] : c.results.map((r) => r.label)} canChoose={choosing}
+  // the buttons' names come from the server with the view (#10): drawn once they are known
+  const carActions = showCarActions && c.carActions && (
+    <CarActions labels={c.carActions} selected={c.resultsStale ? [] : c.results.map((r) => r.label)} canChoose={choosing}
                 canRank={rank != null} mapReady={c.mapReady} mapExists={c.optionMap != null} mapMissing={c.mapMissing}
                 disabled={busy} onChoose={() => setOpened('selection')}
                 onRank={() => { if (rank) void c.send({ choice: rank.id, field: 'options' }, rank.label) }}

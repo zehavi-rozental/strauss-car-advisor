@@ -95,4 +95,4 @@ def test_a_representatives_answer_that_completes_the_map_shows_it(engine):
     client.post(f"/api/rep/questions/{qid}/answer", headers={"X-Rep-Token": TOKEN}, json={"value": "ג"})
     texts = [m["content"] for m in view(client, cid)["messages"] if m["role"] != "user"]
     # built for the first time by the answer: the map itself is presented, not only "עדכנתי"
-    assert any("מיפיתי את כל" in t for t in texts[-2:]), texts[-3:]
+    assert any("כל הרכבים מדורגים לפי הנטו החודשי המשוער." in t for t in texts[-2:]), texts[-3:]

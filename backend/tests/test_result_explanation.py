@@ -43,12 +43,9 @@ def test_atto_3_is_explained_in_plain_lines(sessions):
     r = turn.results[0].result
     assert r["cost"]["monthly_cost"] == str(atto.monthly_cost) and r["cost"]["budget"] == str(budget)
     assert r["cost"]["under_budget"] is (atto.monthly_cost < budget)
-    # the chat text is a short summary (#9, 27/11): the change and the new net, then why (the engine's main driver,
-    # in words) and that the detail is on the cards (no copay list), then one next step as its own paragraph
-    net = f"{int(r['alternative']['net_display']):,}"
-    summary = (f"בדקתי את ATTO 3 (2025). הנטו שלכם יגדל ב-661 ₪ בחודש, ל-{net} ₪.\n"
-               "הסיבה העיקרית: שווי השימוש נמוך יותר, ולכן המס יקטן. הפירוט המלא בכרטיסים.")
-    assert turn.reply.split("\n\n") == [summary, T.NEXT_AFTER_RESULTS]
+    # #10 (27/11): the card shows the net, the change and the reason; the text says where the results are and
+    # points at the car buttons by their names
+    assert turn.reply == f"{T.RESULTS_ON_CARDS}\n{T.results_pointer()}"
     assert r["why"] == "שווי השימוש נמוך יותר, ולכן המס יקטן." and r["copay_pending"] is False
 
 
@@ -67,7 +64,7 @@ def test_family_track_shows_the_family_share(sessions):
     r = turn.results[0].result
     assert any(d["code"] == "FAMILY_SHARE" for d in r["drivers"])
     assert r["cost"]["under_budget"] is False and r["why"].endswith(".")
-    assert "יקטן ב-1,047 ₪" in turn.reply
+    assert r["delta_display"] == "-1047" and "1,047" not in turn.reply        # on the card only (#10)
 
 
 def test_not_eligible_option_has_no_cost_or_why_lines():

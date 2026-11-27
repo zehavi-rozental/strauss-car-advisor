@@ -16,8 +16,8 @@ from app.shared.money import to_shekel
 
 from .actions import payslip_allowed
 from .stage import (ESTIMABLE, MAX_OPTIONS, PROFILE_ARGS, Q2_FIELDS, REP_ASKABLE, profile_args, ConversationState, RepReason,
-                    Stage, current_group, current_unknown, missing_current_car, next_stage, open_profile, unknown_missing,
-                    with_rep)
+                    Stage, current_group, current_unknown, missing_current_car, next_stage, open_profile, results_stale,
+                    unknown_missing, with_rep)
 from .tools import available_options
 
 DRIVE_HE = {"PETROL": "בנזין", "HYBRID": "היברידי", "PLUG_IN": "פלאג-אין", "ELECTRIC": "חשמלי"}
@@ -537,18 +537,56 @@ def reason_line(why: Optional[str], detail: str = RESULTS_DETAIL) -> str:
     return f"הסיבה העיקרית: {why} {detail}" if why else detail
 
 
-def results_text(state: ConversationState) -> str:
-    """A short summary above the result cards (finding #9, 27/11), never the cards' figures again: (1) where relevant
-    the direction for all the cars, then the car with the highest estimated net, that net and its difference from
-    today; (2) the main reason for that car, and that the detail is in the cards. No per-car net list and no copay
-    list (the cards and the today's-copay card show them). Lines about a car that was not calculated, or about an
-    amount that is not final yet (a copay waiting for the representative, a provisional catalog amount) follow."""
+# the car buttons under the alternatives question and the results (CarActions, 1/11): ONE source for their names. The
+# view sends it to the screen, which draws the buttons from it, and every text that points at a button takes the name
+# from here, so the two never drift apart (#10, 27/11)
+CAR_ACTIONS = {"choose": "לבחור רכבים להשוואה", "change": "לשנות בחירה", "rank": "3 המשתלמים ביותר",
+               "map": "כל הרכבים לפי נטו"}
+RESULTS_ON_CARDS = "התוצאות מוצגות בכרטיסים, מהנטו הגבוה לנמוך."
+MAP_ON_CARDS = "כל הרכבים מדורגים לפי הנטו החודשי המשוער."
+
+
+def car_buttons_shown(state: ConversationState) -> bool:
+    """The car buttons are on screen after this reply: the alternatives question or the results, with no question of
+    code's own that has its own buttons (a value held for confirmation, an ambiguity, the offer to ask the
+    representative or its draft) and no wait for the representative. The same conditions the screen draws them by."""
+    if state.stage not in (Stage.CHOOSE_OPTIONS, Stage.PRESENTED):
+        return False
+    held = (state.pending_value_choice, state.pending_ambiguity, state.pending_none_choice, state.pending_confirmation,
+            state.pending_occupation, state.pending_clarification, state.unanswered_question,
+            state.pending_rep_question)
+    return all(h is None for h in held)
+
+
+def results_pointer() -> str:
+    """Where to go from the result cards, by the buttons' own names."""
+    return (f"להשוואת רכבים אחרים לחצו על \"{CAR_ACTIONS['change']}\", "
+            f"ולצפייה בכל הרכבים על \"{CAR_ACTIONS['map']}\".")
+
+
+def map_pointer(state: ConversationState) -> str:
+    """From the option map to a comparison in the chat: the choose button as it is on screen ("לשנות בחירה" once the
+    chat holds a comparison, "לבחור רכבים להשוואה" before), or the 3 with the highest net."""
+    choose = CAR_ACTIONS["change"] if state.results and not results_stale(state) else CAR_ACTIONS["choose"]
+    return f"לבחירת רכבים להשוואה לחצו על \"{choose}\", או על \"{CAR_ACTIONS['rank']}\"."
+
+
+def results_text(state: ConversationState, buttons: Optional[bool] = None) -> str:
+    """The text above the result cards. With the car buttons on screen (#10, 27/11) it repeats nothing the cards
+    show: where the results are, then the buttons to go on. Without them (waiting for the representative, a value
+    held for confirmation) the short summary of #9: the direction for all the cars, the car with the highest estimated
+    net with that net and its difference from today, then the main reason. Either way, the lines the cards do not
+    hold follow the first line: a car that was not calculated or is not eligible, a copay sent to the
+    representative, a provisional today's copay."""
+    buttons = car_buttons_shown(state) if buttons is None else buttons
     ok, bad = [], []
     for item in state.results:
         r = item.result
         (ok if r["status"] == "OK" and r.get("delta_display") is not None else bad).append(item)
     lines: list[str] = []
-    if ok:
+    if ok and buttons:
+        lines.append(RESULTS_ON_CARDS)
+    elif ok:
         flat = all(to_shekel(Decimal(str(i.result["delta_display"]))) == 0 for i in ok) and len(ok) > 1
         if state.ranked_count:
             # "הכי משתלם": how many were ranked; an option without a car by its own name ("ויתור על רכב"),
@@ -590,6 +628,8 @@ def results_text(state: ConversationState) -> str:
         lines.append(pending_copays_text(pending))
     elif pending:
         lines.append(pending_copay_text("", None))
+    if buttons:
+        lines.append(results_pointer())
     return "\n".join(lines)
 
 
@@ -1068,14 +1108,14 @@ ASIDE_REP_OFFER = 'רוצים שאשאל את נציג התחבורה? בחרו 
 ASIDE_REP_WAITING = "שאלתי את נציג התחבורה, והתשובה תגיע לכאן בשיחה."
 ASIDE_REP_OPEN = "השאלה שלכם לנציג התחבורה עדיין פתוחה, והתשובה תגיע לכאן."
 ASIDE_AFTER_RANK = "אפשר להשוות רכבים אחרים, או לשאול איך חישבתי את הנטו."
-LINK_LABELS = {"profile_form": "למלא בטופס", "selection": "לבחור רכבים להשוואה",
+LINK_LABELS = {"profile_form": "למלא בטופס", "selection": CAR_ACTIONS["choose"],
                "payslip_upload": "להעלות תלוש שכר", "correction_form": "לפתוח את טופס תיקון הנתונים"}
 
 # a correction of the employee's own data (1/11): code asks what, or the new value; saved like the form, then every
 # result and the option map are recalculated. Never a question for the representative.
 CORRECTION_ASK = ("אפשר לתקן כל נתון שמסרתם, והחישוב יתעדכן.\n"
                   "מה תרצו לתקן? כתבו את הנתון והערך הנכון, למשל: \"השכר שלי 20,000\" או \"פנסיה 6%\".")
-CORRECTION_CARS = "כדי לשנות את הרכבים בהשוואה, לחצו על \"לשנות בחירה\"."
+CORRECTION_CARS = f"כדי לשנות את הרכבים בהשוואה, לחצו על \"{CAR_ACTIONS['change']}\"."
 CORRECTION_CTA = "אפשר גם לפתוח את טופס תיקון הנתונים."
 # a bare "אין" to a question about several salary values (23/11): what it is about is asked, never spread as zeros.
 # id -> (button label, the fields it records as 0); a button is offered only when all its fields are asked
@@ -1545,9 +1585,10 @@ def plan_reply(state: ConversationState, snapshot: RulesSnapshot, *, understood:
         plan.cta = call_to_action(state, snapshot)[0]
         return plan
     if plan.fixed and state.stage == Stage.PRESENTED:
-        # after results: one relevant next step, its own paragraph (the main reason is in the summary, #9 27/11)
+        # after results: one relevant next step, its own paragraph (the main reason is in the summary, #9 27/11). With
+        # the car buttons on screen the results text already ends with them (#10): no second next step
         ok = [r for r in state.results if r.result.get("status") == "OK" and r.result.get("delta_display") is not None]
-        if ok:
+        if ok and not car_buttons_shown(state):
             plan.cta = (NEXT_AFTER_RANK if state.ranked_count else NEXT_AFTER_RESULTS)
         return plan
     if about_results and state.stage == Stage.PRESENTED and state.pending_confirmation is None:
@@ -1766,5 +1807,7 @@ def aside_follow_up(state: ConversationState, snapshot: RulesSnapshot) -> str:
     if state.stage == Stage.PRESENTED and state.results:
         if any(q.answer is None for q in state.general_questions.values()):
             return ASIDE_REP_OPEN
+        if car_buttons_shown(state):
+            return results_pointer()       # the same pointer as the results text, by the buttons' names (#10)
         return ASIDE_AFTER_RANK if state.ranked_count else NEXT_AFTER_RESULTS
     return group_question(state, snapshot) or state.last_ask       # the flow's question on screen
